@@ -1,0 +1,25 @@
+#!/bin/bash
+# Green/red "is it safe?" — readable by a parent, honest about limits.
+set -uo pipefail
+G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; N=$'\033[0m'
+pass(){ echo "${G}  PASS${N}  $1"; }; fail(){ echo "${R}  FAIL${N}  $1"; FAILED=1; }; warn(){ echo "${Y}  WARN${N}  $1"; }
+FAILED=0; KID_USER="${KID_USER:-kid}"
+
+id "$KID_USER" &>/dev/null && pass "kid account exists" || fail "no '$KID_USER' account"
+if id "$KID_USER" &>/dev/null; then
+  id -nG "$KID_USER" | grep -qwE 'wheel|docker' && fail "kid is in wheel/docker (that's sudo!)" || pass "kid has no admin groups"
+fi
+findmnt -no OPTIONS "/home/$KID_USER" 2>/dev/null | grep -q noexec && pass "downloads can't run (noexec home)" || warn "kid home is not noexec"
+[[ -f /etc/polkit-1/rules.d/10-omarchy-kids.rules ]] && pass "system-change prompts blocked (polkit)" || fail "polkit deny pack missing"
+grep -qs '1.1.1.3' /etc/systemd/resolved.conf.d/10-omarchy-kids.conf && pass "family DNS configured" || fail "family DNS not configured"
+grep -qs '"DnsOverHttpsMode": "off"' /etc/chromium/policies/managed/omarchy-kids.json && pass "browser locked (SafeSearch, no DoH/incognito)" || fail "browser policy missing"
+grep -qs '^editor_enabled: no' /boot/limine.conf && pass "boot menu editor off" || warn "boot menu editor still on"
+systemctl is-enabled getty@tty1.service 2>/dev/null | grep -q masked && pass "spare terminal off" || warn "getty@tty1 not masked"
+passwd -S root 2>/dev/null | grep -qE ' L | LK ' && pass "root account locked" || warn "root not locked (Omarchy sets root pw = yours)"
+if getent hosts pornhub.com >/dev/null 2>&1; then
+  getent hosts pornhub.com | grep -qE '^0\.0\.0\.0|^::' && pass "live test: adult site blocked" || fail "live test: adult site RESOLVED — DNS not filtering"
+else pass "live test: adult site blocked (no answer)"; fi
+
+echo
+if [[ $FAILED == 0 ]]; then echo "${G}══ SAFE TO HAND OVER ══${N}  (Remember: firmware password is on you — see the parent card.)"
+else echo "${R}══ NOT READY — fix the FAILs above ══${N}"; exit 1; fi

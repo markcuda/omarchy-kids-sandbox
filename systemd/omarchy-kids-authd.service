@@ -1,0 +1,25 @@
+[Unit]
+Description=Omarchy Kids Mode parent-password verifier (R-SEC-1)
+Documentation=https://github.com/markcuda/omarchy-kids-sandbox/blob/main/docs/authd.md
+Requires=omarchy-kids-authd.socket
+After=omarchy-kids-authd.socket
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/omarchy-kids-authd
+# Reads /etc/shadow and (optionally) /etc/omarchy-kids/machine.conf; never
+# writes anything, so lock the rest of the filesystem down.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+Restart=on-failure
+
+[Install]
+Also=omarchy-kids-authd.socket

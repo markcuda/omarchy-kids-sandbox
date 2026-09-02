@@ -1,0 +1,272 @@
+#!/usr/bin/env python3
+"""omarchy-kids-authd -- the parent-password verifier (R-SEC-1, R-SEC-2).
+
+A root, socket-activated oracle: it accepts one candidate password per
+connection and answers "ok" or "no" depending on whether it matches the
+parent's own login password. Nothing else. See docs/authd.md.
+
+Stdlib only. Python 3.13+ dropped the `crypt` module, so this calls
+libxcrypt directly through ctypes, which also gets us yescrypt support
+for free (whatever crypt(3) on the box understands).
+"""
+
+from __future__ import annotations
+
+import argparse
+import ctypes
+import hmac
+import os
+import signal
+import socket
+import sys
+import time
+
+MAX_LINE = 512  # bytes; anything longer (or missing a newline) is "no"
+CLIENT_TIMEOUT = 5.0  # seconds, per connection
+LOCK_AFTER_3 = 30  # seconds
+LOCK_AFTER_10 = 300  # seconds
+
+DEFAULT_SOCKET = "/run/omarchy-kids/auth.sock"
+DEFAULT_SHADOW = "/etc/shadow"
+DEFAULT_MACHINE_CONF = "/etc/omarchy-kids/machine.conf"
+
+_LIBCRYPT = None
+
+
+def _libcrypt():
+    """Load libxcrypt lazily, so --help and argument parsing work even where
+    it is not present (e.g. developing on macOS)."""
+    global _LIBCRYPT
+    if _LIBCRYPT is None:
+        lib = None
+        for name in ("libcrypt.so.2", "libcrypt.so.1", "libcrypt.so"):
+            try:
+                lib = ctypes.CDLL(name)
+                break
+            except OSError:
+                continue
+        if lib is None:
+            raise OSError("no libcrypt shared library found")
+        lib.crypt.restype = ctypes.c_char_p
+        lib.crypt.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
+        _LIBCRYPT = lib
+    return _LIBCRYPT
+
+
+def crypt_compare(candidate: bytes, hashed: bytes) -> bool:
+    """True iff crypt(candidate, hashed) == hashed, compared in constant time."""
+    result = _libcrypt().crypt(candidate, hashed)
+    if result is None:
+        return False
+    return hmac.compare_digest(result, hashed)
+
+
+def read_machine_conf_parent(path: str):
+    """Read key=value lines and return the `parent` value, or None."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, _, value = line.partition("=")
+                if key.strip() == "parent":
+                    value = value.strip()
+                    return value or None
+    except OSError:
+        return None
+    return None
+
+
+def resolve_parent(args) -> "str | None":
+    if args.parent:
+        return args.parent
+    env = os.environ.get("OMARCHY_KIDS_PARENT")
+    if env:
+        return env
+    return read_machine_conf_parent(args.machine_conf)
+
+
+def read_shadow_hash(parent: str, shadow_path: str) -> "str | None":
+    """Read the parent's hash fresh every time -- never cached (R-SEC-1)."""
+    try:
+        with open(shadow_path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                fields = line.rstrip("\n").split(":")
+                if len(fields) >= 2 and fields[0] == parent:
+                    return fields[1]
+    except OSError:
+        return None
+    return None
+
+
+def check_password(candidate: bytes, parent: "str | None", shadow_path: str) -> bool:
+    if not parent:
+        return False
+    hashed = read_shadow_hash(parent, shadow_path)
+    if not hashed or hashed[0] in ("!", "*"):
+        return False  # no hash, locked, or disabled account -- never matches
+    try:
+        return crypt_compare(candidate, hashed.encode("utf-8", errors="replace"))
+    except OSError:
+        return False  # libcrypt missing/broken -- fail closed, never crash the daemon
+
+
+class RateLimiter:
+    """In-memory, process-wide: three misses -> 30s, ten -> 5min (R-SEC-1)."""
+
+    def __init__(self):
+        self.wrong_count = 0
+        self.locked_until = 0.0
+
+    def locked(self) -> bool:
+        return time.monotonic() < self.locked_until
+
+    def record_wrong(self):
+        self.wrong_count += 1
+        if self.wrong_count >= 10:
+            self.locked_until = time.monotonic() + LOCK_AFTER_10
+        elif self.wrong_count >= 3:
+            self.locked_until = time.monotonic() + LOCK_AFTER_3
+
+    def record_correct(self):
+        self.wrong_count = 0
+        self.locked_until = 0.0
+
+
+def verify(candidate: bytes, parent: "str | None", shadow_path: str, limiter: RateLimiter) -> bool:
+    if limiter.locked():
+        return False  # refuse outright; do not even look at the password
+    ok = check_password(candidate, parent, shadow_path)
+    if ok:
+        limiter.record_correct()
+    else:
+        limiter.record_wrong()
+    return ok
+
+
+def read_candidate_line(conn: socket.socket) -> "bytes | None":
+    """One line, newline-terminated, at most MAX_LINE bytes. Anything else
+    (no newline, too long, timeout, reset) is None -> "no"."""
+    buf = bytearray()
+    while True:
+        try:
+            chunk = conn.recv(4096)
+        except (socket.timeout, OSError):
+            return None
+        if not chunk:
+            return None  # closed before sending a full line
+        buf += chunk
+        if b"\n" in buf:
+            break
+        if len(buf) > MAX_LINE:
+            return None
+    line, _, _rest = bytes(buf).partition(b"\n")
+    if len(line) > MAX_LINE:
+        return None
+    return line
+
+
+def handle_client(conn: socket.socket, parent: "str | None", shadow_path: str, limiter: RateLimiter):
+    conn.settimeout(CLIENT_TIMEOUT)
+    try:
+        candidate = read_candidate_line(conn)
+        if candidate is None:
+            reply = b"no\n"
+        else:
+            reply = b"ok\n" if verify(candidate, parent, shadow_path, limiter) else b"no\n"
+        try:
+            conn.sendall(reply)
+        except OSError:
+            pass
+    except Exception:  # noqa: BLE001 -- never let a bad client kill the daemon
+        pass
+
+
+def get_systemd_socket() -> "socket.socket | None":
+    """sd_listen_fds(3), the minimum viable version: fd 3 is ours if
+    LISTEN_PID matches us and LISTEN_FDS is at least 1."""
+    listen_pid = os.environ.get("LISTEN_PID")
+    listen_fds = os.environ.get("LISTEN_FDS")
+    os.environ.pop("LISTEN_PID", None)
+    os.environ.pop("LISTEN_FDS", None)
+    os.environ.pop("LISTEN_FDNAMES", None)
+    if not listen_pid or not listen_fds:
+        return None
+    try:
+        if int(listen_pid) != os.getpid() or int(listen_fds) < 1:
+            return None
+    except ValueError:
+        return None
+    return socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, fileno=3)
+
+
+def bind_unix_socket(path: str) -> socket.socket:
+    directory = os.path.dirname(path)
+    if directory and not os.path.isdir(directory):
+        os.makedirs(directory, mode=0o755, exist_ok=True)
+    if os.path.exists(path):
+        os.unlink(path)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(path)
+    os.chmod(path, 0o666)  # matches the .socket unit's SocketMode
+    return sock
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        prog="omarchy-kids-authd",
+        description="Root verifier for the parent's password (R-SEC-1).",
+    )
+    parser.add_argument("--socket", default=DEFAULT_SOCKET, help="Unix socket path to listen on")
+    parser.add_argument("--parent", default=None, help="Parent login name (overrides machine.conf/env)")
+    parser.add_argument("--shadow", default=DEFAULT_SHADOW, help="Path to the shadow file")
+    parser.add_argument(
+        "--machine-conf",
+        default=DEFAULT_MACHINE_CONF,
+        help="Path to machine.conf (key=value; reads 'parent=')",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+    parent = resolve_parent(args)
+    limiter = RateLimiter()
+
+    sock = get_systemd_socket()
+    owns_socket_file = False
+    socket_path = args.socket
+    if sock is None:
+        sock = bind_unix_socket(args.socket)
+        owns_socket_file = True
+    sock.listen(5)
+
+    def _terminate(signum, frame):  # noqa: ARG001
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _terminate)
+    signal.signal(signal.SIGINT, _terminate)
+
+    try:
+        while True:
+            try:
+                conn, _addr = sock.accept()
+            except OSError:
+                break
+            try:
+                handle_client(conn, parent, args.shadow, limiter)
+            finally:
+                conn.close()
+    finally:
+        sock.close()
+        if owns_socket_file:
+            try:
+                os.unlink(socket_path)
+            except OSError:
+                pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

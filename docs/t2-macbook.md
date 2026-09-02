@@ -7,8 +7,8 @@ package proves the path — but four things need attention. Canonical reference:
 | Thing | State | Fix |
 | --- | --- | --- |
 | Internal SSD | Works on modern kernels | — |
-| Keyboard/trackpad | Needs `apple-bce`; may be absent from the stock ISO's kernel | Use a USB keyboard for the install; post-install add the t2linux kernel/module per the wiki |
-| Wi-Fi / Bluetooth | Needs Broadcom firmware extracted per t2linux | Use Ethernet/tethering until done; then follow the wiki's "Wi-Fi and Bluetooth" guide |
+| Keyboard/trackpad | Work: the Omarchy ISO and install ship `linux-t2` (verified in `omarchy-iso/builder/build-iso.sh` and `install/omarchy-other.packages`, 2026-09-02) | Nothing to do |
+| Wi-Fi / Bluetooth | Needs Broadcom firmware; the ISO drops `broadcom-wl` on purpose | Tether or use Ethernet for the install; afterwards run t2linux's `firmware.sh` on the laptop and choose Method 5 (downloads from Apple, no macOS needed) |
 | Audio | Model-specific DSP | Optional; low priority for a test box |
 
 Notes:

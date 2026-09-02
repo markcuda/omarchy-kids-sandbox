@@ -1,0 +1,12 @@
+#!/bin/bash
+# Runs every test in test/shell.d. Exit non-zero if any fails.
+set -uo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+fail=0; n=0
+for t in test/shell.d/*-test.sh; do
+  [[ -f $t ]] || continue
+  n=$((n+1))
+  if bash "$t"; then echo "ok   $t"; else echo "FAIL $t"; fail=1; fi
+done
+echo "$n test file(s)"
+exit $fail

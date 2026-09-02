@@ -1,0 +1,27 @@
+#!/bin/bash
+# Runs as root via pkexec on the HOST (outside the kid namespace).
+# Joins Wi-Fi and forces ignore-auto-dns so the connection cannot override
+# host family DNS.
+set -euo pipefail
+[[ "$(id -u)" -eq 0 ]] || { echo "must run via pkexec" >&2; exit 1; }
+
+SSID="${1:-}"
+[[ -n "$SSID" ]] || { echo "usage: omarchy-kids-wifi-connect SSID" >&2; exit 1; }
+# Reject control chars / NM path injection.
+printf '%s' "$SSID" | grep -qxE '.{1,32}' || { echo "invalid SSID" >&2; exit 1; }
+
+IFS= read -r -n 256 PSK || true
+
+export LANG=C
+if [[ -n "${PSK:-}" ]]; then
+  nmcli device wifi connect "$SSID" password "$PSK"
+else
+  nmcli device wifi connect "$SSID"
+fi
+
+# Last activated wifi connection: never let it carry its own DNS.
+uuid="$(nmcli -t -f UUID,TYPE,STATE connection show --active | awk -F: '$2=="802-11-wireless"{print $1; exit}')"
+if [[ -n "$uuid" ]]; then
+  nmcli connection modify "$uuid" ipv4.ignore-auto-dns yes ipv6.ignore-auto-dns yes ipv4.dns "" ipv6.dns ""
+  nmcli connection up "$uuid" || true
+fi

@@ -1,0 +1,15 @@
+#!/bin/bash
+# SDDM session entry. Kid password left a pending flag; parent password did not.
+set -euo pipefail
+PENDING="/run/omarchy-kids/pending-${USER}"
+if [[ -f "$PENDING" ]]; then
+  rm -f "$PENDING" 2>/dev/null || true
+  exec /usr/local/bin/omarchy-kids-session
+fi
+if command -v uwsm >/dev/null && [[ -f /usr/share/wayland-sessions/hyprland-uwsm.desktop ]]; then
+  exec uwsm start -e -D Hyprland hyprland.desktop
+fi
+if command -v start-hyprland >/dev/null; then
+  exec start-hyprland
+fi
+exec Hyprland

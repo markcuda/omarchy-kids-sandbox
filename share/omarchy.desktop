@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Omarchy
+Comment=Parent or Kids session (password chooses)
+Exec=/usr/local/bin/omarchy-kids-dispatch
+TryExec=/usr/local/bin/omarchy-kids-dispatch
+DesktopNames=Hyprland
+Type=Application

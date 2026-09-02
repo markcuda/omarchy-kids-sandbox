@@ -1,0 +1,201 @@
+#!/bin/bash
+# Kid session: same UID, mount-namespace home split via bubblewrap.
+# Parent tree is not visible at $HOME. System bus is filtered. Network
+# hardware stays on the host; DNS stays parent-only.
+set -euo pipefail
+
+STATE_DIR="${OMARCHY_KIDS_STATE:-/var/lib/omarchy-kids}"
+KID_HOME="${OMARCHY_KIDS_HOME:-$STATE_DIR/home}"
+RUNTIME_HOST="${OMARCHY_KIDS_RUNTIME:-/run/omarchy-kids/$UID}"
+HYPR_CONFIG="${OMARCHY_KIDS_HYPRLAND:-/etc/omarchy-kids/hyprland.lua}"
+DENIED="${OMARCHY_KIDS_DENIED:-/usr/local/libexec/omarchy-kids-denied}"
+SELF_HOST=""
+
+die() { echo "omarchy-kids-session: $*" >&2; exit 1; }
+
+need_cmd() {
+  command -v "$1" >/dev/null || die "missing $1"
+}
+
+real_home() {
+  getent passwd "$UID" | cut -d: -f6
+}
+
+assert_store_safe() {
+  local home store
+  home="$(real_home)"
+  store="$(readlink -f "$KID_HOME" 2>/dev/null || printf '%s' "$KID_HOME")"
+  [[ -n "$home" ]] || die "could not resolve home for uid $UID"
+  [[ "$store" != "$home" ]] || die "kid store must not be $home (would overlay itself)"
+  case "$store/" in
+    "$home"/*) die "kid store $store sits inside $home; it would vanish under the bind" ;;
+  esac
+}
+
+cmd_setup() {
+  [[ "$(id -u)" -eq 0 ]] || die "setup must run as root"
+  local user="${SUDO_USER:-${OMARCHY_KIDS_OWNER:-}}"
+  [[ -n "$user" ]] || die "set SUDO_USER or OMARCHY_KIDS_OWNER to the desktop account"
+  id "$user" >/dev/null || die "no such user: $user"
+  local uid home
+  uid="$(id -u "$user")"
+  home="$(getent passwd "$user" | cut -d: -f6)"
+
+  install -d -m 0755 "$STATE_DIR" /run/omarchy-kids /usr/local/libexec /usr/local/bin
+  install -d -o "$user" -g "$user" -m 0700 "$KID_HOME"
+  if [[ -d /etc/skel && -z "$(ls -A "$KID_HOME" 2>/dev/null || true)" ]]; then
+    cp -a /etc/skel/. "$KID_HOME"/
+    chown -R "$user:$user" "$KID_HOME"
+  fi
+  chmod 0700 "$KID_HOME"
+  install -d -o "$user" -g "$user" -m 0700 "/run/omarchy-kids/$uid"
+
+  echo "kid home: $KID_HOME (owner $user, desktop home $home)"
+}
+
+cmd_status() {
+  local home
+  home="$(real_home)"
+  echo "uid:            $UID"
+  echo "desktop home:   $home"
+  echo "kid store:      $KID_HOME"
+  echo "runtime store:  $RUNTIME_HOST"
+  echo "in kid ns:      ${OMARCHY_KIDS_SESSION:-0}"
+  if [[ -d "$KID_HOME" ]]; then
+    echo "kid store mode: $(stat -c '%a %U:%G' "$KID_HOME")"
+  else
+    echo "kid store:      MISSING (sudo omarchy-kids-provision)"
+  fi
+}
+
+start_bus_proxy() {
+  need_cmd xdg-dbus-proxy
+  local sock="$RUNTIME_HOST/system_bus" i
+  rm -f "$sock"
+  xdg-dbus-proxy unix:path=/run/dbus/system_bus_socket "$sock" --filter \
+    --talk=org.freedesktop.DBus \
+    --talk=org.freedesktop.login1 \
+    --talk=org.freedesktop.UPower \
+    --talk=org.freedesktop.PolicyKit1 \
+    --talk=org.freedesktop.portal.Desktop \
+    --talk=org.freedesktop.portal.Documents \
+    --talk=org.freedesktop.impl.portal.PermissionStore \
+    &
+  PROXY_PID=$!
+  for i in $(seq 1 80); do
+    [[ -S "$sock" ]] && return 0
+    sleep 0.05
+  done
+  die "xdg-dbus-proxy did not create $sock"
+}
+
+bwrap_enter() {
+  need_cmd bwrap
+  assert_store_safe
+  local home self
+  home="$(real_home)"
+  self="$(readlink -f "$0")"
+  SELF_HOST="$self"
+  [[ -n "$self" && -x "$self" ]] || die "cannot resolve script path"
+  [[ -d "$KID_HOME" ]] || die "kid store $KID_HOME missing"
+  [[ -w "$KID_HOME" ]] || die "kid store $KID_HOME is not writable"
+
+  mkdir -p "$RUNTIME_HOST"
+  chmod 700 "$RUNTIME_HOST"
+  printf 'kid\n' >"$RUNTIME_HOST/kind"
+
+  start_bus_proxy
+  trap 'kill "$PROXY_PID" 2>/dev/null || true' EXIT
+
+  local -a extra=()
+  extra+=(--bind "$RUNTIME_HOST/system_bus" /run/dbus/system_bus_socket)
+  extra+=(--ro-bind "$self" /tmp/omarchy-kids-session)
+  if [[ -x "$DENIED" ]]; then
+    extra+=(--ro-bind "$DENIED" /usr/bin/omarchy-dns)
+    extra+=(--ro-bind "$DENIED" /usr/bin/nmcli)
+    extra+=(--ro-bind "$DENIED" /usr/bin/nmtui)
+  fi
+
+  # Host net. Overlay home, tmp, shm, user runtime, system bus.
+  bwrap \
+    --die-with-parent \
+    --new-session \
+    --bind / / \
+    --dev-bind /dev /dev \
+    --proc /proc \
+    --tmpfs /tmp \
+    --tmpfs /dev/shm \
+    --bind "$KID_HOME" "$home" \
+    --tmpfs /run/user \
+    --bind "$RUNTIME_HOST" "/run/user/$UID" \
+    "${extra[@]}" \
+    --setenv HOME "$home" \
+    --setenv XDG_RUNTIME_DIR "/run/user/$UID" \
+    --setenv XDG_CACHE_HOME "$home/.cache" \
+    --setenv XDG_CONFIG_HOME "$home/.config" \
+    --setenv XDG_DATA_HOME "$home/.local/share" \
+    --setenv XDG_STATE_HOME "$home/.local/state" \
+    --setenv OMARCHY_KIDS_SESSION 1 \
+    --chdir "$home" \
+    -- /tmp/omarchy-kids-session --inside "$@"
+}
+
+inside_session() {
+  mkdir -p "$HOME/.config" "$HOME/.local/share" "$HOME/.cache" "$HOME/.local/state"
+  chmod 700 "$HOME" 2>/dev/null || true
+
+  if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+    exec dbus-run-session -- "$0" --inside "$@"
+  fi
+
+  if [[ $# -gt 0 ]]; then
+    exec "$@"
+  fi
+
+  if [[ ! -S "${XDG_RUNTIME_DIR}/pipewire-0" ]] && command -v pipewire >/dev/null; then
+    pipewire &
+    command -v pipewire-pulse >/dev/null && pipewire-pulse &
+    command -v wireplumber >/dev/null && wireplumber &
+  fi
+
+  if [[ -f "$HYPR_CONFIG" ]] && command -v Hyprland >/dev/null; then
+    exec Hyprland --config "$HYPR_CONFIG"
+  fi
+  if command -v start-hyprland >/dev/null; then
+    exec start-hyprland
+  fi
+  exec Hyprland
+}
+
+usage() {
+  cat <<'EOF'
+Usage: omarchy-kids-session [setup|status|enter|--] [command...]
+
+Kid files live in /var/lib/omarchy-kids/home and are bound over $HOME.
+System bus is filtered: no NetworkManager, no systemd-resolved.
+Join Wi-Fi with omarchy-kids-wifi SSID. DNS stays parent-only.
+EOF
+}
+
+main() {
+  local cmd="${1:-enter}"
+  case "$cmd" in
+    -h | --help) usage ;;
+    setup) cmd_setup ;;
+    status) cmd_status ;;
+    --inside)
+      shift
+      inside_session "$@"
+      ;;
+    enter | --)
+      shift || true
+      [[ "${1:-}" == "--" ]] && shift
+      bwrap_enter "$@"
+      ;;
+    *)
+      bwrap_enter "$@"
+      ;;
+  esac
+}
+
+main "$@"

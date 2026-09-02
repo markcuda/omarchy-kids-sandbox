@@ -7,7 +7,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 AUTHD="$DIR/bin/omarchy-kids-authd"
 CLIENT="$DIR/bin/omarchy-kids-parent-auth"
 
-if ! python3 -c 'import ctypes; ctypes.CDLL("libcrypt.so.1")' >/dev/null 2>&1; then
+if ! python3 -c 'import ctypes; next(l for n in ("libcrypt.so.2","libcrypt.so.1") for l in [__import__("ctypes").CDLL(n)])' >/dev/null 2>&1; then
   echo "SKIP authd-test.sh: libcrypt.so.1 not loadable on this host"
   exit 0
 fi

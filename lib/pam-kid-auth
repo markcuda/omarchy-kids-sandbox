@@ -1,0 +1,30 @@
+#!/bin/bash
+# PAM auth helper. stdin is the password when pam_exec is given `expose`.
+# Kid hash lives in /etc/omarchy-kids/kid.passwd (not /etc/shadow).
+# Exit 0 only for the configured owner + matching kid password.
+set -euo pipefail
+OWNER_FILE=/etc/omarchy-kids/owner
+HASH_FILE=/etc/omarchy-kids/kid.passwd
+PENDING=/run/omarchy-kids/pending-${PAM_USER:-}
+
+rm -f "$PENDING"
+
+[[ -n "${PAM_USER:-}" ]] || exit 1
+[[ -f "$OWNER_FILE" && -f "$HASH_FILE" ]] || exit 1
+owner="$(tr -d '[:space:]' <"$OWNER_FILE")"
+[[ "$PAM_USER" == "$owner" ]] || exit 1
+
+IFS= read -r -n 512 pw || exit 1
+[[ -n "$pw" ]] || exit 1
+hash="$(tr -d '[:space:]' <"$HASH_FILE")"
+[[ -n "$hash" ]] || exit 1
+
+salt="$(printf '%s' "$hash" | awk -F'$' '{print $3}')"
+[[ -n "$salt" ]] || exit 1
+got="$(printf '%s' "$pw" | openssl passwd -6 -salt "$salt" -stdin)"
+[[ "$got" == "$hash" ]] || exit 1
+
+install -d -m 0755 /run/omarchy-kids
+printf 'kid\n' >"$PENDING"
+chmod 0644 "$PENDING"
+exit 0

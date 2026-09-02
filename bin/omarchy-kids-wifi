@@ -1,0 +1,10 @@
+#!/bin/bash
+# Kid-facing Wi-Fi join. Privileged work is the pkexec helper on the host.
+set -euo pipefail
+SSID="${1:-}"
+if [[ -z "$SSID" ]]; then
+  echo "usage: omarchy-kids-wifi SSID" >&2
+  echo "password is read from stdin (empty = open network)" >&2
+  exit 1
+fi
+exec pkexec /usr/local/libexec/omarchy-kids-wifi-connect "$SSID"

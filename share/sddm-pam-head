@@ -1,0 +1,4 @@
+#%PAM-1.0
+# Kid password is not in shadow. If it matches, skip unix auth and leave a
+# pending flag for omarchy-kids-dispatch. Otherwise fall through to system-login.
+auth [success=done default=ignore] pam_exec.so expose quiet /usr/local/libexec/omarchy-kids-pam-auth

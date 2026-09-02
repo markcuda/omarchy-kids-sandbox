@@ -1,0 +1,4 @@
+# Last match wins. Stock Omarchy grants NOPASSWD for omarchy-dns Cloudflare/Google/DHCP.
+# Kids Mode requires the parent (shadow) password for those, so a kid login — whose
+# password is not in shadow — cannot flip DNS.
+%wheel ALL=(root) PASSWD: /usr/bin/omarchy-dns Cloudflare, /usr/bin/omarchy-dns Google, /usr/bin/omarchy-dns DHCP

@@ -1,0 +1,33 @@
+#!/bin/bash
+# omarchy-kids: the app entry point (R-FND-1, R-WIZ-1 through R-WIZ-9).
+# Launched from the app drawer or Super+Shift+K; opens the parent wizard on
+# first run and the panel after that, in Omarchy's floating terminal.
+# Stub: the wizard/panel is not built yet (see issue #8's follow-ons).
+set -uo pipefail
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      cat <<'EOF'
+Usage: omarchy-kids
+
+Opens Kids Mode: the parent wizard on first run, the panel after that.
+Not built yet -- see SPEC.md R-WIZ.
+
+  -h, --help  Show this help and exit.
+EOF
+      exit 0
+      ;;
+  esac
+done
+
+echo "omarchy-kids: setup is not built yet (stub)."
+
+if command -v gum >/dev/null 2>&1; then
+  gum style \
+    --border rounded --padding "1 2" --margin "1 0" \
+    --foreground 212 --border-foreground 212 \
+    "Kids Mode" "Setup isn't built yet. Check back soon."
+fi
+
+exit 0

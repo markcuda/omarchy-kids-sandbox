@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Omarchy Kids
+Comment=A kid's desktop, running under Omarchy Kids Mode (R-DESK-1)
+Exec=omarchy-kids-session
+Type=Application
+DesktopNames=Hyprland

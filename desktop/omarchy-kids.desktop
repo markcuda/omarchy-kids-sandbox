@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Kids Mode
+Comment=Set up and manage Kids Mode for this computer
+Exec=omarchy-kids
+Icon=omarchy-kids
+Categories=System;Settings;
+Terminal=false

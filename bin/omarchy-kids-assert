@@ -1,0 +1,32 @@
+#!/bin/bash
+# omarchy-kids-assert: re-asserts every Kids Mode lock idempotently and
+# rebuilds the initramfs if the boot hook is missing (R-TRUST-5). Called by
+# /usr/share/libalpm/hooks/omarchy-kids.hook after every pacman transaction,
+# and by Omarchy's own post-update hook. Stub: no locks exist yet, so this
+# just reports that and exits 0 -- a package transaction is never blocked
+# by a lock that doesn't exist yet.
+set -uo pipefail
+
+QUIET=0
+for arg in "$@"; do
+  case "$arg" in
+    --quiet)
+      QUIET=1
+      ;;
+    -h|--help)
+      cat <<'EOF'
+Usage: omarchy-kids-assert [--quiet]
+
+Re-asserts every Kids Mode lock (polkit rules, groups, the boot hook, ...)
+so a package transaction can never silently drop one (R-TRUST-5).
+
+  --quiet     Suppress the "nothing to assert yet" notice.
+  -h, --help  Show this help and exit.
+EOF
+      exit 0
+      ;;
+  esac
+done
+
+[[ "$QUIET" -eq 1 ]] || echo "omarchy-kids-assert: nothing to assert yet (stub)"
+exit 0

@@ -1,0 +1,26 @@
+#!/bin/bash
+# omarchy-kids-session: the kid session launcher (R-DESK-1, R-DESK-2).
+# Run by /usr/share/wayland-sessions/omarchy-kids.desktop; reads the kid's
+# profile, runs the R-DESK-2 preflight checks, and execs
+# `Hyprland --config /etc/omarchy-kids/hyprland/L<level>.lua` with the
+# band overlay. Stub: not built yet.
+set -uo pipefail
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      cat <<'EOF'
+Usage: omarchy-kids-session
+
+Started by the omarchy-kids Wayland session entry to launch a kid's
+desktop. Not built yet -- see SPEC.md R-DESK.
+
+  -h, --help  Show this help and exit.
+EOF
+      exit 0
+      ;;
+  esac
+done
+
+echo "omarchy-kids-session: not built yet" >&2
+exit 1

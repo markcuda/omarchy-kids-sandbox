@@ -146,6 +146,11 @@ posture_ensure_pam_namespace() {
     marker="$(posture_pam_namespace_marker)"
     line="session required pam_namespace.so"
     install -d -m 0755 "$(dirname "$file")"
+    # Arch ships some stacks only under /usr/lib/pam.d (systemd-user). An /etc copy overrides the
+    # vendor file wholesale, so seed it from the vendor file before appending, never edit /usr/lib.
+    if [[ ! -f "$file" && -f "$(posture_root)/usr/lib/pam.d/$base" ]]; then
+        cp "$(posture_root)/usr/lib/pam.d/$base" "$file"
+    fi
     touch "$file"
     grep -qxF "$marker" "$file" && return 0
     {

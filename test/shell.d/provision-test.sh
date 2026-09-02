@@ -54,6 +54,8 @@ trap 'rm -rf "$TMP"' EXIT
 ETC="$TMP/etc/omarchy-kids"
 SHARE="$TMP/share/omarchy-kids"
 SCRATCH_ROOT="$TMP/root"       # OMARCHY_KIDS_ROOT
+mkdir -p "$SCRATCH_ROOT/usr/lib/pam.d"
+mkdir -p "$SCRATCH_ROOT/usr/lib/pam.d"; printf 'account include system-login\nsession include system-login\n' > "$SCRATCH_ROOT/usr/lib/pam.d/systemd-user"
 HOMEROOT="$TMP/homeroot"       # OMARCHY_KIDS_HOME_ROOT
 STUBS="$TMP/stubs"
 LOG="$TMP/log"
@@ -116,6 +118,8 @@ case "$1" in
 esac
 '
 stub omarchy-provision-user
+stub groupadd
+stub runuser
 
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
@@ -196,6 +200,7 @@ for stack in sddm systemd-user; do
     PAMFILE="$SCRATCH_ROOT/etc/pam.d/$stack"
     check_eq "$(grep -c '^session required pam_namespace.so$' "$PAMFILE" 2>/dev/null)" "1" \
         "pam.d/$stack has exactly one pam_namespace.so line"
+    [[ $stack == systemd-user ]] && check_eq "$(grep -c 'include system-login' "$PAMFILE")" "2" "pam.d/systemd-user was seeded from the vendor file"
 done
 
 check_contains "$argv" "cryptsetup luksAddKey --batch-mode --key-file=" "add: cryptsetup luksAddKey called"
@@ -209,7 +214,8 @@ ASFILE="$SCRATCH_ROOT/var/lib/AccountsService/users/$SLUG"
 check_contains "$(cat "$ASFILE" 2>/dev/null)" "Session=omarchy-kids" "AccountsService pins the kid session"
 check_contains "$(cat "$ASFILE" 2>/dev/null)" "Icon=/usr/share/omarchy-kids/avatars/fox.svg" "AccountsService icon path"
 
-check_contains "$argv" "omarchy-provision-user $SLUG" "add: omarchy-provision-user was run (present on PATH)"
+check_contains "$argv" "runuser -l $SLUG -c omarchy-provision-user --first-install" "add: omarchy-provision-user --first-install runs as the kid via runuser"
+check_contains "$argv" "groupadd -f omarchy-kids" "add: groups are created defensively"
 
 # --- add: slug collision gets -2 ------------------------------------------
 

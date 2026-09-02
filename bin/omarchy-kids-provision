@@ -319,6 +319,9 @@ cmd_add() {
     echo "Adding kid '$display' as $account (band $band)"
 
     # R-FND-2: the account itself.
+    # The package's install scriptlet creates these, but a checkout run (tests, the VM) may not have them.
+    run groupadd -f omarchy-kids
+    run groupadd -f "$group"
     run useradd -m -s /bin/bash -G "omarchy-kids,$group" "$account"
 
     # R-SEC-3: one password, or a locked account (3-5 only).
@@ -372,8 +375,10 @@ cmd_add() {
 
     # Issue #10 finding (b): go through Omarchy's own per-user setup so the
     # desktop never shows "Pending Omarchy Migrations".
+    # omarchy-provision-user refuses to run as root and needs the user's own $HOME; --first-install
+    # marks every shipped migration done for a freshly created account (its documented purpose).
     if command -v omarchy-provision-user >/dev/null 2>&1; then
-        run omarchy-provision-user "$account"
+        run runuser -l "$account" -c "omarchy-provision-user --first-install"
     else
         run mark_migrations_done "$account"
     fi

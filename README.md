@@ -1,4 +1,4 @@
-# omarchy-kids-sandbox
+# Omarchy Kids Mode - Sandbox Edition
 
 The **sandbox path** of [Omarchy Kids Mode](https://github.com/markcuda/omarchy-kids-mode): Kids
 Mode as an app on a normal Omarchy install. The parent keeps their own account and full desktop,

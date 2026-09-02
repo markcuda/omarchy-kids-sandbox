@@ -25,7 +25,7 @@ prompt until `vm-qmp.sh type omarchy` and `vm-qmp.sh enter`.
 The Mac-side drivers (`scripts/v1-two-sessions.sh`, `scripts/v6-limine.sh`) expect an ssh config
 with two hosts, passed as `SSH_CFG`:
 
-```
+```text
 Host air
   HostName omarky-air
   User omarky-air

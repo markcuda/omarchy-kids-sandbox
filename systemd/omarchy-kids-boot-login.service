@@ -1,12 +1,11 @@
 [Unit]
-Description=Write the per-boot Kids Mode SDDM autologin drop-in (R-BOOT-3)
+Description=Write the per-boot Kids Mode SDDM autologin drop-in (R-BOOT-3); no recorded slot means the portal
 Documentation=man:omarchy-kids-boot-login(1)
 After=local-fs.target
 Before=display-manager.service
 # No /run/omarchy-kids/boot-slot means omarchy-kids-unlock stepped aside
 # (I-9): skip entirely and leave Omarchy's own autologin drop-in in place,
 # which is exactly today's behavior.
-ConditionPathExists=/run/omarchy-kids/boot-slot
 
 [Service]
 Type=oneshot
@@ -14,4 +13,4 @@ RemainAfterExit=yes
 ExecStart=/usr/bin/omarchy-kids-boot-login
 
 [Install]
-WantedBy=display-manager.service
+WantedBy=multi-user.target

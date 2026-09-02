@@ -12,4 +12,4 @@ ExecStartPre=/bin/sleep 20
 ExecStart=/usr/bin/omarchy-kids-boot-login --cleanup
 
 [Install]
-WantedBy=display-manager.service
+WantedBy=multi-user.target

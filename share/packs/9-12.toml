@@ -1,0 +1,107 @@
+# Starter pack for band 9-12 (SPEC.md R-BAND, Appendix C): the 6-8 pack
+# plus this band's own additions. `id` is the launcher entry id
+# `omarchy-kids-conf get <kid> allowlist` falls back to when a kid has no
+# override (the full pack, in file order).
+
+[[app]]
+pkg = "gcompris-qt"
+id = "gcompris"
+label = "GCompris"
+category = "education"
+age = "3-5"
+
+[[app]]
+pkg = "tuxpaint"
+id = "tuxpaint"
+label = "Tux Paint"
+category = "creativity"
+age = "3-5"
+
+[[app]]
+pkg = "ktuberling"
+id = "ktuberling"
+label = "KTuberling"
+category = "play"
+age = "3-5"
+
+[[app]]
+pkg = "blinken"
+id = "blinken"
+label = "Blinken"
+category = "games"
+age = "3-5"
+
+[[app]]
+pkg = "supertux"
+id = "supertux"
+label = "SuperTux"
+category = "games"
+age = "6-8"
+
+[[app]]
+pkg = "supertuxkart"
+id = "supertuxkart"
+label = "SuperTuxKart"
+category = "games"
+age = "6-8"
+
+[[app]]
+pkg = "klettres"
+id = "klettres"
+label = "KLettres"
+category = "education"
+age = "6-8"
+
+[[app]]
+pkg = "kanagram"
+id = "kanagram"
+label = "Kanagram"
+category = "education"
+age = "6-8"
+
+[[app]]
+pkg = "aur:turbowarp-desktop-bin"
+id = "turbowarp"
+label = "TurboWarp"
+category = "coding"
+age = "9-12"
+
+[[app]]
+pkg = "luanti"
+id = "luanti"
+label = "Luanti"
+category = "play"
+age = "9-12"
+
+[[app]]
+pkg = "ktouch"
+id = "ktouch"
+label = "KTouch"
+category = "education"
+age = "9-12"
+
+[[app]]
+pkg = "aur:pixelorama"
+id = "pixelorama"
+label = "Pixelorama"
+category = "creativity"
+age = "9-12"
+
+[[app]]
+pkg = "kiwix-desktop"
+id = "kiwix"
+label = "Kiwix"
+category = "reference"
+age = "9-12"
+
+# web = "garden" for this band (Appendix B): these hosts become the
+# URLAllowlist alongside the kid's own approved sites (R-WEB-3). Short
+# and obviously safe on purpose.
+[garden]
+sites = [
+  "pbskids.org",
+  "kids.nationalgeographic.com",
+  "scratch.mit.edu",
+  "youtubekids.com",
+  "wikipedia.org",
+]

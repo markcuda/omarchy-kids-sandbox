@@ -16,16 +16,17 @@ say "file: $(ls -l "$POL" | awk '{print $1, $3, $4}')"
 say "parent (not in group) can read: $(test -r "$POL" && echo YES || echo no)"
 say "kid-test can read: $(sudo -u kid-test test -r "$POL" && echo yes || echo NO)"
 probe(){ # $1 = user, $2 = data dir. Loads a refused local URL: blocked-by-policy vs plain refusal.
-  local cmd="cd /tmp && timeout 90 chromium $CHROME_ARGS --user-data-dir=$2 --enable-logging=stderr --vmodule=config_dir_policy_loader=1 --dump-dom http://127.0.0.1:9/ 2>$2.log"
-  if [[ $1 == "$USER" ]]; then bash -c "$cmd"; else sudo -u "$1" bash -c "$cmd"; fi
+  local cmd="cd /tmp && timeout 90 chromium $CHROME_ARGS --user-data-dir=$2 --enable-logging=stderr --vmodule=config_dir_policy_loader=1 --dump-dom http://127.0.0.1:8123/ 2>$2.log"
+  if [[ $1 == "$USER" ]]; then bash -c "$cmd"; else sudo -H -u "$1" bash -c "$cmd"; fi
 }
-p=$(probe "$USER" /tmp/v2-parent | grep -oE "ERR_BLOCKED_BY_ADMINISTRATOR|ERR_CONNECTION_REFUSED" | sort -u | tr '\n' ' ')
-k=$(probe kid-test /tmp/v2-kid | grep -oE "ERR_BLOCKED_BY_ADMINISTRATOR|ERR_CONNECTION_REFUSED" | sort -u | tr '\n' ' ')
-say "parent page: [${p}] (expect ERR_CONNECTION_REFUSED: no policy applied)"
-say "kid page:    [${k}] (expect ERR_BLOCKED_BY_ADMINISTRATOR: policy applied)"
+# Chromium's policy-block page carries no ERR_ code in its DOM; it says the organization blocked it.
+p=$(probe "$USER" /tmp/v2-parent | grep -oiE "ERR_CONNECTION_REFUSED|organization" | tr 'A-Z' 'a-z' | sort -u | tr '\n' ' ')
+k=$(probe kid-test /tmp/v2-kid | grep -oiE "ERR_CONNECTION_REFUSED|organization" | tr 'A-Z' 'a-z' | sort -u | tr '\n' ' ')
+say "parent page: [${p}] (expect err_connection_refused only: no policy applied)"
+say "kid page:    [${k}] (expect organization only: blocked by policy)"
 say "parent log:  $(grep -io "failed to read configuration file[^:]*: [^\n]*" /tmp/v2-parent.log | head -1)"
 say "kid log:     $(grep -io "found mandatory policy file[^\n]*v2test[^\n]*\|Failed to read[^\n]*v2test[^\n]*" /tmp/v2-kid.log | head -1)"
 sudo rm -f /tmp/v2-parent.log /tmp/v2-kid.log
 sudo rm -rf /tmp/v2-parent /tmp/v2-kid
 sudo rm -f "$POL"
-if [[ "$p" == *CONNECTION_REFUSED* && "$p" != *BLOCKED* && "$k" == *BLOCKED_BY_ADMINISTRATOR* ]]; then say "V2 RESULT: PASS"; else say "V2 RESULT: FAIL"; exit 1; fi
+if [[ "$p" == *err_connection_refused* && "$p" != *organization* && "$k" == *organization* && "$k" != *err_connection_refused* ]]; then say "V2 RESULT: PASS"; else say "V2 RESULT: FAIL"; exit 1; fi

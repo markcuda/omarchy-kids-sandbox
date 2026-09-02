@@ -1,0 +1,84 @@
+# Omarchy Kids Mode — band defaults (SPEC.md R-BAND-1, Appendix B and C).
+#
+# Every value here is a *default*. A per-kid override written to
+# /etc/omarchy-kids/kids/<account>.conf always wins (R-BAND-2); "reset to
+# band defaults" just deletes the overrides and lets this table show
+# through again.
+#
+# Keys through `menu` mirror Appendix B's profile schema exactly, so
+# `omarchy-kids-conf get <kid> <key>` can read this table directly for any
+# key a kid hasn't overridden. `terminal`, `password_min` and
+# `password_optional` are band-only: they are not Appendix B profile keys,
+# are never written to a kid's .conf file, and exist here for the wizard
+# (Phase 2) and the desktop session to read directly.
+#
+# label/blurb are the one-line, plain-English description shown when a
+# parent is choosing a band (`omarchy-kids-conf bands`).
+
+[band."3-5"]
+label = "Ages 3-5"
+blurb = "Pre-reader. One app at a time."
+level = 1
+web = "none"
+dns = "cloudflare-family"
+budget_min = 45
+budget_min_weekend = 45
+lights_out = "19:00"
+lights_out_weekend = "19:30"
+wifi = "parent"
+history_visible = "yes"
+menu = "trimmed"
+terminal = "none"
+password_min = 4
+password_optional = true
+
+[band."6-8"]
+label = "Ages 6-8"
+blurb = "Early reader. A few favorite apps, walled-garden web."
+level = 1
+web = "garden"
+dns = "cloudflare-family"
+budget_min = 60
+budget_min_weekend = 60
+lights_out = "19:30"
+lights_out_weekend = "20:00"
+wifi = "parent"
+history_visible = "yes"
+menu = "trimmed"
+terminal = "none"
+password_min = 4
+password_optional = false
+
+[band."9-12"]
+label = "Ages 9-12"
+blurb = "Split-screen multitasking, a safe Wi-Fi helper, still a walled garden."
+level = 2
+web = "garden"
+dns = "cloudflare-family"
+budget_min = 90
+budget_min_weekend = 90
+lights_out = "20:30"
+lights_out_weekend = "21:00"
+wifi = "helper"
+history_visible = "yes"
+menu = "trimmed"
+terminal = "playground"
+password_min = 6
+password_optional = false
+
+[band."13+"]
+label = "Ages 13+"
+blurb = "Trusted with more: filtered open web and a real, sandboxed terminal."
+level = 3
+web = "filtered"
+dns = "cloudflare-family"
+budget_min = 120
+budget_min_weekend = 120
+lights_out = "21:30"
+lights_out_weekend = "22:00"
+wifi = "helper"
+history_visible = "yes"
+menu = "full"
+terminal = "sandboxed"
+password_min = 6
+password_optional = false

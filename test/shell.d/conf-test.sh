@@ -1,0 +1,152 @@
+#!/bin/bash
+# Tests bin/omarchy-kids-conf, lib/conf.sh, and lib/conf.py (SPEC.md
+# R-BAND-1, R-BAND-2, R-BUILD-5, Appendix B, Appendix C).
+# Self-contained: runs entirely against scratch OMARCHY_KIDS_ETC and
+# OMARCHY_KIDS_SHARE trees, so it never touches the real /etc or
+# /usr/share. share/ is copied from the repo rather than faked, so this
+# also exercises the real bands.toml and packs/ this issue ships.
+set -uo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+CONF="$DIR/bin/omarchy-kids-conf"
+
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "SKIP conf-test.sh: python3 not found"
+  exit 0
+fi
+
+TMP="$(mktemp -d)"
+# shellcheck disable=SC2329 # invoked via `trap ... EXIT`, not called directly
+cleanup() { rm -rf "$TMP"; }
+trap cleanup EXIT
+
+ETC="$TMP/etc"
+SHARE="$TMP/share"
+mkdir -p "$SHARE/bands" "$SHARE/packs"
+cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
+cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
+
+export OMARCHY_KIDS_ETC="$ETC"
+export OMARCHY_KIDS_SHARE="$SHARE"
+
+fail=0
+check() { # got want label
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+}
+check_contains() { # haystack needle label
+  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (want to find '$2' in '$1')"; fail=1; fi
+}
+check_status() { # got_status want_status label
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want exit $2, got $1)"; fail=1; fi
+}
+
+# --- bands / band ---------------------------------------------------------
+
+out="$("$CONF" bands)"
+check_contains "$out" "3-5" "bands lists 3-5"
+check_contains "$out" "6-8" "bands lists 6-8"
+check_contains "$out" "9-12" "bands lists 9-12"
+check_contains "$out" "13+" "bands lists 13+"
+check_contains "$out" "Pre-reader" "bands shows the 3-5 blurb"
+
+out="$("$CONF" band 6-8)"
+check_contains "$out" "level=1" "band 6-8 has level=1"
+check_contains "$out" "web=garden" "band 6-8 has web=garden"
+check_contains "$out" "budget_min=60" "band 6-8 has budget_min=60"
+check_contains "$out" "lights_out=19:30" "band 6-8 has lights_out=19:30"
+check_contains "$out" "lights_out_weekend=20:00" "band 6-8 weekend lights-out is 30 min later"
+check_contains "$out" "terminal=none" "band 6-8 has no terminal"
+
+out="$("$CONF" band 9-12)"
+check_contains "$out" "level=2" "band 9-12 has level=2"
+check_contains "$out" "wifi=helper" "band 9-12 has the safe wifi helper"
+check_contains "$out" "terminal=playground" "band 9-12 has a playground terminal"
+
+"$CONF" band nope-such-band >/dev/null 2>&1
+check_status "$?" 2 "band with a bad name exits 2"
+
+# --- slug (Appendix B.1) --------------------------------------------------
+
+check "$("$CONF" slug Ada)" "kid-ada" "slug: Ada -> kid-ada"
+check "$("$CONF" slug "Zoë  O'Brien")" "kid-zoeobrien" "slug: transliterates and drops non-alphanumerics"
+LONG40="$(printf 'a%.0s' {1..40})"
+slug_long="$("$CONF" slug "$LONG40")"
+check "${#slug_long}" "28" "slug: a 40-char name is truncated to a 24-char slug (kid- + 24)"
+check "$slug_long" "kid-$(printf 'a%.0s' {1..24})" "slug: truncated slug is the first 24 chars"
+
+# --- set: fixture profile (kid-ada, band 6-8 per AGENTS.md) ---------------
+
+"$CONF" set kid-ada name Ada >/dev/null
+"$CONF" set kid-ada avatar fox >/dev/null
+"$CONF" set kid-ada band 6-8 >/dev/null
+check_status "$?" 0 "set writes the identity keys"
+
+# --- get: override -> band -> default fallback ----------------------------
+
+check "$("$CONF" get kid-ada level)" "1" "get: level falls back to band 6-8's default (1)"
+check "$("$CONF" get kid-ada web)" "garden" "get: web falls back to band default (garden)"
+check "$("$CONF" get kid-ada onboarded)" "no" "get: onboarded falls back to the global default (no)"
+check "$("$CONF" get kid-ada password)" "set" "get: password falls back to the global default (set)"
+check "$("$CONF" get kid-ada allowlist)" \
+  "gcompris,tuxpaint,ktuberling,blinken,supertux,supertuxkart,klettres,kanagram" \
+  "get: allowlist falls back to the band's pack"
+
+"$CONF" set kid-ada level 2 >/dev/null
+check "$("$CONF" get kid-ada level)" "2" "get: an override wins over the band default"
+
+# --- set: validation -------------------------------------------------------
+
+"$CONF" set kid-ada level 9 >/dev/null 2>&1
+check_status "$?" 2 "set: out-of-range level is refused"
+
+"$CONF" set kid-ada web open-everything >/dev/null 2>&1
+check_status "$?" 2 "set: a bad web value is refused"
+
+"$CONF" set kid-ada lights_out "9pm" >/dev/null 2>&1
+check_status "$?" 2 "set: a non-HH:MM lights_out is refused"
+
+err="$("$CONF" set kid-ada frobnicate yes 2>&1 >/dev/null)"
+status=$?
+check_status "$status" 2 "set: an unknown key is refused"
+check_contains "$err" "frobnicate" "set: the refusal names the bad key"
+
+err="$("$CONF" get kid-ada frobnicate 2>&1 >/dev/null)"
+status=$?
+check_status "$status" 2 "get: an unknown key is also refused"
+
+"$CONF" set kid-ada budget_min 75 >/dev/null
+check "$("$CONF" get kid-ada budget_min)" "75" "set: a valid budget_min is written and read back"
+
+# --- show: source column ----------------------------------------------------
+# Match on the key at the start of the line and the source at the end,
+# rather than the exact column widths, so this doesn't break if the
+# formatting ever changes.
+
+out="$("$CONF" show kid-ada)"
+check "$(echo "$out" | awk '/^level[ \t]/{print $NF}')" "override" "show: an overridden key is marked override"
+check "$(echo "$out" | awk '/^wifi[ \t]/{print $NF}')" "band" "show: a band-derived key is marked band"
+check "$(echo "$out" | awk '/^onboarded[ \t]/{print $NF}')" "default" "show: a global-default key is marked default"
+
+# --- reset: keeps identity keys, clears the rest ----------------------------
+
+"$CONF" set kid-ada onboarded yes >/dev/null
+"$CONF" set kid-ada password set >/dev/null
+"$CONF" set kid-ada menu full >/dev/null
+"$CONF" reset kid-ada >/dev/null
+
+profile="$ETC/kids/kid-ada.conf"
+check "$(grep -c '^name=' "$profile")" "1" "reset: name survives"
+check "$(grep -c '^avatar=' "$profile")" "1" "reset: avatar survives"
+check "$(grep -c '^band=' "$profile")" "1" "reset: band survives"
+check "$(grep -c '^password=' "$profile")" "1" "reset: password survives"
+check "$(grep -c '^onboarded=' "$profile")" "1" "reset: onboarded survives"
+check "$(grep -c '^level=' "$profile")" "0" "reset: level override is cleared"
+check "$(grep -c '^menu=' "$profile")" "0" "reset: menu override is cleared"
+check "$("$CONF" get kid-ada level)" "1" "reset: level reads back as the band default again"
+check "$("$CONF" get kid-ada onboarded)" "yes" "reset: onboarded keeps its value across reset"
+
+# --- profile file permissions (spec 5.1: root 0644) -------------------------
+
+mode="$(stat -f '%Lp' "$profile" 2>/dev/null || stat -c '%a' "$profile" 2>/dev/null)"
+check "$mode" "644" "profile file is mode 0644"
+
+exit $fail

@@ -1,0 +1,71 @@
+# Starter pack for band 6-8 (SPEC.md R-BAND, Appendix C): the 3-5 pack
+# plus this band's own additions, so a 6-8 kid keeps what they grew up
+# with. `id` is the launcher entry id `omarchy-kids-conf get <kid>
+# allowlist` falls back to when a kid has no override (the full pack, in
+# file order).
+
+[[app]]
+pkg = "gcompris-qt"
+id = "gcompris"
+label = "GCompris"
+category = "education"
+age = "3-5"
+
+[[app]]
+pkg = "tuxpaint"
+id = "tuxpaint"
+label = "Tux Paint"
+category = "creativity"
+age = "3-5"
+
+[[app]]
+pkg = "ktuberling"
+id = "ktuberling"
+label = "KTuberling"
+category = "play"
+age = "3-5"
+
+[[app]]
+pkg = "blinken"
+id = "blinken"
+label = "Blinken"
+category = "games"
+age = "3-5"
+
+[[app]]
+pkg = "supertux"
+id = "supertux"
+label = "SuperTux"
+category = "games"
+age = "6-8"
+
+[[app]]
+pkg = "supertuxkart"
+id = "supertuxkart"
+label = "SuperTuxKart"
+category = "games"
+age = "6-8"
+
+[[app]]
+pkg = "klettres"
+id = "klettres"
+label = "KLettres"
+category = "education"
+age = "6-8"
+
+[[app]]
+pkg = "kanagram"
+id = "kanagram"
+label = "Kanagram"
+category = "education"
+age = "6-8"
+
+# web = "garden" for this band (Appendix B): these hosts become the
+# URLAllowlist alongside the kid's own approved sites (R-WEB-3). Short
+# and obviously safe on purpose.
+[garden]
+sites = [
+  "pbskids.org",
+  "starfall.com",
+  "kids.nationalgeographic.com",
+]

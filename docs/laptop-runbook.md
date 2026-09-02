@@ -6,7 +6,7 @@ that, everything happens over SSH.
 ## 0. What you need
 
 - The flashed USB stick (the M1 Mac side is scripted — see below)
-- Wired network: USB-Ethernet dongle, or iPhone USB tethering (T2 Wi-Fi needs firmware, done remotely later)
+- Wired network: USB-Ethernet dongle, or iPhone USB tethering (only if the live installer has no Wi-Fi)
 
 ## 1. Firmware — the T2 step people miss
 
@@ -33,9 +33,11 @@ Shut down. Hold **Option** while powering on → pick the orange EFI/USB entry.
 
 ## 4. Bring-up (last hands-on step): Tailscale
 
-Get online first. The 2019 Air's Wi-Fi needs Broadcom firmware the ISO does not carry, so use
-a USB-Ethernet dongle or iPhone USB tethering (Settings → Personal Hotspot; Linux picks it up
-with no setup). Then, in the Omarchy menu: **Install → Service → Tailscale**, and in a terminal:
+Get online first. Omarchy 4.0.2 installs `apple-bcm-firmware` with the T2 kernel, so Wi-Fi
+should work on the installed system; if the installer's live environment has no Wi-Fi, use
+iPhone USB tethering (Settings → Personal Hotspot; Linux picks it up with no setup) or an
+Ethernet dongle just for the install. Then, in the Omarchy menu: **Install → Service →
+Tailscale**, and in a terminal:
 
 ```bash
 sudo tailscale up --ssh
@@ -54,9 +56,9 @@ same account, then:
 ssh mark@<laptop-name>        # the name Tailscale shows for the Air
 ```
 
-First remote job: Wi-Fi firmware, so the laptop is not tethered forever. Method 5 of the
-t2linux guide needs no macOS: run their `firmware.sh` on the laptop and pick the download
-option. <https://wiki.t2linux.org/guides/wifi-bluetooth/>
+If Wi-Fi is still dead after install, Method 5 of the t2linux guide needs no macOS: run their
+`firmware.sh` on the laptop and pick the download option.
+<https://wiki.t2linux.org/guides/wifi-bluetooth/>
 
 ## 6. Driving the desktop remotely
 
@@ -78,7 +80,7 @@ the laptop, never on its own disk. The Omarchy ISO repo ships the harness (`bin/
 `bin/omarchy-iso-test`, unattended `cidata` installs). From the VM monitor you can type at the
 disk prompt, screenshot the login screen, and reboot without risk.
 
-First jobs on the box: Wi-Fi firmware, then `test/verify-phase1.sh`, then the Milestone 0
+First jobs on the box: confirm Wi-Fi, then `test/verify-phase1.sh`, then the Milestone 0
 checks in `SPEC.md` §7.
 
 ## What still needs hands

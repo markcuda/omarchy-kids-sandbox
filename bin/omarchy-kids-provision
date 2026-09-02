@@ -333,6 +333,8 @@ cmd_add() {
 
     # R-FND-2: home bind-mounted nosuid,nodev,noexec.
     run posture_add_fstab_line "$account"
+    # A bind mount must exist before it can be remounted with restrictive flags.
+    run mount --bind "$(home_dir_for "$account")" "$(home_dir_for "$account")"
     run mount -o remount,bind,nosuid,nodev,noexec "$(home_dir_for "$account")"
 
     # Appendix B: the profile.

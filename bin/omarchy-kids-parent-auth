@@ -1,0 +1,38 @@
+#!/bin/bash
+# Thin pam_exec client for omarchy-kids-authd (R-SEC-2). See docs/authd.md.
+# Reads the candidate password from stdin (pam_exec expose_authtok), sends
+# it to the verifier socket, exits 0 on "ok" and 1 on anything else.
+set -uo pipefail
+
+if [[ -n "${PAM_TYPE:-}" && "$PAM_TYPE" != "auth" ]]; then
+  exit 1
+fi
+
+SOCK="${OMARCHY_KIDS_AUTH_SOCK:-/run/omarchy-kids/auth.sock}"
+candidate="$(cat -)"
+
+if command -v socat >/dev/null 2>&1; then
+  reply="$(printf '%s\n' "$candidate" | socat -T5 - "UNIX-CONNECT:$SOCK" 2>/dev/null)"
+else
+  reply="$(printf '%s\n' "$candidate" | python3 -c '
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(5)
+try:
+    s.connect(sys.argv[1])
+    s.sendall(sys.stdin.buffer.read())
+    s.shutdown(socket.SHUT_WR)
+    data = b""
+    while True:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    sys.stdout.buffer.write(data)
+except OSError:
+    pass
+' "$SOCK" 2>/dev/null)"
+fi
+
+[[ "$reply" == ok* ]] && exit 0
+exit 1

@@ -1,0 +1,12 @@
+[Unit]
+Description=Omarchy Kids Mode parent-password verifier socket
+Documentation=https://github.com/markcuda/omarchy-kids-sandbox/blob/main/docs/authd.md
+
+[Socket]
+ListenStream=/run/omarchy-kids/auth.sock
+SocketMode=0666
+DirectoryMode=0755
+Accept=no
+
+[Install]
+WantedBy=sockets.target

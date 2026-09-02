@@ -16,11 +16,13 @@ The two share the parent command and its feature commands.
 
 ## Status: design settled, spec next
 
-Renamed from `omarchy-kids-setup` on 2026-09-02. **The scripts here predate the decisions** and
-will be reshaped, not extended. The spec is **[SPEC.md](SPEC.md)**; the work is
-[32 issues in six milestones](https://github.com/markcuda/omarchy-kids-sandbox/milestones), in
-build order. Milestone 0 is six facts to verify on a real 4.0.x install before anything depends on
-them; those are the best first contribution and need nothing but a VM or an old laptop.
+Renamed from `omarchy-kids-setup` on 2026-09-02. The spec is **[SPEC.md](SPEC.md)**; the work
+is [issues in six milestones](https://github.com/markcuda/omarchy-kids-sandbox/milestones), in
+build order. Results of the Phase 1 checks live in [`docs/phase1/`](docs/phase1/): as of the
+evening of 2026-09-02, **V2, V4, V5 and V7 pass** (real hardware and the QEMU test VM described in
+[`docs/vm.md`](docs/vm.md)); V1, V3 and the rest of V6 are in progress. Merged so far: the
+parent-password verifier, the early-boot LUKS-slot hook with per-boot autologin, the package
+skeleton (`makepkg` builds it), and `omarchy-kids-conf` with the band and pack data.
 
 ## What will be here
 

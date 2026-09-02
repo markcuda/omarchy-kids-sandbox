@@ -1,0 +1,18 @@
+# Re-asserts every Kids Mode lock after any pacman transaction (R-TRUST-5).
+# Installed to /usr/share/libalpm/hooks/omarchy-kids.hook by the omarchy-kids
+# package. Runs on install/upgrade/remove of *any* package, not just this
+# one, because an unrelated update (a kernel bump, a config-file overwrite)
+# is exactly the kind of thing that can silently drop a lock.
+
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Re-asserting Kids Mode locks...
+When = PostTransaction
+Exec = /usr/bin/omarchy-kids-assert --quiet
+NeedsTargets = no

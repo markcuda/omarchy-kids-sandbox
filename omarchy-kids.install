@@ -1,0 +1,37 @@
+# shellcheck shell=sh
+#
+# omarchy-kids.install -- post_install/post_upgrade/post_remove for the
+# omarchy-kids package (R-FND-1, R-BUILD-2). pacman runs these through
+# /bin/sh, so this stays POSIX sh: no [[, no arrays, no local without a
+# leading builtin check.
+
+_omarchy_kids_groups="omarchy-kids omarchy-kids-3-5 omarchy-kids-6-8 omarchy-kids-9-12 omarchy-kids-13plus omarchy-parents"
+
+_omarchy_kids_ensure_groups() {
+	for g in $_omarchy_kids_groups; do
+		groupadd -f "$g" >/dev/null 2>&1 || true
+	done
+}
+
+_omarchy_kids_daemon_reload() {
+	# Only meaningful under a running systemd, not inside a chroot build.
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload >/dev/null 2>&1 || true
+	fi
+}
+
+post_install() {
+	_omarchy_kids_ensure_groups
+	_omarchy_kids_daemon_reload
+	echo "Kids Mode is installed. Run: omarchy-kids"
+}
+
+post_upgrade() {
+	_omarchy_kids_ensure_groups
+	_omarchy_kids_daemon_reload
+	echo "Kids Mode is installed. Run: omarchy-kids"
+}
+
+post_remove() {
+	echo "omarchy-kids removed. Groups (omarchy-kids, omarchy-kids-<band>, omarchy-parents) and any kid accounts are left in place -- see docs/packaging.md to remove them by hand."
+}

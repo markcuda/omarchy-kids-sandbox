@@ -47,7 +47,9 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
 | `test/shell.d/*-test.sh` | One test file per command, Omarchy's `test/shell.d` style; `test/all` runs them |
 | `test/acceptance.d/` | VM-only tests (spec §8) |
 | `docs/phase1/V*.md` | Results of the Phase 1 checks, one file each |
-| `PKGBUILD` | The package; file paths in spec §5.1 |
+| `PKGBUILD`, `omarchy-kids.install` | The package and its post_install/post_upgrade/post_remove scriptlet; file paths in spec §5.1, walked in `docs/packaging.md` |
+| `pacman/omarchy-kids.hook` | Template for `/usr/share/libalpm/hooks/omarchy-kids.hook`, the re-assert hook (R-TRUST-5) |
+| `desktop/*.desktop` | Templates for the app entry and the kid Wayland session entry (R-FND-1, R-DESK-1) |
 
 ## How to work
 

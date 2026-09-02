@@ -17,9 +17,10 @@ The two share the parent command and its feature commands.
 ## Status: design settled, spec next
 
 Renamed from `omarchy-kids-setup` on 2026-09-02. **The scripts here predate the decisions** and
-will be reshaped, not extended. In order: a spec in this repo, one issue per buildable element,
-then code. Until the spec lands, the useful contribution is running a Phase 1 check on a real
-4.0.2 install and posting the result.
+will be reshaped, not extended. The spec is **[SPEC.md](SPEC.md)**; the work is
+[32 issues in six milestones](https://github.com/markcuda/omarchy-kids-sandbox/milestones), in
+build order. Milestone 0 is six facts to verify on a real 4.0.x install before anything depends on
+them; those are the best first contribution and need nothing but a VM or an old laptop.
 
 ## What will be here
 

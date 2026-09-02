@@ -16,7 +16,9 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$DIR/lib/conf.sh"
+# lib/ sits beside bin/ in the repo; the package installs it to /usr/lib/omarchy-kids.
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+source "$LIB/conf.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -24,7 +26,7 @@ KIDS_DIR="$ETC/kids"
 BANDS_TOML="$SHARE/bands/bands.toml"
 PACKS_DIR="$SHARE/packs"
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
-PYHELPER="$DIR/lib/conf.py"
+PYHELPER="$LIB/conf.py"
 
 # Appendix B, in table order.
 APPENDIX_B_KEYS=(name avatar band level web dns budget_min budget_min_weekend

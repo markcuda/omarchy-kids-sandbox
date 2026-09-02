@@ -34,6 +34,8 @@ package() {
 	install -m755 bin/omarchy-kids-* "$pkgdir/usr/bin/"
 
 	# Early-boot LUKS-unlock hook (R-BOOT).
+	install -dm755 "$pkgdir/usr/lib/omarchy-kids"
+	install -m644 lib/*.sh lib/*.py "$pkgdir/usr/lib/omarchy-kids/"
 	install -dm755 "$pkgdir/usr/lib/initcpio/hooks" "$pkgdir/usr/lib/initcpio/install"
 	install -m755 initcpio/hooks/* "$pkgdir/usr/lib/initcpio/hooks/"
 	install -m755 initcpio/install/* "$pkgdir/usr/lib/initcpio/install/"

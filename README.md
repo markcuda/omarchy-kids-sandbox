@@ -1,33 +1,58 @@
-# omarchy-kids-setup
+# omarchy-kids-sandbox
 
-The **onboarding wizard and parent/child provisioning** for [Omarchy Kids Mode](https://github.com/markcuda/omarchy-kids-mode).
-A spoke of the Kids Mode hub — see [SPOKES.md](https://github.com/markcuda/omarchy-kids-mode/blob/main/SPOKES.md).
+The **sandbox path** of [Omarchy Kids Mode](https://github.com/markcuda/omarchy-kids-mode): Kids
+Mode as an app on a normal Omarchy install. The parent keeps their own account and full desktop,
+never restricted. Each kid gets a profile that is a real account underneath. A Super triple-tap
+and the parent password get the parent back out. Core is untouched.
 
-**Status: skeleton.** The wizard walks; the provisioning is dry-run by default and marked where
-verification is still pending (see the hub's CORE.md build plan, Phase 1).
+A spoke of the Kids Mode hub. The design lives there:
+**[PATH-SANDBOX.md](https://github.com/markcuda/omarchy-kids-mode/blob/main/PATH-SANDBOX.md)**,
+sixteen settled decisions, what we borrowed and from whom, and the Phase 1 checks.
 
-## What's here
+The other path, chosen at install with one account and two passwords, is being built upstream by
+Pete: see the hub's
+[PATH-INSTALLER.md](https://github.com/markcuda/omarchy-kids-mode/blob/main/PATH-INSTALLER.md).
+The two share the parent command and its feature commands.
 
-| File | What it does |
+## Status: design settled, spec next
+
+Renamed from `omarchy-kids-setup` on 2026-09-02. **The scripts here predate the decisions** and
+will be reshaped, not extended. In order: a spec in this repo, one issue per buildable element,
+then code. Until the spec lands, the useful contribution is running a Phase 1 check on a real
+4.0.2 install and posting the result.
+
+## What will be here
+
+| Piece | What it does |
 | --- | --- |
-| `bin/omarchy-kids-wizard` | The five-screen parent setup: who is this for → age → preset → time limits → PIN → apply → safety check |
-| `bin/omarchy-kids-check` | Green/red "is it safe?" self-test a parent can read |
-| `lib/provision.sh` | The actual changes: kid account, web safety, boot hardening. `DRY_RUN=1` by default |
-| `test/verify-phase1.sh` | Collects the facts for the hub's five Phase-1 unknowns; writes a pasteable report |
-| `scripts/bringup.sh` | One-time on the test laptop: hostname, sshd, control key |
-| `docs/laptop-runbook.md` | Flash → firmware → install → bring-up, step by step |
-| `docs/t2-macbook.md` | Dialing in a T2 MacBook (2019 Air tested here) |
+| Kids Mode app | Opens from the drawer. First run is the parent wizard; after that, a home screen with a settings gear into the panel |
+| Parent wizard | Easy path (A-or-B chunks, preselected by age band) or Advanced (a table of toggles). Bash + gum in Omarchy's floating terminal, looks like the installer, Omy where the logo sits |
+| Per-kid provisioning | Real account, no sudo, locked home, polkit denies, the installer path's privilege posture, a LUKS slot for the kid's password, a root-owned Hyprland config for the chosen level |
+| Login portal | Face tiles then password, as an SDDM theme. Parent tile last |
+| Exit modal | Super ×3: parent password, then **Pause** (kid's apps stay open) or **Finish** (closes them) |
+| `omarchy-kids-*` | Feature commands: web policy, screen time, apps, Wi-Fi helper, ask-a-parent queue. `time`, `dns`, `apps` also exposed as `omarchy-parent-<feature>` for the upstream dispatcher |
+| Safety check | Green/red, at the end of setup and at every kid login, failing closed |
 
-## Try it
+## What is here now
 
-```bash
-git clone https://github.com/markcuda/omarchy-kids-setup && cd omarchy-kids-setup
-./bin/omarchy-kids-wizard            # dry run — shows the plan, changes nothing
-sudo DRY_RUN=0 ./bin/omarchy-kids-wizard --apply   # on a TEST machine only
-```
+| File | Note |
+| --- | --- |
+| `bin/omarchy-kids-wizard` | Pre-decision skeleton: five screens, dry-run by default |
+| `bin/omarchy-kids-check` | Green/red self-test, still the right shape |
+| `lib/provision.sh` | Kid account, DNS, browser policy, boot hardening. The per-kid parts survive; the machine-wide DNS and Chromium policy do not (the parent is never restricted) |
+| `test/verify-phase1.sh` | Collects facts for the hub's Phase 1 unknowns |
+| `docs/` | Test-laptop runbook and a T2 MacBook note |
+
+## Open pull request
+
+[#1](https://github.com/markcuda/omarchy-kids-sandbox/pull/1), a one-uid kid session with a
+namespaced home, is fine work for the installer path and is not being merged here; the sandbox
+path needs one account per kid. Its Wi-Fi helper and filtered system bus are being borrowed with
+credit. See the hub's installer page.
 
 ## Rules
 
-MIT, same as Omarchy. Never collects anything about a child. A way for a kid to get around this
-is a bug — report privately per the hub's [SECURITY.md](https://github.com/markcuda/omarchy-kids-mode/blob/main/SECURITY.md).
-Not affiliated with DHH, 37signals, or the Omarchy project.
+MIT, same as Omarchy. Never collects anything about a child; nothing leaves the machine. A way for
+a kid to get around this is a bug: report privately per the hub's
+[SECURITY.md](https://github.com/markcuda/omarchy-kids-mode/blob/main/SECURITY.md). Everything
+here must work from the keyboard alone. Not affiliated with DHH, 37signals, or the Omarchy project.

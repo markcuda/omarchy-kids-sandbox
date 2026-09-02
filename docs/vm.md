@@ -19,3 +19,25 @@ so the install needs no network.
 
 The VM disk is encrypted on purpose: V4 and V7 need LUKS. At boot the guest waits at the disk
 prompt until `vm-qmp.sh type omarchy` and `vm-qmp.sh enter`.
+
+## Driving it from the Mac
+
+The Mac-side drivers (`scripts/v1-two-sessions.sh`, `scripts/v6-limine.sh`) expect an ssh config
+with two hosts, passed as `SSH_CFG`:
+
+```
+Host air
+  HostName omarky-air
+  User omarky-air
+  IdentityFile ~/.ssh/omarchy_kids_ed25519
+Host vm
+  HostName 127.0.0.1
+  Port 2222
+  User kid-vm
+  ProxyJump air
+  IdentityFile ~/.ssh/omarchy_kids_ed25519
+  UserKnownHostsFile ~/.ssh/known_hosts_vm
+```
+
+Inside the VM, `sudo` wants the password: `printf 'omarchy\n' | sudo -S -p '' <cmd>`. Ten wrong
+attempts trip faillock for two minutes, so never call `sudo` without feeding it.

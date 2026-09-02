@@ -51,6 +51,7 @@ malcontent; timekpr; machine-wide DNS or browser policy; localization (English f
 
 - R-FND-1 Kids Mode installs as one Arch package on a stock Omarchy 4.0.x Me install and appears as "Kids Mode" in the app drawer.
 - R-FND-2 Adding a kid creates a Unix account `kid-<slug>` (Appendix B.1): `useradd -m`, shell `/bin/bash`, groups `omarchy-kids` and `omarchy-kids-<band>` only; home bind-mounted `nosuid,nodev,noexec`.
+- R-FND-2a Kid sessions get a private `noexec` tmpfs for `/tmp` and `/dev/shm` through `pam_namespace` on both the SDDM and `systemd-user` PAM stacks (V6 found every shared tmpfs on 4.0.2 allows exec, so a noexec home alone is not a fence). `/run/user/<uid>` is a stated fence until the same treatment is verified.
 - R-FND-3 Kid accounts have **no sudoers entry**. Privileged actions in a kid session go through polkit, and `/etc/polkit-1/rules.d/40-omarchy-kids.rules` returns `["unix-user:<parent>"]` as the admin identity for members of `omarchy-kids`, so the native dialog asks for the parent password and checks it against the parent's account.
 - R-FND-4 Polkit denies for kid accounts, no prompt: NetworkManager settings modify (unless R-WIFI-2), udisks mount/unlock, systemd manage-units, package management, `omarchy-sudo-passwordless`.
 - R-FND-5 Text consoles tty2..6 are masked while any kid profile exists; unmasked by Remove Kids Mode.
@@ -93,7 +94,7 @@ malcontent; timekpr; machine-wide DNS or browser policy; localization (English f
 ### R-DESK Kid desktop
 
 - R-DESK-1 `omarchy-kids.desktop` (Wayland session, root-owned) runs `omarchy-kids-session`, which reads the profile and execs `Hyprland --config /etc/omarchy-kids/hyprland/L<level>.lua` with the band overlay.
-- R-DESK-2 Before the compositor starts, the launcher checks: profile present, policy file readable by this account, polkit drop-ins present, home noexec, consoles masked, initramfs hook present. Any miss → a full-screen "Ask a grown-up" naming the check, then exit.
+- R-DESK-2 Before the compositor starts, the launcher checks: profile present, policy file readable by this account, polkit drop-ins present, home noexec, private `/tmp` mounted noexec (R-FND-2a), consoles masked, initramfs hook present. Any miss → a full-screen "Ask a grown-up" naming the check, then exit.
 - R-DESK-3 Levels per Appendix E. Level 1: fullscreen-only, big-tile launcher, `Super+Home`, no terminal or file manager. Level 2: 50/50 split, `Super+arrows`, launcher plus cheat sheet. Level 3: Omarchy tiling with the Appendix E binding set and a kid theme.
 - R-DESK-4 Omarchy's menu is trimmed of Install/Update/Setup entries under Levels 1 and 2 through a root-owned menu extension; untouched under Level 3 (Q23).
 - R-DESK-5 The Level 1 launcher is a standalone root-installed QML program started by the root-owned config, not a shell plugin (I-3).

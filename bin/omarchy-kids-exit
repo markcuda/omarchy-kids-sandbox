@@ -1,0 +1,26 @@
+#!/bin/bash
+# omarchy-kids-exit: bound to Super+Shift+K at every level (SPEC.md
+# R-EXIT-1). Meant to open a root-owned overlay with the kid's avatar
+# and name, a password field, and "Pause <name>" / "Finish for <name>".
+# Stub: not built yet -- that's a later issue.
+set -uo pipefail
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help)
+      cat <<'EOF'
+Usage: omarchy-kids-exit
+
+Bound to Super+Shift+K in every Kids Mode Hyprland level
+(share/hyprland/L1.lua, L2.lua, L3.lua). Not built yet -- see SPEC.md
+R-EXIT-1.
+
+  -h, --help  Show this help and exit.
+EOF
+      exit 0
+      ;;
+  esac
+done
+
+echo "omarchy-kids-exit: exit modal not built yet" >&2
+exit 1

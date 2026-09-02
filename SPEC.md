@@ -1,171 +1,198 @@
-# Omarchy Kids Mode, sandbox path: specification v1
+# Omarchy Kids Mode, sandbox path: specification v1.1
 
 Status: **draft for review**, 2026-09-02. Decisions come from the hub's
-[PATH-SANDBOX.md](https://github.com/markcuda/omarchy-kids-mode/blob/main/PATH-SANDBOX.md);
-this document turns them into requirements, architecture, and acceptance criteria. Requirement ids
-(`R-WEB-3`) are referenced by the issues.
+[PATH-SANDBOX.md](https://github.com/markcuda/omarchy-kids-mode/blob/main/PATH-SANDBOX.md) plus
+the thirty-question design session that followed. Requirement ids (`R-WEB-3`) are referenced by
+the issues. Appendices A–G are the build-ready detail v1 lacked.
+
+Changes from v1: one parent password verified against the parent's own account (no `rootpw`, no
+kid sudo grant); startup lands on the desktop of whoever unlocked the disk (§R-BOOT); Super+Shift+K
+as the gesture; welcome screen, name-first flow, Simple/Advanced after age; package prefetch during
+the wizard; a parent bar widget; nine defaults from Q17–Q25; appendices.
 
 ## 1. Scope
 
 **v1 (this spec):** the Kids Mode app on a normal Omarchy 4.0.x install: the parent wizard and
-panel, per-kid provisioning, the login portal, the exit modal, the kid desktop at three levels, web
+panel, per-kid provisioning, boot and login, the exit modal, the kid desktop at three levels, web
 policy, screen time, apps, ask-a-parent, Wi-Fi, recorded data, trust and undo, packaging.
 
 **Phase 2 (not this spec):** the kid onboarding wizard with Omy, earned level progression, Learn
-with Omy. v1 leaves a hand-off contract (§6.1) for it.
+with Omy. v1 leaves a hand-off contract (§6.1).
 
-**Out, deliberately:** installer changes; a parent login of any new kind; cloud or remote anything;
-Flatpak; malcontent; timekpr; a machine-wide DNS or browser policy.
+**Out, deliberately:** installer changes; any new parent login; cloud or remote anything; Flatpak;
+malcontent; timekpr; machine-wide DNS or browser policy; localization (English first).
 
 ## 2. Definitions
 
-- **Parent**: the owner account of the install, in `wheel`. Any adult in the house uses it or its password.
-- **Household parent password**: the owner's password. On a Me install it is already root's.
-- **Kid profile**: a real Unix account created by the app, member of group `omarchy-kids`, never in `wheel`.
+- **Parent**: the owner account of the install, in `wheel`. Any adult in the house uses it.
+- **Parent password**: the parent's login password. The only password a parent has. Every Kids Mode prompt checks it against the parent's own account, never root's.
+- **Kid profile**: a real Unix account created by the app, member of `omarchy-kids` and one `omarchy-kids-<band>` group, never in `wheel`, no sudo grant of any kind.
 - **Band**: 3-5, 6-8, 9-12, 13+. Picks defaults. Every default is overridable per kid.
 - **Level**: 1 (one app, fullscreen), 2 (split), 3 (tiling). Parent-set in v1.
-- **Lock**: a root-owned artifact that constrains a kid session. **Fence**: a lock that is a deterrent, not a wall; stated as such in the UI.
+- **Lock**: a root-owned artifact that constrains a kid session. **Fence**: a lock that is a deterrent, not a wall; labeled as such in the UI.
+- **Portal**: the login screen with face tiles.
 - **Path**: this repo is the sandbox path; the installer path is upstream (hub `PATH-INSTALLER.md`).
 
 ## 3. Invariants
 
-These hold everywhere and override any feature.
-
-- **I-1 The parent's account is never restricted.** No policy, resolver, firewall, launcher, or hook touches the parent's session, home, browser, or DNS, including while a kid is paused. The only parent-side writes are the ones the parent asks for (hide kids' apps, parents-only fence).
-- **I-2 Nothing about a child leaves the machine.** No telemetry, no accounts, no cloud, no network listener.
+- **I-1 The parent's account is never restricted.** No policy, resolver, firewall, launcher, or hook touches the parent's session, home, browser, or DNS, including while a kid is paused. Writes into the parent's own files happen only when the parent asks (bar widget, Super+Shift+K binding, hide kids' apps, parents-only fence).
+- **I-2 Nothing about a child leaves the machine.** No telemetry, accounts, cloud, or network listener.
 - **I-3 Every lock is root-owned and lives outside every home.** Nothing in `~` enforces anything.
 - **I-4 Every lock is re-asserted after updates** by a pacman hook and verified at every kid login. A missing lock fails closed: the kid session does not start.
-- **I-5 Keyboard-complete.** Every screen this repo ships works with no pointer.
-- **I-6 Honest UI.** No control is shown that is not enforced. Fences are labeled fences.
-- **I-7 Core untouched.** No file owned by the `omarchy` or `omarchy-settings` packages is edited. Extension points only: drop-ins, hooks, session entries, themes, policy folders, own package.
+- **I-5 Keyboard-complete.** Every screen works with no pointer.
+- **I-6 Honest UI.** No control is shown that is not enforced. Fences are labeled fences. The summary screen explains startup, in plain words.
+- **I-7 Core untouched.** No file owned by `omarchy` or `omarchy-settings` is edited. Extension points only: drop-ins, hooks, session entries, themes, policy folders, our own package.
+- **I-8 One parent password.** Kids Mode never asks a parent for anything but their login password, and never stores it.
+- **I-9 Never a machine that will not boot.** Anything in early boot fails safe to the stock path.
 
 ## 4. Requirements
 
 ### R-FND Foundation
 
 - R-FND-1 Kids Mode installs as one Arch package on a stock Omarchy 4.0.x Me install and appears as "Kids Mode" in the app drawer.
-- R-FND-2 Adding a kid creates a Unix account: `useradd -m`, shell `/bin/bash`, no supplementary groups except `omarchy-kids`; home mounted `nosuid,nodev,noexec` via a bind entry in fstab.
-- R-FND-3 The kid account receives the installer path's posture: an explicit sudoers grant that asks for root's password (`Defaults rootpw` scoped to that account), a polkit admin rule naming `unix-user:root` for that account, and `timestamp_timeout=0` so no sudo credential is cached in a kid session.
-- R-FND-4 Polkit denies for kid accounts, no prompt: NetworkManager settings modify (unless R-WIFI-2), udisks mount/unlock, systemd manage-units, package management.
-- R-FND-5 Text consoles tty2..6 are masked while any kid profile exists; unmasked on remove.
-- R-FND-6 Removing a kid removes the account, its LUKS slot, its policy group membership, and moves its home to `~parent/Kids Mode/<name>/` (I-6, R-TRUST-4).
+- R-FND-2 Adding a kid creates a Unix account `kid-<slug>` (Appendix B.1): `useradd -m`, shell `/bin/bash`, groups `omarchy-kids` and `omarchy-kids-<band>` only; home bind-mounted `nosuid,nodev,noexec`.
+- R-FND-3 Kid accounts have **no sudoers entry**. Privileged actions in a kid session go through polkit, and `/etc/polkit-1/rules.d/40-omarchy-kids.rules` returns `["unix-user:<parent>"]` as the admin identity for members of `omarchy-kids`, so the native dialog asks for the parent password and checks it against the parent's account.
+- R-FND-4 Polkit denies for kid accounts, no prompt: NetworkManager settings modify (unless R-WIFI-2), udisks mount/unlock, systemd manage-units, package management, `omarchy-sudo-passwordless`.
+- R-FND-5 Text consoles tty2..6 are masked while any kid profile exists; unmasked by Remove Kids Mode.
+- R-FND-6 Removing a kid removes the account, its LUKS slot, its group memberships, and moves its home to `~parent/Kids Mode/<name>/`. Machine-level pieces stay until Remove Kids Mode (Q20).
 
-### R-SEC Secrets and disk
+### R-SEC Secrets and the verifier
 
-- R-SEC-1 One password per kid, set in the wizard, stored in shadow. Minimum length 4 for bands 3-5 and 6-8, 6 for 9-12 and 13+. A profile may be "no password" only in band 3-5.
-- R-SEC-2 Each kid's password is added as a LUKS2 key slot on the root device at creation; changed when the password changes; removed with the kid. "No password" profiles get no slot.
-- R-SEC-3 The parent password opens any kid's tile at the portal and any kid's lock screen through a PAM `pam_exec` helper that runs with `seteuid`, tries the kid's own password first, and never leaves a cached credential. Root's faillock applies to guesses; the kid's faillock does not block the parent path.
-- R-SEC-4 A kid changes their own password from their session with the old one; a parent resets any kid's password from the panel. Both update the LUKS slot.
+- R-SEC-1 `omarchy-kids-authd` is a root, socket-activated verifier. It accepts a candidate on a local socket and answers yes only if it matches the parent's shadow hash (libxcrypt via `crypt(3)`, yescrypt-safe). It rate-limits itself: three misses → 30 s, ten → 5 min. It never touches the system's faillock for the parent's login.
+- R-SEC-2 Every parent prompt in Kids Mode uses the verifier: the exit modal, the ask modal, the lock-screen line, the portal line, panel confirmations, the bar-widget actions. `pam_exec` lines call `omarchy-kids-parent-auth`, a thin client, with `expose_authtok`; they work identically whether the stack runs as root or as the kid, because verification happens in the daemon.
+- R-SEC-3 One password per kid, stored in shadow. Minimum length 4 for 3-5 and 6-8, 6 for 9-12 and 13+. "No password" allowed only in 3-5.
+- R-SEC-4 Each kid's password is a LUKS2 key slot on the root device: added at creation, changed with the password, removed with the kid. "No password" profiles get no slot. `/etc/omarchy-kids/luks-slots` (root 0600) maps slot → account.
+- R-SEC-5 A kid changes their own password with the old one; a parent resets any kid's password from the panel. Both update the slot.
+- R-SEC-6 Root's password is never read, set, or relied on.
 
-### R-LOGIN Login portal
+### R-BOOT Startup
 
-- R-LOGIN-1 An SDDM theme shows one tile per kid (avatar from the mascot skin set, name), then a password field; the parent tile last and visually smaller.
+- R-BOOT-1 A mkinitcpio runtime hook, `omarchy-kids-unlock`, runs **before** `encrypt`. It prompts exactly as the stock hook does, opens the root device with `cryptsetup open --verbose`, records the unlocking slot to `/run/omarchy-kids/boot-slot`, and leaves the mapping under the name the stock hook expects. If anything is unexpected (no LUKS, unknown hook set, cryptsetup output not parsed, more than three misses) it exits without side effects and the stock hook prompts as today.
+- R-BOOT-2 The hook is added by `/etc/mkinitcpio.conf.d/omarchy-kids.conf`, which rebuilds `HOOKS` with ours inserted before `encrypt` and does nothing if `encrypt` is absent (e.g. a future `sd-encrypt` move).
+- R-BOOT-3 `omarchy-kids-boot-login.service` (Before `display-manager.service`) reads the slot, maps it through `luks-slots`, and writes `/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf` with that account and its session for this boot; the parent's slot maps to the parent and the stock session, preserving today's behavior. No mapping → an empty `User=` → the portal. A `post-start` cleanup removes the drop-in so logout never re-autologs.
+- R-BOOT-4 Omarchy's own autologin drop-in is superseded, not edited: ours sorts later.
+- R-BOOT-5 The safety check verifies after every kernel or mkinitcpio update that the current initramfs contains the hook, and the pacman hook rebuilds it if not.
+
+### R-LOGIN Portal
+
+- R-LOGIN-1 An SDDM theme shows one tile per kid (avatar, name), then a password field; the parent tile last and smaller; the last-used tile preselected.
 - R-LOGIN-2 "No password" profiles log in on Enter.
 - R-LOGIN-3 Kid tiles show no session picker; kid accounts are pinned to the `omarchy-kids` session through AccountsService.
-- R-LOGIN-4 Full keyboard navigation: arrows between tiles, Enter selects, Esc back.
+- R-LOGIN-4 Arrows between tiles, Enter selects, Esc back.
+- R-LOGIN-5 The parent password opens any kid's tile (R-SEC-2). No option to hide the parent tile in v1 (Q25).
 
 ### R-EXIT Exit modal
 
-- R-EXIT-1 In any kid session, pressing Super three times within 1.5 s opens a root-owned overlay: a password field and two actions, **Pause <name>** ("<possessive> apps stay open. You switch to your desktop.") and **Finish for <name>** ("Closes <possessive> apps. You switch to your desktop.").
-- R-EXIT-2 The password is checked against root's through the same helper as R-SEC-3.
-- R-EXIT-3 Pause locks the kid session (hyprlock) and switches to the greeter for the parent. Finish terminates the kid's logind session cleanly (apps get SIGTERM, then the session ends) and switches to the greeter.
-- R-EXIT-4 A paused kid resumes at their own lock screen with their own password (or the parent's).
-- R-EXIT-5 The parent session, when the parent switches away from it, is locked.
+- R-EXIT-1 In any kid session, **Super+Shift+K** or Super pressed three times within 1.5 s opens a root-owned overlay: the kid's avatar and name, a password field, and two actions: **Pause <name>** ("<possessive> apps stay open. You switch to your desktop.") and **Finish for <name>** ("Closes <possessive> apps. You switch to your desktop."). Pause is preselected.
+- R-EXIT-2 Verified through R-SEC-2.
+- R-EXIT-3 Pause locks the kid session (hyprlock) and switches to the greeter. Finish sends SIGTERM to the session scope, then `loginctl terminate-session`, then the greeter.
+- R-EXIT-4 A paused kid resumes at their own lock screen with their own password or the parent's.
+- R-EXIT-5 The parent session locks itself when the parent switches away.
+- R-EXIT-6 On the parent's desktop, Super+Shift+K opens the Kids Mode app. The binding is one line appended to the parent's `~/.config/hypr/bindings.lua`, shown verbatim, only if the parent says yes in the wizard.
 
 ### R-DESK Kid desktop
 
-- R-DESK-1 A `omarchy-kids.desktop` Wayland session entry, root-owned, runs `omarchy-kids-session`, which reads the kid's profile and execs Hyprland with `--config /etc/omarchy-kids/hyprland/L<level>.lua` plus the band overlay.
-- R-DESK-2 Before starting the compositor the launcher verifies: profile present, policy file readable by this account, sudoers and polkit drop-ins present, home noexec, consoles masked. On any failure it shows a full-screen "Ask a grown-up" screen with the failing check named and exits.
-- R-DESK-3 Level 1: every window fullscreen, one at a time; a big-tile launcher listing only allowed apps; `Super+Home` returns to the launcher; no terminal, no file manager. Level 2: 50/50 split, `Super+arrows`, launcher plus the cheat sheet; Level 3: Omarchy tiling with a trimmed root-owned binding set and a kid theme.
-- R-DESK-4 The allowlist is what the launcher shows and the bindings reach. Under Level 3 this is a fence (I-6). The "parents only" fence (R-APPS-6) is available in Advanced.
-- R-DESK-5 The kid's own `~/.config/hypr` is never read; `--config` wins.
+- R-DESK-1 `omarchy-kids.desktop` (Wayland session, root-owned) runs `omarchy-kids-session`, which reads the profile and execs `Hyprland --config /etc/omarchy-kids/hyprland/L<level>.lua` with the band overlay.
+- R-DESK-2 Before the compositor starts, the launcher checks: profile present, policy file readable by this account, polkit drop-ins present, home noexec, consoles masked, initramfs hook present. Any miss → a full-screen "Ask a grown-up" naming the check, then exit.
+- R-DESK-3 Levels per Appendix E. Level 1: fullscreen-only, big-tile launcher, `Super+Home`, no terminal or file manager. Level 2: 50/50 split, `Super+arrows`, launcher plus cheat sheet. Level 3: Omarchy tiling with the Appendix E binding set and a kid theme.
+- R-DESK-4 Omarchy's menu is trimmed of Install/Update/Setup entries under Levels 1 and 2 through a root-owned menu extension; untouched under Level 3 (Q23).
+- R-DESK-5 The Level 1 launcher is a standalone root-installed QML program started by the root-owned config, not a shell plugin (I-3).
+- R-DESK-6 The kid's `~/.config/hypr` is never read.
 
 ### R-WIZ Wizard and panel
 
-- R-WIZ-1 First run of the app is the wizard; later runs open a home screen listing kids, with a settings gear into the panel.
-- R-WIZ-2 The wizard asks up front: Easy or Advanced. Easy: band, then A-or-B chunks (web, time, apps, Wi-Fi, level) preselected from the band table. Advanced: the same cells as a grouped checklist.
-- R-WIZ-3 Per kid: name, avatar (pick from the skin set), band, password (or "no password" in 3-5).
-- R-WIZ-4 Machine-level setup runs silently on first apply: group, hooks, session entry, SDDM theme, console masking, snapshot (R-TRUST-1).
-- R-WIZ-5 A summary in plain words precedes apply. Apply shows progress; app installs continue in the background (R-APPS-3); the safety check is the last screen.
-- R-WIZ-6 Add-a-kid runs only R-WIZ-3 and the chunks. Every cell is editable later in the panel.
-- R-WIZ-7 The panel per kid shows: time today and this week, top apps, browsing history, open requests, every setting, safety status; and actions: edit, reset password, pause/finish (if live), remove.
-- R-WIZ-8 The wizard runs in Omarchy's floating terminal, bash + gum, with the look of the installer: a header where the logo sits (Omy placeholder), one question per screen, step counter, Esc back, Ctrl+C leaves with nothing changed, colors from the parent's current theme. Screens are data; the renderer is a library.
+- R-WIZ-1 Flow (Appendix A): Welcome → Begin → parent password → kid's name → face → age → Simple or Advanced → per-choice screens (Simple) or the table (Advanced) → kid password → summary → Apply → Done with two buttons.
+- R-WIZ-2 Omy speaks on Welcome and Done; every other screen speaks plainly and uses the kid's name.
+- R-WIZ-3 Simple shows one choice per screen: two options, one reason line each, the band default preselected. Advanced shows every cell as a grouped checklist with pickers.
+- R-WIZ-4 Prefetch: from the age screen on, the band's starter pack downloads into the pacman cache (`pacman -Sw`) in the background through a root helper; changed selections need no undo. Apply installs from cache; AUR builds continue after Apply.
+- R-WIZ-5 Apply renders like the installer's dashboard: header, one line per step with done marks, one bar, a tip; the technical log goes to a support file.
+- R-WIZ-6 Done offers **Return to my desktop** and **Open <name>'s desktop** (which switches to the kid's session as a preview, at that kid's level, with a banner "You're seeing what <name> sees. Super+Shift+K to come back").
+- R-WIZ-7 The app's home screen lists kids with a settings gear; add-a-kid runs the per-kid screens only (parent password, name, face, age, Simple/Advanced, choices, kid password, summary, apply).
+- R-WIZ-8 Panel per kid: time today and this week, top apps, browsing history (if enabled), open requests, every setting, reset password, pause/finish if live, remove. Machine: safety status, firmware step, Remove Kids Mode.
+- R-WIZ-9 Bash + gum in Omarchy's floating terminal. Screens are data (`tui/screens/*.toml`), the renderer is one library. Header where the logo sits (Omy placeholder), step counter, Esc back, Ctrl+C leaves with nothing changed, colors from the parent's theme.
+
+### R-BAR Parent bar widget
+
+- R-BAR-1 An optional Quickshell bar widget in the parent's session (installed only on consent) shows live or paused kids and minutes left ("Ada · paused · 32 min").
+- R-BAR-2 Actions: give more time, end session, open Kids Mode. Each goes through a polkit-gated helper (parent password).
+- R-BAR-3 Reads `/run/omarchy-kids/status.json`, root-written, group `omarchy-parents` readable.
 
 ### R-BAND Bands and defaults
 
-| Band | Level | Web | Budget / off at | Starter pack | Wi-Fi | Terminal |
+| Band | Level | Web | Budget / lights-out | Starter pack | Wi-Fi | Terminal |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3-5 | 1 | No browser | 45 min / 19:00 | GCompris, Tux Paint, KTuberling, Blinken | Parent only | No |
 | 6-8 | 1 | Walled garden | 60 min / 19:30 | plus SuperTux, SuperTuxKart, KLettres, Kanagram | Parent only | No |
 | 9-12 | 2 | Walled garden | 90 min / 20:30 | plus TurboWarp, Luanti, KTouch, Pixelorama, Kiwix | Safe helper | Playground shell |
 | 13+ | 3 | Filtered open web | 120 min / 21:30 | plus Sonic Pi, Thonny, KStars | Safe helper | Sandboxed shell |
 
-- R-BAND-1 The table is data (`/usr/share/omarchy-kids/bands.toml`), not code.
-- R-BAND-2 Every cell is overridable per kid; the profile stores only overrides.
+- R-BAND-1 The table is data (Appendix C).
+- R-BAND-2 The profile stores only overrides. Changing a band keeps overrides; "Reset to band defaults" clears them (Q19).
 
 ### R-WEB Web
 
-- R-WEB-1 Chromium remains the browser for everyone. Kids policy lives in `/etc/chromium/policies/managed/omarchy-kids-<band>.json`, mode 0640, owner root, group `omarchy-kids-<band>`; each kid is a member of exactly one band group. The parent is a member of none.
-- R-WEB-2 Every kids policy sets: `DnsOverHttpsMode: secure` with a family template (Cloudflare Family by default; CleanBrowsing Family or custom in Advanced), `ForceGoogleSafeSearch`, `ForceYouTubeRestrict: 2`, `IncognitoModeAvailability: 1`, `DeveloperToolsAvailability: 2`, `ExtensionInstallBlocklist: ["*"]`, `BrowserSignin: 0`, `DownloadRestrictions: 1`, `SavingBrowserHistoryDisabled: false`, `AllowDeletingBrowserHistory: false`.
-- R-WEB-3 Walled garden adds `URLBlocklist: ["*"]` and a `URLAllowlist` from the band's starter list plus the kid's approved sites. Filtered open web adds neither. No browser hides Chromium from the launcher and sets `URLBlocklist: ["*"]`.
-- R-WEB-4 The kid launcher refuses to start Chromium if the kid's policy file is not readable (fail closed).
-- R-WEB-5 Web apps installed for a kid use `omarchy-webapp-install` in the kid's account, so they inherit the policy.
-- R-WEB-6 Machine DNS is never changed by this package. Advanced may offer machine-wide family DNS as an opt-in belt with the I-1 warning.
+- R-WEB-1 Chromium remains the browser for everyone. Kids policy lives in `/etc/chromium/policies/managed/omarchy-kids-<band>.json`, mode 0640, root:`omarchy-kids-<band>`. The parent is in no kids group.
+- R-WEB-2 Every kids policy sets: `DnsOverHttpsMode: secure` with a family template (Cloudflare Family default; CleanBrowsing Family or custom in Advanced), `ForceGoogleSafeSearch`, `ForceYouTubeRestrict: 2`, `IncognitoModeAvailability: 1`, `DeveloperToolsAvailability: 2`, `ExtensionInstallBlocklist: ["*"]`, `BrowserSignin: 0`, `DownloadRestrictions: 1`, `SavingBrowserHistoryDisabled: false`, `AllowDeletingBrowserHistory: false`.
+- R-WEB-3 Walled garden adds `URLBlocklist: ["*"]` plus a `URLAllowlist` from the band's starter list and the kid's approved sites. Filtered open web adds neither. No browser hides Chromium from the launcher and sets `URLBlocklist: ["*"]`.
+- R-WEB-4 The kid launcher refuses to start Chromium if the kid's policy file is not readable.
+- R-WEB-5 Kid web apps use `omarchy-webapp-install` in the kid's account.
+- R-WEB-6 Machine DNS is never changed. Advanced may offer machine-wide family DNS as an opt-in belt with the I-1 warning.
 
 ### R-TIME Screen time
 
-- R-TIME-1 `omarchy-kids-time` (also reachable as `omarchy-parent-time`) is a root systemd service that accounts active, unlocked logind sessions of kid accounts at 30 s resolution and persists per-day totals under `/var/lib/omarchy-kids/<name>/usage/`.
-- R-TIME-2 Budget (minutes/day) and lights-out (HH:MM) per kid; weekend variants optional. Paused or locked time does not count.
-- R-TIME-3 Warnings at 10, 5, and 1 minute through the kid session's notification daemon, then a full-screen "time's up" with "Ask for more time".
-- R-TIME-4 At budget or lights-out the session is locked, then terminated after a grace of 60 s unless a parent grants more time. "Ask for more time" opens the ask modal (R-ASK-1); a parent password at the keyboard grants a chosen amount; otherwise the request queues.
-- R-TIME-5 A local weekly summary per kid in the panel; no email, no cloud.
+- R-TIME-1 `omarchy-kids-time` (also `omarchy-parent-time`) is a root service accounting active, unlocked kid sessions at 30 s resolution; per-day totals under `/var/lib/omarchy-kids/<name>/usage/`.
+- R-TIME-2 Per kid: budget (minutes), lights-out (HH:MM), weekend variants. Day boundary 04:00; weekend is Saturday and Sunday (Q22). Paused or locked time does not count.
+- R-TIME-3 Warnings at 10, 5, 1 minute via the kid session's notifications, plus a full-screen countdown for pre-readers with icon and sound.
+- R-TIME-4 At budget or lights-out: lock, then terminate after 60 s unless a parent grants more. "More time" extends today's budget only; lights-out can be pushed by a parent for tonight only. State machine in Appendix F.
+- R-TIME-5 A local weekly summary in the panel.
 
 ### R-APPS Apps
 
-- R-APPS-1 Sources: official repos and AUR via `omarchy-pkg-*`. No Flatpak.
-- R-APPS-2 Starter packs per band are data (`/usr/share/omarchy-kids/packs/<band>.toml`) with package, launcher name, category, age badge, and any web-app entries.
-- R-APPS-3 Confirming the apps screen starts `omarchy-kids-install@<name>.service`, a root oneshot with a journal; the wizard shows progress and never blocks. Failures are listed in the panel with a retry.
-- R-APPS-4 Per-kid allowlist: the launcher shows only allowed entries; entries appear as installs land.
-- R-APPS-5 "Hide kids' apps from my launcher" writes `Hidden=true` overrides into the parent's own `~/.local/share/applications`, only when the parent enables it.
-- R-APPS-6 "Parents only" marks an installed binary `0750 root:omarchy-parents` (a group containing the owner), re-asserted by the pacman hook. Labeled as a fence.
-- R-APPS-7 A kids-plugins shelf reads the marketplace catalog filtered to category Kids, verified listings only; installation always goes through R-ASK. No plugin may enforce anything (I-3).
+- R-APPS-1 Official repos and AUR via `omarchy-pkg-*`. No Flatpak.
+- R-APPS-2 Starter packs per band as data (Appendix C).
+- R-APPS-3 Prefetch per R-WIZ-4; at Apply, `omarchy-kids-install@<name>.service` installs from cache and builds AUR packages; journal, retry from the panel.
+- R-APPS-4 Per-kid allowlist; launcher entries appear as installs land.
+- R-APPS-5 "Hide kids' apps from my launcher" writes `Hidden=true` overrides into the parent's own launcher entries, only on request.
+- R-APPS-6 "Parents only" marks a binary `0750 root:omarchy-parents`, re-asserted by the hook, labeled a fence.
+- R-APPS-7 A kids-plugins shelf reads the marketplace catalog filtered to category Kids, verified listings only; install goes through R-ASK; no plugin may enforce anything.
+- R-APPS-8 Offline: the wizard completes; installs are deferred and retried by a timer when online; the panel shows pending (Q21).
 
 ### R-ASK Ask a parent
 
-- R-ASK-1 One modal, "Ask a parent", for more time, an app, a plugin, a site. If a parent types the parent password there, the request is granted on the spot. Otherwise it is appended to `/var/lib/omarchy-kids/queue/` as a root-owned record, and the kid sees "Asked. Your grown-up will see it."
-- R-ASK-2 The panel lists open requests per kid with approve/decline on one keystroke. Approve performs the action (install, allowlist, grant minutes).
-- R-ASK-3 The queue format is documented so a future home-network approver can read and write it. v1 ships none.
+- R-ASK-1 One modal, "Ask a parent", for more time, an app, a plugin, a site. Parent password there → granted on the spot. Otherwise a record in `/var/lib/omarchy-kids/queue/` (Appendix D) and "Asked. Your grown-up will see it."
+- R-ASK-2 The panel lists requests; approve/decline on one keystroke; approve performs the action.
+- R-ASK-3 The queue format is stable and documented for a future home-network approver.
 
 ### R-WIFI Wi-Fi
 
 - R-WIFI-1 Per kid: `parent` (default 3-5, 6-8) or `helper` (default 9-12, 13+).
-- R-WIFI-2 Under `helper`, `omarchy-kids-wifi` runs a pkexec helper on the host that takes an SSID and password, joins, then sets the connection to ignore DHCP DNS and clear its own DNS. The kid never reaches NetworkManager settings directly.
-- R-WIFI-3 Captive portals: on `connectivity: portal` the helper opens the portal URL in a helper window with strict DoH relaxed to automatic for that window's profile, then restores strict on `connectivity: full`. Walled garden still applies except the portal host.
-- R-WIFI-4 Under `parent`, the kid-side Wi-Fi panel's join opens the ask modal.
+- R-WIFI-2 `helper`: `omarchy-kids-wifi` → pkexec helper on the host: SSID and password only; joins; forces `ignore-auto-dns` and clears connection DNS. Never NetworkManager settings directly.
+- R-WIFI-3 Captive portals: on `connectivity: portal` the helper opens the portal URL in a helper window with DoH relaxed to automatic for that window's profile, then restores strict on `connectivity: full`.
+- R-WIFI-4 `parent`: the kid-side join opens the ask modal.
 
 ### R-DATA Recorded data and transparency
 
-- R-DATA-1 Recorded, locally: active minutes per day, app launches (name, time), requests and outcomes, browsing history read from the kid's Chromium profile.
-- R-DATA-2 Never recorded: keystrokes, screenshots, file contents, message contents.
-- R-DATA-3 Each kid session has a "What my grown-ups can see" screen that shows exactly R-DATA-1 for that kid.
-- R-DATA-4 History visibility is a per-kid cell; off for a kid means the panel shows none and R-DATA-3 says so.
-- R-DATA-5 A `PRIVACY.md` in this repo states all of the above in plain words.
+- R-DATA-1 Recorded, locally: active minutes per day (kept one year), app launches and requests (ninety days), browsing history read from the kid's Chromium profile (the browser's own retention). (Q24)
+- R-DATA-2 Never: keystrokes, screenshots, file contents, message contents.
+- R-DATA-3 Each kid session has a "What my grown-ups can see" screen showing exactly R-DATA-1 for that kid.
+- R-DATA-4 History visibility is a per-kid cell; off means the panel shows none and the kid's screen says so.
+- R-DATA-5 `PRIVACY.md` states all of this in plain words.
 
 ### R-TRUST Trust and undo
 
 - R-TRUST-1 A Snapper snapshot "before Kids Mode" precedes the first apply.
-- R-TRUST-2 `omarchy-kids-check` runs at the end of the wizard, from the panel, and at every kid login (R-DESK-2). Each check names what it proves and what it cannot.
-- R-TRUST-3 A required firmware-password step: the wizard prints a parent card; the check shows it red until the parent marks it done.
-- R-TRUST-4 Remove Kids Mode reverses every lock, removes accounts and slots, keeps every kid's files (R-FND-6), and offers the snapshot.
-- R-TRUST-5 A pacman hook (`/etc/pacman.d/hooks/omarchy-kids.hook`) and an Omarchy post-update hook re-run `omarchy-kids-assert`, which restores every lock idempotently.
+- R-TRUST-2 `omarchy-kids-check` runs at the end of the wizard, from the panel, and at every kid login. Each check names what it proves and what it cannot.
+- R-TRUST-3 Firmware-password step: a printed parent card; red in the check until marked done.
+- R-TRUST-4 Remove Kids Mode reverses every lock, removes accounts and slots, keeps every kid's files, offers the snapshot.
+- R-TRUST-5 `/etc/pacman.d/hooks/omarchy-kids.hook` and an Omarchy post-update hook run `omarchy-kids-assert`, which restores every lock idempotently and rebuilds the initramfs if the boot hook is missing.
 
 ### R-BUILD Build and packaging
 
-- R-BUILD-1 Bash + gum for the wizard and panel; QML for the exit overlay and the SDDM theme; nothing else.
-- R-BUILD-2 One Arch package `omarchy-kids` from this repo's PKGBUILD; AUR when stable.
-- R-BUILD-3 Tests: shell tests for every command (bats or Omarchy's `test/shell.d` style); a VM acceptance run on the stock ISO with an unattended `cidata` profile.
-- R-BUILD-4 Commands: `omarchy-kids` (app entry), `-provision`, `-session`, `-check`, `-assert`, `-conf`, `-web`, `-time`, `-apps`, `-ask`, `-wifi`, `-remove`. `time`, `dns` (web), `apps` are also installed as `omarchy-parent-<feature>` symlinks unless upstream ships a file of that name.
-- R-BUILD-5 Settings use the installer path's key=value format and helpers so pieces can move upstream.
+- R-BUILD-1 Bash + gum for wizard and panel; QML for the exit overlay, the Level 1 launcher, the SDDM theme, the bar widget; C for the verifier if `crypt(3)` needs it, otherwise a tiny Python or Perl helper calling libxcrypt.
+- R-BUILD-2 One Arch package `omarchy-kids`; AUR when stable.
+- R-BUILD-3 Shell tests for every command; a VM acceptance run on the stock ISO via `cidata`.
+- R-BUILD-4 Commands: `omarchy-kids` (app), `-provision`, `-session`, `-check`, `-assert`, `-conf`, `-authd`, `-parent-auth`, `-boot-login`, `-web`, `-time`, `-apps`, `-ask`, `-wifi`, `-remove`. `time`, `dns` (web), `apps` also as `omarchy-parent-<feature>` unless upstream ships that name.
+- R-BUILD-5 Settings use the installer path's key=value format and helpers.
 
 ## 5. Architecture
 
@@ -173,76 +200,174 @@ These hold everywhere and override any feature.
 
 | Path | Owner | What |
 | --- | --- | --- |
-| `/usr/bin/omarchy-kids-*` | package | commands (R-BUILD-4) |
-| `/usr/share/omarchy-kids/{bands.toml,packs/,hyprland/,tui/,sddm-theme/,policy/}` | package | data: bands, packs, level configs, screens, theme, policy templates |
-| `/usr/share/wayland-sessions/omarchy-kids.desktop` | package | the kid session entry |
-| `/usr/share/applications/omarchy-kids.desktop` | package | the app in the drawer |
-| `/etc/omarchy-kids/kids/<name>.conf` | root, 0644 | per-kid overrides (band, level, web, time, wifi, history, allowlist, avatar) |
-| `/etc/omarchy-kids/machine.conf` | root, 0644 | machine-level state: firmware-step done, snapshot id |
-| `/etc/chromium/policies/managed/omarchy-kids-<band>.json` | root:omarchy-kids-<band>, 0640 | kids policy (R-WEB-1) |
-| `/etc/sudoers.d/omarchy-kids-<name>`, `/etc/polkit-1/rules.d/4x-omarchy-kids*.rules` | root | posture and denies |
-| `/etc/pacman.d/hooks/omarchy-kids.hook` | root | re-assert (R-TRUST-5) |
-| `/var/lib/omarchy-kids/<name>/{usage/,launches.log}` | root, group kid 0750 | usage state |
-| `/var/lib/omarchy-kids/queue/` | root | ask-a-parent records |
+| `/usr/bin/omarchy-kids-*` | package | commands |
+| `/usr/share/omarchy-kids/{bands.toml,packs/,hyprland/,tui/,sddm-theme/,policy/,avatars/,menu/}` | package | data |
+| `/usr/lib/initcpio/{install,hooks}/omarchy-kids-unlock`, `/etc/mkinitcpio.conf.d/omarchy-kids.conf` | package | boot hook (R-BOOT) |
+| `/usr/share/wayland-sessions/omarchy-kids.desktop` | package | kid session entry |
+| `/usr/share/applications/omarchy-kids.desktop` | package | the app |
+| `/etc/omarchy-kids/kids/<account>.conf` | root 0644 | per-kid overrides (Appendix B) |
+| `/etc/omarchy-kids/machine.conf` | root 0644 | firmware step, snapshot id, widget/binding consents |
+| `/etc/omarchy-kids/luks-slots` | root 0600 | slot → account |
+| `/etc/chromium/policies/managed/omarchy-kids-<band>.json` | root:omarchy-kids-<band> 0640 | kids policy |
+| `/etc/polkit-1/rules.d/4x-omarchy-kids*.rules` | root | admin identity and denies |
+| `/etc/sddm.conf.d/zz-omarchy-kids-*.conf` | root | theme selection; per-boot autologin |
+| `/etc/pacman.d/hooks/omarchy-kids.hook` | root | re-assert |
+| `/run/omarchy-kids/{boot-slot,status.json}` | root | boot slot; live status (group omarchy-parents readable) |
+| `/var/lib/omarchy-kids/<account>/{usage/,launches.log}` | root, group kid 0750 | usage state |
+| `/var/lib/omarchy-kids/queue/` | root | requests |
 
-Groups: `omarchy-kids` (all kids), `omarchy-kids-<band>` (policy readers), `omarchy-parents` (owner; used by the parents-only fence).
+Groups: `omarchy-kids`, `omarchy-kids-<band>` (four), `omarchy-parents` (the owner).
 
 ### 5.2 Flows
 
-**First run.** Drawer → floating terminal → Easy/Advanced → band → chunks → name/avatar/password → summary → apply: snapshot, machine setup, provision kid, policy file, LUKS slot, start installs → check → done. Portal shows the new tile at next logout.
+**First run.** Drawer → floating terminal → Welcome (Omy) → Begin → parent password (verifier) → name → face → age (prefetch starts) → Simple/Advanced → choices → kid password → summary → Apply: snapshot, machine setup, boot hook + initramfs rebuild, provision kid, policy, LUKS slot, install from cache → check → Done (Omy) → Return / Open <name>'s desktop.
 
-**Kid login.** SDDM tile + password → `omarchy-kids-session` → R-DESK-2 checks → Hyprland `--config` → launcher. Time accounting starts on `Active=yes`.
+**Startup.** Power on → disk prompt → the slot that opened it → autologin that account for this boot → parent lands on their desktop as today; a kid lands on their Level desktop; unknown → portal.
 
-**Pause.** Super×3 → password → Pause → hyprlock in kid session → `SwitchToGreeter` → parent logs in. Parent session locks on its own switch-away (R-EXIT-5). Kid returns via their tile → their existing session's lock screen.
+**Kid login (portal).** Tile + password → `omarchy-kids-session` → R-DESK-2 checks → Hyprland `--config` → launcher. Accounting starts on `Active=yes`.
 
-**Finish.** Super×3 → password → Finish → `loginctl terminate-session` after SIGTERM to the session scope → greeter.
+**Pause / Finish.** Super+Shift+K → password (verifier) → Pause: hyprlock, greeter. Finish: SIGTERM scope, terminate, greeter. Parent session locks on switch-away.
 
-**Ask.** Kid action → modal → parent password on the spot, or queue → panel approve → action.
+**Ask.** Kid action → modal → password on the spot, or queue → panel or bar widget approve → action.
 
-**Update.** `omarchy update` / pacman transaction → hook → `omarchy-kids-assert` → every lock restored; kid login re-checks anyway.
+**Update.** pacman transaction → hook → `omarchy-kids-assert` → locks restored, initramfs rebuilt if needed; kid login re-checks.
 
-**Remove.** Panel → confirm with parent password → move homes → remove accounts, slots, groups, drop-ins, policy, session pin, theme → unmask consoles → offer snapshot.
+**Remove.** Panel → parent password → homes moved → accounts, slots, groups, drop-ins, policy, pins, theme, boot hook removed → initramfs rebuilt → consoles unmasked → snapshot offered.
 
 ### 5.3 Security model
 
-Deterrent for a curious child; the wall is `sudo` plus the firmware password. Kid processes run as their own uid, so the parent's data is kernel-isolated. Known non-walls, stated in the UI: a Level 3 kid with a shell can run installed binaries not fenced by R-APPS-6; a kid who knows a LUKS passphrase and can boot USB (no firmware password) owns the disk; non-browser apps use machine DNS.
+Deterrent for a curious child; the wall is the parent password plus the firmware password. Kid processes run as their own uid, so the parent's data is kernel-isolated. Stated non-walls: a Level 3 kid with a shell can run installed binaries not fenced by R-APPS-6; a kid who knows any LUKS passphrase and can boot USB owns the disk; non-browser apps use machine DNS. Bypass matrix in Appendix G.
 
 ## 6. Contracts
 
 ### 6.1 Hand-off to Phase 2
 
-The profile file carries `band`, `level`, `avatar`, `name`, `onboarded=false`. Phase 2's kid wizard runs when `onboarded=false` at the start of the kid session and flips it. Level progression in Phase 2 writes `level` through `omarchy-kids-conf` only.
+Profile carries `band`, `level`, `avatar`, `name`, `onboarded=false`. Phase 2's kid wizard runs when `onboarded=false` at session start and flips it. Level progression writes `level` through `omarchy-kids-conf` only.
 
 ### 6.2 Convergence with the installer path
 
-Feature commands are drop-ins for the upstream `omarchy-parent` dispatcher. Per-kid posture is the upstream `apply --user` step, vendored until upstream ships it. Settings helpers are the upstream `install/helpers/parent.sh` functions, vendored the same way.
+Feature commands are drop-ins for upstream's `omarchy-parent`. Settings helpers are vendored from upstream's `install/helpers/parent.sh`. The privilege model differs on purpose: upstream needs root's password because its only account is the kid's; ours has a parent account to check against.
 
 ## 7. Phase 1 verification (blocking the build order)
 
 | # | Check | Pass |
 | --- | --- | --- |
-| V1 | Two live Hyprland sessions (parent + paused kid) under SDDM on 4.0.x; switching via `SwitchToGreeter`; both survive `omarchy update` | Both sessions resume; no VT lands on an unlocked session |
-| V2 | 0640 root:group policy file | `chrome://policy` empty as parent, full as kid; syslog warning only |
+| V1 | Two live Hyprland sessions under SDDM; `SwitchToGreeter` both ways; both survive `omarchy update` | Both resume; no VT lands on an unlocked session |
+| V2 | 0640 root:group policy file | `chrome://policy` empty as parent, full as kid; warning in syslog only |
 | V3 | Strict DoH behind a captive portal | Portal reachable only via the helper window; strict restored after |
-| V4 | LUKS slots | add/change/remove per kid; boot with kid password; 3 kids |
-| V5 | PAM helper with `seteuid` | kid password → kid; parent password → same account; wrong → denied; on both lock and SDDM stacks |
-| V6 | CORE.md's five: SDDM second user across updates; Limine editor `init=/bin/bash`; tmpfs exec; snapshot rollback from the boot menu; Flatpak override (dropped: no Flatpak) | recorded either way |
+| V4 | LUKS slots | add/change/remove per kid; boot with kid password; three kids |
+| V5 | Verifier + PAM lines | kid password → kid; parent password → same account; wrong → denied; on lock and SDDM stacks; rate limit holds |
+| V6 | CORE.md's five | recorded either way |
+| V7 | Boot slot → autologin | hook records the slot; each account lands on its own desktop; stock hook still works when ours steps aside; a broken hook file never blocks boot |
 
 ## 8. Acceptance for v1 done
 
-1. On a fresh stock Omarchy 4.0.x VM, install the package, run the wizard for two kids (3-5 no-password, 9-12 with password) in under ten minutes without a terminal.
-2. Portal shows three tiles; each kid password (or Enter) opens the right desktop at the right level; parent password opens any.
-3. Super×3 Pause and Finish both work; the parent's desktop, browser, and DNS are unchanged before, during, and after (I-1 test: `chrome://policy` empty, `resolvectl status` unchanged).
+1. Fresh stock 4.0.x VM: install the package, set up two kids (3-5 no-password, 9-12 with password) in under ten minutes, keyboard only.
+2. Reboot: the parent's disk password lands on the parent's desktop; the 9-12 kid's lands on Level 2; the portal shows three tiles after logout.
+3. Super+Shift+K Pause and Finish both work; the parent's desktop, browser, and DNS are unchanged throughout.
 4. Kid browser: walled garden holds; family DoH active; history cannot be cleared.
-5. Screen time: budget reached → warnings → lock → ask → parent grants → continues.
-6. Ask for an app → queue → approve in panel → installed and visible.
-7. `omarchy update` then every check green; delete a lock by hand, kid login refuses to start.
-8. Remove Kids Mode → files preserved, portal back to one tile, all checks report "not installed".
-9. All of the above with no pointer.
+5. Screen time: budget → warnings → lock → ask → parent grants → continues.
+6. Ask for an app → queue → approve in panel and in the bar widget → installed and visible.
+7. `omarchy update` and a kernel update: every check green, boot hook present; delete a lock by hand, kid login refuses.
+8. Remove Kids Mode: files preserved, one tile, stock boot behavior back.
+9. Change the parent's login password: every Kids Mode prompt follows.
 
 ## 9. Decided against, on the record
 
-- Site history hidden from parents (report 07 recommends it for pre-teens): chosen otherwise; per-kid cell.
-- Firefox as the kids browser: not needed once the group-readable policy file works.
-- Session hook swapping the policy: violates I-1 while paused.
-- timekpr-next, malcontent, Flatpak: see hub PATH-SANDBOX.md.
+- `Defaults rootpw` for kid sudo (installer path): our parent has an account to verify against; root's password drifts from the login password after `passwd`.
+- Site history hidden from parents (report 07): chosen otherwise; per-kid cell.
+- Firefox for kids; session-hook policy swapping; family boot word; hidden parent tile; timekpr; malcontent; Flatpak.
+
+---
+
+## Appendix A. Screens and copy
+
+Voice: Omy on A1 and A14; plain elsewhere. `<K>` is the kid's name, `<Kp>` the possessive. Every screen: header (Omy glyph, "Kids Mode", step "n of 12"), body, footer "Enter continue · Esc back · Ctrl+C leave (nothing changes)".
+
+| # | Screen | Copy | Input |
+| --- | --- | --- | --- |
+| A1 | Welcome | "Hi, I'm Omy. Kids Mode turns this computer into one your kids can use on their own." Bullets: "Each kid gets their own desktop, at their own level." "You stay in charge with one password, yours." "Everything can be undone." Button **Begin** | Enter |
+| A2 | Parent password | "First, your password. Kids Mode uses it for every grown-up decision. It's the same one you log in with." | password |
+| A3 | Name | "What's your kid's name?" hint "First name or nickname. It's what they'll see." | text |
+| A4 | Face | "Pick <Kp> face." grid of 12 avatars | arrows |
+| A5 | Age | "How old is <K>?" tiles 3-5 · 6-8 · 9-12 · 13+, each with one line ("Pre-reader. One app at a time.") | arrows |
+| A6 | Simple or Advanced | "How do you want to set up <Kp> computer?" **Simple** "A few clear choices with sensible defaults. About five minutes." **Advanced** "Every setting on one screen." | arrows |
+| A7 | Web (Simple) | "What can <K> see on the web?" A **Only sites you choose** "A short list you can grow. Best for younger kids." B **Filtered open web** "Adult content blocked, safe search on." (3-5 also: **No browser**) | A/B |
+| A8 | Time (Simple) | "How much screen time?" A "<budget> minutes a day, lights out at <time>" B "I'll set my own" → two fields | A/B |
+| A9 | Apps (Simple) | "Which apps to start with?" A **The <band> starter pack** list of names B **Let me pick** → checklist | A/B |
+| A10 | Wi-Fi (Simple) | "Can <K> join new Wi-Fi?" A **Ask me first** B **On their own, safely** "They can join school or café Wi-Fi. The network can't change what's blocked." | A/B |
+| A11 | Level (Simple) | "How should <Kp> desktop work?" 1 **One thing at a time** 2 **Two things side by side** 3 **The full desktop** with a one-liner each; band default marked | arrows |
+| A12 | Kid password | "Now a password for <K>." hint by band; 3-5 adds **No password** | password ×2 |
+| A13 | Summary | "Here's what happens next." bullets: account, desktop level, web, time, apps, Wi-Fi; then "When the computer starts, whoever types their password lands on their own desktop. The youngest kids with no password get in after a grown-up starts it." Buttons **Apply** · **Change something** | Enter |
+| A13a | Advanced table | groups Web / Time / Apps / Wi-Fi / Desktop / Data; space toggles, slash filters, Enter picks | checklist |
+| A13b | Apply | one line per step with ✓, one bar, tip line; log to `/var/log/omarchy-kids/setup.log` | none |
+| A13c | Safety check | green/red list; firmware step red with "Print the parent card" | Enter |
+| A14 | Done | "<K>'s desktop is ready." Omy: "Next time the computer starts, <K> can just type their password." Buttons **Return to my desktop** · **Open <Kp> desktop** | arrows |
+
+Consents asked once, on A13 as two extra lines with defaults on: "Add Super+Shift+K to open Kids Mode on my desktop" and "Show my kids' status in my top bar".
+
+Panel screens: P1 Home (kids list, gear, add a kid). P2 Kid (numbers, settings, requests, actions). P3 Requests. P4 Machine (safety, firmware card, remove). P5 Confirm remove (parent password).
+
+Kid-side screens: K1 Level 1 launcher. K2 Exit modal (R-EXIT-1). K3 Ask a parent. K4 Time's up. K5 "What my grown-ups can see". K6 "Ask a grown-up" (failed check).
+
+## Appendix B. Profile schema
+
+B.1 Account name: `kid-` + slug of the display name (lowercase ASCII, transliterated, non-alphanumerics dropped, max 24); collisions get `-2`, `-3`.
+
+B.2 `/etc/omarchy-kids/kids/<account>.conf`, key=value, only overrides present:
+
+| Key | Values | Default |
+| --- | --- | --- |
+| `name` | text | required |
+| `avatar` | id from `avatars/` | required |
+| `band` | `3-5` `6-8` `9-12` `13+` | required |
+| `level` | `1` `2` `3` | band |
+| `web` | `garden` `filtered` `none` | band |
+| `dns` | `cloudflare-family` `cleanbrowsing-family` `custom:<url>` | cloudflare-family |
+| `budget_min`, `budget_min_weekend` | integer | band |
+| `lights_out`, `lights_out_weekend` | HH:MM | band |
+| `wifi` | `parent` `helper` | band |
+| `history_visible` | `yes` `no` | yes |
+| `menu` | `trimmed` `full` | by level |
+| `allowlist` | comma-separated launcher ids | pack |
+| `sites` | comma-separated hosts | pack |
+| `password` | `set` `none` | set |
+| `onboarded` | `yes` `no` | no |
+
+## Appendix C. Bands and packs
+
+`bands.toml`: one `[band."6-8"]` table per band with the R-BAND cells. `packs/<band>.toml`: a list of `[[app]]` with `pkg` (repo or `aur:` prefix), `id` (launcher entry), `label`, `category`, `age` (band floor), optional `web = "https://…"` for web apps; plus `[garden]` with `sites = [...]`.
+
+## Appendix D. Queue record
+
+`/var/lib/omarchy-kids/queue/<unix-ts>-<account>-<kind>.json`: `{ "kid": account, "kind": "time|app|plugin|site", "what": string, "minutes": int?, "asked_at": ts, "state": "open|approved|declined", "decided_at": ts?, "by": "keyboard|panel|widget" }`. Approvers append, never rewrite history.
+
+## Appendix E. Binding tables
+
+Level 1: `Super+Home` launcher · `Super+Enter` open selected · `Super+Q` close · `Super+Shift+K` exit modal · volume/brightness keys. Nothing else bound; every window rule forces fullscreen.
+
+Level 2: Level 1 plus `Super+arrows` focus · `Super+Shift+arrows` swap · `Super+K` cheat sheet · `Super+Space` launcher.
+
+Level 3: Omarchy defaults minus: terminal-launching binds under `menu=trimmed` (kept under `full`), `omarchy-sudo-passwordless`, screenshot-to-clipboard of other users' windows (n/a), plus `Super+Shift+K`.
+
+## Appendix F. Screen-time state machine
+
+States: `idle` (no active session) → `counting` (Active=yes, unlocked) → `warned10/5/1` → `grace` (locked, 60 s) → `ended` (terminated) ; `paused` (locked or inactive; no counting). Transitions: session Active → counting; lock or switch-away → paused; unlock → counting; `remaining ≤ 10/5/1` → warned; `remaining = 0` or `now ≥ lights_out` → grace; grant → counting with `budget += n` (budget) or `lights_out_tonight = t` (lights-out); grace timeout → ended. Suspend: wall clock jumps are ignored; only Active seconds count. Day rolls at 04:00 local; a session spanning the roll keeps counting against the new day.
+
+## Appendix G. Bypass matrix
+
+| Attempt | Result | Because |
+| --- | --- | --- |
+| Kid edits `~/.config/hypr` | No effect | `--config` root-owned |
+| Kid deletes a launcher plugin | Cosmetic | plugins are never locks |
+| Kid runs a downloaded binary | Blocked | noexec home |
+| Kid runs `sudo` | No grant | not in sudoers; polkit asks parent |
+| Kid opens Chromium with own profile dir | Still locked | policy is machine-level per group |
+| Kid switches VT to parent's session | Lock screen | parent locks on switch-away |
+| Kid guesses parent password at modal | Rate-limited | verifier |
+| Kid boots USB knowing their LUKS passphrase | Owns the disk | firmware password is the wall; card says so |
+| Package update removes a lock | Restored | pacman hook; login re-check fails closed |
+| Kid changes DNS in NetworkManager | Denied | polkit; helper forces ignore-auto-dns |
+| Kid reads sibling's files | Denied | separate uids, 0700 homes |
+| Kid reads parent's files | Denied | separate uids |
+| Level 3 kid runs any installed binary | Allowed unless fenced | stated fence |

@@ -1,0 +1,128 @@
+#!/bin/bash
+# omarchy-kids-boot-login — writes or removes the per-boot SDDM autologin
+# drop-in based on which LUKS slot unlocked the root device (R-BOOT-3).
+#
+# Usage:
+#   omarchy-kids-boot-login             write the drop-in for this boot
+#   omarchy-kids-boot-login --cleanup   remove the drop-in (post-boot)
+#
+# Every path below is overridable for tests, so test/shell.d/boot-login-test.sh
+# runs entirely against a scratch tree:
+#   OMARCHY_KIDS_RUN_DIR     default /run/omarchy-kids   (boot-slot lives here)
+#   OMARCHY_KIDS_SLOTS_FILE  default /etc/omarchy-kids/luks-slots
+#   OMARCHY_KIDS_SDDM_DIR    default /etc/sddm.conf.d
+set -euo pipefail
+
+RUN_DIR="${OMARCHY_KIDS_RUN_DIR:-/run/omarchy-kids}"
+SLOTS_FILE="${OMARCHY_KIDS_SLOTS_FILE:-/etc/omarchy-kids/luks-slots}"
+SDDM_DIR="${OMARCHY_KIDS_SDDM_DIR:-/etc/sddm.conf.d}"
+DROPIN="$SDDM_DIR/zz-omarchy-kids-autologin.conf"
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--cleanup] [--help]
+
+Writes $DROPIN with the [Autologin] section for whichever account's LUKS
+slot unlocked the root device this boot (R-BOOT-3): the parent's slot maps
+to the parent and the stock session (today's behavior, preserved); a kid's
+slot maps to that kid and their session; no mapping writes an empty
+User= so the portal shows instead of guessing.
+
+--cleanup removes the drop-in (wired to run a short while after
+display-manager.service starts) so a later logout never re-autologs.
+EOF
+}
+
+# session_for ACCOUNT — default session when luks-slots doesn't name one.
+session_for() {
+    case "$1" in
+        kid-*) echo "omarchy-kids" ;;
+        *) echo "omarchy" ;;
+    esac
+}
+
+# lookup_slot SLOT — prints "account session" on a match, nothing on no
+# match. luks-slots lines are "slot=account" or "slot=account:session";
+# blank lines and lines starting with '#' are ignored. No whitespace is
+# tolerated around '=' or ':', matching every other key=value file in this
+# repo (e.g. /etc/omarchy-kids/machine.conf).
+lookup_slot() {
+    local slot="$1" line key val account session
+    [[ -r "$SLOTS_FILE" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in
+            ''|'#'*) continue ;;
+        esac
+        key="${line%%=*}"
+        val="${line#*=}"
+        [[ "$key" == "$slot" ]] || continue
+        account="${val%%:*}"
+        if [[ "$val" == *:* ]]; then
+            session="${val#*:}"
+        else
+            session=""
+        fi
+        [[ -n "$account" ]] || return 0
+        [[ -n "$session" ]] || session="$(session_for "$account")"
+        printf '%s %s\n' "$account" "$session"
+        return 0
+    done < "$SLOTS_FILE"
+}
+
+# write_dropin ACCOUNT [SESSION] — ACCOUNT="" writes an empty User= (portal).
+write_dropin() {
+    local account="$1" session="${2:-}"
+    install -d -m 0755 "$SDDM_DIR"
+    {
+        printf '[Autologin]\n'
+        printf 'User=%s\n' "$account"
+        [[ -n "$session" ]] && printf 'Session=%s\n' "$session"
+    } > "$DROPIN"
+    chmod 0644 "$DROPIN"
+}
+
+cleanup() {
+    rm -f "$DROPIN"
+}
+
+main() {
+    case "${1:-}" in
+        --help|-h)
+            usage
+            exit 0
+            ;;
+        --cleanup)
+            cleanup
+            exit 0
+            ;;
+        "")
+            ;;
+        *)
+            echo "omarchy-kids-boot-login: unknown argument '$1'" >&2
+            usage >&2
+            exit 1
+            ;;
+    esac
+
+    if [[ ! -r "$RUN_DIR/boot-slot" ]]; then
+        # The unit's ConditionPathExists guards this in practice, but fail
+        # safe to the portal rather than guess if we're ever run without it.
+        write_dropin ""
+        return 0
+    fi
+
+    local slot result account session
+    slot="$(<"$RUN_DIR/boot-slot")"
+    slot="${slot//[[:space:]]/}"
+
+    result="$(lookup_slot "$slot")" || true
+    if [[ -n "$result" ]]; then
+        account="${result%% *}"
+        session="${result#* }"
+        write_dropin "$account" "$session"
+    else
+        write_dropin ""
+    fi
+}
+
+main "$@"

@@ -1,0 +1,15 @@
+[Unit]
+Description=Remove the per-boot Kids Mode SDDM autologin drop-in (R-BOOT-3)
+Documentation=man:omarchy-kids-boot-login(1)
+After=display-manager.service
+
+[Service]
+Type=oneshot
+# Give SDDM time to have already read the drop-in for this boot's greeter
+# before it disappears, so a later logout (which restarts the greeter)
+# never re-autologs anyone.
+ExecStartPre=/bin/sleep 20
+ExecStart=/usr/bin/omarchy-kids-boot-login --cleanup
+
+[Install]
+WantedBy=display-manager.service

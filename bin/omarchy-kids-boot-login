@@ -36,8 +36,8 @@ EOF
 # session_for ACCOUNT — default session when luks-slots doesn't name one.
 session_for() {
     case "$1" in
-        kid-*) echo "omarchy-kids" ;;
-        *) echo "omarchy" ;;
+        kid-*) echo "omarchy-kids.desktop" ;;
+        *) echo "omarchy.desktop" ;;
     esac
 }
 
@@ -64,6 +64,8 @@ lookup_slot() {
         fi
         [[ -n "$account" ]] || return 0
         [[ -n "$session" ]] || session="$(session_for "$account")"
+        # SDDM names sessions by their .desktop file (Omarchy writes Session=omarchy.desktop).
+        [[ "$session" == *.desktop ]] || session="${session}.desktop"
         printf '%s %s\n' "$account" "$session"
         return 0
     done < "$SLOTS_FILE"

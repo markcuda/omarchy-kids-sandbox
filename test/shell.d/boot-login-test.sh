@@ -33,8 +33,8 @@ chmod 600 "$OMARCHY_KIDS_SLOTS_FILE"
 echo 2 > "$OMARCHY_KIDS_RUN_DIR/boot-slot"
 "$BIN"
 if [[ -f "$DROPIN" ]]; then
-    if grep -qx 'User=kid-ada' "$DROPIN" && grep -qx 'Session=omarchy-kids' "$DROPIN"; then
-        pass "mapped kid slot -> User=kid-ada, Session=omarchy-kids"
+    if grep -qx 'User=kid-ada' "$DROPIN" && grep -qx 'Session=omarchy-kids.desktop' "$DROPIN"; then
+        pass "mapped kid slot -> User=kid-ada, Session=omarchy-kids.desktop"
     else
         fail "mapped kid slot wrote unexpected content: $(tr '\n' ' ' < "$DROPIN")"
     fi
@@ -45,8 +45,8 @@ fi
 # --- mapped parent slot: session not in file, default by non-'kid-' name ---
 echo 0 > "$OMARCHY_KIDS_RUN_DIR/boot-slot"
 "$BIN"
-if grep -qx 'User=mark' "$DROPIN" 2>/dev/null && grep -qx 'Session=omarchy' "$DROPIN" 2>/dev/null; then
-    pass "mapped parent slot -> User=mark, Session=omarchy (default)"
+if grep -qx 'User=mark' "$DROPIN" 2>/dev/null && grep -qx 'Session=omarchy.desktop' "$DROPIN" 2>/dev/null; then
+    pass "mapped parent slot -> User=mark, Session=omarchy.desktop (default)"
 else
     fail "mapped parent slot wrote unexpected content: $(tr '\n' ' ' < "$DROPIN" 2>/dev/null)"
 fi
@@ -54,7 +54,7 @@ fi
 # --- mapped slot with an explicit session column ---
 echo 3 > "$OMARCHY_KIDS_RUN_DIR/boot-slot"
 "$BIN"
-if grep -qx 'User=kid-ben' "$DROPIN" 2>/dev/null && grep -qx 'Session=omarchy' "$DROPIN" 2>/dev/null; then
+if grep -qx 'User=kid-ben' "$DROPIN" 2>/dev/null && grep -qx 'Session=omarchy.desktop' "$DROPIN" 2>/dev/null; then
     pass "explicit slot=account:session column honored"
 else
     fail "explicit session column not honored: $(tr '\n' ' ' < "$DROPIN" 2>/dev/null)"

@@ -67,7 +67,7 @@ if grep -q 'isLuks' "$HOOK"; then
 else
     fail "no LUKS check found"
 fi
-if grep -qE '-lt 3|-eq 3|number-of-tries=3' "$HOOK"; then
+if grep -qE -e '-lt 3|-eq 3|number-of-tries=3' "$HOOK"; then
     pass "bounds password attempts to three"
 else
     fail "no three-attempt bound found"

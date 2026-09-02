@@ -1,0 +1,59 @@
+#!/usr/bin/ash
+# omarchy-kids-open — used only as the --command of `plymouth ask-for-password`
+# (or invoked directly by omarchy-kids-unlock's console fallback loop).
+#
+# Reads a LUKS passphrase on stdin, opens the device with it, and — on
+# success — records which key slot unlocked it to
+# /run/omarchy-kids/boot-slot (R-BOOT-1). The passphrase is never written
+# anywhere: it goes straight from stdin into cryptsetup's --key-file=- and
+# is never assigned to a shell variable here.
+#
+# Usage: omarchy-kids-open <resolved-device> <dm-name> [cryptsetup-args...]
+# Exit status mirrors `cryptsetup open`: 0 on success, non-zero on failure —
+# this is what makes plymouth's --number-of-tries retry loop, and the
+# console fallback loop, work.
+#
+# Slot parsing is plain ash (case + parameter expansion), on purpose, so
+# this script needs nothing beyond cryptsetup itself.
+
+device="$1"
+name="$2"
+shift 2 2>/dev/null
+
+[ -n "$device" ] && [ -n "$name" ] || exit 1
+
+run_dir="${OMARCHY_KIDS_RUN_DIR:-/run/omarchy-kids}"
+log="${run_dir}/.open.log"
+
+mkdir -p "$run_dir" 2>/dev/null || exit 1
+chmod 0755 "$run_dir" 2>/dev/null
+
+cryptsetup open --type luks --key-file=- --verbose "$device" "$name" "$@" >"$log" 2>&1
+status=$?
+
+if [ "$status" -eq 0 ]; then
+    slot=""
+    while IFS= read -r line; do
+        case "$line" in
+            *"Key slot "*" unlocked"*)
+                rest="${line#*Key slot }"
+                candidate="${rest%% unlocked*}"
+                case "$candidate" in
+                    ''|*[!0-9]*) ;;
+                    *) slot="$candidate" ;;
+                esac
+                ;;
+        esac
+    done < "$log"
+
+    if [ -n "$slot" ]; then
+        ( umask 077 && printf '%s\n' "$slot" > "${run_dir}/boot-slot" )
+        chmod 0600 "${run_dir}/boot-slot" 2>/dev/null
+    fi
+fi
+
+rm -f "$log" 2>/dev/null
+
+exit "$status"
+
+# vim: set ft=sh ts=4 sw=4 et:

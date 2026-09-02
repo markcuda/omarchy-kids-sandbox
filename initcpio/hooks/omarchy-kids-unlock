@@ -1,0 +1,120 @@
+#!/usr/bin/ash
+# omarchy-kids-unlock — runs BEFORE the stock 'encrypt' hook (R-BOOT-1).
+#
+# It prompts for the boot LUKS passphrase exactly like the stock hook
+# (initcpio-ref/hooks-encrypt): same cryptdevice=device:name:options parsing,
+# same plymouth ask-for-password / plain-console fallback. Its only extra
+# job is recording which key slot unlocked the volume to
+# /run/omarchy-kids/boot-slot, so omarchy-kids-boot-login.service can
+# autolog the matching account for the rest of this boot (R-BOOT-3).
+#
+# Every unexpected condition is a silent "do nothing, return 0": no
+# cryptdevice=, not LUKS, /dev/mapper/<name> already there, a keyfile boot
+# (cryptkey=), our helper missing, or three failed password attempts. In
+# every one of those the stock 'encrypt' hook runs immediately after us and
+# prompts as it always has (I-9: never a machine that will not boot).
+#
+# The passphrase itself is never written anywhere: it is either handed to
+# plymouth directly (which feeds it to our helper's stdin) or read into a
+# shell variable that is unset the moment it has been piped to the helper.
+
+run_hook() {
+    local quiet cryptdev cryptname cryptoptions cryptargs cryptopt resolved
+    local helper tries passphrase OLDIFS
+
+    helper="/usr/lib/initcpio/omarchy-kids-open"
+
+    # Keyfile boot (e.g. auto-unlock): nothing for us to do, ever.
+    [ -n "${cryptkey:-}" ] && return 0
+
+    # No cryptdevice= at all: stock hook has nothing to do either, but that's
+    # its call to make, not ours.
+    [ -z "${cryptdevice:-}" ] && return 0
+
+    [ -x "$helper" ] || return 0
+
+    # cryptdevice can contain ':' which needs to be escaped, same as stock.
+    # shellcheck disable=SC2162
+    IFS=: read cryptdev cryptname cryptoptions <<EOF
+$cryptdevice
+EOF
+
+    [ -n "$cryptname" ] || return 0
+
+    # Something already created the mapping (another hook, or a re-run):
+    # the stock hook's own early-return covers this, so just step aside.
+    [ -b "/dev/mapper/${cryptname}" ] && return 0
+
+    modprobe -a -q dm-crypt >/dev/null 2>&1
+
+    resolved=$(resolve_device "${cryptdev}" "$(getarg rootdelay)") || return 0
+    [ -n "$resolved" ] || return 0
+
+    cryptsetup isLuks "${resolved}" >/dev/null 2>&1 || return 0
+
+    quiet="$(getarg quiet)"
+
+    # Same cryptoptions -> cryptsetup flag mapping as the stock hook.
+    cryptargs=""
+    set -f
+    OLDIFS="$IFS"; IFS=,
+    for cryptopt in ${cryptoptions}; do
+        case ${cryptopt} in
+            allow-discards|discard)
+                cryptargs="${cryptargs} --allow-discards"
+                ;;
+            no-read-workqueue|perf-no_read_workqueue)
+                cryptargs="${cryptargs} --perf-no_read_workqueue"
+                ;;
+            no-write-workqueue|perf-no_write_workqueue)
+                cryptargs="${cryptargs} --perf-no_write_workqueue"
+                ;;
+            sector-size=*)
+                cryptargs="${cryptargs} --sector-size ${cryptopt#*=}"
+                ;;
+            *)
+                # Unknown option: stay quiet and let it through unchanged.
+                # The stock hook will warn about it when it runs its own
+                # parse a moment later.
+                ;;
+        esac
+    done
+    set +f
+    IFS="$OLDIFS"; unset OLDIFS
+
+    if command -v plymouth >/dev/null 2>&1 && plymouth --ping 2>/dev/null; then
+        plymouth ask-for-password \
+            --number-of-tries=3 \
+            --prompt="A password is required to access the ${cryptname} volume" \
+            --command="${helper} ${resolved} ${cryptname}${cryptargs}"
+    else
+        [ "${quiet}" = "y" ] || {
+            echo ""
+            echo "A password is required to access the ${cryptname} volume:"
+        }
+        tries=0
+        while [ "$tries" -lt 3 ]; do
+            tries=$((tries + 1))
+            stty -echo 2>/dev/null
+            [ "${quiet}" = "y" ] || printf '%s' "Password: " >&2
+            IFS= read -r passphrase
+            stty echo 2>/dev/null
+            [ "${quiet}" = "y" ] || echo "" >&2
+            # shellcheck disable=SC2086
+            if printf '%s\n' "${passphrase}" | "$helper" "${resolved}" "${cryptname}" ${cryptargs}; then
+                unset passphrase
+                break
+            fi
+            unset passphrase
+        done
+    fi
+
+    # Whether we succeeded or gave up, we never touch $root/$cryptname setup
+    # ourselves. On success /dev/mapper/${cryptname} already exists and the
+    # stock hook's own early-return takes it from here. On failure nothing
+    # was created and the stock hook prompts fresh, same as if we were never
+    # in HOOKS at all.
+    return 0
+}
+
+# vim: set ft=sh ts=4 sw=4 et:

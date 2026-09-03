@@ -338,7 +338,8 @@ hyprland_fix() {
     for f in "$HYPR_SHARE"/*.lua; do
         [[ -e "$f" ]] || continue
         base="$(basename "$f")"
-        install -m 0644 "$f" "$HYPR_ETC/$base" || return 1
+        # atomic replace: Hyprland reloads on change, a half-written file shows a red banner
+        install -m 0644 "$f" "$HYPR_ETC/.$base.tmp" && mv -f "$HYPR_ETC/.$base.tmp" "$HYPR_ETC/$base" || return 1
     done
 }
 

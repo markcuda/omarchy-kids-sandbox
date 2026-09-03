@@ -334,7 +334,9 @@ do_install_configs() {
   shopt -s nullglob
   for f in "$src"/*.lua; do
     base="$(basename "$f")"
-    install -m 0644 "$f" "$dst/$base"
+    # Temp name then rename: Hyprland watches this directory and reloads on every change, so a
+    # kid who is logged in during an upgrade must never see a half-written file (seen live).
+    install -m 0644 "$f" "$dst/.$base.tmp" && mv -f "$dst/.$base.tmp" "$dst/$base"
     echo "installed $dst/$base"
     copied=$((copied + 1))
   done

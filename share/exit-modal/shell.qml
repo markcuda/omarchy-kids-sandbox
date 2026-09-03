@@ -62,6 +62,9 @@ PanelWindow {
     // --- Layer-shell specifics (see the UNTESTED header above) -----------
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusiveZone: -1
+    // Verified live 2026-09-02: without this the overlay draws but keys go to the window
+    // underneath (Quickshell 0.3.1 on Hyprland 0.56).
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
     anchors {
         top: true
         bottom: true

@@ -58,7 +58,7 @@ things, run first).
      boot's image no longer carries the `omarchy-kids-unlock` hook.
    - Removes the per-boot SDDM autologin drop-in (`zz-omarchy-kids-autologin.conf`) if this boot
      happened to still have one around.
-   - Disables and stops every unit `lib/units.sh` lists — `KIDS_UNITS`/`KIDS_SOCKETS`/`KIDS_TIMERS`,
+   - Disables and stops every unit `lib/kids.sh` lists — `KIDS_UNITS`/`KIDS_SOCKETS`/`KIDS_TIMERS`,
      the same shared list `bin/omarchy-kids-assert`'s own "units" lock and `bin/omarchy-kids-wizard`'s
      Apply step use (issue #46) — plus this command's own `KIDS_EXTRA_UNITS` (the socket/timer-activated
      services with no `[Install]` section of their own: `omarchy-kids-authd.service`,
@@ -190,7 +190,7 @@ reports `skipped`, with no separate `rm -rf` or move needed.
   the same reason `docs/assert.md`'s "Judgment calls" already gives for `group_for_band`: those
   source files are scripts with their own `main "$@"`, not libraries, and each duplicated block is
   small, stable, and already documented in full at its original home. `KIDS_UNITS`/`KIDS_SOCKETS`/
-  `KIDS_TIMERS` are a different kind of exception: those *are* shared, from `lib/units.sh` (issue
+  `KIDS_TIMERS` are a different kind of exception: those *are* shared, from `lib/kids.sh` (issue
   #45 item 5), since a stale copy there would silently leave a real unit running after a real
   teardown — the exact bug this item fixed — where a stale copy of the smaller helpers above only
   ever costs a little duplication, not a leftover lock.

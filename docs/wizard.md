@@ -124,7 +124,7 @@ $INVOKING_USER` (issue #46 follow-up; `$INVOKING_USER` defaults to `id -un`, sin
 always runs unprivileged, as the parent) — since nothing else in this repo writes that line, and
 without it `omarchy-kids-authd` answers "no" to every password and `omarchy-kids-provision`
 refuses to add a kid at all. Only then does it run `sudo systemctl enable --now` on the package's
-own units — `KIDS_UNITS`/`KIDS_SOCKETS`/`KIDS_TIMERS`, `lib/units.sh`, the same list
+own units — `KIDS_UNITS`/`KIDS_SOCKETS`/`KIDS_TIMERS`, `lib/kids.sh`, the same list
 `omarchy-kids-assert`'s `units` lock uses (`docs/assert.md`) — *before* provisioning (issue #46): a
 fresh install before the first kid, or right after `omarchy-kids-remove` disables them again, needs
 the boot-time autologin and a working authd socket back before Step 2 (the account) and the *next*

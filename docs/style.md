@@ -129,9 +129,11 @@ file). Every file-level header is at or under setup-form.sh-length now; almost e
 function comment is 0–2 lines. The prose that used to live in those headers moved into the paired `docs/<command>.md` file, with
 a one-line pointer left in the source — nothing was deleted, including comments that explained a
 security or trust-boundary decision. A few small, dense library files
-(`lib/units.sh`, `lib/kids.sh`, `lib/data.sh`) stay above 12% on their own: each is short (12–219
+(`lib/kids.sh`, `lib/data.sh`) stay above 12% on their own: each is short (12–219
 lines) with almost every remaining comment being a single-line function signature or a
 trust-boundary rationale AGENTS.md rule 9 asks to keep local, not narrative bloat left to trim.
+`lib/units.sh` (formerly three small arrays in their own file) folded into `lib/kids.sh` under a
+"systemd units" heading — 2.2's finding — rather than staying a file of its own.
 
 ## 4. Naming
 

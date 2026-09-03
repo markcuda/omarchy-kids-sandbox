@@ -18,8 +18,6 @@ source "$LIB/tui.sh"
 source "$LIB/theme.sh"
 # shellcheck source=lib/wizard-advanced.sh
 source "$LIB/wizard-advanced.sh"
-# shellcheck source=lib/units.sh
-source "$LIB/units.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 

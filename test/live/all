@@ -1,0 +1,43 @@
+#!/bin/bash
+# Runs every test/live/NN-*.sh scenario against the real VM, in order. Stops at the first FAIL
+# unless -k (keep going, same flag as pytest's). Writes a Markdown report to
+# $LIVE_OUT_DIR/report.md: one row per scenario, PASS/FAIL, and the screenshots it took.
+set -uo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=test/live/lib.sh
+source "$DIR/lib.sh"
+
+keep_going=0
+[[ "${1:-}" == "-k" ]] && keep_going=1
+
+overall=0
+rows=""
+for t in "$DIR"/[0-9][0-9]-*.sh; do
+    [[ -f $t ]] || continue
+    name="$(basename "$t" .sh)"
+    echo "=== $name ==="
+    out="$(bash "$t" 2>&1)"
+    echo "$out"
+
+    result_line="$(echo "$out" | grep -E '^(PASS|FAIL) ' | tail -1)"
+    result="${result_line%% *}"
+    [[ -z "$result" ]] && result="FAIL" # crashed before calling scenario_result
+    shots="$(echo "$out" | grep -oE '^[A-Za-z0-9_.-]+\.png$' | paste -sd, -)"
+    rows="$rows
+$(report_row "$name" "$result" "$shots")"
+
+    if [[ "$result" != "PASS" ]]; then
+        overall=1
+        (( keep_going )) || break
+    fi
+done
+
+{
+    echo "# VM acceptance report — $(date -u +%FT%TZ)"
+    echo
+    report_header
+    printf '%s\n' "$rows"
+} > "$LIVE_OUT_DIR/report.md"
+
+echo "report: $LIVE_OUT_DIR/report.md"
+exit $overall

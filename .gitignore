@@ -1,2 +1,4 @@
 __pycache__/
 *.pyc
+/test/live/config.env
+/test/live/out/

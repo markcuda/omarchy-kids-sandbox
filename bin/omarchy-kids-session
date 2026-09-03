@@ -58,8 +58,11 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
-ASK_GROWNUP_BIN="${OMARCHY_KIDS_ASK_GROWNUP_BIN:-$DIR/bin/omarchy-kids-ask-grownup}"; [[ -x "$ASK_GROWNUP_BIN" ]] || ASK_GROWNUP_BIN=/usr/bin/omarchy-kids-ask-grownup
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
+CONF_BIN="$(kids_bin conf "$DIR")"
+ASK_GROWNUP_BIN="$(kids_bin ask-grownup "$DIR")"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"

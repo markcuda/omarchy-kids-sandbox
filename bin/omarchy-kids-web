@@ -82,7 +82,10 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONF="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF" ]] || CONF=omarchy-kids-conf
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
+CONF="$(kids_bin conf "$DIR")"
 
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
@@ -135,37 +138,10 @@ real too -- it starts a browser, not something that touches /etc.
 EOF
 }
 
-run() {
-    if [[ "$DRY_RUN" == "0" ]]; then
-        "$@"
-    else
-        printf '  [dry-run]'
-        printf ' %q' "$@"
-        printf '\n'
-    fi
-}
-
 is_valid_band() {
     local b="$1" v
     for v in "${VALID_BANDS[@]}"; do [[ "$v" == "$b" ]] && return 0; done
     return 1
-}
-
-# group_for_band BAND — the same fixed, documented mapping
-# bin/omarchy-kids-provision's and bin/omarchy-kids-assert's own
-# group_for_band use (docs/packaging.md); duplicated rather than sourced
-# for the same reason bin/omarchy-kids-assert already gives: four stable
-# lines unlikely to ever change independent of either file, and
-# omarchy-kids-provision is a script (its own `main "$@"` would run if
-# sourced), not a library.
-group_for_band() {
-    case "$1" in
-        3-5) echo omarchy-kids-3-5 ;;
-        6-8) echo omarchy-kids-6-8 ;;
-        9-12) echo omarchy-kids-9-12 ;;
-        13+) echo omarchy-kids-13plus ;;
-        *) die "unknown band: '$1'" ;;
-    esac
 }
 
 # band_web_mode BAND — none|garden|filtered, from share/bands/bands.toml
@@ -240,7 +216,7 @@ install_policy_file() {
     chmod 0640 "$stage"
     mv -f "$stage" "$file"
 
-    group="$(group_for_band "$band")"
+    group="$(group_for_band "$band")" || die "unknown band: '$band'"
     if ! chown "root:$group" "$file" >/dev/null 2>&1; then
         echo "  (could not chown $file to root:$group -- fine outside a real root run; omarchy-kids-assert fixes this on the target)" >&2
     fi

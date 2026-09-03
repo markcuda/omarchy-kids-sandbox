@@ -44,6 +44,8 @@ source "$LIB/conf.sh"
 source "$LIB/posture.sh"
 # shellcheck source=lib/units.sh
 source "$LIB/units.sh"
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -148,35 +150,7 @@ assert_one() {
 
 # --- small helpers not worth a shared lib entry ----------------------------
 
-# group_for_band BAND — the same fixed, documented mapping
-# bin/omarchy-kids-provision's group_for_band uses (docs/packaging.md);
-# duplicated rather than sourced because omarchy-kids-provision is a
-# script (its own `main "$@"` would run if sourced), not a library, and
-# this mapping is four stable lines unlikely to ever change independent
-# of that file. Accepts both "13+" (Appendix B's spelling) and "13plus"
-# (a Chromium policy filename's spelling, since '+' is an awkward
-# characters to key on there) for the oldest band.
-group_for_band() {
-    case "$1" in
-        3-5) echo omarchy-kids-3-5 ;;
-        6-8) echo omarchy-kids-6-8 ;;
-        9-12) echo omarchy-kids-9-12 ;;
-        13+|13plus) echo omarchy-kids-13plus ;;
-        *) return 1 ;;
-    esac
-}
-
 profile_field() { conf_get "$KIDS_DIR/$1.conf" "$2" 2>/dev/null || true; }
-
-home_dir_for() { printf '%s/home/%s' "$HOME_ROOT" "$1"; }
-
-# GNU first: on Linux `stat -f` means "filesystem status" and prints that (with a non-zero
-# exit for the odd operand), so the BSD-first form tainted the result and the chromium lock
-# re-fixed a correct file on every run (seen live 2026-09-02).
-file_mode() {
-    if stat --version >/dev/null 2>&1; then stat -c '%a' "$1" 2>/dev/null || true
-    else stat -f '%Lp' "$1" 2>/dev/null || true; fi
-}
 
 # --- per-kid locks ----------------------------------------------------------
 
@@ -320,23 +294,13 @@ sddm_theme_fix() { posture_write_sddm_theme_dropin; }
 # autologin -- see lib/posture.sh's own header comment on
 # posture_write_portal_conf for the SDDM ThemeConfig citation this
 # replacement rests on instead.
-portal_conf_entries() {
-    local f account name avatar
-    for f in "$KIDS_DIR"/*.conf; do
-        [[ -e "$f" ]] || continue
-        account="$(basename "$f" .conf)"
-        name="$(conf_get "$f" name 2>/dev/null || true)"
-        avatar="$(conf_get "$f" avatar 2>/dev/null || true)"
-        printf '%s\t%s\t%s\n' "$account" "$name" "$avatar"
-    done
-}
 portal_conf_expected() {
     local parent entries=() line
     parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
     [[ -n "$parent" ]] || return 1
     while IFS= read -r line; do
         [[ -n "$line" ]] && entries+=("$line")
-    done < <(portal_conf_entries)
+    done < <(portal_conf_entries "$KIDS_DIR")
     posture_portal_conf_text "$parent" "${entries[@]+"${entries[@]}"}"
 }
 portal_conf_ok() {
@@ -351,7 +315,7 @@ portal_conf_fix() {
     [[ -n "$parent" ]] || return 1
     while IFS= read -r line; do
         [[ -n "$line" ]] && entries+=("$line")
-    done < <(portal_conf_entries)
+    done < <(portal_conf_entries "$KIDS_DIR")
     posture_write_portal_conf "$parent" "${entries[@]+"${entries[@]}"}"
 }
 
@@ -476,7 +440,7 @@ hyprland_fix() {
 # docs/provision.md's own stated reasoning: real runs are always root, at
 # which point every file this creates is already root-owned anyway.
 chromium_dir() { printf '%s/etc/chromium/policies/managed' "$(posture_root)"; }
-chromium_ok() { [[ "$(file_mode "$1")" == "640" ]]; }
+chromium_ok() { [[ "$(file_stat a "$1")" == "640" ]]; }
 chromium_fix() {
     local file="$1" band="$2" group
     chmod 0640 "$file" || return 1
@@ -517,15 +481,6 @@ boot_hook_ok() {
 boot_hook_fix() { mkinitcpio -P; }
 
 # --- main --------------------------------------------------------------
-
-list_kids() {
-    [[ -d "$KIDS_DIR" ]] || return 0
-    local f
-    for f in "$KIDS_DIR"/*.conf; do
-        [[ -e "$f" ]] || continue
-        basename "$f" .conf
-    done
-}
 
 # --- Limine editor (V6): the menu editor and "Blank Entry" let anyone append init=/bin/bash ---
 limine_conf() { printf '%s/boot/limine.conf' "$(posture_root)"; }
@@ -633,7 +588,7 @@ main() {
     local kids=() k
     while IFS= read -r k; do
         [[ -n "$k" ]] && kids+=("$k")
-    done < <(list_kids)
+    done < <(kids_list "$KIDS_DIR")
 
     if [[ ${#kids[@]} -eq 0 ]]; then
         # units enabled is machine-level, not per-kid (R-BOOT-3): a fresh

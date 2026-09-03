@@ -70,8 +70,10 @@ source "$LIB/conf.sh"
 source "$LIB/posture.sh"
 # shellcheck source=lib/time.sh
 source "$LIB/time.sh"
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
 
-ASSERT_BIN="${OMARCHY_KIDS_ASSERT_BIN:-$DIR/bin/omarchy-kids-assert}"; [[ -x "$ASSERT_BIN" ]] || ASSERT_BIN=/usr/bin/omarchy-kids-assert
+ASSERT_BIN="$(kids_bin assert "$DIR")"
 RUNUSER_BIN="${OMARCHY_KIDS_RUNUSER_BIN:-runuser}"
 LOGINCTL_BIN="${OMARCHY_KIDS_LOGINCTL_BIN:-loginctl}"
 PROC_ROOT="${OMARCHY_KIDS_PROC_ROOT:-/proc}"
@@ -203,38 +205,8 @@ kid_conf_count() {
     local n=0 acct
     while IFS= read -r acct; do
         [[ -n "$acct" ]] && n=$((n + 1))
-    done < <(list_kids)
+    done < <(kids_list "$KIDS_DIR")
     printf '%s' "$n"
-}
-
-# stat_group FILE — the file's group owner name, GNU stat first (same
-# reasoning bin/omarchy-kids-assert's own file_mode gives: on Linux
-# `stat -f` means "filesystem status", not BSD's "format", so trying the
-# GNU form first and falling back avoids silently reading the wrong
-# thing on this repo's own macOS dev box).
-stat_group() {
-    if stat --version >/dev/null 2>&1; then stat -c '%G' "$1" 2>/dev/null || true
-    else stat -f '%Sg' "$1" 2>/dev/null || true; fi
-}
-
-# detect_luks_device_check — duplicated from bin/omarchy-kids-provision's
-# own detect_luks_device (OMARCHY_KIDS_LUKS_DEVICE, else a best-effort
-# lsblk scan), not sourced: provision is a script with its own `main
-# "$@"` dispatch (add/remove/list), not a library, and this is a small,
-# stable, side-effect-free function — the same call docs/assert.md's own
-# "Judgment calls" already made for group_for_band, which that note
-# explicitly flagged as "worth revisiting if a third command ever needs
-# it too". This is that third command, for this one function; the
-# *_ok functions above are the ones big enough that duplicating them
-# instead of sourcing omarchy-kids-assert would have been the wrong call.
-detect_luks_device_check() {
-    if [[ -n "${OMARCHY_KIDS_LUKS_DEVICE:-}" ]]; then printf '%s\n' "$OMARCHY_KIDS_LUKS_DEVICE"; return 0; fi
-    if command -v lsblk >/dev/null 2>&1; then
-        local dev
-        dev="$(lsblk -rno NAME,FSTYPE 2>/dev/null | awk '$2=="crypto_LUKS"{print "/dev/"$1; exit}')"
-        if [[ -n "$dev" ]]; then printf '%s\n' "$dev"; return 0; fi
-    fi
-    return 1
 }
 
 # --- Accounts ----------------------------------------------------------
@@ -315,7 +287,7 @@ run_accounts_section() {
         fi
 
         account_gecos_check "$acct" "$name"
-    done < <(list_kids)
+    done < <(kids_list "$KIDS_DIR")
     [[ "$any" == 1 ]] || add_result Accounts "accounts:none" skip "no kids provisioned yet; nothing to check"
 }
 
@@ -341,7 +313,7 @@ run_locks_section() {
         lock_check "gecos:$acct" gecos_ok "$acct" "$name"
         lock_check_warn "face:$acct" face_ok "$acct" "$avatar"
         lock_check "groups:$acct" groups_ok "$acct" "$band"
-    done < <(list_kids)
+    done < <(kids_list "$KIDS_DIR")
 
     lock_check polkit-admin polkit_admin_ok
     lock_check polkit-deny polkit_deny_ok
@@ -459,7 +431,7 @@ boot_check_luks_slots() {
         return
     fi
     local device
-    if ! device="$(detect_luks_device_check)"; then
+    if ! device="$(detect_luks_device)"; then
         add_result Boot "boot:luks-slots" warn "cannot verify: no LUKS device found (set OMARCHY_KIDS_LUKS_DEVICE)"
         return
     fi
@@ -563,7 +535,7 @@ run_login_section() {
         else
             add_result Login "login:face:$acct" warn "$acct's face icon is missing or doesn't match ($avatar) — cosmetic only; run 'omarchy-kids-assert' (issue #39)"
         fi
-    done < <(list_kids)
+    done < <(kids_list "$KIDS_DIR")
 
     local dropin
     dropin="$(posture_sddm_conf_dir)/zz-omarchy-kids-autologin.conf"
@@ -689,7 +661,7 @@ run_web_section() {
         # run can never make chown succeed no matter what's "really"
         # wrong, so reporting a hard FAIL there would just be noise
         # about this process's own privilege, not the target's posture.
-        owner_group="$(stat_group "$cf")"
+        owner_group="$(file_stat G "$cf")"
         if [[ "$EUID" != 0 ]]; then
             add_result Web "web:owner:$bt" skip "not checked as non-root — a real run of this check is always root, at which point the file's group is already correct by construction (R-WEB-1)"
         elif [[ -z "$owner_group" ]]; then
@@ -740,7 +712,7 @@ run_time_section() {
         else
             add_result Time "time:ledger:$acct" warn "$udir doesn't exist yet — no minutes recorded for $acct yet (normal before their first session)"
         fi
-    done < <(list_kids)
+    done < <(kids_list "$KIDS_DIR")
     [[ "$any" == 1 ]] || add_result Time "time:ledger" skip "no kids provisioned; nothing to check"
 }
 
@@ -969,7 +941,7 @@ run_live_section() {
         [[ -n "$acct" ]] || continue
         any=1
         live_test_kid "$acct"
-    done < <(list_kids)
+    done < <(kids_list "$KIDS_DIR")
     [[ "$any" == 1 ]] || add_result "Live tests" "live:none" skip "no kids provisioned; nothing to test"
 }
 

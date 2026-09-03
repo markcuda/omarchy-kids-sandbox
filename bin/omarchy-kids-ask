@@ -94,11 +94,13 @@ set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 ASKPY="$LIB/ask.py"
-CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
-WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=/usr/bin/omarchy-kids-web
-SELF="${OMARCHY_KIDS_ASK_BIN:-$DIR/bin/omarchy-kids-ask}"; [[ -x "$SELF" ]] || SELF=/usr/bin/omarchy-kids-ask
+CONF_BIN="$(kids_bin conf "$DIR")"
+WEB_BIN="$(kids_bin web "$DIR")"
+SELF="$(kids_bin ask "$DIR")"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -168,16 +170,6 @@ they only print the plan. Pass --apply, or set DRY_RUN=0, to make it real.
 EOF
 }
 
-run() { # run CMD [ARGS...] -- DRY_RUN=1 (default) previews; 0/--apply runs it.
-    if [[ "$DRY_RUN" == "0" ]]; then
-        "$@"
-    else
-        printf '  [dry-run]'
-        printf ' %q' "$@"
-        printf '\n'
-    fi
-}
-
 is_in() {
     local needle="$1"; shift
     local h
@@ -189,29 +181,12 @@ is_valid_kind() { is_in "$1" "${VALID_KINDS[@]}"; }
 
 # --- kid-side: open the modal ---------------------------------------------
 
-# modal_already_open -- a pidfile this command writes itself, not a
-# substring of somebody's argv. `pgrep -f "quickshell -p $MODAL_QML"`
-# matched any process a kid could start with that string in its command
-# line, which let a kid wedge the modal shut forever (review §1.9).
-# The pidfile lives in the kid's own mode-0700 runtime dir, so a kid
-# could still write it -- but only a live process whose /proc comm is
-# quickshell counts, which is the modal itself.
-modal_already_open() {
-    local pid comm=""
-    [[ -r "$MODAL_PIDFILE" ]] || return 1
-    IFS= read -r pid < "$MODAL_PIDFILE" || return 1
-    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
-    kill -0 "$pid" 2>/dev/null || return 1
-    [[ -r "/proc/$pid/comm" ]] && IFS= read -r comm < "/proc/$pid/comm"
-    [[ -z "$comm" || "$comm" == quickshell* ]]
-}
-
 # open_modal KIND WHAT DESC [MINUTES] -- exports what the QML needs and
 # execs quickshell, same shape as bin/omarchy-kids-exit's cmd_open.
 open_modal() {
     local kind="$1" what="$2" desc="$3" minutes="${4:-}"
 
-    if modal_already_open; then
+    if modal_already_open "$MODAL_PIDFILE"; then
         exit 0
     fi
 
@@ -224,7 +199,7 @@ open_modal() {
 
     # exec keeps this pid, so $$ is the modal's own pid.
     install -d -m 0700 "$RUN"
-    printf '%s\n' "$$" > "$MODAL_PIDFILE"
+    modal_write_pid "$MODAL_PIDFILE"
     exec quickshell -p "$MODAL_QML"
 }
 
@@ -316,15 +291,6 @@ cmd_grant() {
 }
 
 # --- root: collect --------------------------------------------------------
-
-list_kids() {
-    [[ -d "$KIDS_DIR" ]] || return 0
-    local f
-    for f in "$KIDS_DIR"/*.conf; do
-        [[ -e "$f" ]] || continue
-        basename "$f" .conf
-    done
-}
 
 # apply_record PATH -- performs the action a decided (approved) record
 # names. Never rewrites the record itself (lib/ask.py decide already

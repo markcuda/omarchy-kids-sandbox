@@ -86,17 +86,19 @@ source "$LIB/tui.sh"
 source "$LIB/wizard-advanced.sh"
 # shellcheck source=lib/units.sh
 source "$LIB/units.sh"
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
 
-CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=omarchy-kids-conf
-PROVISION_BIN="${OMARCHY_KIDS_PROVISION_BIN:-$DIR/bin/omarchy-kids-provision}"; [[ -x "$PROVISION_BIN" ]] || PROVISION_BIN=omarchy-kids-provision
-WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=omarchy-kids-web
-ASSERT_BIN="${OMARCHY_KIDS_ASSERT_BIN:-$DIR/bin/omarchy-kids-assert}"; [[ -x "$ASSERT_BIN" ]] || ASSERT_BIN=omarchy-kids-assert
-SESSION_BIN="${OMARCHY_KIDS_SESSION_BIN:-$DIR/bin/omarchy-kids-session}"; [[ -x "$SESSION_BIN" ]] || SESSION_BIN=omarchy-kids-session
-APPS_BIN="${OMARCHY_KIDS_APPS_BIN:-$DIR/bin/omarchy-kids-apps}"; [[ -x "$APPS_BIN" ]] || APPS_BIN=omarchy-kids-apps
+CONF_BIN="$(kids_bin conf "$DIR")"
+PROVISION_BIN="$(kids_bin provision "$DIR")"
+WEB_BIN="$(kids_bin web "$DIR")"
+ASSERT_BIN="$(kids_bin assert "$DIR")"
+SESSION_BIN="$(kids_bin session "$DIR")"
+APPS_BIN="$(kids_bin apps "$DIR")"
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 PYHELPER="$LIB/conf.py"
 

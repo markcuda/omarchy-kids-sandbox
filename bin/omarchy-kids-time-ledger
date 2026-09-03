@@ -49,7 +49,9 @@ set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
-CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
+CONF_BIN="$(kids_bin conf "$DIR")"
 export OMARCHY_KIDS_CONF_BIN="$CONF_BIN" OMARCHY_KIDS_TIME_PY="$LIB/time.py"
 # shellcheck source=lib/time.sh
 source "$LIB/time.sh"
@@ -76,19 +78,6 @@ systemd/omarchy-kids-time.timer, not by hand.
 
   -h, --help  Show this help and exit.
 EOF
-}
-
-# known_kids — every account with a profile under $KIDS_DIR, one per
-# line (the account is the .conf file's basename). Glob, not `ls`: an
-# empty directory must yield nothing, not a literal "*.conf".
-known_kids() {
-    local f base
-    [[ -d "$KIDS_DIR" ]] || return 0
-    for f in "$KIDS_DIR"/*.conf; do
-        [[ -e "$f" ]] || continue
-        base="$(basename "$f")"
-        printf '%s\n' "${base%.conf}"
-    done
 }
 
 # is_known_kid ACCOUNT — 0 if ACCOUNT has a profile under $KIDS_DIR.
@@ -148,7 +137,7 @@ write_status_json() {
             --argjson paused "$paused" --argjson live "$live" \
             '{kid: $kid, minutes_left: $minutes_left, paused: $paused, live: $live}' \
             >>"$rows"
-    done < <(known_kids)
+    done < <(kids_list "$KIDS_DIR")
     jq -s '{generated_at: (now | todate), kids: .}' "$rows" >"$STATUS_JSON.tmp" 2>/dev/null \
         && mv "$STATUS_JSON.tmp" "$STATUS_JSON" && chmod 0640 "$STATUS_JSON"
     chgrp omarchy-parents "$STATUS_JSON" 2>/dev/null || true
@@ -182,7 +171,7 @@ fold_all_launches() {
     while IFS= read -r kid; do
         [[ -n "$kid" ]] || continue
         data_fold_launches "$kid" 2>/dev/null || true
-    done < <(known_kids)
+    done < <(kids_list "$KIDS_DIR")
 }
 
 [[ $# -ge 1 ]] || { usage >&2; exit 2; }

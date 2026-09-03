@@ -32,6 +32,8 @@ LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/oma
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh
 source "$LIB/posture.sh"
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
 
 DRY_RUN="${DRY_RUN:-1}"
 
@@ -42,7 +44,7 @@ KIDS_DIR="$ETC/kids"
 SLOTS_FILE="$ETC/luks-slots"
 MACHINE_CONF="$ETC/machine.conf"
 
-CONF="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF" ]] || CONF=omarchy-kids-conf
+CONF="$(kids_bin conf "$DIR")"
 
 VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 
@@ -89,16 +91,6 @@ make it real.
 EOF
 }
 
-run() {
-    if [[ "$DRY_RUN" == "0" ]]; then
-        "$@"
-    else
-        printf '  [dry-run]'
-        printf ' %q' "$@"
-        printf '\n'
-    fi
-}
-
 # ensure_parent_unlock_soft STACK — posture_ensure_parent_unlock_line
 # through `run` (so DRY_RUN=1's default just prints the plan), but never
 # aborts the add: a target PAM stack this box hasn't written yet (no
@@ -128,16 +120,6 @@ valid_display_name() {
     return 0
 }
 
-group_for_band() {
-    case "$1" in
-        3-5) echo omarchy-kids-3-5 ;;
-        6-8) echo omarchy-kids-6-8 ;;
-        9-12) echo omarchy-kids-9-12 ;;
-        13+) echo omarchy-kids-13plus ;;
-        *) die "unknown band: '$1'" ;;
-    esac
-}
-
 # band_field BAND KEY — one value out of `omarchy-kids-conf band BAND`
 # (password_min, password_optional -- the band-only fields, docs/conf.md).
 band_field() {
@@ -146,37 +128,9 @@ band_field() {
     printf '%s\n' "$out" | sed -n "s/^${key}=//p" | head -1
 }
 
-home_dir_for() { printf '%s/home/%s' "$HOME_ROOT" "$1"; }
-
-# read_kv FILE KEY — a plain key=value read, matching every other file in
-# this format across the repo (lib/conf.sh's conf_get, boot-login's
-# lookup_slot): no whitespace tolerated around '=', '#' and blank lines
-# skipped, last match wins.
-read_kv() {
-    local file="$1" key="$2" line k v found=1
-    [[ -r "$file" ]] || return 1
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        case "$line" in ''|'#'*) continue ;; esac
-        k="${line%%=*}"; v="${line#*=}"
-        [[ "$k" == "$key" ]] || continue
-        found=0
-    done < "$file"
-    [[ $found == 0 ]] && printf '%s\n' "$v"
-    return $found
-}
-
-read_parent() { read_kv "$MACHINE_CONF" parent || true; }
-
-parent_home_dir() {
-    local parent home
-    parent="$(read_parent)"
-    [[ -n "$parent" ]] || die "cannot find 'parent=' in $MACHINE_CONF"
-    if command -v getent >/dev/null 2>&1; then
-        home="$(getent passwd "$parent" 2>/dev/null | cut -d: -f6)"
-        [[ -n "$home" ]] && { printf '%s\n' "$home"; return 0; }
-    fi
-    printf '%s\n' "$(home_dir_for "$parent")"
-}
+# read_parent — the "parent=" account name from $MACHINE_CONF, via
+# lib/conf.sh's conf_get (the format's one shared reader).
+read_parent() { conf_get "$MACHINE_CONF" parent 2>/dev/null || true; }
 
 # --- luks-slots parsing (the file lib/posture.sh's posture_write_luks_slots
 # rewrites; see docs/boot.md for the "slot=account[:session]" format) -------
@@ -219,45 +173,7 @@ luks_slot_for_account() {
     done < "$file"
 }
 
-# detect_luks_device [EXPLICIT] — EXPLICIT wins, then OMARCHY_KIDS_LUKS_DEVICE
-# (the override "remove" needs, since it has no --luks-device flag), then a
-# best-effort lsblk scan. Prints nothing and returns 1 if none is found.
-detect_luks_device() {
-    local explicit="${1:-}"
-    if [[ -n "$explicit" ]]; then printf '%s\n' "$explicit"; return 0; fi
-    if [[ -n "${OMARCHY_KIDS_LUKS_DEVICE:-}" ]]; then printf '%s\n' "$OMARCHY_KIDS_LUKS_DEVICE"; return 0; fi
-    if command -v lsblk >/dev/null 2>&1; then
-        local dev
-        dev="$(lsblk -rno NAME,FSTYPE 2>/dev/null | awk '$2=="crypto_LUKS"{print "/dev/"$1; exit}')"
-        if [[ -n "$dev" ]]; then printf '%s\n' "$dev"; return 0; fi
-    fi
-    return 1
-}
-
-# --- account naming (Appendix B.1) -----------------------------------------
-
 # --- theme.conf.user (R-LOGIN, issue #39) -----------------------------------
-
-# portal_conf_entries [EXCLUDE] — one "account<TAB>name<TAB>avatar" line
-# per profile currently under $KIDS_DIR, skipping EXCLUDE if given (the
-# account "remove" is in the middle of tearing down, which is still on
-# disk at the point this is called). Same "rebuild the whole file from
-# the current, known-correct set every time" approach luks_slots_kid_entries
-# above uses, for the same reason: theme.conf.user has to reflect every
-# kid actually provisioned, not just the one this particular add/remove
-# call is touching.
-portal_conf_entries() {
-    local exclude="${1:-}" f account name avatar
-    [[ -d "$KIDS_DIR" ]] || return 0
-    for f in "$KIDS_DIR"/*.conf; do
-        [[ -e "$f" ]] || continue
-        account="$(basename "$f" .conf)"
-        [[ -n "$exclude" && "$account" == "$exclude" ]] && continue
-        name="$(conf_get "$f" name 2>/dev/null || true)"
-        avatar="$(conf_get "$f" avatar 2>/dev/null || true)"
-        printf '%s\t%s\t%s\n' "$account" "$name" "$avatar"
-    done
-}
 
 unique_account() {
     local base="$1" n=2
@@ -526,7 +442,7 @@ cmd_add() {
     local portal_entries=() line
     while IFS= read -r line; do
         [[ -n "$line" ]] && portal_entries+=("$line")
-    done < <(portal_conf_entries "$account")
+    done < <(portal_conf_entries "$KIDS_DIR" "$account")
     portal_entries+=("$account"$'\t'"$display"$'\t'"$avatar")
     run posture_write_portal_conf "$parent" "${portal_entries[@]}"
 
@@ -677,7 +593,7 @@ cmd_remove() {
     parent="$(read_parent)"
     while IFS= read -r line; do
         [[ -n "$line" ]] && portal_entries+=("$line")
-    done < <(portal_conf_entries "$account")
+    done < <(portal_conf_entries "$KIDS_DIR" "$account")
     run posture_write_portal_conf "$parent" "${portal_entries[@]+"${portal_entries[@]}"}"
 
     # R-FND-2: unmount and drop the fstab line.
@@ -691,7 +607,7 @@ cmd_remove() {
     run userdel "$account"
     if (( ! keep_home )); then
         local dest parent_home
-        parent_home="$(parent_home_dir)"
+        parent_home="$(parent_home_dir "$MACHINE_CONF")"
         dest="$parent_home/Kids Mode/$display_name"
         run install -d -m 0755 "$parent_home/Kids Mode"
         run mv "$(home_dir_for "$account")" "$dest"

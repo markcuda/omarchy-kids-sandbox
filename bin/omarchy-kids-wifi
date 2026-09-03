@@ -76,11 +76,13 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
-WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=/usr/bin/omarchy-kids-web
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/sock.sh
 source "$LIB/sock.sh"
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
+CONF_BIN="$(kids_bin conf "$DIR")"
+WEB_BIN="$(kids_bin web "$DIR")"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 WIFI_QML="$SHARE/wifi/shell.qml"
 TOAST_QML="$SHARE/time/toast.qml"
@@ -115,18 +117,6 @@ Env:
   OMARCHY_KIDS_WIFID_TIMEOUT  default 10 (seconds)
   DRY_RUN                     default 1 for "portal" (AGENTS.md rule 8)
 EOF
-}
-
-# run CMD [ARG...] — same dry-run wrapper as bin/omarchy-kids-web: prints
-# the plan (DRY_RUN=1, the default) or actually runs it (DRY_RUN=0/--apply).
-run() {
-    if [[ "$DRY_RUN" == "0" ]]; then
-        "$@"
-    else
-        printf '  [dry-run]'
-        printf ' %q' "$@"
-        printf '\n'
-    fi
 }
 
 account() { printf '%s' "${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"; }

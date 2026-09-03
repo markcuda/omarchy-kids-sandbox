@@ -77,7 +77,9 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
-CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
+CONF_BIN="$(kids_bin conf "$DIR")"
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 PYHELPER="$LIB/conf.py"
 
@@ -156,19 +158,6 @@ is_valid_band() { is_in "$1" "${VALID_BANDS[@]}"; }
 # #52: this is what "target not found: tuxpaint" looked like live).
 pkg_resolves() { pacman -Si "$1" >/dev/null 2>&1; }
 
-# run CMD [ARGS...] — DRY_RUN=1 (default) prints the shell-quoted command
-# instead of running it; DRY_RUN=0 (or --apply) runs it for real. Same
-# shape as bin/omarchy-kids-web's own `run`.
-run() {
-    if [[ "$DRY_RUN" == "0" ]]; then
-        "$@"
-    else
-        printf '  [dry-run]'
-        printf ' %q' "$@"
-        printf '\n'
-    fi
-}
-
 # resolve_band ARG — ARG itself if it's already a valid band, else the
 # band of the kid account ARG names (via omarchy-kids-conf, so this
 # never reads a kid's profile directly).
@@ -204,15 +193,6 @@ pack_app_meta() {
     local pack="$1" id="$2" meta
     meta="$("$PY" "$PYHELPER" pack-app "$pack" "$id")" || die "no such app id '$id' in $pack"
     IFS=$'\t' read -r LABEL PKG _web <<<"$meta"
-}
-
-list_kids() {
-    [[ -d "$KIDS_DIR" ]] || return 0
-    local f
-    for f in "$KIDS_DIR"/*.conf; do
-        [[ -e "$f" ]] || continue
-        basename "$f" .conf
-    done
 }
 
 # --- allowlist math -----------------------------------------------------
@@ -501,7 +481,7 @@ cmd_hide_from_mine() {
 
     local -a kids=()
     local k
-    while IFS= read -r k; do [[ -n "$k" ]] && kids+=("$k"); done < <(list_kids)
+    while IFS= read -r k; do [[ -n "$k" ]] && kids+=("$k"); done < <(kids_list "$KIDS_DIR")
     if [[ ${#kids[@]} -eq 0 ]]; then
         echo "omarchy-kids-apps: no kids provisioned; nothing to hide"
         return 0

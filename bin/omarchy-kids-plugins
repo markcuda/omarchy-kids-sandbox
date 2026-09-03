@@ -73,7 +73,10 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
+CONF_BIN="$(kids_bin conf "$DIR")"
 PLUGIN_ADD_BIN="${OMARCHY_KIDS_PLUGIN_ADD_BIN:-omarchy-plugin-add}"
 PLUGIN_REMOVE_BIN="${OMARCHY_KIDS_PLUGIN_REMOVE_BIN:-omarchy-plugin-remove}"
 RUNUSER_BIN="${OMARCHY_KIDS_RUNUSER_BIN:-runuser}"
@@ -139,19 +142,6 @@ band_rank() {
 }
 
 require_jq() { command -v jq >/dev/null 2>&1 || die "needs jq (not found on PATH)"; }
-
-# run CMD [ARGS...] — DRY_RUN=1 (default) prints the shell-quoted command
-# instead of running it; DRY_RUN=0 (or --apply) runs it for real. Same
-# shape as bin/omarchy-kids-apps and bin/omarchy-kids-ask's own `run`.
-run() {
-    if [[ "$DRY_RUN" == "0" ]]; then
-        "$@"
-    else
-        printf '  [dry-run]'
-        printf ' %q' "$@"
-        printf '\n'
-    fi
-}
 
 # --- the index -------------------------------------------------------------
 

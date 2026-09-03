@@ -85,18 +85,20 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/tui.sh
 source "$LIB/tui.sh"
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 ASK_PY="$LIB/ask.py"
 
-CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=omarchy-kids-conf
-TIME_BIN="${OMARCHY_KIDS_TIME_BIN:-$DIR/bin/omarchy-kids-time}"; [[ -x "$TIME_BIN" ]] || TIME_BIN=omarchy-kids-time
-ASK_BIN="${OMARCHY_KIDS_ASK_BIN:-$DIR/bin/omarchy-kids-ask}"; [[ -x "$ASK_BIN" ]] || ASK_BIN=omarchy-kids-ask
-APPS_BIN="${OMARCHY_KIDS_APPS_BIN:-$DIR/bin/omarchy-kids-apps}"; [[ -x "$APPS_BIN" ]] || APPS_BIN=omarchy-kids-apps
-PLUGINS_BIN="${OMARCHY_KIDS_PLUGINS_BIN:-$DIR/bin/omarchy-kids-plugins}"; [[ -x "$PLUGINS_BIN" ]] || PLUGINS_BIN=omarchy-kids-plugins
-WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=omarchy-kids-web
-PROVISION_BIN="${OMARCHY_KIDS_PROVISION_BIN:-$DIR/bin/omarchy-kids-provision}"; [[ -x "$PROVISION_BIN" ]] || PROVISION_BIN=omarchy-kids-provision
-WIZARD_BIN="${OMARCHY_KIDS_WIZARD_BIN:-$DIR/bin/omarchy-kids-wizard}"; [[ -x "$WIZARD_BIN" ]] || WIZARD_BIN=omarchy-kids-wizard
-DATA_BIN="${OMARCHY_KIDS_DATA_BIN:-$DIR/bin/omarchy-kids-data}"; [[ -x "$DATA_BIN" ]] || DATA_BIN=omarchy-kids-data
+CONF_BIN="$(kids_bin conf "$DIR")"
+TIME_BIN="$(kids_bin time "$DIR")"
+ASK_BIN="$(kids_bin ask "$DIR")"
+APPS_BIN="$(kids_bin apps "$DIR")"
+PLUGINS_BIN="$(kids_bin plugins "$DIR")"
+WEB_BIN="$(kids_bin web "$DIR")"
+PROVISION_BIN="$(kids_bin provision "$DIR")"
+WIZARD_BIN="$(kids_bin wizard "$DIR")"
+DATA_BIN="$(kids_bin data "$DIR")"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"

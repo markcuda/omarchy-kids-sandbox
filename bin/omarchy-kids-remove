@@ -51,6 +51,8 @@ LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/oma
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh
 source "$LIB/posture.sh"
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 HOME_ROOT="${OMARCHY_KIDS_HOME_ROOT:-}"
@@ -123,17 +125,6 @@ done
 
 # --- small helpers -----------------------------------------------------
 
-home_dir_for() { printf '%s/home/%s' "$HOME_ROOT" "$1"; }
-
-list_kids() {
-    [[ -d "$KIDS_DIR" ]] || return 0
-    local f
-    for f in "$KIDS_DIR"/*.conf; do
-        [[ -e "$f" ]] || continue
-        basename "$f" .conf
-    done
-}
-
 # report STATUS DESC -- one line per step.
 report() { printf '%-12s %s\n' "$1" "$2"; }
 
@@ -205,16 +196,6 @@ luks_slot_for_account() {
             return 0
         fi
     done < "$file"
-}
-
-detect_luks_device() {
-    if [[ -n "${OMARCHY_KIDS_LUKS_DEVICE:-}" ]]; then printf '%s\n' "$OMARCHY_KIDS_LUKS_DEVICE"; return 0; fi
-    if command -v lsblk >/dev/null 2>&1; then
-        local dev
-        dev="$(lsblk -rno NAME,FSTYPE 2>/dev/null | awk '$2=="crypto_LUKS"{print "/dev/"$1; exit}')"
-        if [[ -n "$dev" ]]; then printf '%s\n' "$dev"; return 0; fi
-    fi
-    return 1
 }
 
 # --- per-kid steps -------------------------------------------------------
@@ -292,23 +273,6 @@ account_remove() {
 profile_present() { [[ -e "$KIDS_DIR/$1.conf" ]]; }
 profile_remove() { rm -f "$KIDS_DIR/$1.conf"; }
 
-# parent_home_dir -- duplicated from bin/omarchy-kids-provision's own
-# function of the same name (that file is a script with its own
-# main "$@", not a library -- same reasoning docs/assert.md already gives
-# for group_for_band). $MACHINE_CONF's "parent=" names the account;
-# `getent` gives its real home if this box has one, else the same scratch
-# $HOME_ROOT prefix every other path in this file already honors.
-parent_home_dir() {
-    local parent home
-    parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
-    [[ -n "$parent" ]] || return 1
-    if command -v getent >/dev/null 2>&1; then
-        home="$(getent passwd "$parent" 2>/dev/null | cut -d: -f6)"
-        [[ -n "$home" ]] && { printf '%s\n' "$home"; return 0; }
-    fi
-    printf '%s\n' "$(home_dir_for "$parent")"
-}
-
 # home: only ever reached with something to do when --delete-homes was
 # NOT given -- "userdel -r" above already took the home away otherwise,
 # so home_present is simply false by the time this runs (see
@@ -328,7 +292,7 @@ home_present() { [[ -e "$(home_dir_for "$1")" ]]; }
 home_remove() {
     local account="$1" display_name="$2" home parent_home dest parent
     home="$(home_dir_for "$account")"
-    parent_home="$(parent_home_dir)" || return 1
+    parent_home="$(parent_home_dir "$ETC/machine.conf")" || return 1
     parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
     dest="$parent_home/Kids Mode/$display_name"
     install -d -m 0700 "$parent_home/Kids Mode" || return 1
@@ -379,26 +343,13 @@ sddm_theme_remove() { posture_remove_sddm_theme_dropin; }
 # kid's own profile has already been removed in remove_kid above, so a
 # full-teardown run rebuilds it down to just the parent, same
 # "recompute the whole thing" shape luks-slots and this file's other
-# rebuilds already use. portal_conf_entries is duplicated from
-# bin/omarchy-kids-provision (its own EXCLUDE-taking version); this one
-# needs no EXCLUDE argument since the account it would have excluded is
-# already gone from $KIDS_DIR by the time remove_body gets here.
-portal_conf_entries() {
-    local f account name avatar
-    [[ -d "$KIDS_DIR" ]] || return 0
-    for f in "$KIDS_DIR"/*.conf; do
-        [[ -e "$f" ]] || continue
-        account="$(basename "$f" .conf)"
-        name="$(conf_get "$f" name 2>/dev/null || true)"
-        avatar="$(conf_get "$f" avatar 2>/dev/null || true)"
-        printf '%s\t%s\t%s\n' "$account" "$name" "$avatar"
-    done
-}
+# rebuilds already use. No EXCLUDE needed here: the account it would
+# have excluded is already gone from $KIDS_DIR by the time this runs.
 portal_conf_expected() {
     local parent entries=() line
     parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
     [[ -n "$parent" ]] || return 1
-    while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries)
+    while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries "$KIDS_DIR")
     posture_portal_conf_text "$parent" "${entries[@]+"${entries[@]}"}"
 }
 portal_conf_present() {
@@ -411,7 +362,7 @@ portal_conf_remove() {
     local parent entries=() line
     parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
     [[ -n "$parent" ]] || return 1
-    while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries)
+    while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries "$KIDS_DIR")
     posture_write_portal_conf "$parent" "${entries[@]+"${entries[@]}"}"
 }
 
@@ -545,7 +496,7 @@ run_body() {
     local kids=() k
     while IFS= read -r k; do
         [[ -n "$k" ]] && kids+=("$k")
-    done < <(list_kids)
+    done < <(kids_list "$KIDS_DIR")
 
     plan_one "snapshot" snapshot_present snapshot_take
 

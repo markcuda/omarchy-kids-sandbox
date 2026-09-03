@@ -20,10 +20,13 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WIZARD_BIN="${OMARCHY_KIDS_WIZARD_BIN:-$DIR/bin/omarchy-kids-wizard}"; [[ -x "$WIZARD_BIN" ]] || WIZARD_BIN=omarchy-kids-wizard
-REMOVE_BIN="${OMARCHY_KIDS_REMOVE_BIN:-$DIR/bin/omarchy-kids-remove}"; [[ -x "$REMOVE_BIN" ]] || REMOVE_BIN=omarchy-kids-remove
-PANEL_BIN="${OMARCHY_KIDS_PANEL_BIN:-$DIR/bin/omarchy-kids-panel}"; [[ -x "$PANEL_BIN" ]] || PANEL_BIN=omarchy-kids-panel
-ASK_BIN="${OMARCHY_KIDS_ASK_BIN:-$DIR/bin/omarchy-kids-ask}"; [[ -x "$ASK_BIN" ]] || ASK_BIN=omarchy-kids-ask
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
+WIZARD_BIN="$(kids_bin wizard "$DIR")"
+REMOVE_BIN="$(kids_bin remove "$DIR")"
+PANEL_BIN="$(kids_bin panel "$DIR")"
+ASK_BIN="$(kids_bin ask "$DIR")"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 KIDS_DIR="$ETC/kids"

@@ -64,10 +64,12 @@ set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
-CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
-APPS_BIN="${OMARCHY_KIDS_APPS_BIN:-$DIR/bin/omarchy-kids-apps}"; [[ -x "$APPS_BIN" ]] || APPS_BIN=/usr/bin/omarchy-kids-apps
-TIME_BIN="${OMARCHY_KIDS_TIME_BIN:-$DIR/bin/omarchy-kids-time}"; [[ -x "$TIME_BIN" ]] || TIME_BIN=/usr/bin/omarchy-kids-time
-WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=/usr/bin/omarchy-kids-web
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
+CONF_BIN="$(kids_bin conf "$DIR")"
+APPS_BIN="$(kids_bin apps "$DIR")"
+TIME_BIN="$(kids_bin time "$DIR")"
+WEB_BIN="$(kids_bin web "$DIR")"
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 PYHELPER="$LIB/conf.py"
 
@@ -336,7 +338,7 @@ fi
 # command is reachable there only by running it directly -- a real gap,
 # not an oversight (docs/data.md's "Not built here").
 if [[ "$BAND" == "9-12" || "$BAND" == "13+" ]]; then
-  DATA_BIN="${OMARCHY_KIDS_DATA_BIN:-$DIR/bin/omarchy-kids-data}"; [[ -x "$DATA_BIN" ]] || DATA_BIN=/usr/bin/omarchy-kids-data
+  DATA_BIN="$(kids_bin data "$DIR")"
   # UNVERIFIED: no terminal-emulator convention exists anywhere in this
   # repo yet (nothing under share/hyprland or docs names one) -- this is
   # a best-effort guess at common terminals, first one found on PATH

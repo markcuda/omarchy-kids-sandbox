@@ -206,3 +206,13 @@ bash test/shell.d/wifi-test.sh
 - `nmcli device wifi connect ... name kids-<ssid>` actually creating a *new* connection (not
   silently reusing/renaming an existing bare-named one) on a real NetworkManager, and
   `ipv4.ignore-auto-dns`/`ipv6.ignore-auto-dns` actually taking effect after `connection up`.
+
+## Verified live (2026-09-02, QEMU test VM, no wireless device)
+
+`omarchy-kids-wifid.socket` is active after `omarchy-kids-assert` (units lock). As Cy with the
+default `wifi = parent`, `status` and `list` are refused with the kid-worded message (exit 3).
+With `wifi = helper`, `status` lists the connections through the root helper, `list` returns an
+empty OK, and `join TestNet` fails with NetworkManager's "No Wi-Fi device found", which is the
+VM telling the truth. The picker overlay, a real join with `ignore-auto-dns`, `forget`, and the
+captive-portal window need the laptop's wireless card.
+

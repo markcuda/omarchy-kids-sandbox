@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- frog: green head, big bulging eyes, wide mouth -->
+  <circle cx="64" cy="76" r="42" fill="#3ea55a"/>
+  <circle cx="40" cy="38" r="18" fill="#3ea55a"/>
+  <circle cx="88" cy="38" r="18" fill="#3ea55a"/>
+  <circle cx="40" cy="38" r="9" fill="#20301f"/>
+  <circle cx="88" cy="38" r="9" fill="#20301f"/>
+  <path d="M 34 90 Q 64 108 94 90" stroke="#20301f" stroke-width="5" fill="none" stroke-linecap="round"/>
+</svg>

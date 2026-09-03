@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- owl: brown body, big round eyes, triangular beak, ear tufts -->
+  <circle cx="64" cy="70" r="46" fill="#8a5a3b"/>
+  <polygon points="34,30 44,50 24,48" fill="#8a5a3b"/>
+  <polygon points="94,30 84,50 104,48" fill="#8a5a3b"/>
+  <circle cx="48" cy="66" r="18" fill="#fbf1df"/>
+  <circle cx="80" cy="66" r="18" fill="#fbf1df"/>
+  <circle cx="48" cy="66" r="8" fill="#241a12"/>
+  <circle cx="80" cy="66" r="8" fill="#241a12"/>
+  <polygon points="64,78 56,92 72,92" fill="#f4a13a"/>
+</svg>

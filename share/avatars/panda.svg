@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- panda: white head, black ears and eye patches -->
+  <circle cx="64" cy="70" r="46" fill="#f5f5f5"/>
+  <circle cx="30" cy="34" r="16" fill="#221f1f"/>
+  <circle cx="98" cy="34" r="16" fill="#221f1f"/>
+  <ellipse cx="48" cy="68" rx="12" ry="16" fill="#221f1f"/>
+  <ellipse cx="80" cy="68" rx="12" ry="16" fill="#221f1f"/>
+  <circle cx="48" cy="70" r="5" fill="#f5f5f5"/>
+  <circle cx="80" cy="70" r="5" fill="#f5f5f5"/>
+  <ellipse cx="64" cy="92" rx="6" ry="4" fill="#221f1f"/>
+</svg>

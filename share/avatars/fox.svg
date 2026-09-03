@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- fox: orange head, triangular ears, white muzzle, black eyes/nose -->
+  <circle cx="64" cy="70" r="46" fill="#e8791c"/>
+  <polygon points="30,34 46,50 20,58" fill="#e8791c"/>
+  <polygon points="98,34 82,50 108,58" fill="#e8791c"/>
+  <polygon points="34,40 44,52 26,54" fill="#ffffff"/>
+  <polygon points="94,40 84,52 102,54" fill="#ffffff"/>
+  <polygon points="64,78 44,106 84,106" fill="#ffffff"/>
+  <circle cx="50" cy="66" r="6" fill="#241a12"/>
+  <circle cx="78" cy="66" r="6" fill="#241a12"/>
+  <circle cx="64" cy="90" r="5" fill="#241a12"/>
+</svg>

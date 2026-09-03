@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- cat: gray head, triangular ears, whiskers -->
+  <circle cx="64" cy="72" r="44" fill="#8c8c99"/>
+  <polygon points="30,32 46,50 22,52" fill="#8c8c99"/>
+  <polygon points="98,32 82,50 106,52" fill="#8c8c99"/>
+  <circle cx="50" cy="68" r="6" fill="#26262c"/>
+  <circle cx="78" cy="68" r="6" fill="#26262c"/>
+  <polygon points="64,80 59,90 69,90" fill="#e296a8"/>
+  <line x1="20" y1="82" x2="46" y2="86" stroke="#26262c" stroke-width="3" stroke-linecap="round"/>
+  <line x1="20" y1="94" x2="46" y2="94" stroke="#26262c" stroke-width="3" stroke-linecap="round"/>
+  <line x1="108" y1="82" x2="82" y2="86" stroke="#26262c" stroke-width="3" stroke-linecap="round"/>
+  <line x1="108" y1="94" x2="82" y2="94" stroke="#26262c" stroke-width="3" stroke-linecap="round"/>
+</svg>

@@ -16,8 +16,8 @@
 #   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids
 #   OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
 #   OMARCHY_KIDS_ROOT       scratch prefix for /etc/polkit-1, /etc/security,
-#                           /etc/pam.d, /etc/fstab, /var/lib/AccountsService
-#                           (lib/posture.sh)
+#                           /etc/pam.d, /etc/fstab, /var/lib/AccountsService,
+#                           /etc/sddm.conf.d (lib/posture.sh)
 #   OMARCHY_KIDS_HOME_ROOT  scratch prefix for /home/<account> itself (not
 #                           part of the spec's env list; added here because
 #                           mount/umount/mv all need somewhere real, if only
@@ -58,11 +58,12 @@ Usage: omarchy-kids-provision add <display-name> --band <band>
        omarchy-kids-provision --help
 
 add     Creates the Unix account, the profile, the polkit/pam/fstab
-        posture, an AccountsService pin, a LUKS key slot if a password
-        and an encrypted root device are both in play, and either runs
-        omarchy-provision-user or marks Omarchy's per-user migrations
-        done -- so the new desktop never shows "Pending Omarchy
-        Migrations". Bands: 3-5, 6-8, 9-12, 13+.
+        posture, an AccountsService pin, the SDDM portal theme selection
+        (R-LOGIN), a LUKS key slot if a password and an encrypted root
+        device are both in play, and either runs omarchy-provision-user
+        or marks Omarchy's per-user migrations done -- so the new
+        desktop never shows "Pending Omarchy Migrations". Bands: 3-5,
+        6-8, 9-12, 13+.
 
         The kid's password is read from stdin (never argv), one line,
         with --password-stdin. --no-password locks the account instead,
@@ -374,6 +375,13 @@ cmd_add() {
 
     # R-LOGIN-3: pin the kid session, no session picker.
     run posture_write_accountsservice "$account" "$avatar"
+
+    # R-LOGIN: select the portal theme (share/sddm-theme/ ->
+    # /usr/share/sddm/themes/omarchy-kids). Machine-level like the polkit
+    # rules just above -- written once, left alone by "remove" until
+    # Remove Kids Mode (R-FND-6), since the portal is still correct as
+    # long as any kid profile remains.
+    run posture_write_sddm_theme_dropin
 
     # Issue #10 finding (b): go through Omarchy's own per-user setup so the
     # desktop never shows "Pending Omarchy Migrations".

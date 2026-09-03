@@ -57,6 +57,15 @@ package() {
 	cp -a share/. "$pkgdir/usr/share/omarchy-kids/"
 	find "$pkgdir/usr/share/omarchy-kids" -name '.gitkeep' -delete
 
+	# The portal (R-LOGIN, issue #14): SDDM only looks for greeter themes
+	# under /usr/share/sddm/themes/<name>/, not under our own share dir --
+	# so share/sddm-theme/ is installed there too, selected at runtime by
+	# lib/posture.sh's posture_write_sddm_theme_dropin
+	# (/etc/sddm.conf.d/zz-omarchy-kids-theme.conf).
+	install -dm755 "$pkgdir/usr/share/sddm/themes/omarchy-kids"
+	cp -a share/sddm-theme/. "$pkgdir/usr/share/sddm/themes/omarchy-kids/"
+	find "$pkgdir/usr/share/sddm/themes/omarchy-kids" -name '.gitkeep' -delete
+
 	# pacman hook: re-assert every lock after any transaction (R-TRUST-5).
 	install -Dm644 pacman/omarchy-kids.hook \
 		"$pkgdir/usr/share/libalpm/hooks/omarchy-kids.hook"

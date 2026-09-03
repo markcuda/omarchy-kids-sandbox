@@ -132,6 +132,7 @@ from screenshots. Done since:
   V1 was in progress (it finished and failed, which is why Pause is not built), the card
   promised a fast user switch that does not exist, and two spec citations became plain words.
   Every other claim in both checked out against the code.
+- Harness run 8 over the end-of-day main: all eight scenarios green again.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

@@ -172,3 +172,6 @@ does not), and fails on any file the formatter would change.
   failures on the way there were all harness assumptions, now code: `portal_reset` waits for the
   owner's autologin, `wait_kid_ready` waits for the launcher before any keystroke, and Finish is
   the preselected button (no Tab).
+- 2026-09-03, run 8, the eight scenarios one per invocation (two full `all -k` runs were cut
+  off mid-way by the driving tool, not by the VM) — all eight green on main at the end of the
+  day: the readable captions, the parent-facing docs, the shfmt gate in scenario 05.

@@ -97,6 +97,17 @@ The client also refuses immediately, without contacting the daemon, if `PAM_TYPE
 isn't `auth` — `pam_exec` invokes the same line for `account`/`session`/`password` stack entries
 too, and this isn't valid outside of `auth`.
 
+**Confirmed (issue #15 review): there is no `PAM_USER` check, on purpose.** The client reads
+`PAM_TYPE` and stdin only; it never looks at which account is being authenticated at all. That's
+deliberate, not a gap: `omarchy-kids-provision`'s `posture_ensure_parent_unlock_line` inserts this
+line into `/etc/pam.d/sddm` and `/etc/pam.d/omarchy-lock-password` ahead of each stack's own auth
+chain, so it runs for *whoever* is logging in — a kid's tile, the parent's own tile, or anything
+else that stack authenticates. That is exactly right: R-LOGIN-5 says the parent's password opens
+any kid's tile, and there's no reason it shouldn't also succeed (redundantly, but harmlessly) when
+the parent is unlocking their own. Gating on `PAM_USER` would only add a way to accidentally
+exclude an account this was supposed to work for; the daemon's own hash comparison is what
+actually decides yes/no, not which account asked.
+
 ## Testing
 
 `test/shell.d/authd-test.sh` starts the daemon on a temp socket with a fixed, known sha512-crypt

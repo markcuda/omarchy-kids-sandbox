@@ -38,7 +38,8 @@ to do when it's built.
 ## What each level binds (Appendix E)
 
 **Level 1.** `Super+Home` show the launcher · `Super+Return` open the highlighted tile ·
-`Super+Q` close the focused window · `Super+Shift+K` the exit overlay (`omarchy-kids-exit`,
+`Super+Q` close the focused window · `Super+Shift+K` the exit overlay, and a bare `Super` tap
+three times within 1.5s does the same (`omarchy-kids-exit`, `omarchy-kids-super-tap`,
 `docs/exit.md`) · the five standard volume/brightness media keys. Nothing else — no defaults, no
 `require("default.hypr.bindings.*")`. Every window is forced fullscreen
 (`o.window(".*", { fullscreen = true })`). `test/shell.d/levels-test.sh` greps for exactly this

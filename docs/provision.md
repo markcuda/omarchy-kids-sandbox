@@ -53,13 +53,18 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
    is the idempotence check).
 9. **The parent-unlock verifier line** (R-SEC-2, R-SEC-3; `docs/authd.md`), machine-level and
    idempotent: `lib/posture.sh`'s `posture_ensure_parent_unlock_line` inserts the
-   `pam_exec.so … omarchy-kids-parent-auth` line into `/etc/pam.d/sddm` and into whichever
-   lock-screen stack exists on this box (`omarchy-lock-password` if the installer wrote one, else
-   `hyprlock` — `posture_parent_unlock_lock_stack`), right after each stack's own
-   `auth … pam_unix.so` line, with the jump number worked out from that line's own
-   `[success=N …]` control so a verifier success lands exactly where pam_unix's own success would
-   have. A stack that doesn't exist yet on this box (the lock screen hasn't been configured) is a
-   warning, not a reason to fail the whole `add` — see "Judgment calls" below.
+   `pam_exec.so … omarchy-kids-parent-auth` line (a fixed `[success=done default=ignore]`
+   control — "done" ends the stack on a verified parent password before pam_unix is ever
+   consulted with it; "ignore" on anything else falls through to the stack's normal chain, which
+   reuses the already-typed token via `try_first_pass`) into `/etc/pam.d/sddm` and
+   `/etc/pam.d/omarchy-lock-password` (`posture_parent_unlock_lock_stack` — the only lock-screen
+   PAM service Omarchy 4.0.2 actually writes; there is no `hyprlock` service on that box). The
+   line lands right after each stack's own leading `auth … pam_faillock.so … preauth` line if it
+   has one, else right before its first non-comment `auth` line — confirmed against real
+   `/etc/pam.d/sddm` and `/etc/pam.d/omarchy-lock-password` content, neither of which has a
+   `pam_unix.so` line worth jumping around (`lib/posture.sh`'s own header comment has the full
+   placement rule). A stack that doesn't exist yet on this box (the lock screen hasn't been
+   configured) is a warning, not a reason to fail the whole `add` — see "Judgment calls" below.
 10. **A LUKS key slot** (R-SEC-4), only when a password was given *and* an encrypted device is
    found (`--luks-device`, or auto-detected via `lsblk` for the first `crypto_LUKS` device — see
    "Known gap" below): the parent's own passphrase (needed to authorize the add; the second line
@@ -151,21 +156,23 @@ format here if it does.
 ## Judgment calls made in this implementation
 
 - **A missing lock-screen PAM stack only warns, never fails `add`** (issue #15, R-SEC-2).
-  `sddm` should always exist on a real Omarchy box, but `omarchy-lock-password`/`hyprlock` might
-  not yet — the lock screen may simply not be configured at the moment a kid is provisioned.
-  Aborting the whole account creation over that would be worse than provisioning the account and
-  letting `omarchy-kids-assert` (which re-asserts every lock idempotently, `docs/assert.md`) pick
-  the lock back up automatically once that stack exists.
-- **The exact real-world content of `/etc/pam.d/sddm`, and of a vanilla `/etc/pam.d/hyprlock`,
-  is unverified.** `posture_ensure_parent_unlock_line`'s insertion point and jump-number math are
-  generic (any `auth … pam_unix.so … [success=N …]` line), and its one hardcoded special case —
-  `[success=1 default=bad]` meaning "skip exactly the next line" rather than a literal N-1
-  distance — is copied verbatim from `bin/omarchy-apply-lock`'s own `omarchy-lock-password` writer
-  (`scratchpad/pr9750.diff`), the one shape this repo has actually seen. Every test fixture for
-  this (`test/shell.d/parent-unlock-test.sh`, and the ones added to `provision-test.sh`/
-  `assert-test.sh`) is built from that same diff's two branches, not from a real `/etc/pam.d/sddm`
-  or `/etc/pam.d/hyprlock` — confirm both against a real Omarchy 4.0.2 box before trusting this in
-  the VM.
+  `sddm` should always exist on a real Omarchy box, but `omarchy-lock-password` might not yet —
+  the lock screen may simply not be configured at the moment a kid is provisioned. Aborting the
+  whole account creation over that would be worse than provisioning the account and letting
+  `omarchy-kids-assert` (which re-asserts every lock idempotently, `docs/assert.md`) pick the
+  lock back up automatically once that stack exists.
+- **The real-world content of `/etc/pam.d/sddm` and `/etc/pam.d/omarchy-lock-password` is now
+  confirmed** against an actual Omarchy 4.0.2 box (there is no `/etc/pam.d/hyprlock` there at
+  all — an earlier version of this guessed one as a fallback; wrong, and removed). Neither real
+  file has a `pam_unix.so` line worth anchoring on (sddm has none of its own; the lock-password
+  stack's is three lines past the real anchor point), which is why
+  `posture_ensure_parent_unlock_line`'s placement rule is anchor-based on the stack's first
+  non-comment `auth` line, and its control is a fixed `[success=done default=ignore]` rather than
+  a jump number computed off `pam_unix.so`'s own control (an earlier version did the latter; it
+  matched neither real file). `lib/posture.sh`'s own header comment has the full rule and the
+  reasoning; every fixture in `test/shell.d/parent-unlock-test.sh`,
+  `test/shell.d/provision-test.sh`, and `test/shell.d/assert-test.sh` is now the verbatim real
+  file content, not a guess.
 - **`OMARCHY_KIDS_HOME_ROOT`** isn't in the issue's env-var list (`OMARCHY_KIDS_ETC`,
   `OMARCHY_KIDS_SHARE`, `OMARCHY_KIDS_LIB`, `OMARCHY_KIDS_ROOT`), but `mount`, `umount`, and the
   final `mv` to `Kids Mode/` all need *some* real path to act on, even a scratch one, and

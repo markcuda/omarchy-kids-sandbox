@@ -100,9 +100,10 @@ run() {
 # ensure_parent_unlock_soft STACK — posture_ensure_parent_unlock_line
 # through `run` (so DRY_RUN=1's default just prints the plan), but never
 # aborts the add: a target PAM stack this box hasn't written yet (no
-# omarchy-lock-password, no hyprlock configured) is a warning, not a
-# reason to fail provisioning the account. omarchy-kids-assert is what
-# re-asserts this lock going forward once the stack does exist.
+# omarchy-lock-password configured, i.e. omarchy-apply-lock hasn't run
+# yet) is a warning, not a reason to fail provisioning the account.
+# omarchy-kids-assert is what re-asserts this lock going forward once
+# the stack does exist.
 ensure_parent_unlock_soft() {
     local stack="$1"
     if ! run posture_ensure_parent_unlock_line "$stack"; then

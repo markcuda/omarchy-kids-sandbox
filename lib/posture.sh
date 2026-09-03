@@ -164,64 +164,83 @@ posture_ensure_pam_namespace() {
 # The lock screen and SDDM both need "did a parent type their own password
 # here?" answered the same way (docs/authd.md): pam_exec.so calling
 # omarchy-kids-parent-auth, which asks the omarchy-kids-authd daemon rather
-# than re-implementing password checking. This line is written once, right
-# after the stack's own pam_unix.so line, with a jump number chosen so a
-# verifier success lands exactly where pam_unix's own success would have.
+# than re-implementing password checking. This line is written once, into
+# each real stack this ships on, at a fixed position relative to that
+# stack's own first "auth" line -- not by finding a pam_unix.so line to
+# jump around, which real Omarchy 4.0.2 stacks don't reliably even have
+# (confirmed against a real box; see below).
+#
+# Placement, confirmed against the real /etc/pam.d/sddm and
+# /etc/pam.d/omarchy-lock-password on Omarchy 4.0.2 (there is no
+# /etc/pam.d/hyprlock on that box -- omarchy-apply-lock always writes
+# omarchy-lock-password):
+#
+#   /etc/pam.d/sddm is `auth include system-login` first -- no pam_unix.so
+#   line of its own at all, and no leading pam_faillock preauth line
+#   either. Our line has to go *before* that first "auth" line, so it runs
+#   (and can potentially succeed outright) before system-login's own chain
+#   -- which is what actually checks whichever account is really logging
+#   in -- ever runs.
+#
+#   /etc/pam.d/omarchy-lock-password (bin/omarchy-apply-lock,
+#   scratchpad/pr9750.diff) leads with
+#   "auth required pam_faillock.so preauth ...". Our line goes right
+#   *after* that one line (never before it -- preauth has to run first so
+#   a lockout is tracked correctly), still ahead of pam_unix.so.
+#
+# So the one rule that covers both real shapes: insert right after a
+# leading "auth ... pam_faillock.so ... preauth" line if the very first
+# "auth" line in the file is one, otherwise insert right before that first
+# "auth" line. ("auth", not "-auth" -- a dash-prefixed line is a
+# module-load-failure-is-silent variant of the same facility, never the
+# anchor point.) Never touches system-login or system-auth themselves
+# (I-7): those are included by reference, never opened by this function.
+#
+# The control is fixed, not computed: "[success=done default=ignore]".
+# "done" ends the whole stack successfully the instant a parent's password
+# verifies, so pam_unix (and whatever system-login/system-auth's own chain
+# does) is never even consulted with the parent's password. "default=ignore"
+# on anything else (wrong password, daemon unreachable, rate-limited) falls
+# through to the stack's normal chain, which -- because our line sits
+# ahead of it with `expose_authtok` already having read the typed password
+# -- reuses that exact same token via pam_unix's own `try_first_pass`
+# (already on both real stacks' pam_unix lines), so nobody is ever
+# prompted twice.
 
 # posture_parent_unlock_marker — the idempotence marker placed immediately
 # above the inserted pam_exec line. A second kid's "add", or
 # omarchy-kids-assert re-running, sees the marker and does nothing further.
 posture_parent_unlock_marker() { printf '# omarchy-kids: parent-unlock verifier (R-SEC-2, R-SEC-3)'; }
 
-# posture_parent_unlock_line SUCCESS — the exact pam_exec line, docs/authd.md's
-# canonical form with SUCCESS filled in (see posture_ensure_parent_unlock_line
-# for how that number is worked out).
+# posture_parent_unlock_line — the exact pam_exec line, docs/authd.md's
+# canonical form with a fixed "done" jump (see the section header above
+# for why this is a fixed control, not a computed jump count).
 posture_parent_unlock_line() {
-    printf 'auth       [success=%s default=ignore]  pam_exec.so quiet expose_authtok /usr/bin/omarchy-kids-parent-auth' "$1"
+    printf 'auth       [success=done default=ignore]  pam_exec.so quiet expose_authtok /usr/bin/omarchy-kids-parent-auth'
 }
 
-# posture_parent_unlock_lock_stack — which second PAM stack (besides sddm)
-# gets the parent-unlock line, chosen by what the installer actually wrote
-# on this box: Omarchy's own lock-screen stack
-# (bin/omarchy-apply-lock -- see scratchpad/pr9750.diff for its exact shape)
-# if it exists, else the vanilla hyprlock PAM service.
-posture_parent_unlock_lock_stack() {
-    if [[ -f "$(posture_pam_dir)/omarchy-lock-password" ]]; then
-        printf 'omarchy-lock-password\n'
-    else
-        printf 'hyprlock\n'
-    fi
-}
+# posture_parent_unlock_lock_stack — which second PAM stack (besides
+# sddm) gets the parent-unlock line: always "omarchy-lock-password",
+# what bin/omarchy-apply-lock (the installer path; scratchpad/pr9750.diff)
+# actually writes on Omarchy 4.0.2. There is no vanilla "hyprlock" PAM
+# service on that box to fall back to -- an earlier version of this
+# function guessed one; confirmed wrong against a real machine and
+# removed. Kept as a function (not a literal string at every call site)
+# so the one place this could ever need to change again is one place.
+posture_parent_unlock_lock_stack() { printf 'omarchy-lock-password\n'; }
 
 # posture_ensure_parent_unlock_line STACK — inserts the parent-unlock
-# pam_exec line into /etc/pam.d/<STACK>, directly after the stack's first
-# "auth ... pam_unix.so" line, once, idempotently (the marker above is the
-# whole idempotence check). STACK is whatever the caller already decided on
-# (sddm, or posture_parent_unlock_lock_stack's answer) -- this function
-# doesn't choose.
+# pam_exec line into /etc/pam.d/<STACK>, once, idempotently (the marker
+# above is the whole idempotence check). STACK is whatever the caller
+# already decided on (sddm, or posture_parent_unlock_lock_stack's
+# answer) -- this function doesn't choose. See the section header above
+# for exactly where the line lands and why.
 #
-# The jump number: pam_unix's own control on that line names how many
-# lines its own success skips forward ("[success=N ...]"). Our line sits
-# one line further down the stack than pam_unix did (inserted right after
-# it), so landing on the exact same target line needs N-1.
-#
-# Special case, taken verbatim from Omarchy's own omarchy-lock-password
-# writer (bin/omarchy-apply-lock in the installer; scratchpad/pr9750.diff):
-# a pam_unix line reading exactly "[success=1 default=bad]" isn't a
-# "skip N lines" distance in the usual sense -- that control exists only to
-# jump over the single "[default=die] pam_faillock authfail" line
-# immediately below it. N-1 there would be 0 (no jump at all), which would
-# walk our own success straight into the authfail branch pam_unix's own
-# success was skipping. So that one shape is hardcoded rather than
-# computed: same insertion point (still "right after pam_unix", which is
-# also "right before the authfail line" in this exact stack), but
-# success=1, default=ignore, unchanged.
-#
-# Fails (returns 1, writes nothing) if the file doesn't exist or has no
-# "auth ... pam_unix.so" line with a "[success=N ...]" control to read --
-# callers decide whether that's fatal (omarchy-kids-provision warns and
-# keeps going; omarchy-kids-assert reports the lock FAIL and keeps going
-# too, per its own "one bad lock never stops the rest" contract).
+# Fails (returns 1, writes nothing) if the file doesn't exist, or has no
+# non-comment "auth" line at all to anchor on -- callers decide whether
+# that's fatal (omarchy-kids-provision warns and keeps going;
+# omarchy-kids-assert reports the lock FAIL and keeps going too, per its
+# own "one bad lock never stops the rest" contract).
 posture_ensure_parent_unlock_line() {
     local stack="$1" file marker
     file="$(posture_pam_dir)/$stack"
@@ -232,39 +251,40 @@ posture_ensure_parent_unlock_line() {
     fi
     grep -qxF "$marker" "$file" && return 0
 
-    local line unix_line=""
+    # Find the first non-comment "auth" line (a literal "auth" token,
+    # not "-auth"), and note whether it is itself a leading
+    # "pam_faillock.so ... preauth" line.
+    local line anchor_line="" anchor_is_preauth=0 found=0
     while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ -z "$unix_line" && "$line" =~ ^auth[[:space:]] && "$line" == *pam_unix.so* ]]; then
-            unix_line="$line"
+        case "$line" in
+            ''|'#'*) continue ;;
+        esac
+        if [[ "$line" =~ ^auth[[:space:]] ]]; then
+            anchor_line="$line"
+            found=1
+            if [[ "$line" == *pam_faillock.so* && "$line" == *preauth* ]]; then
+                anchor_is_preauth=1
+            fi
+            break
         fi
     done < "$file"
-    if [[ -z "$unix_line" ]]; then
-        echo "posture_ensure_parent_unlock_line: no 'auth ... pam_unix.so' line in $file" >&2
+    if [[ "$found" == 0 ]]; then
+        echo "posture_ensure_parent_unlock_line: no non-comment 'auth ...' line in $file to anchor on" >&2
         return 1
-    fi
-
-    local n=""
-    if [[ "$unix_line" =~ \[success=([0-9]+)[[:space:]]+default=[a-z]+\] ]]; then
-        n="${BASH_REMATCH[1]}"
-    else
-        echo "posture_ensure_parent_unlock_line: pam_unix.so line in $file has no '[success=N default=...]' control" >&2
-        return 1
-    fi
-
-    local success
-    if [[ "$unix_line" == *'[success=1 default=bad]'* ]]; then
-        success=1
-    else
-        success=$((n - 1))
     fi
 
     local tmp inserted=0
     tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")"
     while IFS= read -r line || [[ -n "$line" ]]; do
-        printf '%s\n' "$line" >> "$tmp"
-        if [[ "$inserted" == 0 && "$line" == "$unix_line" ]]; then
+        if [[ "$anchor_is_preauth" == 0 && "$inserted" == 0 && "$line" == "$anchor_line" ]]; then
             printf '%s\n' "$marker" >> "$tmp"
-            printf '%s\n' "$(posture_parent_unlock_line "$success")" >> "$tmp"
+            printf '%s\n' "$(posture_parent_unlock_line)" >> "$tmp"
+            inserted=1
+        fi
+        printf '%s\n' "$line" >> "$tmp"
+        if [[ "$anchor_is_preauth" == 1 && "$inserted" == 0 && "$line" == "$anchor_line" ]]; then
+            printf '%s\n' "$marker" >> "$tmp"
+            printf '%s\n' "$(posture_parent_unlock_line)" >> "$tmp"
             inserted=1
         fi
     done < "$file"

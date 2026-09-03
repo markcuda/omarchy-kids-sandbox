@@ -52,6 +52,20 @@ o.bind("SUPER + RETURN", "Kids Mode: open selected", "omarchy-kids-launcher-ctl 
 o.bind("SUPER + Q", "Kids Mode: close", hl.dsp.window.close())
 o.bind("SUPER + SHIFT + K", "Kids Mode: parent", "omarchy-kids-exit")
 
+-- The triple-tap gesture (SPEC.md R-EXIT-1: "Super pressed three times
+-- within 1.5s" as an alternative to Super+Shift+K). The release-bind
+-- form is real: /usr/share/omarchy/default/hypr/bindings/voxtype.lua
+-- ships `o.bind("F9", ..., "voxtype record stop", { release = true })`,
+-- and Hyprland 0.56.2's Lua engine documents `release` (plus
+-- ignore_mods/long_press/non_consuming/repeating/separate/transparent)
+-- as bind options -- confirmed, not guessed (docs/exit.md used to flag
+-- this as unconfirmed; that's resolved now). SUPER_L is the left Super
+-- keysym: binding "SUPER + SUPER_L" release is Hyprland's documented way
+-- to catch a bare Super tap (Super is both the modifier and the key).
+-- bin/omarchy-kids-super-tap does the counting/timing; this bind just
+-- calls it once per bare Super release.
+o.bind("SUPER + SUPER_L", "Kids Mode: exit (tap Super three times)", "omarchy-kids-super-tap", { release = true })
+
 o.bind("XF86AudioRaiseVolume", "Volume up", "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+")
 o.bind("XF86AudioLowerVolume", "Volume down", "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-")
 o.bind("XF86AudioMute", "Mute toggle", "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle")

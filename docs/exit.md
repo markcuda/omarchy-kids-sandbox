@@ -78,8 +78,8 @@ normal logout would.
 
 ## `bin/omarchy-kids-super-tap`
 
-Meant to run once per **Super key release** (a Hyprland `bindr`, not `bind` — see "The triple-tap
-bind: not wired in" below for why it isn't actually bound anywhere yet). Each run appends "now"
+Meant to run once per **Super key release** — bound via `o.bind("SUPER + SUPER_L", ..., { release
+= true })` in all three level configs ("The triple-tap bind" above). Each run appends "now"
 (milliseconds) to `$XDG_RUNTIME_DIR/omarchy-kids/super-taps`, drops entries older than 1.5s
 (`OMARCHY_KIDS_SUPER_TAP_WINDOW_MS`), and — once three remain — clears the file and runs
 `omarchy-kids-exit`, so the *next* three taps start counting fresh rather than firing on every
@@ -100,43 +100,26 @@ without SDDM — as its own future ticket with its own Phase 1 check. Until that
 sets `OMARCHY_KIDS_PAUSE_AVAILABLE=1`, so the button stays visibly, honestly disabled (I-6) rather
 than doing something broken or silently doing nothing.
 
-## The triple-tap bind: not wired in
+## The triple-tap bind
 
-The level configs (`share/hyprland/L1.lua`, `L2.lua`, `L3.lua`) already bind Super+Shift+K to
-`omarchy-kids-exit` (`o.bind("SUPER + SHIFT + K", ...)`). Wiring the triple-tap the same way
-would need one more line — a **release**-triggered bind (Hyprland's native config has `bindr` as
-a distinct keyword from `bind`) calling `omarchy-kids-super-tap` on every bare Super release —
-but none of the Omarchy Lua DSL reference material this repo has ever had access to
-(`bindings-tiling.lua`, `bindings-utilities.lua`, and everything else under
-`scratchpad/hypr-ref/` used to write `share/hyprland/*.lua` in the first place) shows a
-release-bind form to confirm against: no `o.bindr`/`hl.bindr` function, and no fourth-argument
-option on `o.bind` itself (like the `{ locked = true }` seen on the lid-switch binds in
-`bindings-utilities.lua`) that looks like it would turn a normal bind into a release bind either.
-Guessing at a function name that doesn't exist would either error out the whole config (a config
-that fails to load is worse than one gesture missing — that's a Level 1/2/3 kid staring at a
-black screen) or, worse, silently bind the wrong thing. So this is left **out** rather than
-guessed at.
-
-**To add it once a real Omarchy box confirms the call**, in each of `L1.lua`/`L2.lua`/`L3.lua`,
-next to the existing Super+Shift+K bind:
+Both gestures are wired into `share/hyprland/L1.lua`, `L2.lua`, and `L3.lua` now: `Super+Shift+K`
+as a direct `omarchy-kids-exit` bind, and the triple-tap as a `release`-triggered bind next to it:
 
 ```lua
--- Whichever of these two turns out to be real:
-o.bindr("SUPER", "Kids Mode: triple-tap parent", "omarchy-kids-super-tap")
--- or, if o.bind's own signature is what actually grows this instead:
-o.bind("SUPER", "Kids Mode: triple-tap parent", "omarchy-kids-super-tap", { release = true })
+o.bind("SUPER + SHIFT + K", "Kids Mode: parent", "omarchy-kids-exit")
+o.bind("SUPER + SUPER_L", "Kids Mode: exit (tap Super three times)", "omarchy-kids-super-tap", { release = true })
 ```
 
-Check with `hyprctl binds` or `omarchy-menu-keybindings` on a real Omarchy 4.0.2 box whether
-either shape actually registers a *release*-triggered bind (as opposed to a press-triggered one
-that happens to also fire on `SUPER` alone, which would misfire on every other Super+<key>
-combo's initial press) before adding it. Failing that, Hyprland's own native config syntax for
-this is `bindr = SUPER, catchall, exec, /usr/bin/omarchy-kids-super-tap` — if this Lua DSL turns
-out to have no wrapper for it at all, that raw line would need to land in the *compiled* config
-Hyprland actually reads, which is a bigger change (this repo's `.lua` files are Hyprland's Lua
-config *format*, not something with a documented "drop in one raw native-syntax line" escape
-hatch in the reference material available while writing this) and is out of scope for a
-one-line fix — flag it as its own follow-up if that's the answer.
+The release-bind form is real, not a guess: `/usr/share/omarchy/default/hypr/bindings/voxtype.lua`
+ships `o.bind("F9", "Stop dictation (push-to-talk)", "voxtype record stop", { release = true })`,
+confirming `o.bind` takes a `{ release = true }` option, and Hyprland 0.56.2's Lua config engine
+documents `release` alongside `ignore_mods`, `long_press`, `non_consuming`, `repeating`,
+`separate`, and `transparent` as bind options. `SUPER_L` (the left-Super keysym) is what lets
+`"SUPER + SUPER_L"` catch a bare Super tap at all, since Super is normally only the modifier half
+of a combo. `bindr = SUPER, SUPER_L, exec, omarchy-kids-super-tap` is the Hyprland-native
+(non-Lua) equivalent, for reference. `test/shell.d/levels-test.sh` greps for this bind in all
+three level files; `bin/omarchy-kids-super-tap` itself is what does the counting/timing (its own
+tests are in `test/shell.d/exit-test.sh`).
 
 ## What's unverified
 
@@ -152,7 +135,9 @@ this (per the environment this was built in):
   `omarchy-kids-parent-auth`'s `cat -`. If `Quickshell.Wayland`/`PanelWindow` aren't available at
   all, the file's header has the exact fallback block (a plain fullscreen `Window`, matching
   `share/launcher/shell.qml`'s own choice) to swap in.
-- **The triple-tap bind**, per the section above — not wired into any `.lua` file at all yet.
+- **The triple-tap bind itself.** `Hyprland --verify-config` and the live modal in the VM are
+  what actually confirm `{ release = true }` and `SUPER_L` behave as documented once run against
+  a real Hyprland 0.56.2 — not run here.
 - **`pgrep -f "quickshell -p <path>"` as "is the modal already open".** Untested against a real
   `quickshell -p ...` invocation's actual process listing.
 
@@ -185,7 +170,9 @@ are on the box (`docs/vm.md` has the SSH/VNC details):
 6. Press Super+Shift+K from inside a running app (not the launcher) at each level and confirm the
    modal reaches the top — this is the scenario the layer-shell-vs-plain-Window choice in
    `share/exit-modal/shell.qml`'s header is actually about.
-7. The triple-tap gesture cannot be tested until "The triple-tap bind: not wired in" above is
-   resolved; until then, `omarchy-kids-super-tap` can only be exercised directly:
+7. Tap bare Super three times within 1.5 seconds and confirm the modal opens the same way
+   Super+Shift+K does. `Hyprland --verify-config` against each level file, and this live check,
+   are what actually confirm `{ release = true }` + `SUPER_L` behave as documented — not run here.
+   `omarchy-kids-super-tap` can also be exercised directly, without Hyprland at all:
    `omarchy-kids-super-tap; omarchy-kids-super-tap; omarchy-kids-super-tap` run three times within
-   1.5 seconds by hand (or scripted) should open the modal the same way Super+Shift+K does.
+   1.5 seconds should call `omarchy-kids-exit` the same way.

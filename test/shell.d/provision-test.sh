@@ -75,29 +75,31 @@ EOF
 mkdir -p "$HOMEROOT/home/mark"
 echo "0=mark:omarchy.desktop" > "$ETC/luks-slots"
 
-# Real SDDM stacks ship with a real auth chain already in it (issue #15,
-# R-SEC-2): "add" inserts the parent-unlock pam_exec line right after the
-# first "auth ... pam_unix.so" line. This shape -- pam_unix carrying
-# "[success=2 default=ignore]" -- is taken verbatim from the *child
-# profile* branch of bin/omarchy-apply-lock (scratchpad/pr9750.diff), one
-# line short of where our own pam_exec line goes, so the general N-1
-# formula applies (lib/posture.sh's posture_ensure_parent_unlock_line).
-# No omarchy-lock-password/hyprlock file is seeded here on purpose: that
-# stack legitimately might not exist yet at kid-provisioning time (the
-# lock screen hasn't been configured), which "add" must tolerate (a
-# warning, not a failure) -- see test/shell.d/parent-unlock-test.sh for
-# that stack's own shape and test/shell.d/assert-test.sh for the fallback.
+# Real SDDM stacks ship with a real auth chain already in them (issue
+# #15, R-SEC-2): "add" inserts the parent-unlock pam_exec line right
+# before the first non-comment "auth" line, since sddm's own first auth
+# line isn't a leading pam_faillock preauth line (lib/posture.sh's
+# posture_ensure_parent_unlock_line documents the placement rule in
+# full). This is the verbatim /etc/pam.d/sddm from a real Omarchy 4.0.2
+# box -- it has no pam_unix.so line of its own at all, which is exactly
+# why the anchor is "the first auth line", not "the pam_unix.so line".
+# No omarchy-lock-password file is seeded here on purpose: that stack
+# legitimately might not exist yet at kid-provisioning time (the lock
+# screen hasn't been configured), which "add" must tolerate (a warning,
+# not a failure) -- see test/shell.d/parent-unlock-test.sh for that
+# stack's own shape (the verbatim real /etc/pam.d/omarchy-lock-password)
+# and test/shell.d/assert-test.sh for the break/fix cycle on it.
 mkdir -p "$SCRATCH_ROOT/etc/pam.d"
 cat > "$SCRATCH_ROOT/etc/pam.d/sddm" <<'EOF'
 #%PAM-1.0
-auth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120
--auth      [success=3 default=ignore]  pam_systemd_home.so
-auth       [success=2 default=ignore]  pam_unix.so try_first_pass nullok
-auth       [default=die]               pam_faillock.so authfail deny=10 unlock_time=120
-auth       optional                    pam_permit.so
-auth       required                    pam_env.so
-auth       required                    pam_faillock.so authsucc
-account    include                     system-login
+auth        include     system-login
+-auth       optional    pam_kwallet5.so
+account     include     system-login
+password    include     system-login
+session     optional    pam_keyinit.so          force revoke
+session     include     system-login
+-session    optional    pam_gnome_keyring.so    auto_start
+-session    optional    pam_kwallet5.so         auto_start
 EOF
 
 # --- stub PATH -----------------------------------------------------------
@@ -230,20 +232,21 @@ done
 
 # --- add: R-SEC-2 parent-unlock line inserted into pam.d/sddm ------------
 #
-# The seeded pam.d/sddm fixture's pam_unix.so line carries
-# "[success=2 default=ignore]" (see the scratch-tree setup above), so
-# lib/posture.sh's N-1 formula puts "[success=1 default=ignore]" on our
-# own line, inserted directly after pam_unix's and before the marker
-# pam_namespace appended at the very end of the same file.
+# sddm's real first "auth" line isn't a leading pam_faillock preauth
+# line, so lib/posture.sh's placement rule inserts right BEFORE it --
+# ahead of the whole "include system-login" chain -- rather than after
+# it (see lib/posture.sh's own comment on why the rule is anchor-based,
+# not pam_unix.so-based: this real fixture has no pam_unix.so line at
+# all to jump around).
 SDDM_PAMFILE="$SCRATCH_ROOT/etc/pam.d/sddm"
 MARKER="# omarchy-kids: parent-unlock verifier (R-SEC-2, R-SEC-3)"
 PAM_EXEC_LINE="pam_exec.so quiet expose_authtok /usr/bin/omarchy-kids-parent-auth"
 check_eq "$(grep -c "^$MARKER\$" "$SDDM_PAMFILE")" "1" "pam.d/sddm: parent-unlock marker inserted exactly once"
-check_eq "$(grep -c "^auth       \[success=1 default=ignore\]  $PAM_EXEC_LINE\$" "$SDDM_PAMFILE")" "1" \
-    "pam.d/sddm: parent-unlock line uses success=1 (N-1, pam_unix had success=2)"
-expected_sddm=$'#%PAM-1.0\nauth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120\n-auth      [success=3 default=ignore]  pam_systemd_home.so\nauth       [success=2 default=ignore]  pam_unix.so try_first_pass nullok\n'"$MARKER"$'\nauth       [success=1 default=ignore]  '"$PAM_EXEC_LINE"$'\nauth       [default=die]               pam_faillock.so authfail deny=10 unlock_time=120\nauth       optional                    pam_permit.so\nauth       required                    pam_env.so\nauth       required                    pam_faillock.so authsucc\naccount    include                     system-login\n# omarchy-kids: pam_namespace for kid sessions (R-FND-2a)\nsession required pam_namespace.so'
+check_eq "$(grep -c "^auth       \[success=done default=ignore\]  $PAM_EXEC_LINE\$" "$SDDM_PAMFILE")" "1" \
+    "pam.d/sddm: parent-unlock line uses the fixed success=done control"
+expected_sddm=$'#%PAM-1.0\n'"$MARKER"$'\nauth       [success=done default=ignore]  '"$PAM_EXEC_LINE"$'\nauth        include     system-login\n-auth       optional    pam_kwallet5.so\naccount     include     system-login\npassword    include     system-login\nsession     optional    pam_keyinit.so          force revoke\nsession     include     system-login\n-session    optional    pam_gnome_keyring.so    auto_start\n-session    optional    pam_kwallet5.so         auto_start\n# omarchy-kids: pam_namespace for kid sessions (R-FND-2a)\nsession required pam_namespace.so'
 check_eq "$(cat "$SDDM_PAMFILE")" "$expected_sddm" "pam.d/sddm: exact resulting file content after add"
-check_contains "$out" "warning: could not add the parent-unlock line to pam.d/hyprlock" \
+check_contains "$out" "warning: could not add the parent-unlock line to pam.d/omarchy-lock-password" \
     "add: warns (does not fail) when the lock-screen PAM stack doesn't exist yet"
 
 check_contains "$argv" "cryptsetup luksAddKey --batch-mode --key-file=" "add: cryptsetup luksAddKey called"

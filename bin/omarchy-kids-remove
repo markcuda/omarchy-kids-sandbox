@@ -13,8 +13,6 @@ source "$LIB/conf.sh"
 source "$LIB/posture.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
-# shellcheck source=lib/units.sh
-source "$LIB/units.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
@@ -361,7 +359,7 @@ autologin_dropin() { printf '%s/zz-omarchy-kids-autologin.conf' "$(posture_sddm_
 autologin_present() { [[ -f "$(autologin_dropin)" ]]; }
 autologin_remove() { rm -f "$(autologin_dropin)"; }
 
-# KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS come from lib/units.sh (issue #45's
+# KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS come from lib/kids.sh (issue #45's
 # item 5), the same list bin/omarchy-kids-assert's own "units" lock and
 # bin/omarchy-kids-wizard's Apply step use -- so a unit added there
 # (omarchy-kids-wifid.socket, omarchy-kids-ask-collect.timer) is disabled

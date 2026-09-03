@@ -203,11 +203,11 @@ cmd_end() {
         sudo "$EXIT_BIN" --finish --kid "$kid"
 }
 
-cmd="${1:-}"
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+cmd="$1"; shift
 case "$cmd" in
-    -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
 esac
-shift
 
 apply_flag=0
 args=()

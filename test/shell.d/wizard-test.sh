@@ -169,7 +169,7 @@ check_contains "$out" "Face          owl" "summary shows the chosen face"
 # Apply's first step (issue #46) writes machine.conf's parent= (via the
 # tiny "omarchy-kids-conf machine set parent", issue #46 follow-up) to
 # $OMARCHY_KIDS_INVOKING_USER, then enables and starts the package's own
-# units -- the same KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS list lib/units.sh
+# units -- the same KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS list lib/kids.sh
 # shares with omarchy-kids-assert's "units" lock -- before provisioning,
 # so a fresh install (or right after omarchy-kids-remove) has both a
 # parent for omarchy-kids-authd to check against and the boot-time

@@ -295,7 +295,7 @@ touch "$LOG/parent-group-mark"
 mkdir -p "$SCRATCH_ROOT/etc/systemd/system"
 for n in 2 3 4 5 6; do ln -sf /dev/null "$SCRATCH_ROOT/etc/systemd/system/getty@tty$n.service"; done
 
-# package units enabled: the full lib/units.sh list (issue #45 item 5 --
+# package units enabled: the full lib/kids.sh list (issue #45 item 5 --
 # omarchy-kids-wifid.socket and omarchy-kids-ask-collect.timer included,
 # so this test would catch either one being left out again).
 mkdir -p "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants" \
@@ -483,12 +483,12 @@ check_status "$out" "units" "removed" "units removed"
 # --now is only passed when there's a live systemd to signal (posture_root
 # empty, i.e. a real run); a scratch OMARCHY_KIDS_ROOT means --root= is
 # used instead, which systemctl refuses to combine with --now. The unit
-# list itself comes from lib/units.sh (issue #45 item 5) plus this
+# list itself comes from lib/kids.sh (issue #45 item 5) plus this
 # command's own KIDS_EXTRA_UNITS, so a unit added there --
 # omarchy-kids-wifid.socket, omarchy-kids-ask-collect.timer -- is torn
 # down here too, with no separate list to fall out of sync.
 check_contains "$argv" "systemctl --root=$SCRATCH_ROOT disable omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-wifid.socket omarchy-kids-time.timer omarchy-kids-ask-collect.timer omarchy-kids-authd.service omarchy-kids-wifid.service omarchy-kids-time-ledger.service omarchy-kids-ask-collect.service" \
-    "units: disable called (via --root, since this is a scratch tree) with the full lib/units.sh list, including omarchy-kids-wifid.socket"
+    "units: disable called (via --root, since this is a scratch tree) with the full lib/kids.sh list, including omarchy-kids-wifid.socket"
 for u in omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service; do
     [[ -e "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/$u" ]] && fail "$u should be disabled" \
         || pass "$u disabled"

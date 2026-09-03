@@ -9,7 +9,7 @@ DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
-CONF="$(kids_bin conf "$DIR")"
+CONF_BIN="$(kids_bin conf "$DIR")"
 
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 
@@ -69,7 +69,7 @@ EOF
 # second hardcoded mapping.
 band_web_mode() {
     local band="$1" out
-    out="$("$CONF" band "$band" 2>/dev/null)" || die "could not read band '$band' defaults from $CONF (see docs/conf.md)"
+    out="$("$CONF_BIN" band "$band" 2>/dev/null)" || die "could not read band '$band' defaults from $CONF_BIN (see docs/conf.md)"
     first_field web "$out"
 }
 
@@ -199,7 +199,7 @@ cmd_install() {
 resolve_band() {
     local account band
     account="$(id -un)"
-    band="$("$CONF" get "$account" band 2>/dev/null)" \
+    band="$("$CONF_BIN" get "$account" band 2>/dev/null)" \
         || die "launch: could not resolve a band for '$account' (see docs/conf.md)"
     printf '%s\n' "$band"
 }
@@ -266,15 +266,11 @@ cmd_launch() {
 # --- main --------------------------------------------------------------
 
 main() {
-    local cmd="${1:-}"
+    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
+    local cmd="$1"; shift
     case "$cmd" in
-        -h|--help|"")
-            usage
-            [[ "$cmd" == "" ]] && exit 2
-            exit 0
-            ;;
+        -h|--help) usage; exit 0 ;;
     esac
-    shift
 
     local -a rest=()
     local arg

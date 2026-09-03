@@ -40,7 +40,7 @@ screen_request_detail() { # ID
 
 screen_requests() {
     while true; do
-        local rows; rows="$("$PY" "$ASK_PY" list-open "$QUEUE_DIR" 2>/dev/null)"
+        local rows; rows="$("$KIDS_PY" "$ASK_PY" list-open "$QUEUE_DIR" 2>/dev/null)"
         # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
         local -a facts=()
         [[ -n "$REQ_NOTICE" ]] && { facts+=("$REQ_NOTICE"); REQ_NOTICE=""; }

@@ -166,7 +166,8 @@ launched_by_a_human() {
     [[ -t 0 && -t 1 ]]                                     # a terminal
 }
 
-is_known_kid() { [[ -f "$2/$1.conf" ]]; }
+# is_known_kid DIR ACCOUNT -- is ACCOUNT a provisioned kid under DIR.
+is_known_kid() { [[ -f "$1/$2.conf" ]]; }
 
 # --- shared TUI validators/labels: each prints the one-line reason
 # lib/tui.sh shows under the field, and returns 1.
@@ -222,3 +223,18 @@ modal_close() {
     rm -f "$pidfile"
     return 0
 }
+
+# --- systemd units -----------------------------------------------------
+# The package's own units (R-BOOT-3, R-SEC-2), one list shared by
+# omarchy-kids-assert's "units" lock and the wizard's Apply.
+
+# shellcheck disable=SC2034 # read by sourcing callers, not here
+KIDS_UNITS=(omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service)
+# wifid.socket: without it, a helper-mode kid's wifi command fails closed
+# with "no reply" (docs/wifi.md) rather than silently doing nothing.
+# shellcheck disable=SC2034 # read by sourcing callers, not here
+KIDS_SOCKETS=(omarchy-kids-authd.socket omarchy-kids-wifid.socket)
+# ask-collect.timer: the every-minute backstop that applies an "ask a
+# parent" request submitted while no one was running the panel.
+# shellcheck disable=SC2034 # read by sourcing callers, not here
+KIDS_TIMERS=(omarchy-kids-time.timer omarchy-kids-ask-collect.timer)

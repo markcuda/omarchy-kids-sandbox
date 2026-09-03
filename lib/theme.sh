@@ -8,23 +8,29 @@
 # shellcheck source=./kids.sh
 source "$(dirname "${BASH_SOURCE[0]}")/kids.sh"  # account_home
 
-# Default $OMARCHY_PATH/$LANG before any Omarchy tool runs (issue #48) --
-# unset in a session with no Omarchy env (SSH, CI). A tool that still
-# fails never aborts the caller, see _theme_kids_tool_ready.
-: "${OMARCHY_PATH:=/usr/share/omarchy}"
-export OMARCHY_PATH
-if [[ -z "${LANG:-}" || "${LANG:-}" == "C" ]]; then
-    export LANG=C.UTF-8
-fi
+# _theme_kids_env_defaults -- defaults $OMARCHY_PATH/$LANG (issue #48) --
+# unset in a session with no Omarchy env (SSH, CI). Called from every
+# function below that reads $OMARCHY_PATH or is about to run an Omarchy
+# tool, never at source time, so sourcing this library never changes the
+# caller's environment (review 2.7). A tool that still fails never aborts
+# the caller, see _theme_kids_tool_ready. Idempotent; cheap to call again.
+_theme_kids_env_defaults() {
+    : "${OMARCHY_PATH:=/usr/share/omarchy}"
+    export OMARCHY_PATH
+    if [[ -z "${LANG:-}" || "${LANG:-}" == "C" ]]; then
+        export LANG=C.UTF-8
+    fi
+}
 
 # theme_dir -- the directory whose colors.toml theme_color/theme_font
 # read. THEME_KIDS_HOME overrides $HOME; unset falls back to plain $HOME.
 theme_dir() {
+    _theme_kids_env_defaults
     printf '%s/.local/state/omarchy/current/theme' "${THEME_KIDS_HOME:-$HOME}"
 }
 
 # _theme_kids_fallback NAME -- matches share/sddm-theme/theme.conf's own
-# hardcoded defaults. Plain case, not an associative array (bash 3.2).
+# hardcoded defaults.
 _theme_kids_fallback() {
     case "$1" in
         background) printf '#1a1b26\n' ;;
@@ -48,6 +54,7 @@ THEME_KIDS_FALLBACK_FONT="JetBrainsMono Nerd Font"
 # fallback palette rather than one derived black tile.
 _THEME_KIDS_TOOL_STATUS=""
 _theme_kids_tool_ready() {
+    _theme_kids_env_defaults
     if [[ -z "$_THEME_KIDS_TOOL_STATUS" ]]; then
         if command -v omarchy-theme-color >/dev/null 2>&1 \
             && [[ -r "$(theme_dir)/colors.toml" ]] \
@@ -110,6 +117,7 @@ theme_current_name() {
 # The wizard/panel Desktop screens offer only these, never a user-installed
 # ~/.config/omarchy/themes/<name> -- docs/theming.md issue #53.
 theme_list_installed() {
+    _theme_kids_env_defaults
     local dir="$OMARCHY_PATH/themes" d
     [[ -d "$dir" ]] || return 0
     for d in "$dir"/*/; do
@@ -127,6 +135,7 @@ theme_list_installed() {
 # unbreakable barrier). See docs/theming.md issue #53 for the full mapping
 # to upstream and the ownership rationale.
 theme_apply_for() {
+    _theme_kids_env_defaults
     local account="$1" name="$2" home src current next tmp
     home="$(account_home "$account")"
     src="$OMARCHY_PATH/themes/$name"

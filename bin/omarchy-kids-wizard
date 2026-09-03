@@ -18,8 +18,6 @@ source "$LIB/tui.sh"
 source "$LIB/theme.sh"
 # shellcheck source=lib/wizard-advanced.sh
 source "$LIB/wizard-advanced.sh"
-# shellcheck source=lib/units.sh
-source "$LIB/units.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 
@@ -32,7 +30,6 @@ WEB_BIN="$(kids_bin web "$DIR")"
 ASSERT_BIN="$(kids_bin assert "$DIR")"
 SESSION_BIN="$(kids_bin session "$DIR")"
 APPS_BIN="$(kids_bin apps "$DIR")"
-PY="$KIDS_PY"
 PYHELPER="$LIB/conf.py"
 
 # The verifier socket is a constant: a kid may not point a password
@@ -110,7 +107,7 @@ pack_field() {
 # falls back to the raw id.
 app_label_for() {
     local band="$1" id="$2" out
-    out="$("$PY" "$PYHELPER" pack-app "$SHARE/packs/$band.toml" "$id" 2>/dev/null)" || {
+    out="$("$KIDS_PY" "$PYHELPER" pack-app "$SHARE/packs/$band.toml" "$id" 2>/dev/null)" || {
         printf '%s\n' "$id"
         return
     }
@@ -144,7 +141,7 @@ repo_and_aur_pkgs() {
         for id in $filter; do
             IFS="$oldifs"
             [[ -z "$id" ]] && continue
-            out="$("$PY" "$PYHELPER" pack-app "$SHARE/packs/$band.toml" "$id" 2>/dev/null)" || continue
+            out="$("$KIDS_PY" "$PYHELPER" pack-app "$SHARE/packs/$band.toml" "$id" 2>/dev/null)" || continue
             pkg="$(printf '%s\n' "$out" | cut -f2)"
             [[ -n "$pkg" ]] && _bucket_pkg "$pkg"
         done

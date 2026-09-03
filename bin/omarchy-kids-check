@@ -17,8 +17,6 @@ source "$LIB/time.sh"
 source "$LIB/kids.sh"
 
 ASSERT_BIN="$(kids_bin assert "$DIR")"
-RUNUSER_BIN=runuser
-LOGINCTL_BIN=loginctl
 PROC_ROOT="${OMARCHY_KIDS_PROC_ROOT:-/proc}"
 
 usage() {

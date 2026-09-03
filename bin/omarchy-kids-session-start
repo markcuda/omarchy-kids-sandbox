@@ -12,7 +12,6 @@ CONF_BIN="$(kids_bin conf "$DIR")"
 APPS_BIN="$(kids_bin apps "$DIR")"
 TIME_BIN="$(kids_bin time "$DIR")"
 WEB_BIN="$(kids_bin web "$DIR")"
-PY="$KIDS_PY"
 PYHELPER="$LIB/conf.py"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
@@ -72,7 +71,6 @@ LAUNCHER_JSON="$RUN/launcher-$UID_NUM.json"
 # Case-insensitive substring heuristic (docs/levels.md "The launcher's tile
 # list"); falls back to the pack id as a literal command in resolve_tile.
 find_desktop_file() {
-  # tr, not bash 4's ${var,,}: stays portable to test/all's own bash.
   local id="$1" pkg="$2" dir f base needle_id needle_pkg base_lc
   needle_id="$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')"
   needle_pkg="${pkg#aur:}"
@@ -144,7 +142,7 @@ SHOW_MISSING="$("$CONF_BIN" get "$ACCOUNT" apps.show_missing)"
 IFS=',' read -ra ids <<<"$ALLOWLIST"
 for id in "${ids[@]}"; do
   [[ -n "$id" ]] || continue
-  if ! meta="$("$PY" "$PYHELPER" pack-app "$PACK" "$id" 2>/dev/null)"; then
+  if ! meta="$("$KIDS_PY" "$PYHELPER" pack-app "$PACK" "$id" 2>/dev/null)"; then
     # Allowlisted id isn't in this band's pack (a stale override, a
     # renamed app, ...). Skip it rather than fail the whole launcher.
     continue

@@ -15,8 +15,6 @@ source "$LIB/posture.sh"
 # theme_current_name/theme_apply_for for the "theme:<account>" lock (issue #53).
 # shellcheck source=lib/theme.sh
 source "$LIB/theme.sh"
-# shellcheck source=lib/units.sh
-source "$LIB/units.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 

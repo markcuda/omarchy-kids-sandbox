@@ -7,7 +7,7 @@
 #
 # Fully self-contained, same shape as test/shell.d/apps-test.sh: real
 # bin/omarchy-kids-conf and bin/omarchy-kids-apps run against scratch
-# OMARCHY_KIDS_ETC/SHARE/ROOT trees; share/ is copied from the repo (real
+# trees selected by constants in a copied command; share/ is copied from the repo (real
 # bands.toml and packs/), not faked. Only a couple of pack ids get a
 # fake "installed" signal in the root-built map (a stub PATH executable
 # or a fake .desktop file); the rest are simply never installed.
@@ -20,7 +20,7 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SESSION_START="$DIR/bin/omarchy-kids-session-start"
+SESSION_START=""
 CONF="$DIR/bin/omarchy-kids-conf"
 
 if ! command -v python3 >/dev/null 2>&1; then
@@ -119,7 +119,6 @@ export PATH="$STUBS:$BASE_PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$ROOT"
-export OMARCHY_KIDS_RUN="$RUN"
 export OMARCHY_KIDS_SESSION_START_NO_EXEC="1"
 
 # Build the trusted map before the kid-side session starts.
@@ -146,8 +145,10 @@ cp "$DIR/bin/omarchy-kids-conf" "$SESSION_ROOT/bin/"
 cp "$DIR/bin/omarchy-kids-apps" "$SESSION_ROOT/bin/"
 cp "$DIR/bin/omarchy-kids-time" "$SESSION_ROOT/bin/"
 SESSION_COPY="$SESSION_ROOT/bin/omarchy-kids-session-start"
-kids_set_const "$SESSION_COPY" LAUNCHER_ETC "$ETC"
-kids_set_const "$SESSION_COPY" LAUNCHER_QML "$SHARE/launcher/shell.qml"
+kids_set_const "$SESSION_COPY" ETC "$ETC"
+kids_set_const "$SESSION_COPY" SHARE "$SHARE"
+kids_set_const "$SESSION_COPY" SYSROOT "$ROOT"
+kids_set_const "$SESSION_COPY" RUN "$RUN"
 SESSION_START="$SESSION_COPY"
 
 LAUNCHER_JSON="$RUN/launcher-$(id -u).json"

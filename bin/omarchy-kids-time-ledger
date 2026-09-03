@@ -15,11 +15,13 @@ source "$LIB/time.sh"
 # shellcheck source=lib/data.sh
 source "$LIB/data.sh"
 
-ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
-SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+ETC=/etc/omarchy-kids
+SYSROOT=""
 KIDS_DIR="$ETC/kids"
 RUN_DIR="$SYSROOT/run/omarchy-kids"
 STATUS_JSON="$RUN_DIR/status.json"
+TIME_SYSROOT="$SYSROOT"
+TIME_VARLIB="$SYSROOT/var/lib/omarchy-kids"
 
 die() {
   echo "omarchy-kids-time-ledger: $1" >&2

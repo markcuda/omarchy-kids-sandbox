@@ -18,6 +18,8 @@ source "$LIB/data.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
+TIME_SYSROOT="$DATA_SYSROOT"
+TIME_VARLIB="$DATA_VARLIB"
 
 die() {
   echo "omarchy-kids-data: $1" >&2

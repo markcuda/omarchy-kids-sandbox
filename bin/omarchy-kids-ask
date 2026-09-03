@@ -16,11 +16,11 @@ WEB_BIN="$(kids_bin web "$DIR")"
 TIME_BIN="$(kids_bin time "$DIR")"
 SELF="$(kids_bin ask "$DIR")"
 
-ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
-SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
-SYSROOT="${OMARCHY_KIDS_ROOT:-}"
-RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
-RUN_USER_ROOT="${OMARCHY_KIDS_RUN_USER_ROOT:-/run/user}"
+ETC=/etc/omarchy-kids
+SHARE=/usr/share/omarchy-kids
+SYSROOT=""
+RUN="/run/user/$(id -u)/omarchy-kids"
+RUN_USER_ROOT=/run/user
 KIDS_DIR="$ETC/kids"
 QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
 OUTBOX_DIR="$RUN/ask-outbox"
@@ -29,7 +29,9 @@ MODAL_PIDFILE="$RUN/ask-modal.pid"
 # The verifier socket is a constant: a kid may not point a password
 # check anywhere (AGENTS.md, "The trust boundary"; review S4/§2.1).
 AUTH_SOCK=/run/omarchy-kids/auth.sock
-UID_MAP="${OMARCHY_KIDS_UID_MAP:-}"
+UID_MAP=""
+QUICKSHELL_BIN=/usr/bin/quickshell
+export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE"
 
 # shellcheck source=lib/sock.sh
 source "$LIB/sock.sh"
@@ -113,7 +115,7 @@ open_modal() {
   # exec keeps this pid, so $$ is the modal's own pid.
   install -d -m 0700 "$RUN"
   modal_write_pid "$MODAL_PIDFILE"
-  exec quickshell -p "$MODAL_QML"
+  exec "$QUICKSHELL_BIN" -p "$MODAL_QML"
 }
 
 cmd_time() {
@@ -464,6 +466,7 @@ cmd_apply_grant() {
 # --- root: list / approve / decline ---------------------------------------
 
 cmd_list() {
+  is_root || die "list: root only" 1
   local kid="${1:-}"
   install -d -m 0755 "$QUEUE_DIR"
   local -a args=("list-open" "$QUEUE_DIR")
@@ -490,6 +493,7 @@ record_path_for_id() {
 }
 
 cmd_approve() {
+  is_root || die "approve: root only" 1
   local id="" apply_flag=0
   while (($#)); do
     case "$1" in
@@ -529,6 +533,7 @@ cmd_approve() {
 }
 
 cmd_decline() {
+  is_root || die "decline: root only" 1
   local id="" apply_flag=0
   while (($#)); do
     case "$1" in

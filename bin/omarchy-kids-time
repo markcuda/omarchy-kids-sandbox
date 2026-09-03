@@ -11,11 +11,16 @@ LIB="$DIR/lib"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
+ETC=/etc/omarchy-kids
+SHARE=/usr/share/omarchy-kids
+SYSROOT=""
+RUN="/run/user/$(id -u)/omarchy-kids"
+QUICKSHELL_BIN=/usr/bin/quickshell
+export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE"
 # shellcheck source=lib/time.sh
 source "$LIB/time.sh"
-
-SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
-RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
+TIME_SYSROOT="$SYSROOT"
+TIME_VARLIB="$TIME_SYSROOT/var/lib/omarchy-kids"
 TOAST_QML="$SHARE/time/toast.qml"
 TIMESUP_QML="$SHARE/time/timesup.qml"
 TOAST_PIDFILE="$RUN/toast.pid"
@@ -98,7 +103,7 @@ show_toast() {
   local text="$1"
   modal_already_open "$TOAST_PIDFILE" && return 0
   install -d -m 0700 "$RUN"
-  OMARCHY_KIDS_TOAST_TEXT="$text" quickshell -p "$TOAST_QML" >/dev/null 2>&1 &
+  OMARCHY_KIDS_TOAST_TEXT="$text" "$QUICKSHELL_BIN" -p "$TOAST_QML" >/dev/null 2>&1 &
   modal_write_pid "$TOAST_PIDFILE" "$!"
   disown 2>/dev/null || true
   log "toast: $text"
@@ -113,7 +118,7 @@ show_timesup() {
   install -d -m 0700 "$RUN"
   OMARCHY_KIDS_ACCOUNT="$kid" OMARCHY_KIDS_NAME="$name" \
     OMARCHY_KIDS_AVATAR="$SHARE/avatars/$avatar_id.svg" \
-    quickshell -p "$TIMESUP_QML" >/dev/null 2>&1 &
+    "$QUICKSHELL_BIN" -p "$TIMESUP_QML" >/dev/null 2>&1 &
   modal_write_pid "$TIMESUP_PIDFILE" "$!"
   disown 2>/dev/null || true
   log "time's up shown for '$kid'"

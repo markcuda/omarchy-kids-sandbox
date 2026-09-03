@@ -10,10 +10,14 @@ LIB="$DIR/lib"
 [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
-SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+ETC=/etc/omarchy-kids
+SHARE=/usr/share/omarchy-kids
 CONF_BIN="$(kids_bin conf "$DIR")"
 MODAL_QML="$SHARE/exit-modal/shell.qml"
-RUN="${OMARCHY_KIDS_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
+RUN="/run/user/$(id -u)/omarchy-kids"
+RUN_USER_ROOT=/run/user
+QUICKSHELL_BIN=/usr/bin/quickshell
+export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE"
 MODAL_PIDFILE="$RUN/exit-modal.pid"
 
 die() {
@@ -45,7 +49,6 @@ Bound to Super+Shift+K in every Kids Mode Hyprland level
               Prints why and exits 2.
 
 Env:
-  OMARCHY_KIDS_SHARE     default /usr/share/omarchy-kids (exit-modal/shell.qml lives under here)
   OMARCHY_KIDS_EXIT_WAIT seconds to wait for Hyprland to exit cleanly before
                          falling back to loginctl (default 8; both --finish
                          forms)
@@ -81,7 +84,7 @@ cmd_open() {
   # exec keeps this pid, so $$ is the modal's own pid.
   install -d -m 0700 "$RUN"
   modal_write_pid "$MODAL_PIDFILE"
-  exec quickshell -p "$MODAL_QML"
+  exec "$QUICKSHELL_BIN" -p "$MODAL_QML"
 }
 
 # wait_for_hyprland_gone UID — polls up to OMARCHY_KIDS_EXIT_WAIT for no
@@ -120,7 +123,7 @@ cmd_finish_kid() {
   local uid
   uid="$(id -u "$account" 2>/dev/null)" || die "--finish --kid: no such account '$account'"
 
-  local run_dir="${OMARCHY_KIDS_RUN_USER_ROOT:-/run/user}/$uid"
+  local run_dir="$RUN_USER_ROOT/$uid"
   local hypr_dir="$run_dir/hypr"
   local -a sigs=()
   local entry

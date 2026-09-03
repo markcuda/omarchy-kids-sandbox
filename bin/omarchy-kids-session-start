@@ -1,7 +1,7 @@
 #!/bin/bash
 # omarchy:summary=Set up one kid Hyprland session: launcher tile, apps, time, web
 # Runs once per kid Hyprland session (exec-once/hl.on): the launcher tile, then apps/time/web
-# (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E). See docs/session.md for the tile JSON format and every env var.
+# (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E). See docs/session.md for the tile JSON format and path constants.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -14,16 +14,14 @@ APPS_BIN="$(kids_bin apps "$DIR")"
 TIME_BIN="$(kids_bin time "$DIR")"
 
 # Build-time constants: a kid may edit display data, never the launcher code or map.
-LAUNCHER_ETC=/etc/omarchy-kids
-LAUNCHER_QML=/usr/share/omarchy-kids/launcher/shell.qml
-
-ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
-SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+ETC=/etc/omarchy-kids
+SHARE=/usr/share/omarchy-kids
 # The kid can only write to their own runtime dir; /run/omarchy-kids is root-owned (found live).
-RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
+RUN="/run/user/$(id -u)/omarchy-kids"
 mkdir -p "$RUN" 2>/dev/null || true
 # Read-only view of omarchy-kids-apps' pending-install queue (docs/apps.md).
-SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+SYSROOT=""
+QUICKSHELL_BIN=/usr/bin/quickshell
 QUEUE_FILE="$SYSROOT/var/lib/omarchy-kids/apps-queue"
 
 # Appends to the same per-session log omarchy-kids-session writes to, so the
@@ -38,11 +36,6 @@ Usage: omarchy-kids-session-start
 Run from a Kids Mode Hyprland level config's exec-once (share/hyprland/
 L1.lua, L2.lua, L3.lua). Writes the Level 1/2 launcher's tile JSON, then
 starts the launcher (Level 1) or Omarchy's own shell (Level 2/3).
-
-Env:
-  OMARCHY_KIDS_ETC      default /etc/omarchy-kids
-  OMARCHY_KIDS_SHARE    default /usr/share/omarchy-kids
-  OMARCHY_KIDS_RUN      default \$XDG_RUNTIME_DIR/omarchy-kids
 
   -h, --help  Show this help and exit.
 EOF
@@ -83,7 +76,7 @@ queue_has_pkg() {
   grep -qxF "$pkgname" "$QUEUE_FILE" 2>/dev/null
 }
 
-LAUNCHER_MAP="$LAUNCHER_ETC/launchers/$ACCOUNT.json"
+LAUNCHER_MAP="$ETC/launchers/$ACCOUNT.json"
 TILES_FILE="$(mktemp)"
 trap 'rm -f "$TILES_FILE"' EXIT
 
@@ -128,7 +121,7 @@ export OMARCHY_KIDS_LAUNCHER_JSON="$LAUNCHER_JSON" OMARCHY_KIDS_LAUNCHER_CONTROL
 
 case "$LEVEL" in
   1)
-    EXEC_LINE=(/usr/bin/quickshell -p "$LAUNCHER_QML")
+    EXEC_LINE=("$QUICKSHELL_BIN" -p "$SHARE/launcher/shell.qml")
     ;;
   2 | 3)
     # $RUN/allowlist.json (R-DESK-4, issue #24) -- docs/apps.md.

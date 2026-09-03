@@ -14,7 +14,10 @@ source "$LIB/sock.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+ETC=/etc/omarchy-kids
+SHARE=/usr/share/omarchy-kids
+QUICKSHELL_BIN=/usr/bin/quickshell
+export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE"
 WIFI_QML="$SHARE/wifi/shell.qml"
 TOAST_QML="$SHARE/time/toast.qml"
 
@@ -42,7 +45,6 @@ Every subcommand needs the caller's profile to say wifi=helper
 bin/omarchy-kids-wifid, the root helper this talks to. See docs/wifi.md.
 
 Env:
-  OMARCHY_KIDS_SHARE          default /usr/share/omarchy-kids
   OMARCHY_KIDS_WIFID_TIMEOUT  default 10 (seconds)
 EOF
 }
@@ -72,8 +74,8 @@ require_helper() {
 # to stderr if Quickshell isn't on PATH.
 show_toast() {
   local text="$1"
-  if command -v quickshell >/dev/null 2>&1 && [[ -f "$TOAST_QML" ]]; then
-    OMARCHY_KIDS_TOAST_TEXT="$text" quickshell -p "$TOAST_QML" >/dev/null 2>&1 &
+  if [[ -x "$QUICKSHELL_BIN" && -f "$TOAST_QML" ]]; then
+    OMARCHY_KIDS_TOAST_TEXT="$text" "$QUICKSHELL_BIN" -p "$TOAST_QML" >/dev/null 2>&1 &
     disown 2>/dev/null || true
   else
     echo "omarchy-kids-wifi: $text" >&2
@@ -176,7 +178,7 @@ cmd_picker() {
     exit 3
   fi
   export OMARCHY_KIDS_ACCOUNT="$who"
-  exec quickshell -p "$WIFI_QML"
+  exec "$QUICKSHELL_BIN" -p "$WIFI_QML"
 }
 
 # --- main --------------------------------------------------------------

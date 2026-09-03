@@ -84,6 +84,13 @@ EOF
 # kid; $KIDS_TEST_ACCOUNT / $KIDS_TEST_UID name the two other callers.
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 kids_id_stub "$STUBS" kid-ada "$KID_UID"
+kids_tree "$TMP/tree" "$DIR"
+LEDGER="$TMP/tree/bin/omarchy-kids-time-ledger"
+kids_set_const "$LEDGER" ETC "$ETC"
+kids_set_const "$LEDGER" SYSROOT "$ROOT"
+LAUNCHER_CTL="$TMP/tree/bin/omarchy-kids-launcher-ctl"
+kids_set_const "$LAUNCHER_CTL" CONTROL "$ROOT/run/user/$KID_UID/omarchy-kids/launcher-control"
+kids_set_const "$LAUNCHER_CTL" LAUNCHES_LOG "$ROOT/run/user/$KID_UID/omarchy-kids/launches.log"
 export KIDS_TEST_ACCOUNT="not-a-kid"
 
 # --- stub `loginctl` — no live sessions; the ledger's own tick logic is

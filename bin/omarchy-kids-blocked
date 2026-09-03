@@ -42,12 +42,25 @@ Find a grown-up. They can run 'omarchy-kids-check' to see what's wrong."
 
 # Actually attempt the write rather than `[[ -w /dev/tty ]]` first -- the
 # permission-bit check can lie (docs/session.md).
-OUT=/dev/stdout
+OUT=""
 if { : >/dev/tty; } 2>/dev/null; then
   OUT=/dev/tty
 fi
 
-if command -v gum >/dev/null 2>&1; then
+if [[ -n "$OUT" ]]; then
+  if command -v gum >/dev/null 2>&1; then
+    gum style \
+      --border double \
+      --align center \
+      --width 60 \
+      --margin "2 4" \
+      --padding "2 4" \
+      --foreground 212 --border-foreground 212 \
+      "$MESSAGE" >"$OUT" 2>/dev/null || printf '%s\n' "$MESSAGE" >"$OUT"
+  else
+    printf '%s\n' "$MESSAGE" >"$OUT"
+  fi
+elif command -v gum >/dev/null 2>&1; then
   gum style \
     --border double \
     --align center \
@@ -55,13 +68,11 @@ if command -v gum >/dev/null 2>&1; then
     --margin "2 4" \
     --padding "2 4" \
     --foreground 212 --border-foreground 212 \
-    "$MESSAGE" >"$OUT" 2>/dev/null || printf '%s\n' "$MESSAGE" >"$OUT"
+    "$MESSAGE"
 else
-  {
-    printf '%s\n' "======================================================"
-    printf '%s\n' "$MESSAGE"
-    printf '%s\n' "======================================================"
-  } >"$OUT"
+  printf '%s\n' "======================================================"
+  printf '%s\n' "$MESSAGE"
+  printf '%s\n' "======================================================"
 fi
 
 sleep "$SLEEP_SECS"

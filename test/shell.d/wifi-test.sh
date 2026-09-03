@@ -301,6 +301,13 @@ EOF
     # bit on Linux, the one platform where section B actually runs).
     WIFI_B="$TMP/tree/bin/omarchy-kids-wifi"
     kids_set_const "$WIFI_B" SOCK "$SOCK"
+    kids_set_const "$WIFI_B" ETC "$ETC"
+    kids_set_const "$WIFI_B" SHARE "$SHARE"
+    STUBS_B="$TMP/stubs-b" # section B has no stub dir of its own; the picker is not exercised here
+    mkdir -p "$STUBS_B"
+    printf '#!/bin/bash\nexit 0\n' >"$STUBS_B/quickshell"
+    chmod +x "$STUBS_B/quickshell"
+    kids_set_const "$WIFI_B" QUICKSHELL_BIN "$STUBS_B/quickshell"
 
     out="$("$WIFI_B" list)"
     st=$?
@@ -386,12 +393,14 @@ kids_id_stub "$STUBS_C" kid-helper "$(id -u)"
 kids_tree "$TMP_C/tree" "$DIR"
 WIFI_C="$TMP_C/tree/bin/omarchy-kids-wifi"
 kids_set_const "$WIFI_C" SOCK "$TMP_C/no-such.sock"
+kids_set_const "$WIFI_C" ETC "$ETC_C"
+kids_set_const "$WIFI_C" SHARE "$SHARE_C"
+kids_set_const "$WIFI_C" QUICKSHELL_BIN "$STUBS_C/quickshell"
 
 run_wifi_c() { # ACCOUNT SUBCOMMAND... -> combined output on stdout; exit status is the command's
   local account="$1"
   shift
   PATH="$STUBS_C:$PATH" KIDS_TEST_ACCOUNT="$account" \
-    OMARCHY_KIDS_ETC="$ETC_C" OMARCHY_KIDS_SHARE="$SHARE_C" \
     "$WIFI_C" "$@" 2>&1
 }
 

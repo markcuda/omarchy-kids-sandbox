@@ -5,7 +5,8 @@
 # grant` (I-3, R-TIME-1) -- the kid-run command only ever reads. Not
 # meant to be executed directly; source it. Every path/env var: docs/time.md.
 
-TIME_SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+# Root-side callers may replace this explicit scratch-tree seam after sourcing.
+TIME_SYSROOT=""
 TIME_VARLIB="$TIME_SYSROOT/var/lib/omarchy-kids"
 
 # time_now — prints "YYYY-MM-DD HH:MM:SS", local wall clock.
@@ -34,7 +35,7 @@ time_logical_day() {
   local now="$1" py out
   py="$(dirname "${BASH_SOURCE[0]}")/time.py"
   [[ -f "$py" ]] || py=/usr/lib/omarchy-kids/time.py
-  out="$("${KIDS_PY:-python3}" "$py" logical-day "$now")" || return 1
+  out="$("$KIDS_PY" "$py" logical-day "$now")" || return 1
   printf '%s\t%s\n' "$(sed -n '1p' <<<"$out")" "$(sed -n '2p' <<<"$out")"
 }
 

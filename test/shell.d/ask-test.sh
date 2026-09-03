@@ -135,11 +135,13 @@ kids_id_stub "$STUBS" kid-ada 1000
 # missing must not depend on this box (AGENTS.md, testing rules).
 BASE_PATH="$(kids_base_path "$TMP/base")"
 export PATH="$STUBS:$BASE_PATH"
-export OMARCHY_KIDS_SHARE="$SHARE"
-export OMARCHY_KIDS_ETC="$ETC"
-export OMARCHY_KIDS_ROOT="$VARLIB_ROOT"
-export OMARCHY_KIDS_RUN_USER_ROOT="$RUN_USER_ROOT"
-export OMARCHY_KIDS_UID_MAP="$UID_MAP"
+kids_set_const "$BIN" ETC "$ETC"
+kids_set_const "$BIN" SHARE "$SHARE"
+kids_set_const "$BIN" SYSROOT "$VARLIB_ROOT"
+kids_set_const "$BIN" RUN "$RUN_USER_ROOT/1000/omarchy-kids"
+kids_set_const "$BIN" RUN_USER_ROOT "$RUN_USER_ROOT"
+kids_set_const "$BIN" UID_MAP "$UID_MAP"
+kids_set_const "$BIN" QUICKSHELL_BIN "$STUBS/quickshell"
 
 argv_since() { tail -n "+$(($1 + 1))" "$LOG"; }
 argv_lines() { wc -l <"$LOG" | tr -d ' '; }
@@ -157,8 +159,7 @@ check_eq "$?" 2 "an unknown command exits 2"
 # Kid-side: time/app/plugin/site open the modal with kid-words env
 # =====================================================================
 
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
-  "$BIN" time 15 >/dev/null 2>&1
+"$BIN" time 15 >/dev/null 2>&1
 argv="$(cat "$LOG")"
 check_contains "$argv" "quickshell -p $SHARE/ask/shell.qml" "time: execs quickshell with the ask modal path"
 
@@ -175,8 +176,7 @@ EOF
 chmod +x "$STUBS/quickshell"
 
 ENV_DUMP="$TMP/env-dump"
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
-  OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" time 15 >/dev/null 2>&1
+OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" time 15 >/dev/null 2>&1
 env_out="$(cat "$ENV_DUMP" 2>/dev/null || true)"
 check_contains "$env_out" "OMARCHY_KIDS_ACCOUNT=kid-ada" "time: exports OMARCHY_KIDS_ACCOUNT"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_KIND=time" "time: exports kind=time"
@@ -185,22 +185,19 @@ check_contains "$env_out" "OMARCHY_KIDS_ASK_MINUTES=15" "time: exports minutes=1
 check_contains "$env_out" "15 more minute" "time: description is in kid words"
 
 : >"$ENV_DUMP"
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
-  OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" app "minecraft" >/dev/null 2>&1
+OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" app "minecraft" >/dev/null 2>&1
 env_out="$(cat "$ENV_DUMP" 2>/dev/null || true)"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_KIND=app" "app: exports kind=app"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_WHAT=minecraft" "app: exports what=minecraft"
 
 : >"$ENV_DUMP"
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
-  OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" site "roblox.com" >/dev/null 2>&1
+OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" site "roblox.com" >/dev/null 2>&1
 env_out="$(cat "$ENV_DUMP" 2>/dev/null || true)"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_KIND=site" "site: exports kind=site"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_WHAT=roblox.com" "site: exports what=roblox.com"
 
 : >"$ENV_DUMP"
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
-  OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" plugin "weather-widget" >/dev/null 2>&1
+OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" plugin "weather-widget" >/dev/null 2>&1
 env_out="$(cat "$ENV_DUMP" 2>/dev/null || true)"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_KIND=plugin" "plugin: exports kind=plugin"
 
@@ -224,8 +221,8 @@ MODAL_RUN="$TMP/kid-runtime"
 mkdir -p "$MODAL_RUN"
 printf '999999\n' >"$MODAL_RUN/ask-modal.pid"
 before="$(argv_lines)"
-OMARCHY_KIDS_RUN="$MODAL_RUN" \
-  "$BIN" time 5 >/dev/null 2>&1
+kids_set_const "$BIN" RUN "$MODAL_RUN"
+"$BIN" time 5 >/dev/null 2>&1
 if grep -qE '^quickshell ' < <(argv_since "$before"); then
   pass "time: a stale modal pidfile never blocks the modal"
 else
@@ -234,8 +231,7 @@ fi
 rm -f "$MODAL_RUN/ask-modal.pid"
 
 before="$(argv_lines)"
-OMARCHY_KIDS_RUN="$MODAL_RUN" \
-  "$BIN" time 5 >/dev/null 2>&1
+"$BIN" time 5 >/dev/null 2>&1
 st=$?
 check_eq "$st" 0 "time: opening the modal exits 0"
 [[ -s "$MODAL_RUN/ask-modal.pid" ]] && pass "time: the modal records its own pid" ||
@@ -248,8 +244,8 @@ rm -rf "$MODAL_RUN"
 
 OUTBOX_ADA="$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox"
 
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
-  "$BIN" submit time 20 --minutes 20 >/dev/null
+kids_set_const "$BIN" RUN "$RUN_USER_ROOT/1000/omarchy-kids"
+"$BIN" submit time 20 --minutes 20 >/dev/null
 files=("$OUTBOX_ADA"/*-kid-ada-time.json)
 check_eq "${#files[@]}" 1 "submit (open): writes exactly one record"
 rec="${files[0]}"
@@ -261,8 +257,7 @@ rm -f "$rec"
 
 # --- review S1: `submit` has no way to write a decision at all -----------
 
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
-  "$BIN" submit app firefox >/dev/null
+"$BIN" submit app firefox >/dev/null
 files=("$OUTBOX_ADA"/*-kid-ada-app.json)
 check_eq "${#files[@]}" 1 "submit: writes exactly one record"
 rec="${files[0]}"
@@ -272,8 +267,7 @@ check_contains "$(cat "$rec")" '"what": "firefox"' "submit: what=firefox"
 rm -f "$rec"
 
 for bad in --state --by; do
-  OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
-    "$BIN" submit app firefox "$bad" approved >/dev/null 2>&1
+  "$BIN" submit app firefox "$bad" approved >/dev/null 2>&1
   check_eq "$?" 2 "submit: $bad is not an argument this command has (review S1)"
 done
 # ...and lib/ask.py itself refuses to write one, whatever calls it.
@@ -474,6 +468,13 @@ cat >"$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox/1000000009-kid-ada-time.json" 
 EOF
 "$BIN" collect --apply >/dev/null
 time_stub_gone
+
+# Root-only review commands reject a kid before touching sibling requests.
+for subcommand in list approve decline; do
+  "$BIN" "$subcommand" no-such-id >/dev/null 2>&1
+  check_eq "$?" 1 "$subcommand: refuses a non-root caller at entry"
+done
+export KIDS_TEST_UID=0
 
 # =====================================================================
 # list: only open (undecided) requests, all kids or one

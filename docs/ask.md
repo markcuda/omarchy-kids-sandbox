@@ -27,7 +27,8 @@ omarchy-kids-ask time <minutes>
 omarchy-kids-ask app <package-or-desktop-id>
 omarchy-kids-ask plugin <plugin-id>
 omarchy-kids-ask site <host>
-omarchy-kids-ask submit <kind> <what> --state open|approved --by keyboard [--minutes N]
+omarchy-kids-ask submit <kind> <what> [--minutes N]
+omarchy-kids-ask grant <kind> <what> [--minutes N]
 omarchy-kids-ask collect [--apply]
 omarchy-kids-ask list [<kid>]
 omarchy-kids-ask approve <id> [--apply]
@@ -36,7 +37,7 @@ omarchy-kids-ask decline <id> [--apply]
 
 ### Kid-side: `time` / `app` / `plugin` / `site`
 
-Each execs `quickshell -p $OMARCHY_KIDS_SHARE/ask/shell.qml` (a no-op if the modal already looks
+Each execs `/usr/bin/quickshell -p /usr/share/omarchy-kids/ask/shell.qml` (a no-op if the modal already looks
 open, same `pgrep -f` check `bin/omarchy-kids-exit` uses), first exporting what's being asked in
 kid words:
 
@@ -57,14 +58,14 @@ is no "ask for negative screen time".
 omarchy-kids-ask submit <kind> <what> --state open|approved --by keyboard [--minutes N]
 ```text
 
-Writes one Appendix D record into `$OMARCHY_KIDS_RUN/ask-outbox/<unix-ts>-<account>-<kind>.json`
+Writes one Appendix D record into `/run/user/<uid>/omarchy-kids/ask-outbox/<unix-ts>-<account>-<kind>.json`
 (`lib/ask.py write` does the actual JSON, atomically). Never gated by `DRY_RUN` — it only ever
 touches the kid's own runtime directory, same reasoning `bin/omarchy-kids-super-tap` already gives
 for never gating its own runtime-dir writes.
 
 ### `collect [--apply]` — root
 
-For every `<uid>/omarchy-kids/ask-outbox/*.json` under `$OMARCHY_KIDS_RUN_USER_ROOT` (default
+For every `<uid>/omarchy-kids/ask-outbox/*.json` under `/run/user` (the root-side runtime tree),
 `/run/user`, i.e. every logged-in kid's real `$XDG_RUNTIME_DIR`), moves the file into
 `/var/lib/omarchy-kids/queue/` (Appendix D's real home), keeping the same filename. Any record
 that already arrived decided (`state: "approved"`, from the modal's "A grown-up is here" path) is
@@ -78,7 +79,7 @@ otherwise (see below).
 
 Every **open** (undecided) request, all kids or one, one line each: id, kid, kind, what (minutes
 for `time`), and when it was asked. Nothing decided ever shows here — that's the whole point of a
-one-keystroke panel.
+one-keystroke panel. The command requires `is_root` before reading the queue.
 
 ### `approve <id>` / `decline <id>` — root
 
@@ -87,7 +88,8 @@ one-keystroke panel.
 on an id that's already decided or doesn't exist — Appendix D's "approvers append, never rewrite
 history" is read here as *a record is decided exactly once*; nothing ever flips a decision back or
 edits `kid`/`kind`/`what`/`minutes`/`asked_at` after they're first written (`lib/ask.py decide`
-enforces this, not just this script). `DRY_RUN=1` by default; `--apply` makes either real.
+enforces this, not just this script). Both subcommands perform the root check at entry, before
+opening or changing a queue record. `DRY_RUN=1` by default; `--apply` makes either real.
 
 ## Dispatch: what "applying a grant" actually does
 
@@ -159,16 +161,14 @@ is what actually performs it, the next time it runs. That is:
 (alongside the boot-login units and the authd socket), so a fresh `omarchy-kids-assert` run — by
 hand, the wizard, or the pacman hook (R-TRUST-5) — is enough to make sure it's on.
 
-## Env (every path overridable, per AGENTS.md rule 8)
+## Paths and environment
 
 | Var | Default | What |
 | --- | --- | --- |
-| `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | kid overrides, per-kid `allow.txt` |
-| `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `share/ask/shell.qml` |
-| `OMARCHY_KIDS_ROOT` | (empty — the real paths) | scratch prefix for `/var/lib/omarchy-kids` (the queue) |
-| `OMARCHY_KIDS_RUN` | `$XDG_RUNTIME_DIR/omarchy-kids`, else `/tmp/omarchy-kids` | kid-side outbox root |
-| `OMARCHY_KIDS_RUN_USER_ROOT` | `/run/user` | root-side: where `collect` looks for every kid's own outbox |
-| `OMARCHY_KIDS_ACCOUNT` | `id -un` | kid-side: this session's account |
+The kid-facing command uses build-time constants: `ETC=/etc/omarchy-kids`,
+`SHARE=/usr/share/omarchy-kids`, `SYSROOT=`, and `RUN=/run/user/<uid>/omarchy-kids`.
+Tests substitute these in a copied command tree with `kids_set_const`; inherited path variables are
+ignored. `collect` remains root-side and may use its explicit scratch-root test seam.
 | `DRY_RUN` | `1` | gates `collect`/`approve`/`decline`; `submit` and the kid-side commands are never gated (they only ever touch the kid's own runtime dir) |
 
 ## What's unverified — check in the VM
@@ -251,13 +251,13 @@ Kid-side (unprivileged, run inside the kid's session):
   plugin <plugin-id>        Opens the modal asking for one launcher plugin.
   site <host>                Opens the modal asking for one website.
 
-    Each execs `quickshell -p $OMARCHY_KIDS_SHARE/ask/shell.qml`
+    Each execs `/usr/bin/quickshell -p /usr/share/omarchy-kids/ask/shell.qml`
     (share/ask/shell.qml), exporting what's being asked in kid words.
     The modal itself calls back into this command's `submit`:
 
   submit <kind> <what> [--minutes N]
     Writes one Appendix D record, always state=open, into the *kid's
-    own* outbox -- $OMARCHY_KIDS_RUN/ask-outbox/<ts>-<account>-<kind>.json.
+    own* outbox -- /run/user/<uid>/omarchy-kids/ask-outbox/<ts>-<account>-<kind>.json.
     A kid can only ever write a *claim*, never a decision (review S1):
     there is deliberately no --state and no --by here.
 
@@ -295,29 +295,13 @@ systemd/omarchy-kids-ask-collect.timer):
   decline <id> [--apply]      Marks the record declined (by=panel).
                               Never performs the action.
 
-Every path is overridable for tests, same convention as
-omarchy-kids-apps and omarchy-kids-web:
-  OMARCHY_KIDS_ETC        default /etc/omarchy-kids (kid overrides, per-kid allow.txt)
-  OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids (share/ask/shell.qml)
-  OMARCHY_KIDS_ROOT       scratch prefix for /var/lib/omarchy-kids (the queue)
-  OMARCHY_KIDS_RUN        kid-side outbox root, default $XDG_RUNTIME_DIR/omarchy-kids
-                          (falls back to /tmp/omarchy-kids, same as
-                          bin/omarchy-kids-super-tap)
-  OMARCHY_KIDS_RUN_USER_ROOT  where `collect` looks for every kid's own
-                          outbox: <this>/*/omarchy-kids/ask-outbox/
-                          (default /run/user, i.e. every logged-in
-                          kid's real $XDG_RUNTIME_DIR)
-  OMARCHY_KIDS_ACCOUNT    kid-side: this session's account (default `id -un`)
-  OMARCHY_KIDS_UID_MAP    test-only: a file of "uid:account" lines used
-                          instead of `getent passwd` when `collect`
-                          resolves who owned an outbox. Read from
-                          root's own environment, never a kid's.
-  DRY_RUN                 default 1 for collect/approve/decline
-                          (AGENTS.md rule 8); --apply or DRY_RUN=0 does
-                          it for real. submit/time/app/plugin/site only
-                          ever touch the kid's own runtime dir, so they
-                          are never gated by DRY_RUN (same reasoning as
-                          bin/omarchy-kids-super-tap).
+                              The kid-facing paths are build-time constants:
+                              ETC=/etc/omarchy-kids, SHARE=/usr/share/omarchy-kids,
+                              SYSROOT=, RUN=/run/user/<uid>/omarchy-kids. Tests use
+                              copied commands and `kids_set_const`; inherited path
+                              variables are ignored. Root-side `collect` may use
+                              an explicit scratch-root test seam. `DRY_RUN` remains
+                              the preview setting for root-side mutations.
 ```
 
 ## The trust boundary (issue #58)

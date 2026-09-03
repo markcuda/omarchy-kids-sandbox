@@ -2,9 +2,8 @@
 # Tests bin/omarchy-kids-web (SPEC.md R-WEB-1..4) and the fail-closed web
 # tile bin/omarchy-kids-session-start builds from it.
 #
-# Self-contained: OMARCHY_KIDS_SHARE points at a scratch copy of this
-# repo's real share/bands/ and share/policy/ (same convention
-# test/shell.d/conf-test.sh already uses -- real data, scratch paths).
+# Self-contained: a copied command has its build-time SHARE/ETC/SYSROOT
+# constants substituted with scratch paths (same convention as the session test).
 # The /etc prefix is not an env var any more: R-WEB-4's fail-closed check
 # reads it, and a kid must not be able to point a fence check at a tree
 # they own (review §3.8). It is a build-time constant, substituted into a
@@ -35,6 +34,7 @@ cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
 SHARE="$TMP/share"
+ETC="$TMP/etc"
 mkdir -p "$SHARE/bands" "$SHARE/packs" "$SHARE/policy/lists"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
@@ -42,12 +42,11 @@ cp "$DIR"/share/policy/*.json "$SHARE/policy/"
 cp "$DIR"/share/policy/lists/*.txt "$SHARE/policy/lists/"
 cp "$DIR/share/policy/chromium-flags.conf" "$SHARE/policy/"
 
-export OMARCHY_KIDS_SHARE="$SHARE"
-
 STUBS="$TMP/stubs"
 mkdir -p "$STUBS"
 kids_tree "$TMP/tree" "$DIR"
 BIN="$TMP/tree/bin/omarchy-kids-web"
+kids_set_const "$BIN" SHARE "$SHARE"
 
 # `launch` resolves the band from the caller's own profile (`id -un`),
 # never $OMARCHY_KIDS_BAND: the band decides which managed policy must be
@@ -184,6 +183,7 @@ check_contains "$out" "unknown band" "render with an unknown band: names the rea
 SYSROOT="$TMP/sysroot"
 mkdir -p "$SYSROOT"
 kids_set_const "$BIN" SYSROOT "$SYSROOT"
+kids_set_const "$BIN" ETC "$ETC_LAUNCH"
 
 POLICY_FILE="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-6-8.json"
 
@@ -244,18 +244,18 @@ EXPECTED_LAUNCH_ARGV=(
 )
 expected_joined="$(printf '%s\n' "${EXPECTED_LAUNCH_ARGV[@]}")"
 
-argv_out="$(OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"
+argv_out="$(OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"
 st=$?
 check_status "$st" 0 "launch: exits 0"
 check "$argv_out" "$expected_joined" "launch: exact exec argv, no URL"
 check_not_contains "$argv_out" "--load-extension" "launch: never --load-extension (issue #44)"
 
-argv_out_url="$(OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch https://pbskids.org 2>&1)"
+argv_out_url="$(OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch https://pbskids.org 2>&1)"
 st=$?
 check_status "$st" 0 "launch URL: exits 0"
 check "$argv_out_url" "$expected_joined"$'\n'"https://pbskids.org" "launch URL: exact exec argv with the URL appended last"
 
-out="$(KIDS_TEST_ACCOUNT=kid-bo OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"
+out="$(KIDS_TEST_ACCOUNT=kid-bo OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"
 st=$?
 check_status "$st" 1 "launch: refuses when the band's policy isn't installed (exit 1)"
 check_contains "$out" "R-WEB-4" "launch: refusal cites R-WEB-4"
@@ -285,6 +285,7 @@ check_contains "$out" "Usage: omarchy-kids-web" "--help prints usage"
 
 ETC="$TMP/etc-session"
 RUN="$TMP/run-session"
+SESSION_SYSROOT="$TMP/session-sysroot"
 mkdir -p "$ETC/kids"
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada
@@ -292,14 +293,15 @@ avatar=fox
 band=6-8
 EOF
 
-out="$(
-  OMARCHY_KIDS_ETC="$ETC" \
-    OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_RUN="$RUN" \
-    OMARCHY_KIDS_ACCOUNT="kid-ada" \
-    OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
-    bash "$SESSION_START" 2>&1
-)"
+kids_tree "$TMP/session-tree" "$DIR"
+SESSION_START="$TMP/session-tree/bin/omarchy-kids-session-start"
+kids_set_const "$SESSION_START" ETC "$ETC"
+kids_set_const "$SESSION_START" SHARE "$SHARE"
+kids_set_const "$SESSION_START" SYSROOT "$SESSION_SYSROOT"
+kids_set_const "$SESSION_START" RUN "$RUN"
+kids_set_const "$SESSION_START" APPLICATIONS_DIRS "$TMP/applications"
+mkdir -p "$TMP/applications"
+out="$(OMARCHY_KIDS_SESSION_START_NO_EXEC=1 bash "$SESSION_START" 2>&1)"
 st=$?
 check_status "$st" 0 "session-start with no policy file: still exits 0 (own preflight is bin/omarchy-kids-session's job)"
 

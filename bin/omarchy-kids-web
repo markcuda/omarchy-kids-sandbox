@@ -12,7 +12,9 @@ LIB="$DIR/lib"
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
 
-SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+ETC=/etc/omarchy-kids
+SHARE=/usr/share/omarchy-kids
+export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE"
 
 # Build-time constant, empty in every shipped copy -- not an environment
 # read, so a kid can't point the R-WEB-4 fence check at their own tree

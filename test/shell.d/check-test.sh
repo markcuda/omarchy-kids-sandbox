@@ -118,11 +118,24 @@ esac
 # shellcheck disable=SC2016
 stub id '
 acct="${@: -1}"
-cat "__LOG__/groups/$acct" 2>/dev/null || true
+if [[ "${1:-}" == "-gn" ]]; then
+    awk "{print \$1}" "__LOG__/groups/$acct" 2>/dev/null || true
+else
+    cat "__LOG__/groups/$acct" 2>/dev/null || true
+fi
 '
 # shellcheck disable=SC2016
 stub usermod '
 case "$1" in
+    -G)
+        groups="$2"; acct="$3"
+        f="__LOG__/groups/$acct"
+        primary="$(awk "{print \$1}" "$f" 2>/dev/null || true)"
+        IFS="," read -ra add <<< "$groups"
+        printf "%s" "$primary" > "$f"
+        for g in "${add[@]}"; do printf " %s" "$g" >> "$f"; done
+        printf "\n" >> "$f"
+        ;;
     -aG)
         groups="$2"; acct="$3"
         f="__LOG__/groups/$acct"

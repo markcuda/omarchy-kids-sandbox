@@ -131,6 +131,49 @@ for name in "${read_names[@]}"; do
 done
 ((unlisted == 0)) && ok "trust boundary: every OMARCHY_KIDS_* read in bin/ and lib/ is allowlisted (${#read_names[@]} names)"
 
+# Kid-facing commands have a stricter boundary: scratch path variables are
+# root/test seams only, never safe inputs to a command a kid can run.
+KID_COMMANDS=(
+  bin/omarchy-kids-session bin/omarchy-kids-session-start bin/omarchy-kids-web
+  bin/omarchy-kids-time bin/omarchy-kids-ask bin/omarchy-kids-wifi
+  bin/omarchy-kids-launcher-ctl bin/omarchy-kids-blocked bin/omarchy-kids-super-tap
+  bin/omarchy-kids-exit
+)
+KID_PATH_VARS=(
+  OMARCHY_KIDS_ROOT OMARCHY_KIDS_ETC OMARCHY_KIDS_SHARE OMARCHY_KIDS_RUN_DIR
+  OMARCHY_KIDS_RUN OMARCHY_KIDS_RUNTIME_DIR OMARCHY_KIDS_RUN_USER_ROOT
+  OMARCHY_KIDS_RUN_USER_BASE OMARCHY_KIDS_APPLICATIONS_DIRS
+  OMARCHY_KIDS_LAUNCHES_LOG OMARCHY_KIDS_LAUNCHER_CONTROL
+)
+kid_path_reads=()
+while IFS= read -r name; do
+  [[ -n "$name" ]] || continue
+  for path_name in "${KID_PATH_VARS[@]}"; do
+    [[ "$name" == "$path_name" ]] && kid_path_reads+=("$name")
+  done
+done < <(
+  grep -rhoE '\$\{OMARCHY_KIDS_[A-Z0-9_]+' "${KID_COMMANDS[@]}" lib/kids.sh lib/sock.sh lib/time.sh 2>/dev/null |
+    sed 's/\${//' | sort -u
+)
+if ((${#kid_path_reads[@]})); then
+  bad "trust boundary: a kid-facing command reads a runtime path variable: ${kid_path_reads[*]}"
+else
+  ok "trust boundary: kid-facing commands do not read runtime path variables"
+fi
+
+# An inherited scratch path must not redirect a real command's fixed paths.
+hostile="$DIR/.trust-boundary-hostile"
+if hostile_out="$(OMARCHY_KIDS_ETC="$hostile" OMARCHY_KIDS_SHARE="$hostile" \
+  OMARCHY_KIDS_ROOT="$hostile" OMARCHY_KIDS_RUN="$hostile" \
+  "$DIR/bin/omarchy-kids-session" --help 2>&1)" &&
+  [[ "$hostile_out" == *"/etc/omarchy-kids"* ]] &&
+  [[ "$hostile_out" == *"/usr/share/omarchy-kids"* ]] &&
+  [[ "$hostile_out" != *"$hostile"* ]]; then
+  ok "trust boundary: session ignores hostile inherited path variables"
+else
+  bad "trust boundary: session accepted a hostile inherited path variable"
+fi
+
 # =====================================================================
 # 2. Shapes that are never allowed, whatever the allowlist says: a
 #    variable that could name a program, a library, a socket, or gate a

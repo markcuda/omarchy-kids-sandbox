@@ -41,6 +41,10 @@
 #                                   below for the R-TIME screen-time engine
 #                                   (default: resolved beside this script,
 #                                   else /usr/bin)
+#   OMARCHY_KIDS_WEB_BIN   path to omarchy-kids-web, whose `launch`
+#                                   command the Web tile's exec line runs
+#                                   (R-WEB, issue #44; default: resolved
+#                                   beside this script, else /usr/bin)
 #   OMARCHY_KIDS_DATA_BIN  path to omarchy-kids-data, run from the
 #                                   kids-data tile below (R-DATA-3, issue
 #                                   #27; default: resolved beside this
@@ -57,6 +61,7 @@ LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/oma
 CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
 APPS_BIN="${OMARCHY_KIDS_APPS_BIN:-$DIR/bin/omarchy-kids-apps}"; [[ -x "$APPS_BIN" ]] || APPS_BIN=/usr/bin/omarchy-kids-apps
 TIME_BIN="${OMARCHY_KIDS_TIME_BIN:-$DIR/bin/omarchy-kids-time}"; [[ -x "$TIME_BIN" ]] || TIME_BIN=/usr/bin/omarchy-kids-time
+WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=/usr/bin/omarchy-kids-web
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 PYHELPER="$LIB/conf.py"
 
@@ -211,10 +216,26 @@ done
 # the tile list when the policy file is missing or unreadable, with a
 # log line naming why -- never a tile that looks real but silently fails
 # to open (I-6: don't show a control that isn't enforced).
+#
+# The tile's own exec is `omarchy-kids-web launch`, not bare "chromium"
+# (issue #44): plain "chromium" runs Arch's /usr/bin/chromium wrapper,
+# which appends Omarchy's own ~/.config/chromium-flags.conf --
+# including --load-extension=... for Omarchy's three bundled extensions
+# -- and the kids policy always refuses unpacked extensions, so every
+# launch showed a "disabled by the administrator" modal that stole
+# keyboard focus. `omarchy-kids-web launch` execs the real Chromium
+# binary directly with the same flags minus every --load-extension (see
+# that script's own header and docs/web.md). $BAND is passed via env,
+# same convention the "more-apps" tile below already uses, since the
+# tile runs as the kid with no other way to tell `launch` which band's
+# policy applies.
 if [[ "$WEB" != "none" ]]; then
   policy="/etc/chromium/policies/managed/omarchy-kids-$BAND.json"
   if [[ -r "$policy" ]]; then
-    jq -n '{id: "chromium", label: "Web", icon: "chromium", exec: "chromium"}' >>"$TILES_FILE"
+    jq -n --arg band "$BAND" --arg web_bin "$WEB_BIN" \
+      '{id: "chromium", label: "Web", icon: "chromium",
+        exec: ("OMARCHY_KIDS_BAND=" + ($band | @sh) + " " + ($web_bin | @sh) + " launch")}' \
+      >>"$TILES_FILE"
   else
     log "web tile omitted for '$ACCOUNT': $policy missing or not readable (R-WEB-4, fail closed)"
   fi

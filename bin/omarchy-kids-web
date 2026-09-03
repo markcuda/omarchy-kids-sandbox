@@ -23,19 +23,62 @@
 #       set. DRY_RUN=1 by default (AGENTS.md rule 8); --apply or
 #       DRY_RUN=0 writes for real.
 #
+#   launch [URL]
+#       Execs /usr/lib/chromium/chromium directly -- not /usr/bin/chromium,
+#       Arch's wrapper script, which reads ~/.config/chromium-flags.conf
+#       and appends Omarchy's own flags, including
+#       --load-extension=/usr/share/omarchy/default/chromium/extensions/...
+#       for its three bundled extensions (omacom/omarchy config/chromium-
+#       flags.conf, tag v4.0.2, landed in a fresh account's home by
+#       omarchy-provision-user). The kids policy always refuses unpacked
+#       extensions (ExtensionInstallBlocklist: ["*"],
+#       DeveloperToolsAvailability: 2), so that flag only produced a
+#       "Failed to load extension ... disabled by the administrator" modal
+#       that steals keyboard focus on every launch (issue #44). This
+#       command instead passes share/policy/chromium-flags.conf --
+#       Omarchy's own Wayland/password-store/feature flags, same file,
+#       minus every --load-extension entry -- plus --no-first-run
+#       --no-default-browser-check --hide-crash-restore-bubble
+#       --disable-session-crashed-bubble (the last two: Finish ends the
+#       compositor mid-session, so the next launch otherwise shows
+#       Chromium's "Restore pages?" crash bubble), then URL if given, else
+#       the band's `RestoreOnStartupURLs[0]` if its rendered policy
+#       defines one. Refuses to start (exit 1) if the band's installed
+#       managed-policy file isn't readable (R-WEB-4: never launch
+#       Chromium unmanaged). The band comes from $OMARCHY_KIDS_BAND, or
+#       `omarchy-kids-conf get $OMARCHY_KIDS_ACCOUNT band` if unset --
+#       same resolution bin/omarchy-kids-session-start uses for the Web
+#       tile's own exec line.
+#
 # Every path is overridable for tests, same convention as
 # omarchy-kids-provision and omarchy-kids-session:
 #   OMARCHY_KIDS_SHARE    package data root (default /usr/share/omarchy-kids;
-#                         this reads $OMARCHY_KIDS_SHARE/policy/<band>.json
-#                         and $OMARCHY_KIDS_SHARE/policy/lists/<band>.txt)
+#                         this reads $OMARCHY_KIDS_SHARE/policy/<band>.json,
+#                         $OMARCHY_KIDS_SHARE/policy/lists/<band>.txt, and
+#                         $OMARCHY_KIDS_SHARE/policy/chromium-flags.conf)
 #   OMARCHY_KIDS_ROOT     scratch prefix for /etc/chromium/policies/managed
 #                         (default empty, the real path -- same var
 #                         bin/omarchy-kids-session and lib/posture.sh use
 #                         for the system paths this package doesn't own)
 #   OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf, used to read each
 #                         band's `web` mode from share/bands/bands.toml
+#                         and (for `launch`) a kid's own band
 #                         (default: resolved beside this script, else
 #                         /usr/bin)
+#   OMARCHY_KIDS_ACCOUNT   `launch`: the kid account to resolve a band
+#                         for when $OMARCHY_KIDS_BAND isn't set (default:
+#                         this process's own user)
+#   OMARCHY_KIDS_BAND      `launch`: band to launch for, skipping the
+#                         `omarchy-kids-conf` lookup (set by the Web
+#                         tile's own exec line, same as the "more-apps"
+#                         tile sets it for bin/omarchy-kids-session-start)
+#   OMARCHY_KIDS_CHROMIUM_BIN  `launch`: the real Chromium binary to exec
+#                         (default /usr/lib/chromium/chromium)
+#   OMARCHY_KIDS_WEB_NO_EXEC=1  `launch`: print the argv that would be
+#                         exec'd, one argument per line, and return 0
+#                         instead of exec'ing it (test hook, same
+#                         convention as bin/omarchy-kids-session-start's
+#                         OMARCHY_KIDS_SESSION_START_NO_EXEC)
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -54,6 +97,7 @@ usage() {
     cat <<'EOF'
 Usage: omarchy-kids-web render <band> [--allow FILE] [--out FILE]
        omarchy-kids-web install <band> [--allow FILE] [--apply]
+       omarchy-kids-web launch [URL]
        omarchy-kids-web --help
 
 render  Merges share/policy/<band>.json with share/policy/lists/<band>.txt
@@ -69,10 +113,23 @@ install Renders, then writes
         root:omarchy-kids-<band> (R-WEB-1), under $OMARCHY_KIDS_ROOT if
         set.
 
+launch  Execs /usr/lib/chromium/chromium (the real binary, not Arch's
+        /usr/bin/chromium wrapper) with share/policy/chromium-flags.conf
+        -- Omarchy's own Wayland/password-store/feature flags, minus
+        every --load-extension, since the kids policy always refuses
+        unpacked extensions -- plus --no-first-run
+        --no-default-browser-check --hide-crash-restore-bubble
+        --disable-session-crashed-bubble, then URL if given, else the
+        band's RestoreOnStartupURLs[0] if its policy defines one.
+        Refuses (exit 1) if the band's installed managed-policy file
+        isn't readable (R-WEB-4). See --help's own header comment in
+        this script for issue #44's full story.
+
 DRY_RUN=1 is the default for "install" (see AGENTS.md rule 8): it only
 prints what it would do. Pass --apply, or set DRY_RUN=0, to make it
 real. "render" always runs for real -- it only ever writes to a file the
-caller named with --out, never a system path.
+caller named with --out, never a system path. "launch" always runs for
+real too -- it starts a browser, not something that touches /etc.
 
   -h, --help  Show this help and exit.
 EOF
@@ -246,6 +303,90 @@ cmd_install() {
     run install_policy_file "$band" "$allow_file"
 }
 
+# --- launch ------------------------------------------------------------
+
+# resolve_band — $OMARCHY_KIDS_BAND if set (the Web tile's own exec line
+# sets it, same convention bin/omarchy-kids-session-start's "more-apps"
+# tile uses), else `omarchy-kids-conf get <account> band` for
+# $OMARCHY_KIDS_ACCOUNT (default: this process's own user).
+resolve_band() {
+    local band="${OMARCHY_KIDS_BAND:-}"
+    if [[ -z "$band" ]]; then
+        local account="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+        band="$("$CONF" get "$account" band 2>/dev/null)" \
+            || die "launch: could not resolve a band for '$account' (set \$OMARCHY_KIDS_BAND, or see docs/conf.md)"
+    fi
+    printf '%s\n' "$band"
+}
+
+# start_url_for_band BAND — the first entry of the rendered policy's
+# RestoreOnStartupURLs, if it has one. None of today's four band
+# templates (share/policy/*.json) set this key, so this is currently
+# always empty -- it exists so a future band policy can define a start
+# page without this script changing (issue #44: "the band's start URL
+# when the policy defines one").
+start_url_for_band() {
+    local band="$1" rendered
+    rendered="$(render_policy_json "$band")" || return 1
+    jq -r '(.RestoreOnStartupURLs // [])[0] // empty' <<<"$rendered"
+}
+
+cmd_launch() {
+    local url=""
+    while (($#)); do
+        case "$1" in
+            -h|--help) usage; exit 0 ;;
+            --) shift ;;
+            -*) die "launch: unknown option '$1'" ;;
+            *)
+                if [[ -z "$url" ]]; then url="$1"; else die "launch: unexpected argument '$1'"; fi
+                shift
+                ;;
+        esac
+    done
+
+    local band
+    band="$(resolve_band)"
+    is_valid_band "$band" || die "launch: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
+
+    # R-WEB-4, same fail-closed check bin/omarchy-kids-session-start's
+    # tile-omission already gives the launcher as defense in depth: never
+    # start Chromium unless this band's managed policy is actually live.
+    local policy="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-$band.json"
+    [[ -r "$policy" ]] || die "launch: policy file not readable for band '$band' ($policy) -- refusing to start Chromium unmanaged (R-WEB-4)" 1
+
+    if [[ -z "$url" ]]; then
+        url="$(start_url_for_band "$band")" || true
+    fi
+
+    # Reuses list_domains: one item per line, '#' comments and blank
+    # lines stripped -- exactly what a flags file needs too, not just a
+    # host list.
+    local -a flags=()
+    local flag
+    while IFS= read -r flag; do
+        [[ -n "$flag" ]] && flags+=("$flag")
+    done < <(list_domains "$SHARE/policy/chromium-flags.conf")
+
+    local chromium_bin="${OMARCHY_KIDS_CHROMIUM_BIN:-/usr/lib/chromium/chromium}"
+    local -a argv=(
+        "$chromium_bin"
+        "${flags[@]+"${flags[@]}"}"
+        --no-first-run
+        --no-default-browser-check
+        --hide-crash-restore-bubble
+        --disable-session-crashed-bubble
+    )
+    [[ -n "$url" ]] && argv+=("$url")
+
+    if [[ "${OMARCHY_KIDS_WEB_NO_EXEC:-0}" == "1" ]]; then
+        printf '%s\n' "${argv[@]}"
+        return 0
+    fi
+
+    exec "${argv[@]}"
+}
+
 # --- main --------------------------------------------------------------
 
 main() {
@@ -272,6 +413,7 @@ main() {
     case "$cmd" in
         render) cmd_render "${rest[@]+"${rest[@]}"}" ;;
         install) cmd_install "${rest[@]+"${rest[@]}"}" ;;
+        launch) cmd_launch "${rest[@]+"${rest[@]}"}" ;;
         *) die "unknown command: '$cmd' (see --help)" ;;
     esac
 }

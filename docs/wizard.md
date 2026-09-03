@@ -1,11 +1,14 @@
-# The parent wizard's Easy path: `bin/omarchy-kids-wizard` (SPEC.md R-WIZ-1..9, Appendix A; issue #19)
+# The parent wizard: `bin/omarchy-kids-wizard` (SPEC.md R-WIZ-1..9, Appendix A; issues #19, #20)
 
 Five minutes, no terminal knowledge, sensible defaults: a parent types their kid's name, picks a
-face and an age band, walks five one-choice screens with the band's default already picked, sets
-a password, sees a plain-words summary of what's about to happen, and applies it. Every screen is
-rendered by `lib/tui.sh` (issue #18, `docs/tui.md`) — this file never calls `gum` directly, and it
-drives entirely through `OMARCHY_KIDS_TUI_ANSWERS` in tests, same as that library's own demo and
-test suite.
+face and an age band, then either walks five one-choice screens with the band's default already
+picked (**Simple**) or opens one grouped checklist over every setting (**Advanced**, issue #20),
+sets a password, sees a plain-words summary of what's about to happen — with a **Change
+something** button back into that same checklist, whichever path built the kid — and applies it.
+Every screen is rendered by `lib/tui.sh` (issue #18, `docs/tui.md`) — this file never calls `gum`
+directly — and `lib/wizard-advanced.sh` (issue #20) holds the Advanced-only screens, split out for
+length rather than being a separately reusable library. Both drive entirely through
+`OMARCHY_KIDS_TUI_ANSWERS` in tests, same as `lib/tui.sh`'s own demo and test suite.
 
 ## Running it
 
@@ -22,34 +25,84 @@ you launch to make a real run.
 
 ## The screens, in Appendix A order
 
+Steps 1-6 and 12-15 are the same regardless of path; step 7 is either Simple's five one-choice
+screens (A7-A11) or Advanced's one grouped checklist (A13a) — A6 picks which, and the driver loop
+at the bottom of `bin/omarchy-kids-wizard` jumps straight from step 7 to step 12 either way.
+
 | Step | Appendix A | Screen | What happens |
 | --- | --- | --- | --- |
 | 1 | A1 | Welcome | Omy's line and three bullets; **Begin** is the only choice. |
 | 2 | A2 | Parent password | Right after Welcome. Verified against `omarchy-kids-authd`, the same protocol `bin/omarchy-kids-parent-auth` speaks (`docs/authd.md`), when that verifier is reachable; kept in memory (never written anywhere) and reused for the one sudo prompt at Apply. |
 | 3 | A3 | Name | Letters, spaces, and hyphens, 1-24 characters; previews the `kid-<slug>` account name via `omarchy-kids-conf slug`. |
 | 4 | A4 | Face | One of the twelve `share/avatars/*.svg` animals (Q18), as a keyboard list — `lib/tui.sh` has no separate grid widget, and a list is exactly as keyboard-complete. |
-| 5 | A5 | Age band | 3-5 / 6-8 / 9-12 / 13+, each with its `bands.toml` blurb as the reason line. **Prefetch starts here** (see below) and never blocks. |
-| 6 | A6 | Simple or Advanced | Simple is the only real path here; choosing Advanced explains it's coming next (issue #20) and re-shows this screen. |
-| 7 | A7 | Web | Two options, band-appropriate, band default preselected: 3-5 sees no-browser vs. a short allowed list; 6-8/9-12 see the walled garden vs. filtered open web; 13+ sees filtered open web vs. the walled garden. |
-| 8 | A8 | Screen time | The band's minutes-a-day and lights-out, or "I'll set my own" (two follow-up fields, each validated). |
-| 9 | A9 | Apps | "The `<band>` starter pack" (every app), or "Let me pick" — a yes/no per app, one at a time (there's no multi-select checklist widget in `lib/tui.sh` yet; that's Advanced's, A13a, issue #20). |
-| 10 | A10 | Wi-Fi | "Ask me first" (`parent`) vs. "On their own, safely" (`helper`), band default preselected. |
-| 11 | A11 | Desktop level | 1 / 2 / 3, each with a one-liner, band default preselected. |
+| 5 | A5 | Age band | 3-5 / 6-8 / 9-12 / 13+, each with its `bands.toml` blurb as the reason line. **Prefetch starts here** (see below) and never blocks; so does `adv_init` (see "The Advanced path" below), seeding every Advanced-only cell to this band's default whether or not Advanced is ever opened. |
+| 6 | A6 | Simple or Advanced | **Simple**: walk A7-A11 next. **Advanced** (issue #20): open the grouped checklist (A13a) next instead — see "The Advanced path" below. |
 | 12 | A12 | Kid's password | Twice, masked. Band 3-5 gets an extra "set a password or not" choice first (R-BAND's `password_optional`); every other band always sets one. Explains what it unlocks. |
-| 13 | A13 | Summary | A plain-words table — account, face, age band, desktop level, web mode, screen time, bedtime, Wi-Fi, starter apps, password — then **Apply** or **Change something**. |
-| 14 | A13b/A13c | Apply | A step-by-step progress dashboard (`tui_progress`, R-WIZ-5): the account (plus any A7-A11 choice that overrides the band default), the web policy, the starter pack, and the safety check (A13c). |
+| 13 | A13 | Summary | A plain-words table — account, face, age band, desktop level, web mode, screen time, bedtime, Wi-Fi, starter apps, password, plus any of the seven Advanced-only cells that were changed — changed rows marked `(custom)` — then **Apply** or **Change something** (which opens the same grouped checklist, for a kid built either way, then redraws this summary). |
+| 14 | A13b/A13c | Apply | A step-by-step progress dashboard (`tui_progress`, R-WIZ-5): the account (plus every cell, from either path, that overrides the band default), the web policy, the starter pack, and the safety check (A13c). |
 | 15 | A14 | Done | Omy's line; **Return to my desktop** or **Open `<Name>`'s desktop** (R-WIZ-6). |
 
-Every screen up through the Summary is keyboard-complete: Esc goes back one screen (re-asking
-whatever was there), Ctrl+C asks to confirm leaving and, if confirmed, exits `130` having run
-nothing. Once Apply actually starts running commands, the run is committed — same as the
-installer's own dashboard never lets you cancel mid-write. The apps checklist (A9's "Let me pick")
-is the one place Esc and "No" are genuinely the same outcome per app — `tui_screen_confirm`'s own
-contract — since there's no meaningful "go back" mid-checklist; either way just leaves that one app
-out and moves to the next.
+### Step 7, Simple: A7-A11
 
-Advanced (A13a's per-cell checklist) is issue #20: choosing Advanced on A6 explains that plainly
-and re-shows A6, rather than exiting or half-building a table this issue doesn't implement.
+| Screen | What happens |
+| --- | --- |
+| A7 Web | Two options, band-appropriate, band default preselected: 3-5 sees no-browser vs. a short allowed list; 6-8/9-12 see the walled garden vs. filtered open web; 13+ sees filtered open web vs. the walled garden. |
+| A8 Screen time | The band's minutes-a-day and lights-out, or "I'll set my own" (two follow-up fields, each validated). |
+| A9 Apps | "The `<band>` starter pack" (every app), or "Let me pick" — a yes/no per app, one at a time (`apps_pick_walk`; there's no multi-select checklist widget in `lib/tui.sh` yet — Advanced's apps row, below, reuses this same walk). |
+| A10 Wi-Fi | "Ask me first" (`parent`) vs. "On their own, safely" (`helper`), band default preselected. |
+| A11 Desktop level | 1 / 2 / 3, each with a one-liner, band default preselected. |
+
+### Step 7, Advanced: A13a
+
+See "The Advanced path" below.
+
+Every screen up through the Summary is keyboard-complete: Esc goes back one screen (re-asking
+whatever was there — from Advanced's checklist itself, back to A6; from one of its editors, back to
+the checklist), Ctrl+C asks to confirm leaving and, if confirmed, exits `130` having run nothing.
+Once Apply actually starts running commands, the run is committed — same as the installer's own
+dashboard never lets you cancel mid-write. The apps checklist (A9's "Let me pick", also Advanced's
+own apps row) is the one place Esc and "No" are genuinely the same outcome per app —
+`tui_screen_confirm`'s own contract — since there's no meaningful "go back" mid-checklist; either
+way just leaves that one app out and moves to the next.
+
+## The Advanced path (A6 -> A13a; issue #20)
+
+Picking **Advanced** at A6 opens `lib/wizard-advanced.sh`'s `screen_advanced_checklist`: one row
+per Appendix B cell that isn't already collected by a screen both paths share — name/avatar/band
+(A3-A5) and the kid's password (A12) — twelve rows in six groups, Appendix B order within each
+group:
+
+| Group | Rows |
+| --- | --- |
+| Web | Web access (`web`), Safe-search DNS (`dns`), Allowed sites (`sites`) |
+| Screen time | Minutes a day, weekdays and weekends (`budget_min`, `budget_min_weekend`), Lights out, weekdays and weekends (`lights_out`, `lights_out_weekend`) |
+| Apps | Starter apps (`allowlist`) |
+| Wi-Fi | New Wi-Fi networks (`wifi`) |
+| Desktop | Desktop level (`level`), App menu (`menu`) |
+| Data | Browsing history (`history_visible`) |
+
+Every row shows its band default and its current choice (`adv_row_line`), and is marked
+`(changed)` once the current choice no longer matches the default. Enter on a row opens the right
+editor: a `tui_screen_choose` picker for an enum (web, dns, wifi, level, menu, history_visible —
+dns's "Type my own" opens one more field for the address, `custom:<url>`), a validated
+`tui_screen_input` for a number (the two budgets, `validate_budget_minutes`), a time
+(`lights_out`/`_weekend`, `validate_lights_out`), or a comma-separated host list (`sites`,
+`validate_sites_list`), and the same per-app walk A9's "Let me pick" uses for `allowlist`
+(`apps_pick_walk`, shared rather than duplicated). Esc from an editor returns to the checklist with
+that row untouched — nothing here is committed to a variable until the editor itself returns an
+answer, and nothing is written to a kid's profile at all until Apply. A trailing **Done
+customizing** row returns to whatever screen opened the checklist: A6's own Advanced choice sends
+the wizard straight on to A12 (Simple's A7-A11 are skipped entirely, having been covered by this
+one screen); the summary's **Change something** button (below) redraws the summary instead.
+
+`bin/omarchy-kids-wizard`'s `screen_band` seeds every row to the chosen band's default
+(`adv_init`) the moment the age band is picked (A5) — before Simple's own A7-A11 screens run, so a
+kid built entirely through Simple still has every Advanced-only cell (dns, sites, menu,
+history_visible, the two weekend fields) sitting at its band default, and Apply's `maybe_override`
+calls (one per cell, `apply_step_account`) never write any of the seven Simple doesn't show,
+exactly as before this issue. A kid built through Advanced (or through "Change something") gets an
+override written for every cell whose value no longer equals that default — the same rule Simple's
+own five cells have always followed (R-BAND-2).
 
 ## Root and the one sudo prompt
 
@@ -212,18 +265,74 @@ parent
 ```
 
 Picking "I'll set my own" at A8 inserts two more lines (minutes, then lights-out); picking
-"Let me pick" at A9 inserts one `yes`/`no` line per app in the band's starter pack, in pack order.
-`test/shell.d/wizard-test.sh` builds every one of these programmatically under `--dry-run` and
-checks the exact `[dry-run] sudo ...` lines Apply prints — provision's flags (`--apply` and the
-face included), the `omarchy-kids-conf set` override lines for any A7/A10/A11 choice that differs
-from the band default (and their absence when every choice matches the default — R-BAND-2), the
-web install call (also with `--apply`), and the `omarchy-kids-apps install <band> --now --apply`
-call (always the whole band pack, regardless of A9's pick — see "Apply's five steps" above) — plus
-name validation, the A8/A9 branches, Esc-back, and that Ctrl+C right after Welcome prints no
-command at all. A separate block of scenarios runs with `DRY_RUN=0` against a fake `sudo` that
-actually execs its argv, to check the things `--dry-run` can't: a failing step showing ✗ and
-stopping the dashboard before any later step runs, the failing command's tail on screen, the
-technical log actually gaining that same content, and the safety check's account-existence guard.
+"Let me pick" at A9 (or opening Advanced's own apps row) inserts one `yes`/`no` line per app in the
+band's starter pack, in pack order. `test/shell.d/wizard-test.sh` builds every one of these
+programmatically under `--dry-run` and checks the exact `[dry-run] sudo ...` lines Apply prints —
+provision's flags (`--apply` and the face included), the `omarchy-kids-conf set` override lines for
+any cell, from either path, that differs from the band default (and their absence when every cell
+matches the default — R-BAND-2), the web install call (also with `--apply`), and the
+`omarchy-kids-apps install <band> --now --apply` call (always the whole band pack, regardless of
+A9's or Advanced's pick — see "Apply's five steps" above) — plus name validation, the A8/A9
+branches, Esc-back, and that Ctrl+C right after Welcome prints no command at all. A separate block
+of scenarios runs with `DRY_RUN=0` against a fake `sudo` that actually execs its argv, to check the
+things `--dry-run` can't: a failing step showing ✗ and stopping the dashboard before any later step
+runs, the failing command's tail on screen, the technical log actually gaining that same content,
+and the safety check's account-existence guard.
+
+### Driving the grouped checklist (A13a): row, then answer, then "done"
+
+`screen_advanced_checklist` (`lib/wizard-advanced.sh`) is itself a loop over the same
+`tui_screen_choose` contract as everything else here: each pass through it consumes **one line for
+the row** — a checklist row's own value is just its Appendix B key (`web`, `dns`, `sites`,
+`budget_min`, `budget_min_weekend`, `lights_out`, `lights_out_weekend`, `allowlist`, `wifi`,
+`level`, `menu`, `history_visible`), never the group name or the rendered `[Group] Label` text —
+then, unless the row was **`done`** (the trailing "Done customizing" row, which ends the loop),
+whatever lines that row's own editor needs: one line for an enum row (`web`, `dns`, `wifi`,
+`level`, `menu`, `history_visible` — `dns`'s `custom` answer needs one more line, the address, after
+it), one validated line for a number or a time row (the two budgets, the two lights-out fields,
+`sites`), or one `yes`/`no` line per app in the band's pack for `allowlist` (the same
+`apps_pick_walk` A9's "Let me pick" uses). Answering `@esc` in place of a row's editor answer
+returns to the checklist with that row untouched, consuming no further lines for it (the checklist
+then reads its own next line as another row choice, same as any other pass through the loop).
+
+Reached from A6 (Advanced), the checklist replaces steps 7-11 outright, so its answers sit right
+where A7's would in the happy-path example above — band 6-8, changing `web` and `budget_min`
+before finishing:
+
+```text
+begin
+parentpw123
+Ada
+fox
+6-8
+advanced           # A6: Advanced, not Simple
+web                # checklist: open the "Web access" row
+filtered           # web's editor: pick "filtered"
+budget_min         # checklist: open the "Minutes a day (weekdays)" row
+75                 # budget_min's editor: type 75
+done               # checklist: "Done customizing" — on to A12
+secret1
+secret1
+apply
+parent
+```
+
+Reached from A13's **Change something** (either path), the same row/answer/`done` sequence is
+inserted right before the summary's own `apply`/`change` line, and afterward the summary is simply
+asked again — so a `change` line is followed by one full pass through the checklist (row/answer
+pairs, then `done`) and then another `apply`-or-`change` line for the redrawn summary:
+
+```text
+...
+secret1
+secret1
+change             # A13 Summary: "Change something", not "Apply"
+level              # checklist: open the "Desktop level" row
+2                  # level's editor: pick "2"
+done               # checklist: "Done customizing" — back to the summary
+apply              # A13 Summary again, now showing "Level 2 (custom)"
+parent
+```
 
 ## Every path is overridable, same convention as the rest of `bin/`
 
@@ -231,7 +340,7 @@ technical log actually gaining that same content, and the safety check's account
 | --- | --- | --- |
 | `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | kid profiles (only read, to preview slug collisions) |
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `bands.toml`, `packs/<band>.toml`, `avatars/*.svg` |
-| `OMARCHY_KIDS_LIB` | `lib/` beside `bin/`, else `/usr/lib/omarchy-kids` | `lib/conf.sh`, `lib/tui.sh`, `lib/conf.py` (the apps checklist's `pack-app` lookups) |
+| `OMARCHY_KIDS_LIB` | `lib/` beside `bin/`, else `/usr/lib/omarchy-kids` | `lib/conf.sh`, `lib/tui.sh`, `lib/wizard-advanced.sh` (the Advanced-path checklist, issue #20), `lib/conf.py` (the apps checklist's `pack-app`/`pack-sites` lookups) |
 | `OMARCHY_KIDS_CONF_BIN` | sibling `bin/omarchy-kids-conf`, else `PATH` | reading bands/packs, writing A7/A10/A11 overrides |
 | `OMARCHY_KIDS_CONF_PY` | `python3` | running `lib/conf.py` directly for the A9 checklist |
 | `OMARCHY_KIDS_PROVISION_BIN` | sibling `bin/omarchy-kids-provision`, else `PATH` | Apply's account step |

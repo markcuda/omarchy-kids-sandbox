@@ -359,7 +359,7 @@ Window {
                         anchors.horizontalCenter: parent.horizontalCenter
                         visible: missing && modelData.caption && modelData.caption.length > 0
                         text: modelData.caption || ""
-                        color: theme.muted
+                        color: theme.caption
                         font.family: theme.fontFamily
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap

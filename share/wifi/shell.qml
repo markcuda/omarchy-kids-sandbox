@@ -236,7 +236,7 @@ PanelWindow {
                     Text {
                         visible: root.loading
                         text: "Looking for networks…"
-                        color: theme.muted
+                        color: theme.caption
                         font.pixelSize: 14
                     }
 
@@ -271,12 +271,12 @@ PanelWindow {
                                 }
                                 Text {
                                     text: modelData.security.length > 0 ? "🔒" : "open"
-                                    color: theme.muted
+                                    color: theme.caption
                                     font.pixelSize: 14
                                 }
                                 Text {
                                     text: modelData.signal + "%"
-                                    color: theme.muted
+                                    color: theme.caption
                                     font.pixelSize: 14
                                 }
                             }
@@ -343,7 +343,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: "Enter join · Esc back/close"
-                        color: theme.muted
+                        color: theme.caption
                         font.pixelSize: 12
                     }
                 }

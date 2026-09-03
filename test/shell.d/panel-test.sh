@@ -153,6 +153,32 @@ check_contains "$out" "Add a kid" "Home offers Add a kid"
 check_contains "$out" "Requests (0)" "Home shows the open-request count"
 check_contains "$out" "Remove Kids Mode" "Home offers the Remove Kids Mode row"
 
+# review §3.1: a screen's facts are its own card body now, so they render
+# *under* that screen's title. Echoed above it they were fine here (file
+# mode never clears) and gone on a real terminal, which clears first.
+answers="$(answers_file "kid:kid-ada" back quit)"
+run_panel "$answers"
+check_contains "$out" "Ada — band 6-8" "the Kid screen shows the kid's name and band"
+check_contains "$out" "Open requests: 0" "the Kid screen shows the open-request count"
+title_line="$(grep -n '^Ada$' <<<"$out" | head -1 | cut -d: -f1)"
+facts_line="$(grep -n '^Ada — band 6-8$' <<<"$out" | head -1 | cut -d: -f1)"
+if [[ -n "$title_line" && -n "$facts_line" ]] && ((title_line < facts_line)); then
+    pass "the Kid screen's facts are its screen body, printed under the title"
+else
+    fail "the Kid screen's facts are its screen body (title=$title_line facts=$facts_line)"
+fi
+
+# The screen-time screen's status lines are its body too.
+answers="$(answers_file "kid:kid-ada" time back back quit)"
+run_panel "$answers"
+time_title="$(grep -n "^Ada's screen time$" <<<"$out" | head -1 | cut -d: -f1)"
+time_facts="$(grep -n '^kid-ada:' <<<"$out" | tail -1 | cut -d: -f1)"
+if [[ -n "$time_title" && -n "$time_facts" ]] && ((time_title < time_facts)); then
+    pass "Screen time shows 'omarchy-kids-time status' under its own title"
+else
+    fail "Screen time shows 'omarchy-kids-time status' under its own title (title=$time_title facts=$time_facts)"
+fi
+
 answers="$(answers_file "@esc")"
 run_panel "$answers"
 check_status "$PANEL_STATUS" 0 "Home: Esc also leaves (I-5, keyboard-complete)"

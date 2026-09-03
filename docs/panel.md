@@ -27,6 +27,16 @@ run.
 Every screen is keyboard-complete (I-5): Esc or a **Back**/**Quit** row goes back or leaves; Ctrl+C
 leaves the whole panel immediately, same contract as `lib/tui.sh` everywhere else (`docs/tui.md`).
 
+**A screen's facts are its card's body, never an echo above it (review §3.1).** Card mode clears
+the terminal at every step, so the status lines this panel used to `echo` before each menu — the
+kid's band and minutes, the allow list, the request being approved, the whole Data screen — were
+wiped before a parent could read them; only file mode (the tests, and the live SSH run) ever
+showed them. Every panel screen now passes them to `tui_screen_choose`'s body argument, so they
+render inside the rounded card under the title, in the theme's colours, in both render modes. A
+screen that has nothing left to draw of its own hands its one line to the screen it returns to
+instead (`KID_NOTICE` in `lib/panel-kid.sh`, `REQ_NOTICE` in `lib/panel-requests.sh`) — a failed
+app-pack read, a mistyped remove confirmation, a request that vanished while it was open.
+
 ### Home (P1)
 
 `kid_home_line` reads `omarchy-kids-time status <kid>` for the used/left numbers and the `paused:`
@@ -36,6 +46,12 @@ either; both are read the same way P2 and P3 read them, so the numbers always ag
 re-opens `omarchy-kids` to get back to the panel, same as the wizard's own Done screen already
 sends a parent back through the app entry point today.
 
+**Remove Kids Mode** describes what removal does on a card of its own — every lock reversed, every
+kid account removed, their files kept under the parent's home, a snapshot offered — and only hands
+off to `bin/omarchy-kids-remove` (docs/remove.md) if the parent picks **Continue**. That command
+still prints its whole plan and asks its own confirmation before it touches anything; the panel's
+dry-run posture is passed through as `--dry-run`.
+
 ### One kid (P2)
 
 - **Screen time** shows `omarchy-kids-time status <kid>` verbatim, then three actions:
@@ -44,7 +60,8 @@ sends a parent back through the app entry point today.
   the same way the wizard validates them (1-1440 minutes; `HH:MM`, 24-hour).
 - **Web** shows the band's mode (`omarchy-kids-conf get <kid> web`). A `none`/`filtered` kid gets an
   info screen only — R-WEB-3 says those modes take no allow list, and I-6 means this panel doesn't
-  offer to edit one that wouldn't do anything. A `garden` kid gets the kid's own
+  offer to edit one that wouldn't do anything; **Remove a site** is likewise only offered when the
+  kid has a site of their own to remove. A `garden` kid gets the kid's own
   `/etc/omarchy-kids/kids/<kid>/allow.txt` (the same file `omarchy-kids-ask`'s `apply_site` writes
   to for an approved "ask for a site" request, docs/ask.md) as an add/remove list, editor-free (no
   `$EDITOR` — every line add/remove is its own screen); either edit re-runs
@@ -58,7 +75,10 @@ sends a parent back through the app entry point today.
   kid's Chromium profile lives in a home this panel's own account can't otherwise reach), so this
   screen is the one place in P2 that calls `read_priv` instead of `run_priv` — a real `sudo` read,
   once, the moment it's needed, never previewed by `--dry-run` (there's nothing to preview: a read
-  changes nothing). If `history_visible=no` for this kid, `omarchy-kids-data` already says so in
+  changes nothing). Both summaries are captured into the screen's card body, so the one prompt is
+  spent by `warm_sudo_read` in the screen's own shell first: a command substitution runs in a
+  subshell that could neither remember the prompt was spent nor keep its own "needs your password"
+  line out of the card. If `history_visible=no` for this kid, `omarchy-kids-data` already says so in
   plain words without touching Chromium at all (R-DATA-4), so this screen skips `read_priv` and
   asks for no password it wouldn't use. See docs/data.md for what's recorded, where, and for how
   long.

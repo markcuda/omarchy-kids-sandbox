@@ -6,15 +6,21 @@
 
 # --- P2: one kid -------------------------------------------------------------
 
+# One line the Kid screen shows on its next draw, for a screen that has
+# nothing left to show of its own (a failed read, a mistyped name): the
+# card clears, so it has to be carried, not echoed (review §3.1).
+KID_NOTICE=""
+
 screen_kid_time() { # ACCOUNT NAME
     local account="$1" name="$2"
     while true; do
-        local status_out budget lights
+        local status_out budget lights line
         status_out="$("$TIME_BIN" status "$account" 2>&1)"
         budget="$(kid_conf_get "$account" budget_min)"
         lights="$(kid_conf_get "$account" lights_out)"
-        echo
-        printf '%s\n' "$status_out"
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local -a facts=()
+        while IFS= read -r line; do facts+=("$line"); done <<<"$status_out"
 
         # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
         local choices=(
@@ -23,7 +29,7 @@ screen_kid_time() { # ACCOUNT NAME
             "lights|Change lights-out time (now $lights)|"
             "back|Back|"
         )
-        tui_screen_choose "$name's screen time" 1 1 0 "" choices "grant"
+        tui_screen_choose "$name's screen time" 1 1 0 "" choices "grant" "" facts
         local rc=$?
         ((rc == 130)) && return 130
         ((rc == 0)) || return 0
@@ -62,12 +68,14 @@ screen_kid_web() { # ACCOUNT NAME
     allow_file="$ETC/kids/$account/allow.txt"
 
     if [[ "$mode" != garden ]]; then
-        # shellcheck disable=SC2034 # read by tui_screen_summary via nameref-by-name
-        local rows=("Mode|$(friendly_web_mode "$mode")" "Editable list|No — this mode has no allow list (SPEC.md R-WEB-3)")
-        tui_screen_summary "$name's web" 1 1 0 "" rows
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local -a facts=(
+            "Mode: $(friendly_web_mode "$mode")"
+            "Editable list: no — this mode has no allow list (SPEC.md R-WEB-3)"
+        )
         # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
         local choices=("back|Back|")
-        tui_screen_choose "Web" 1 1 0 "" choices "back"
+        tui_screen_choose "$name's web" 1 1 0 "" choices "back" "" facts
         local rc=$?
         ((rc == 130)) && return 130
         return 0
@@ -75,22 +83,24 @@ screen_kid_web() { # ACCOUNT NAME
 
     while true; do
         local -a lines=()
+        local l
         if [[ -r "$allow_file" ]]; then
-            local l
             while IFS= read -r l; do [[ -n "$l" ]] && lines+=("$l"); done <"$allow_file"
         fi
-        echo
-        echo "$name's allowed sites (mode: only sites you choose):"
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local -a facts=("$name's allowed sites (mode: only sites you choose):")
         if ((${#lines[@]} == 0)); then
-            echo "  (none of the kid's own yet — the band's starter list still applies)"
+            facts+=("  (none of the kid's own yet — the band's starter list still applies)")
         else
-            local l
-            for l in "${lines[@]}"; do echo "  - $l"; done
+            for l in "${lines[@]}"; do facts+=("  - $l"); done
         fi
 
         # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
-        local choices=("add|Add a site|" "remove|Remove a site|" "back|Back|")
-        tui_screen_choose "Web" 1 1 0 "" choices "add"
+        local choices=("add|Add a site|")
+        # "Remove a site" only when there is one (I-6: no control that does nothing).
+        ((${#lines[@]})) && choices+=("remove|Remove a site|")
+        choices+=("back|Back|")
+        tui_screen_choose "$name's web" 1 1 0 "" choices "add" "" facts
         local rc=$?
         ((rc == 130)) && return 130
         ((rc == 0)) || return 0
@@ -113,10 +123,6 @@ screen_kid_web() { # ACCOUNT NAME
                 fi
                 ;;
             remove)
-                if ((${#lines[@]} == 0)); then
-                    echo "Nothing to remove yet."
-                    continue
-                fi
                 local -a rchoices=()
                 local site
                 for site in "${lines[@]}"; do rchoices+=("$site|$site|"); done
@@ -146,7 +152,7 @@ screen_kid_apps() { # ACCOUNT NAME
     while true; do
         local list_out allow
         list_out="$("$APPS_BIN" list "$account" 2>/dev/null)" || {
-            echo "Could not read $name's app pack."
+            KID_NOTICE="Could not read $name's app pack."
             return 0
         }
         allow="$("$APPS_BIN" allowlist "$account" 2>/dev/null)"
@@ -219,11 +225,11 @@ screen_kid_plugins() { # ACCOUNT NAME
         done <<<"$shelf_out"
 
         if ((${#choices[@]} == 0)); then
-            echo
-            echo "Nothing on the Kids shelf yet for $name's band ($band)."
+            # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+            local -a facts=("Nothing on the Kids shelf yet for $name's band ($band).")
             # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
             local -a empty_choices=("back|Back|")
-            tui_screen_choose "Plugins shelf" 1 1 0 "" empty_choices "back"
+            tui_screen_choose "$name's plugins shelf" 1 1 0 "" empty_choices "back" "" facts
             local rc=$?
             ((rc == 130)) && return 130
             return 0
@@ -246,26 +252,31 @@ screen_kid_plugins() { # ACCOUNT NAME
 # can't reach) unless history_visible=no, which omarchy-kids-data
 # already says in plain words without root (R-DATA-4).
 screen_kid_data() { # ACCOUNT NAME
-    local account="$1" name="$2" hv
+    local account="$1" name="$2" hv line
     hv="$(kid_conf_get "$account" history_visible)"
-    echo
-    echo "$name's data — today"
+
+    # Sites need root; minutes and launches don't (R-DATA-4), so read_priv
+    # only where it's really needed. Warm its one prompt here, in *this*
+    # shell: the reads below run in subshells that can't set the warmed
+    # flag back, and their output is the card's body, not the screen.
+    local -a summary_cmd=("$DATA_BIN" summary "$account")
     if [[ "$hv" == yes ]]; then
-        read_priv "$DATA_BIN" summary "$account"
-    else
-        "$DATA_BIN" summary "$account"
-    fi
-    echo
-    echo "$name's data — this week"
-    if [[ "$hv" == yes ]]; then
-        read_priv "$DATA_BIN" summary "$account" --week
-    else
-        "$DATA_BIN" summary "$account" --week
+        warm_sudo_read || {
+            KID_NOTICE="Couldn't read $name's data without your password."
+            return 0
+        }
+        summary_cmd=(read_priv "${summary_cmd[@]}")
     fi
 
     # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+    local -a facts=("$name's data — today")
+    while IFS= read -r line; do facts+=("$line"); done < <("${summary_cmd[@]}")
+    facts+=("" "$name's data — this week")
+    while IFS= read -r line; do facts+=("$line"); done < <("${summary_cmd[@]}" --week)
+
+    # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
     local choices=("back|Back|")
-    tui_screen_choose "$name's data" 1 1 0 "" choices "back"
+    tui_screen_choose "$name's data" 1 1 0 "" choices "back" "" facts
     local rc=$?
     ((rc == 130)) && return 130
     return 0
@@ -304,11 +315,11 @@ screen_kid_theme() { # ACCOUNT NAME
         choices+=("$t|$t|")
     done < <(theme_list_installed)
     if ((${#choices[@]} == 0)); then
-        echo
-        echo "No installed themes found under \$OMARCHY_PATH/themes — nothing to pick from."
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local -a facts=("No installed themes found under \$OMARCHY_PATH/themes — nothing to pick from.")
         # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
         local back_choices=("back|Back|")
-        tui_screen_choose "$name's theme" 1 1 0 "" back_choices "back"
+        tui_screen_choose "$name's theme" 1 1 0 "" back_choices "back" "" facts
         local rc=$?
         ((rc == 130)) && return 130
         return 0
@@ -383,15 +394,17 @@ screen_kid_password() { # ACCOUNT NAME
         return 0
     fi
 
-    # shellcheck disable=SC2034 # read by tui_screen_summary via nameref-by-name
-    local rows=("Account|$account" "Run this|sudo passwd $account")
-    tui_screen_summary "Change $name's password" 1 1 0 "" rows
-    echo
-    echo "There's no panel button for this yet — run the line above in a terminal;"
-    echo "it asks for the new password twice and never shows it on screen."
+    # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+    local -a facts=(
+        "Account: $account"
+        "Run this: sudo passwd $account"
+        ""
+        "There's no panel button for this yet — run the line above in a terminal;"
+        "it asks for the new password twice and never shows it on screen."
+    )
     # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
     local choices=("back|Back|")
-    tui_screen_choose "Password" 1 1 0 "" choices "back"
+    tui_screen_choose "Change $name's password" 1 1 0 "" choices "back" "" facts
     local rc=$?
     ((rc == 130)) && return 130
     return 0
@@ -410,8 +423,7 @@ screen_kid_remove() { # ACCOUNT NAME
         run_priv "$PROVISION_BIN" remove "$account" --apply
         [[ "$DRY_RUN" == "0" ]] && KID_JUST_REMOVED=1
     else
-        echo
-        echo "That didn't match \"$name\" — nothing was removed."
+        KID_NOTICE="That didn't match \"$name\" — nothing was removed."
     fi
     return 0
 }
@@ -422,13 +434,17 @@ screen_kid() { # ACCOUNT
     while true; do
         name="$(kid_conf_get "$account" name)"
         band="$(kid_conf_get "$account" band)"
-        local status_out nreq
+        local status_out nreq line
         status_out="$("$TIME_BIN" status "$account" 2>&1)"
         nreq="$(count_open_requests "$account")"
-        echo
-        echo "$name — band $band"
-        printf '%s\n' "$status_out"
-        echo "Open requests: $nreq"
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local -a facts=("$name — band $band")
+        while IFS= read -r line; do facts+=("$line"); done <<<"$status_out"
+        facts+=("Open requests: $nreq")
+        if [[ -n "$KID_NOTICE" ]]; then
+            facts+=("" "$KID_NOTICE")
+            KID_NOTICE=""
+        fi
 
         # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
         local choices=(
@@ -441,7 +457,7 @@ screen_kid() { # ACCOUNT
             "remove|Remove this kid|"
             "back|Back|"
         )
-        tui_screen_choose "$name" 1 1 0 "" choices "time"
+        tui_screen_choose "$name" 1 1 0 "" choices "time" "" facts
         local rc=$?
         case "$rc" in
             130) return 130 ;;

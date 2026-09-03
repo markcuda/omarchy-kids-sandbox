@@ -166,7 +166,8 @@ launched_by_a_human() {
     [[ -t 0 && -t 1 ]]                                     # a terminal
 }
 
-is_known_kid() { [[ -f "$2/$1.conf" ]]; }
+# is_known_kid DIR ACCOUNT -- is ACCOUNT a provisioned kid under DIR.
+is_known_kid() { [[ -f "$1/$2.conf" ]]; }
 
 # --- shared TUI validators/labels: each prints the one-line reason
 # lib/tui.sh shows under the field, and returns 1.

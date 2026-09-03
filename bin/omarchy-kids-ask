@@ -37,10 +37,6 @@ DRY_RUN="${DRY_RUN:-1}"
 
 VALID_KINDS=(time app plugin site)
 
-# is_known_kid_here ACCOUNT — lib/kids.sh's is_known_kid against this
-# command's own $KIDS_DIR.
-is_known_kid_here() { is_known_kid "$1" "$KIDS_DIR"; }
-
 die() { echo "omarchy-kids-ask: $1" >&2; exit "${2:-2}"; }
 
 usage() {
@@ -327,7 +323,7 @@ cmd_collect() {
             echo "omarchy-kids-ask: collect: no account owns $dir; skipped" >&2
             continue
         }
-        if ! is_known_kid_here "$owner"; then
+        if ! is_known_kid "$KIDS_DIR" "$owner"; then
             echo "omarchy-kids-ask: collect: '$owner' is not a provisioned kid; $dir skipped" >&2
             continue
         fi
@@ -398,7 +394,7 @@ cmd_apply_grant() {
 
     "$KIDS_PY" "$ASKPY" validate --kid "$kid" --kind "$kind" --what "$what" \
         ${minutes:+--minutes "$minutes"} || die "apply-grant: refused"
-    is_known_kid_here "$kid" || die "apply-grant: '$kid' is not a provisioned kid account"
+    is_known_kid "$KIDS_DIR" "$kid" || die "apply-grant: '$kid' is not a provisioned kid account"
 
     install -d -m 0755 "$QUEUE_DIR"
     local name

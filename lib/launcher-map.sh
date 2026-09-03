@@ -50,7 +50,11 @@ launcher_map_render() {
   level="$("$CONF_BIN" get "$account" level)"
   web="$("$CONF_BIN" get "$account" web)"
   apps_bin="$(kids_bin apps "$DIR")"
-  allowlist="$(OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" "$apps_bin" allowlist "$account")"
+  # A failed allowlist must not become an empty map: keep whatever map exists and say why.
+  if ! allowlist="$(OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" "$apps_bin" allowlist "$account")"; then
+    echo "launcher-map: omarchy-kids-apps allowlist failed for '$account'; map left as it was" >&2
+    return 1
+  fi
   pack="$SHARE/packs/$band.toml"
   entries="$(mktemp)"
 
@@ -111,7 +115,10 @@ launcher_map_fix() {
   dir="$(dirname "$(launcher_map_path "$account")")"
   install -d -m 0755 "$dir"
   stage="$(mktemp "$dir/.$account.XXXXXX")"
-  launcher_map_render "$account" "$stage"
+  launcher_map_render "$account" "$stage" || {
+    rm -f "$stage"
+    return 1
+  }
   chmod 0644 "$stage"
   chown root:root "$stage" 2>/dev/null || true
   mv -f "$stage" "$(launcher_map_path "$account")"
@@ -123,7 +130,10 @@ launcher_map_ok() {
   local account="$1" expected
   [[ "$(file_stat a "$(launcher_map_path "$account")" 2>/dev/null || true)" == 644 ]] || return 1
   expected="$(mktemp)"
-  launcher_map_render "$account" "$expected"
+  launcher_map_render "$account" "$expected" || {
+    rm -f "$expected"
+    return 1
+  }
   cmp -s "$expected" "$(launcher_map_path "$account")"
   local rc=$?
   rm -f "$expected"

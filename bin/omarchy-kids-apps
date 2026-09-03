@@ -20,7 +20,7 @@ KIDS_DIR="$ETC/kids"
 PACKS_DIR="$SHARE/packs"
 QUEUE_FILE="$SYSROOT/var/lib/omarchy-kids/apps-queue"
 APPLICATIONS_DIRS="${OMARCHY_KIDS_APPLICATIONS_DIRS:-/usr/share/applications:/usr/local/share/applications}"
-TARGET_HOME="${OMARCHY_KIDS_HOME:-$HOME}"
+TARGET_HOME="${OMARCHY_KIDS_HOME:-${HOME:-}}" # unset under a systemd unit; only hide-from-mine needs it
 HIDE_MARKER="X-OmarchyKidsHideFromMine=true"
 
 DRY_RUN="${DRY_RUN:-1}"

@@ -25,4 +25,13 @@ fi
 
 shot 10-cold-boot-kid || fail "screenshot failed"
 
+# The root launcher map is rebuilt at boot by omarchy-kids-assert; an empty environment there
+# once produced a map with no app tiles (2026-09-03).
+tiles="$(vmroot "jq -r '.tiles | length' /etc/omarchy-kids/launchers/$LIVE_KID1_ACCOUNT.json" 2>/dev/null | tr -d '[:space:]')"
+if [[ "${tiles:-0}" -gt 2 ]]; then
+  ok "root launcher map lists $tiles tiles for $LIVE_KID1_ACCOUNT"
+else
+  fail "root launcher map has only ${tiles:-0} tiles for $LIVE_KID1_ACCOUNT"
+fi
+
 scenario_result 10-cold-boot-kid

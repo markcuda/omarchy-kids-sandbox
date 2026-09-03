@@ -144,6 +144,10 @@ check "$out_kid" "$out" "list kid-ada resolves to the same thing as list 6-8 (ki
 check_status "$?" 2 "list: an unknown band/kid is refused"
 
 # --- allowlist: pack, then apps.extra, minus apps.hidden --------------------
+# A systemd unit (the boot-time assert) has no HOME; the allowlist must not need one.
+check "$(env -u HOME "$APPS" allowlist kid-ada 2>&1)" "$("$APPS" allowlist kid-ada)" \
+  "allowlist: same answer with HOME unset (the boot-time assert runs that way)"
+
 
 check "$("$APPS" allowlist kid-ada)" \
   "gcompris,tuxpaint,ktuberling,blinken,supertux,supertuxkart,klettres,kanagram" \

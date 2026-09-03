@@ -393,6 +393,12 @@ echo '{}' >"$CHROMIUM_FILE"
 chmod 0640 "$CHROMIUM_FILE"
 launcher_map_fix kid-ada
 
+# A failed allowlist (here: an account with no profile) must leave no map behind, never an empty one.
+launcher_map_fix kid-nosuch 2>/dev/null
+check "$?" "1" "launcher_map_fix: fails when the allowlist cannot be built"
+[[ ! -e "$(launcher_map_path kid-nosuch)" ]]
+check "$?" "0" "launcher_map_fix: writes no map when it fails"
+
 # boot hook: the package's hook file present, a fake UKI to "check", and
 # lsinitcpio's fixture already reporting the hook is in it
 mkdir -p "$SCRATCH_ROOT/usr/lib/initcpio/hooks" "$SCRATCH_ROOT/boot/EFI/Linux"

@@ -230,10 +230,16 @@ check_level_config() {
     return 1
   fi
   # A config error puts Hyprland in emergency mode, which binds a terminal: fail closed instead.
-  if ! out="$("$HYPRLAND_BIN" --config "$conf" --verify-config 2>&1)"; then
+  # Hyprland aborts without XDG_RUNTIME_DIR even in verify mode; a real session has it, --check from
+  # a plain shell may not.
+  local rt="${XDG_RUNTIME_DIR:-}"; local tmp_rt=""
+  if [[ -z "$rt" || ! -d "$rt" ]]; then tmp_rt="$(mktemp -d)"; rt="$tmp_rt"; fi
+  if ! out="$(XDG_RUNTIME_DIR="$rt" "$HYPRLAND_BIN" --config "$conf" --verify-config 2>&1)"; then
+    [[ -n "$tmp_rt" ]] && rm -rf "$tmp_rt"
     RESULT=FAIL; DETAIL="$conf has errors: ${out%%$'\n'*}"
     return 1
   fi
+  [[ -n "$tmp_rt" ]] && rm -rf "$tmp_rt"
   RESULT=PASS; DETAIL="$conf present and verifies"
   return 0
 }

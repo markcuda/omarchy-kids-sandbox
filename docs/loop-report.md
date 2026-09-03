@@ -57,8 +57,13 @@ from screenshots. Done since:
 - Launcher with real app icons and a centred grid (#54); the wizard as one rounded card per
   step in the theme's colours (#50); uninstalled tiles hidden (#42); grid navigation fixed (#43).
 - The live harness ran all seven scenarios green in one run after these merges.
-- In progress: the structural refactor (#49: shared helpers, summary headers, comment density,
-  file sizes).
+- The structural refactor (#49) merged and passed the full live harness; the second
+  antagonistic review (`docs/reviews/2026-09-03-antagonistic-round-two.md`) found that it had
+  re-created the same class of hole it closed (an environment variable selecting which library
+  loads, even for the PAM-wired verifier), plus an arithmetic injection and a root read that
+  follows a kid's symlink. Its verdict: not mergeable upstream until one trust boundary is
+  stated and enforced by a test, the authorization tests run on Linux instead of skipping, and
+  no unenforced control ships. All of that is #58, in progress.
 
 ## What is open
 

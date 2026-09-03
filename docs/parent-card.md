@@ -1,10 +1,10 @@
 # The parent card
 
 One page. Print it (or save the PDF) and keep it somewhere you'll actually find it — a junk
-drawer, taped inside a cabinet, wherever the house's other manuals live. `SPEC.md`'s safety-check
-screen (Appendix A, A13c) is meant to point you here with "Print the parent card" every time the
-firmware step is still outstanding; that exact reminder isn't wired up yet (see the firmware
-section below), so for now this is on you to remember, not something the app will nag about.
+drawer, taped inside a cabinet, wherever the house's other manuals live. The setup wizard is meant
+to remind you to print this card whenever the firmware-password step is still outstanding; that
+reminder isn't wired into the wizard yet (see the firmware section below), so for now this is on
+you to remember, not something the app will nag about.
 
 ---
 
@@ -19,8 +19,9 @@ below.)
 **2. The login screen (the portal).** One tile per person in the house, yours last. Arrow keys
 move the highlight, Enter picks a tile, then type that person's password. Whoever's password
 unlocked the *disk* at power-on lands straight on their own desktop with no login screen at all —
-the portal only shows up on a fast-user-switch, or if nobody's disk password matched a known
-account.
+that only happens once, right after the machine turns on. Every other time you see a login
+screen — after **Finish** ends someone's turn, or if the disk password you typed didn't match
+anyone's — it's this one.
 
 **3. Time's Up.** When a kid's screen time runs out, their screen shows an owl (or their own
 avatar), the time, and two choices: **Ask a grown-up for more time** or **Finish**. Left alone for
@@ -71,10 +72,10 @@ boot something else entirely and skip everything on this card. Set a firmware pa
 way you would on any computer (reboot, enter setup — usually a key held right at power-on, check
 your machine's manual for which one — and look for "Set Supervisor/Admin/Firmware Password"). This
 is the actual wall; everything else on this card is a fence for a curious kid, not a lock against
-someone who's decided to get around it. The spec calls for the panel's safety check to track
-whether you've done this and stay red until you have (`SPEC.md` R-TRUST-3); that screen isn't
-built yet, so for now there's nothing to check off in the app — do it, and remember that you did,
-the same as any other thing on this card outside Kids Mode's reach.
+someone who's decided to get around it. Kids Mode is meant to track whether you've done this and
+stay red until you have; that screen isn't built yet, so for now there's nothing to check off in
+the app — do it, and remember that you did, the same as any other thing on this card outside Kids
+Mode's reach.
 
 ---
 

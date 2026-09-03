@@ -108,10 +108,16 @@ own five cells have always followed (R-BAND-2).
 
 The wizard itself never needs root — reading `bands.toml`/`packs/`/`avatars/` and rendering
 screens is all unprivileged. Apply is the one place a real system change happens, so it's the one
-place `sudo` is used, and only once: right at the start of Apply, `sudo -S -p '' -v` spends the
-password collected back at A2 to warm sudo's credential cache (or, in `--dry-run`, just prints
-`sudo -v`). Every subsequent Apply command (`run_priv`/`run_priv_stdin`/`run_priv_as`, called from
-one of the five `apply_step_*` functions) is then a plain `sudo <command>`, which shouldn't prompt
+place `sudo` is used, and only once for the credential itself: right at the start of Apply,
+`sudo -S -p '' -v` spends the password collected back at A2 to warm sudo's credential cache (or, in
+`--dry-run`, just prints `sudo -v`). That same first step then also runs
+`sudo systemctl enable --now` on the package's own units — `KIDS_UNITS`/`KIDS_SOCKETS`/
+`KIDS_TIMERS`, `lib/units.sh`, the same list `omarchy-kids-assert`'s `units` lock uses
+(`docs/assert.md`) — *before* provisioning (issue #46): a fresh install before the first kid, or
+right after `omarchy-kids-remove` disables them again, needs the boot-time autologin and A2's own
+authd socket back before Step 2 (the account) and the *next* wizard run both need them. Every
+subsequent Apply command (`run_priv`/`run_priv_stdin`/`run_priv_as`, called from one of the five
+`apply_step_*` functions) is then a plain `sudo <command>`, which shouldn't prompt
 again inside that cached window. This needs the parent's account to actually be in
 `sudoers`/`wheel` with the usual Arch/Omarchy defaults — verifying that assumption, and that the
 single A2 password really does cover the whole Apply sequence with no surprise second prompt,
@@ -169,9 +175,11 @@ that runs one, decides ✓ or ✗, and does something about it:
   headline names which step it was ("Setup stopped at ...") instead of claiming the desktop is
   ready.
 - **The technical log** (R-WIZ-5's tip line, `$SETUP_LOG`, default `/var/log/omarchy-kids/setup.log`)
-  is now actually written on a real run, not just named: `apply_step_getok` creates its directory
-  (`sudo install -d`, since a parent's own unprivileged wizard process can't create anything under
-  `/var/log` itself), and every step's combined output is piped through `sudo tee -a "$SETUP_LOG"`
+  is now actually written on a real run, not just named: `apply_step_getok` also enables and starts
+  the package's own units (`sudo systemctl enable --now`, issue #46, see "Root and the one sudo
+  prompt" above) and creates the log's own directory (`sudo install -d`, since a parent's own
+  unprivileged wizard process can't create anything under `/var/log` itself), and every step's
+  combined output is piped through `sudo tee -a "$SETUP_LOG"`
   on its way to the screen — a second, separate `sudo` call from the step's own (already-elevated)
   command, which the A2-warmed credential cache covers the same way it covers everything else. A
   `--dry-run` never touches this file at all; the tip line only mentions it after the real dashboard
@@ -340,7 +348,7 @@ parent
 | --- | --- | --- |
 | `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | kid profiles (only read, to preview slug collisions) |
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `bands.toml`, `packs/<band>.toml`, `avatars/*.svg` |
-| `OMARCHY_KIDS_LIB` | `lib/` beside `bin/`, else `/usr/lib/omarchy-kids` | `lib/conf.sh`, `lib/tui.sh`, `lib/wizard-advanced.sh` (the Advanced-path checklist, issue #20), `lib/conf.py` (the apps checklist's `pack-app`/`pack-sites` lookups) |
+| `OMARCHY_KIDS_LIB` | `lib/` beside `bin/`, else `/usr/lib/omarchy-kids` | `lib/conf.sh`, `lib/tui.sh`, `lib/wizard-advanced.sh` (the Advanced-path checklist, issue #20), `lib/conf.py` (the apps checklist's `pack-app`/`pack-sites` lookups), `lib/units.sh` (the units list Apply shares with `omarchy-kids-assert`, issue #46) |
 | `OMARCHY_KIDS_CONF_BIN` | sibling `bin/omarchy-kids-conf`, else `PATH` | reading bands/packs, writing A7/A10/A11 overrides |
 | `OMARCHY_KIDS_CONF_PY` | `python3` | running `lib/conf.py` directly for the A9 checklist |
 | `OMARCHY_KIDS_PROVISION_BIN` | sibling `bin/omarchy-kids-provision`, else `PATH` | Apply's account step |
@@ -348,23 +356,41 @@ parent
 | `OMARCHY_KIDS_ASSERT_BIN` | sibling `bin/omarchy-kids-assert`, else `PATH` | the safety check |
 | `OMARCHY_KIDS_SESSION_BIN` | sibling `bin/omarchy-kids-session`, else `PATH` | the safety check's `--check` |
 | `OMARCHY_KIDS_APPS_BIN` | sibling `bin/omarchy-kids-apps`, else `PATH` | Apply's starter-pack install step (issue #24) |
-| `OMARCHY_KIDS_AUTH_SOCK` | `/run/omarchy-kids/auth.sock` | A2's parent-password verification, if `omarchy-kids-authd` is running (`docs/authd.md`) |
+| `OMARCHY_KIDS_AUTH_SOCK` | `/run/omarchy-kids/auth.sock` | A2's parent-password verification (`docs/authd.md`) — used when `omarchy-kids-authd` is running; falls back to `sudo -S -v` otherwise (issue #46) |
 | `OMARCHY_KIDS_SETUP_LOG` | `/var/log/omarchy-kids/setup.log` | Apply's technical log (see "Apply's five steps" above) — a real run writes it; `--dry-run` never does |
 | `OMARCHY_KIDS_TUI_ANSWERS` | (unset — real terminal) | see `docs/tui.md` |
 | `DRY_RUN` | `1` | `0` (or `--apply`) makes Apply real |
 
-## Parent-password verification (A2)
+## Parent-password verification (A2, issue #46)
 
-A2 tries `verify_parent_password` first: the same one-line-in, `ok`/`no`-back protocol
+A2 tries `verify_parent_password_authd` first: the same one-line-in, `ok`/`no`-back protocol
 `bin/omarchy-kids-parent-auth` speaks to `omarchy-kids-authd` (`docs/authd.md`), against
-`OMARCHY_KIDS_AUTH_SOCK`. If that socket doesn't exist — a dev box, or a machine where the
-socket-activated service hasn't started — this can't verify anything on its own and doesn't try to
-fake it: the password is accepted, and `omarchy-kids-provision add --parent-password-stdin` (at
-Apply) is the backstop check, but only when a LUKS slot is actually in play
-(`docs/provision.md`). `--dry-run` skips this check entirely and always accepts, as intended — a
-dry run shouldn't need a real `omarchy-kids-authd` on the box it's run from. On a real machine,
-`omarchy-kids-authd` should always be running (its socket is enabled by the package), so the
-direct check is the one a parent actually sees in practice.
+`OMARCHY_KIDS_AUTH_SOCK` — but only once `verify_parent_password` has confirmed the socket is
+actually there (`[[ -S "$AUTH_SOCK" ]]`). If it isn't — a fresh install before the first kid, or
+right after `omarchy-kids-remove` disables the package's units and takes the socket down with
+them — this falls back to `verify_parent_password_sudo`: `sudo -k` (clear any cached credential,
+so this always actually asks) then the typed candidate on stdin to `sudo -S -p '' -v`. The parent's
+login password is also their sudo password by design (SPEC's one-password model), so this is a
+real, independent check, not a shrug — and it's exactly what lets a parent get past this screen in
+both of those situations, where the old behavior (accept blindly once the socket was down) was a
+silent hole and an even older shape crashed the whole screen with "failed unexpectedly." The
+*reason* for taking the fallback (the socket being down) is logged to stderr as a technical detail,
+never shown to the parent as a failure and never routed through the driver's generic
+"screen … failed unexpectedly" path.
+
+A wrong password, from either verification path, gets a plain "That wasn't it." and another try;
+after three wrong tries in a row, `screen_parent_password` gives up and leaves with the same
+`rc 130` ("nothing changed") the driver's own Ctrl+C handling uses — not a crash, and not a longer
+lockout (that belongs to `omarchy-kids-authd`'s own rate limiter, `docs/authd.md`, which the sudo
+fallback doesn't have and doesn't need at this scale). The counting itself lives in
+`screen_parent_password`'s own loop, not in a `lib/tui.sh` `VALIDATOR` — a validator runs inside
+`tui_screen_input`'s command substitution, a subshell, so a counter kept there would never survive
+between tries.
+
+`--dry-run` skips real verification entirely and always accepts on the first try, as intended — a
+dry run shouldn't need a real `omarchy-kids-authd` or a real `sudo` prompt on the box it's run from.
+`omarchy-kids-provision add --parent-password-stdin` (at Apply) remains the backstop check whenever
+a LUKS slot is actually in play (`docs/provision.md`).
 
 ## Verified live (2026-09-02, QEMU test VM)
 

@@ -38,7 +38,10 @@
 #   OMARCHY_KIDS_SHARE            default /usr/share/omarchy-kids
 #   OMARCHY_KIDS_LIB              default lib/ beside bin/, else /usr/lib/omarchy-kids
 #                                  (conf.sh, tui.sh, wizard-advanced.sh — the
-#                                  Advanced-path grouped checklist, issue #20)
+#                                  Advanced-path grouped checklist, issue #20 —
+#                                  and units.sh, the KIDS_UNITS/KIDS_SOCKETS/
+#                                  KIDS_TIMERS list Apply shares with
+#                                  omarchy-kids-assert, issue #46)
 #   OMARCHY_KIDS_CONF_BIN          path to omarchy-kids-conf (default: resolved
 #                                  beside this script, else PATH)
 #   OMARCHY_KIDS_CONF_PY           python3 interpreter for lib/conf.py (default: python3)
@@ -49,7 +52,11 @@
 #   OMARCHY_KIDS_APPS_BIN          path to omarchy-kids-apps (default: sibling, else PATH)
 #   OMARCHY_KIDS_AUTH_SOCK         the parent-password verifier socket (default
 #                                  /run/omarchy-kids/auth.sock, same var
-#                                  bin/omarchy-kids-parent-auth uses)
+#                                  bin/omarchy-kids-parent-auth uses). A2 uses
+#                                  it when it's active (docs/authd.md) and
+#                                  falls back to `sudo -S -v` with the typed
+#                                  password otherwise -- see
+#                                  verify_parent_password (issue #46)
 #   OMARCHY_KIDS_SETUP_LOG         the technical log Apply writes to (R-WIZ-5;
 #                                  default /var/log/omarchy-kids/setup.log). A
 #                                  real run creates it (`sudo install -d` then
@@ -68,6 +75,8 @@ source "$LIB/conf.sh"
 source "$LIB/tui.sh"
 # shellcheck source=lib/wizard-advanced.sh
 source "$LIB/wizard-advanced.sh"
+# shellcheck source=lib/units.sh
+source "$LIB/units.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -330,14 +339,14 @@ validate_lights_out() {
     return 1
 }
 
-# verify_parent_password CANDIDATE — the same protocol
+# verify_parent_password_authd CANDIDATE — the same protocol
 # bin/omarchy-kids-parent-auth speaks to omarchy-kids-authd (docs/authd.md):
-# one line in, "ok"/"no" back. If the verifier isn't running here (no
-# socket — a dev box, or a machine mid-setup), this can't verify anything
-# on its own, and doesn't block on a check it has no way to perform.
-verify_parent_password() {
+# one line in, "ok"/"no" back. Only called once verify_parent_password
+# below has already confirmed the socket is there; a missing socat *and*
+# python3 both fails closed (no way to speak the protocol at all), rather
+# than silently accepting.
+verify_parent_password_authd() {
     local candidate="$1" reply
-    [[ -S "$AUTH_SOCK" ]] || return 0
     if command -v socat >/dev/null 2>&1; then
         reply="$(printf '%s\n' "$candidate" | socat -T5 - "UNIX-CONNECT:$AUTH_SOCK" 2>/dev/null)"
     elif command -v python3 >/dev/null 2>&1; then
@@ -360,23 +369,45 @@ except OSError:
     pass
 ' "$AUTH_SOCK" 2>/dev/null)"
     else
-        return 0
+        return 1
     fi
     [[ "$reply" == ok* ]]
 }
 
-# validate_parent_password CANDIDATE — A2's validator. --dry-run never
-# has a real omarchy-kids-authd to check against (and shouldn't try to
-# reach a real one even if it happened to exist on this box), so it just
-# prompts and accepts, as asked; a real run defers to verify_parent_password,
-# which itself accepts when the verifier isn't running (see its own
-# comment) — provision's own --parent-password-stdin is the backstop
-# check whenever a LUKS slot is actually in play.
-validate_parent_password() {
-    [[ "$DRY_RUN" == "1" ]] && return 0
-    verify_parent_password "$1" && return 0
-    echo "That password wasn't recognized. Try again."
-    return 1
+# verify_parent_password_sudo CANDIDATE — the fallback used whenever
+# omarchy-kids-authd's socket isn't up: a fresh install before the first
+# kid, or right after `omarchy-kids-remove` disables the package's units
+# again, taking the socket down with them (issue #46). The parent's login
+# password is also their sudo password (SPEC's one-parent-password
+# design), so this is a real, independent check, not a shrug — `sudo -k`
+# clears any cached credential first so this always actually asks rather
+# than riding an unrelated warm ticket, and the candidate goes on stdin
+# only (`sudo -S`), never argv, never logged (AGENTS.md).
+verify_parent_password_sudo() {
+    local candidate="$1"
+    sudo -k >/dev/null 2>&1
+    printf '%s\n' "$candidate" | sudo -S -p '' -v >/dev/null 2>&1
+}
+
+# verify_parent_password CANDIDATE — true iff the candidate checks out.
+# Prefers omarchy-kids-authd's socket when it's active; otherwise falls
+# back to verify_parent_password_sudo. The *reason* for taking the
+# fallback (the socket being down) is a technical detail for the log —
+# stderr here, which a real invocation's caller (the desktop entry, a
+# terminal) captures same as any other diagnostic — never something that
+# stops this screen or gets shown to the parent as a failure; see
+# screen_parent_password for what an actually-wrong password does
+# instead (issue #46: this used to either accept blindly with the socket
+# down, or, in an earlier shape, blow up the whole screen with "failed
+# unexpectedly" — neither is what a parent sees now).
+verify_parent_password() {
+    local candidate="$1"
+    if [[ -S "$AUTH_SOCK" ]]; then
+        verify_parent_password_authd "$candidate"
+        return $?
+    fi
+    echo "omarchy-kids-wizard: omarchy-kids-authd socket not active ($AUTH_SOCK) — verifying the parent password via sudo instead" >&2
+    verify_parent_password_sudo "$candidate"
 }
 
 friendly_web_mode() {
@@ -449,15 +480,43 @@ screen_welcome() {
 
 # A2: Parent password, right after Welcome (SPEC.md R-WIZ-1). Kept for
 # the whole wizard, in memory only (never written anywhere — R-SEC-1),
-# and reused at Apply for the one sudo prompt (docs/wizard.md).
+# and reused at Apply for the one sudo prompt (docs/wizard.md). Verified
+# through omarchy-kids-authd (docs/authd.md) when its socket is active,
+# else through `sudo -S -v` with the very same candidate — the parent's
+# login password is also their sudo password by design (see
+# verify_parent_password above). --dry-run never performs a real check
+# (there's nothing real to check against, and shouldn't try even if one
+# happened to exist) and always accepts on the first try. A real run
+# gives three tries before giving up and leaving with the same "nothing
+# changed" exit Ctrl+C uses (issue #46) — not the redraw-and-retry-forever
+# loop lib/tui.sh's own VALIDATOR contract offers, which runs the
+# validator in a subshell via command substitution, so an attempt counter
+# kept there wouldn't survive between tries; counting the tries here
+# instead avoids that trap, and a wrong guess is never reported as the
+# screen having "failed unexpectedly" — see the driver loop's own rc 130
+# handling.
+PARENT_PASSWORD_TRIES=3
 screen_parent_password() {
-    tui_screen_input "First, your password." 2 "$TOTAL_STEPS" 0 "" \
-        password "Kids Mode uses it for every grown-up decision. It's the same one you log in with." \
-        validate_parent_password
-    local rc=$?
-    ((rc == 0)) || return $rc
-    PARENT_PASSWORD="$TUI_REPLY"
-    return 0
+    local attempt=0
+    while true; do
+        tui_screen_input "First, your password." 2 "$TOTAL_STEPS" 0 "" \
+            password "Kids Mode uses it for every grown-up decision. It's the same one you log in with."
+        local rc=$?
+        ((rc == 0)) || return $rc
+
+        if [[ "$DRY_RUN" == "1" ]] || verify_parent_password "$TUI_REPLY"; then
+            PARENT_PASSWORD="$TUI_REPLY"
+            return 0
+        fi
+
+        attempt=$((attempt + 1))
+        echo
+        if ((attempt >= PARENT_PASSWORD_TRIES)); then
+            echo "That wasn't it."
+            return 130
+        fi
+        echo "That wasn't it. Try again."
+    done
 }
 
 # A3: Name.
@@ -774,18 +833,28 @@ screen_summary() {
 # uses to decide whether to keep going.
 
 # Step 1: the one sudo prompt for the whole Apply step, spending the A2
-# password, then making sure the technical log's directory exists (a
+# password; then enabling and starting the package's own units (issue
+# #46 — the same KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS list
+# omarchy-kids-assert's "units" lock uses, lib/units.sh) *before*
+# provisioning, since Step 2 (the account) and A2's own authd check on
+# the *next* wizard run both need them up — true on a fresh install
+# before the first kid, and right after `omarchy-kids-remove` disables
+# them again; then making sure the technical log's directory exists (a
 # parent's own unprivileged process can't create a root-owned directory
 # itself — run_apply_step's `sudo tee -a` needs it to already exist).
 apply_step_getok() {
     if [[ "$DRY_RUN" == "1" ]]; then
         printf '  [dry-run] sudo -v\n'
+        printf '  [dry-run] sudo systemctl enable --now'
+        printf ' %q' "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"
+        printf '\n'
         printf '  [dry-run] sudo install -d -m 0755 %q\n' "$(dirname "$SETUP_LOG")"
         return 0
     fi
     if ! sudo -n true 2>/dev/null; then
         printf '%s\n' "$PARENT_PASSWORD" | sudo -S -p '' -v 2>/dev/null || return 1
     fi
+    sudo systemctl enable --now "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" || return 1
     sudo install -d -m 0755 "$(dirname "$SETUP_LOG")"
 }
 

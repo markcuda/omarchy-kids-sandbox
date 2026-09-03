@@ -34,6 +34,9 @@ check_contains() { # haystack needle label
 check_not_contains() { # haystack needle label
     if [[ "$1" != *"$2"* ]]; then pass "$3"; else fail "$3 (did not want '$2' in output)"; fi
 }
+check_eq() { # got want label
+    if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
+}
 check_status() { # got want label
     if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want exit $2, got $1)"; fi
 }
@@ -130,8 +133,24 @@ check_contains "$out" "Face          owl" "summary shows the chosen face"
 # --dry-run means Apply's run_priv/run_priv_stdin print the command
 # instead of ever calling sudo/pacman/omarchy-kids-*, so this is checking
 # the wizard's own "[dry-run] sudo ..." lines in $out, not a stub's argv.
+# Apply's first step (issue #46) now also enables and starts the
+# package's own units -- the same KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS
+# list lib/units.sh shares with omarchy-kids-assert's "units" lock --
+# before provisioning, so a fresh install (or right after
+# omarchy-kids-remove) has both the boot-time autologin and A2's own
+# authd socket back before the account step and the next wizard run need
+# them.
+check_contains "$out" "sudo systemctl enable --now omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-wifid.socket omarchy-kids-time.timer omarchy-kids-ask-collect.timer" \
+    "Apply's first step enables and starts the package's units, before provisioning"
 check_contains "$out" "omarchy-kids-provision add Ada --band 6-8 --avatar owl --password-stdin --parent-password-stdin --apply" \
     "apply runs provision add with the exact flags, including the chosen face"
+units_pos="${out%%sudo systemctl enable --now*}"; units_pos="${#units_pos}"
+provision_pos="${out%%omarchy-kids-provision add*}"; provision_pos="${#provision_pos}"
+if ((units_pos < provision_pos)); then
+    pass "the units step runs before the account step, not after"
+else
+    fail "the units step runs before the account step, not after (units at $units_pos, provision at $provision_pos)"
+fi
 check_contains "$out" "omarchy-kids-conf set kid-ada web filtered" "a web choice that differs from the band default is written as an override"
 check_contains "$out" "omarchy-kids-conf set kid-ada wifi helper" "a Wi-Fi choice that differs from the band default is written as an override"
 check_contains "$out" "omarchy-kids-conf set kid-ada level 2" "a level choice that differs from the band default is written as an override"
@@ -310,6 +329,14 @@ if ((${#args[@]} == 0)); then
 fi
 exec "${args[@]}"
 EOF
+cat >"$RM_STUBS/systemctl" <<'EOF'
+#!/bin/bash
+# Apply's own first step (issue #46) now runs `systemctl enable --now`
+# on the package's units before provisioning; a plain success stub is
+# enough here, since these scenarios are about what happens *after* that
+# step, not about systemd itself.
+exit 0
+EOF
 cat >"$RM_STUBS/omarchy-kids-provision" <<'EOF'
 #!/bin/bash
 echo "FAKE-PROVISION: refusing on purpose (out of disk space)"
@@ -345,6 +372,117 @@ check_contains "$(cat "$RM_LOG" 2>/dev/null)" "FAKE-PROVISION: refusing on purpo
 
 rm -rf "$RM_TMP"
 
+# --- real mode: A2's sudo fallback when omarchy-kids-authd's socket isn't
+# active (issue #46 -- a fresh install before the first kid, or right
+# after omarchy-kids-remove disables the package's units). OMARCHY_KIDS_AUTH_SOCK
+# points at a path that is never actually created here, so verify_parent_password
+# always takes the fallback branch: `sudo -k` then the candidate on stdin
+# to `sudo -S -p '' -v`. The fake sudo below is real enough to actually
+# check the candidate against CORRECT_PW, so a genuinely wrong guess is
+# genuinely rejected, not rubber-stamped like the harness's outer sudo
+# fake (which never inspects stdin at all).
+
+RM3_TMP="$(mktemp -d)"
+RM3_STUBS="$RM3_TMP/stubs"
+RM3_ETC="$RM3_TMP/etc/omarchy-kids"
+mkdir -p "$RM3_STUBS" "$RM3_ETC/kids"
+
+cat >"$RM3_STUBS/sudo" <<'EOF'
+#!/bin/bash
+# -k (verify_parent_password_sudo's "clear any cached credential" call):
+# always a plain no-op success.
+if [[ "${1:-}" == "-k" ]]; then
+    exit 0
+fi
+args=()
+while (($#)); do
+    case "$1" in
+        -n | -v | -S) shift ;;
+        -p) shift 2 ;;
+        -u) shift 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+if ((${#args[@]} == 0)); then
+    # A bare credential check/warm ("sudo -S -v" or "sudo -v"): the
+    # candidate (if any) is on stdin -- only a match for CORRECT_PW
+    # succeeds, so a real wrong-password rejection is exercised here,
+    # not just assumed.
+    read -r candidate || candidate=""
+    [[ "$candidate" == "${CORRECT_PW:-}" ]]
+    exit $?
+fi
+exec "${args[@]}"
+EOF
+cat >"$RM3_STUBS/systemctl" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+for name in omarchy-kids-provision omarchy-kids-web omarchy-kids-apps omarchy-kids-assert omarchy-kids-session; do
+    cat >"$RM3_STUBS/$name" <<EOF
+#!/bin/bash
+echo "FAKE-$name: ok"
+cat >/dev/null
+exit 0
+EOF
+done
+cp "$STUBS/gum" "$RM3_STUBS/gum"
+chmod +x "$RM3_STUBS"/*
+
+# The right password (first try) gets all the way through.
+rm3a_out="$(
+    PATH="$RM3_STUBS:$PATH" \
+    OMARCHY_KIDS_ETC="$RM3_ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_PROVISION_BIN="$RM3_STUBS/omarchy-kids-provision" \
+    OMARCHY_KIDS_WEB_BIN="$RM3_STUBS/omarchy-kids-web" \
+    OMARCHY_KIDS_APPS_BIN="$RM3_STUBS/omarchy-kids-apps" \
+    OMARCHY_KIDS_ASSERT_BIN="$RM3_STUBS/omarchy-kids-assert" \
+    OMARCHY_KIDS_SESSION_BIN="$RM3_STUBS/omarchy-kids-session" \
+    OMARCHY_KIDS_AUTH_SOCK="$RM3_TMP/no-such-auth.sock" \
+    OMARCHY_KIDS_SETUP_LOG="$RM3_TMP/setup.log" \
+    CORRECT_PW="hunter2" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
+    DRY_RUN=0 "$BIN" 2>&1
+)"
+rm3a_status=$?
+check_status "$rm3a_status" 0 "sudo fallback, correct password: the wizard completes"
+check_contains "$rm3a_out" "omarchy-kids-authd socket not active" \
+    "the socket-inactive reason is a technical line, not a parent-facing failure"
+check_not_contains "$rm3a_out" "failed unexpectedly" \
+    "the fallback path never reports the screen as having failed unexpectedly"
+# Apply's own step output only shows up live on failure (tail-on-error);
+# the technical log always gets it, same as the existing failing-step
+# test above -- that's where "A2 actually let Apply start" is checkable.
+check_contains "$(cat "$RM3_TMP/setup.log" 2>/dev/null)" "FAKE-omarchy-kids-provision: ok" \
+    "sudo fallback, correct password: Apply actually runs (A2 accepted it)"
+
+# Three wrong passwords in a row: "That wasn't it" each time, then leaves
+# with nothing changed -- the same exit Ctrl+C uses -- never a crash and
+# never "failed unexpectedly".
+rm3b_out="$(
+    PATH="$RM3_STUBS:$PATH" \
+    OMARCHY_KIDS_ETC="$RM3_ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_PROVISION_BIN="$RM3_STUBS/omarchy-kids-provision" \
+    OMARCHY_KIDS_AUTH_SOCK="$RM3_TMP/no-such-auth.sock" \
+    CORRECT_PW="hunter2" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin wrong1 wrong2 wrong3)" \
+    DRY_RUN=0 "$BIN" 2>&1
+)"
+rm3b_status=$?
+check_status "$rm3b_status" 130 "sudo fallback, three wrong passwords: leaves (same exit as Ctrl+C)"
+check_eq "$(grep -c "That wasn't it" <<<"$rm3b_out")" "3" \
+    "each of the three wrong tries is told plainly \"That wasn't it\""
+check_contains "$rm3b_out" "Left setup. Nothing changed." \
+    "leaving after three wrong tries shows the same message Ctrl+C does"
+check_not_contains "$rm3b_out" "failed unexpectedly" \
+    "three wrong tries never reports the screen as having failed unexpectedly"
+check_not_contains "$rm3b_out" "FAKE-omarchy-kids-provision" \
+    "Apply never starts -- A2 never let a wrong password through"
+
+rm -rf "$RM3_TMP"
+
 # --- real mode: the safety check skips sudo -u <kid> ... --check when the
 # account was never actually created, instead of handing sudo a user that
 # doesn't exist -------------------------------------------------------
@@ -370,6 +508,10 @@ if ((${#args[@]} == 0)); then
     exit 0
 fi
 exec "${args[@]}"
+EOF
+cat >"$RM2_STUBS/systemctl" <<'EOF'
+#!/bin/bash
+exit 0
 EOF
 for name in omarchy-kids-provision omarchy-kids-web omarchy-kids-apps omarchy-kids-assert; do
     cat >"$RM2_STUBS/$name" <<EOF

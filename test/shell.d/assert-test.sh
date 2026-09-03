@@ -168,21 +168,42 @@ if [[ "$1" == "passwd" ]]; then
 fi
 exit 1
 '
-# systemctl --root=R mask UNIT: the one subcommand this suite exercises;
-# creates UNIT -> /dev/null under R/etc/systemd/system, exactly what a
-# real `systemctl --root=R mask` does (a pure filesystem operation, no
-# live systemd needed) -- so the check side (getty_ok, in the script
-# under test) reads real symlink state, not anything this stub invents.
+# systemctl --root=R mask UNIT / --root=R enable UNIT...: the two
+# subcommands this suite exercises; each is a pure filesystem operation
+# under a --root, no live systemd needed, so the check side (getty_ok,
+# units_ok, in the script under test) reads real symlink state, not
+# anything this stub invents. mask: UNIT -> /dev/null under
+# R/etc/systemd/system. enable: UNIT -> /usr/lib/systemd/system/UNIT
+# under the .wants directory matching its own suffix (.service ->
+# multi-user.target.wants, .socket -> sockets.target.wants, .timer ->
+# timers.target.wants) -- exactly the three .wants dirs units_ok reads
+# via unit_link (issue #46: the no-kids units case exercises this fix
+# path for the first time in this suite).
 # shellcheck disable=SC2016
 stub systemctl '
 root=""
 for a in "$@"; do case "$a" in --root=*) root="${a#--root=}" ;; esac; done
 if [[ "$1" == "--root="* ]]; then shift; fi
-if [[ "$1" == "mask" ]]; then
-    unit="$2"
-    mkdir -p "$root/etc/systemd/system"
-    ln -sf /dev/null "$root/etc/systemd/system/$unit"
-fi
+case "$1" in
+    mask)
+        unit="$2"
+        mkdir -p "$root/etc/systemd/system"
+        ln -sf /dev/null "$root/etc/systemd/system/$unit"
+        ;;
+    enable)
+        shift
+        for unit in "$@"; do
+            case "$unit" in
+                *.service) target=multi-user.target.wants ;;
+                *.socket) target=sockets.target.wants ;;
+                *.timer) target=timers.target.wants ;;
+                *) continue ;;
+            esac
+            mkdir -p "$root/etc/systemd/system/$target"
+            ln -sf "/usr/lib/systemd/system/$unit" "$root/etc/systemd/system/$target/$unit"
+        done
+        ;;
+esac
 '
 # lsinitcpio: ignores its argument entirely and just cats a log-controlled
 # fixture the test flips between "has the hook" and "does not" -- objcopy
@@ -555,7 +576,27 @@ check_eq "$st" 0 "no profiles: exits 0"
 check_eq "$out" "" "no profiles: --quiet prints nothing"
 out2="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"; st2=$?
 check_eq "$st2" 0 "no profiles, not quiet: still exits 0"
-check_contains "$out2" "nothing to assert" "no profiles, not quiet: names why"
+check_contains "$out2" "nothing else to assert" "no profiles, not quiet: names why"
+
+# --- no profiles, but the "units" lock is still asserted -- and fixed if
+#     broken -- since it's machine-level, not per-kid (issue #46: a fresh
+#     install before the first kid, or right after omarchy-kids-remove
+#     disables them again, still needs the package's own units back) ----
+
+check_status "$out2" "units" "ok" "no profiles: units is still checked (not skipped) with zero kids"
+
+BOOT_LOGIN_LINK="$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/omarchy-kids-boot-login.service"
+rm -f "$BOOT_LOGIN_LINK"
+out3="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"; st3=$?
+check_eq "$st3" 0 "no profiles, units broken: still exits 0 once fixed"
+check_status "$out3" "units" "fixed" "no profiles: units is fixed even though no kid is provisioned"
+check_contains "$out3" "nothing else to assert" "no profiles, units broken: the no-kids line still explains why nothing else ran"
+[[ -L "$BOOT_LOGIN_LINK" ]] && pass "no profiles: the boot-login unit's enable symlink is restored" \
+    || fail "no profiles: the boot-login unit's enable symlink was not restored"
+
+# idempotent: a second no-kids run with units already fixed is all ok again.
+out4="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"
+check_status "$out4" "units" "ok" "no profiles: units is idempotent after being fixed with zero kids"
 
 # --- Limine editor lock (V6) -------------------------------------------------
 mkdir -p "$SCRATCH_ROOT/boot" "$ETC/kids"

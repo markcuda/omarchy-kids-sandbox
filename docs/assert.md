@@ -54,7 +54,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `face:<account>` | `/usr/share/sddm/faces/<account>.face.icon` is byte-for-byte the profile's avatar SVG (R-LOGIN, issue #39 — SDDM's `UserModel` reads the avatar from this path, not from AccountsService's `Icon=` key; `docs/portal.md` has the full `UserModel.cpp` citation) | `posture_write_face_icon` |
 | `groups:<account>` | Member of `omarchy-kids` and the band group (`omarchy-kids-3-5`/`6-8`/`9-12`/`13plus`) | `usermod -aG` with only the groups actually missing |
 
-### Machine-level (once per run, only while at least one kid is provisioned)
+### Machine-level (once per run, only while at least one kid is provisioned — except `units`, which is checked even with zero kids; see below)
 
 | Lock id | Checks | Fix |
 | --- | --- | --- |
@@ -65,7 +65,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `pam:sddm`, `pam:systemd-user` | The `pam_namespace` marker + line in `/etc/pam.d/sddm` and `/etc/pam.d/systemd-user` (R-FND-2a) | `posture_ensure_pam_namespace`, seeding from `/usr/lib/pam.d` when needed |
 | `parent-unlock:sddm`, `parent-unlock:omarchy-lock-password` | The parent-unlock marker + `pam_exec.so … omarchy-kids-parent-auth` line (fixed `[success=done default=ignore]` control), anchored on the stack's own first non-comment `auth` line — after it if that line is itself a leading `pam_faillock.so … preauth` line, else before it (R-SEC-2, R-SEC-3; `docs/authd.md`; `lib/posture.sh`'s own header comment has the full placement rule, confirmed against a real Omarchy 4.0.2 box). `omarchy-lock-password` is the only lock-screen stack Omarchy 4.0.2 actually writes — there is no `hyprlock` PAM service on that box; an earlier version of this guessed one and fell back to it, confirmed wrong and removed. "ok" if the stack file doesn't exist at all — nothing to disprove, same shape as `boot-hook` below | `posture_ensure_parent_unlock_line`; **fails** (reports `FAIL`, not `fixed`) if the stack exists but has lost its anchor line — this command never reconstructs a vendor PAM stack from nothing, only the one line it owns |
 | `getty:tty2` .. `getty:tty6` | Each unit is masked — a symlink to `/dev/null` at `/etc/systemd/system/getty@ttyN.service` (R-FND-5), read directly rather than shelled out to `systemctl` | `systemctl mask getty@ttyN.service` |
-| `units` | The package's units are enabled: `omarchy-kids-boot-login`, its cleanup unit and `omarchy-kids-assert` in `multi-user.target.wants`, `omarchy-kids-authd.socket` and `omarchy-kids-wifid.socket` in `sockets.target.wants` (R-BOOT-3, R-SEC-2, R-WIFI-2 — issue #26 added the second socket); without the first the owner's stock autologin wins every boot | `systemctl enable` of the five |
+| `units` | The package's units are enabled: `omarchy-kids-boot-login`, its cleanup unit and `omarchy-kids-assert` in `multi-user.target.wants`, `omarchy-kids-authd.socket` and `omarchy-kids-wifid.socket` in `sockets.target.wants`, `omarchy-kids-time.timer` and `omarchy-kids-ask-collect.timer` in `timers.target.wants` (R-BOOT-3, R-SEC-2, R-WIFI-2 — issue #26 added the second socket; R-ASK-1..3 — issue #25 added the timer), the list itself shared with `bin/omarchy-kids-wizard`'s own Apply-time `enable --now` via `lib/units.sh` (issue #46). **Runs even with zero kids provisioned** — unlike every other lock in this table — since it's machine-level, not per-kid: a fresh install before the first kid, or right after `omarchy-kids-remove` disables these again, still needs them back so the *next* wizard run's A2 (`docs/authd.md`) and Apply both work; without the first the owner's stock autologin also wins every boot | `systemctl enable` of the whole list, then (on a live system, not under `--root`) `systemctl start` of the sockets and timers |
 | `hyprland-configs` | Every `*.lua` under `$OMARCHY_KIDS_SHARE/hyprland` is byte-identical to its copy under `/etc/omarchy-kids/hyprland` (R-DESK-1) | `omarchy-kids-session --install-configs` if that ever exists (it does not yet in this checkout — verified by grep before writing this), else copies the files directly |
 | `chromium-policy:<band>` | *Only for policy files that already exist* — `/etc/chromium/policies/managed/omarchy-kids-<band>.json` is mode `0640` (R-WEB-1) | `chmod 0640`; group ownership (`root:omarchy-kids-<band>`) is attempted best-effort and never decides ok/fixed/FAIL (see "Judgment calls") |
 | `boot-hook` | *Only if `/usr/lib/initcpio/hooks/omarchy-kids-unlock` is present* — the current UKI's initramfs contains the hook (R-BOOT-5), via `objcopy -O binary --only-section=.initrd <uki> img && lsinitcpio img \| grep omarchy-kids-unlock` | `mkinitcpio -P` |
@@ -79,9 +79,10 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 
 `--quiet` prints only `fixed`/`FAIL` lines (no `ok` lines, and no notice at all when nothing is
 provisioned — the pacman hook and the boot unit both use this). Without `--quiet`, an all-clear
-run still prints one `ok` line per lock, and a no-kids run prints one line explaining why it did
-nothing. `--dry-run` reports what *would* change (`would-fix` instead of `fixed`) and writes
-nothing at all.
+run still prints one `ok` line per lock, and a no-kids run prints one line explaining why it
+skipped everything else — after still asserting `units` (see above), which is machine-level, not
+per-kid, and runs either way. `--dry-run` reports what *would* change (`would-fix` instead of
+`fixed`) and writes nothing at all.
 
 ## Judgment calls
 

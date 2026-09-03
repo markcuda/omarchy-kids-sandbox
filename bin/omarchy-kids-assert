@@ -42,6 +42,8 @@ LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/oma
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh
 source "$LIB/posture.sh"
+# shellcheck source=lib/units.sh
+source "$LIB/units.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -381,20 +383,8 @@ getty_fix() {
 # per-boot autologin drop-in is never written and the owner's stock
 # autologin wins. Path-based check (like getty_ok) so it works on a test
 # root; the fix is plain `systemctl enable`, which also works with --root.
-KIDS_UNITS=(omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service)
-# omarchy-kids-wifid.socket (R-WIFI-2, issue #26): the same treatment as
-# authd's socket -- without it enabled, a helper-mode kid's
-# omarchy-kids-wifi never gets a reply from anything, and every
-# subcommand fails closed with "no reply" rather than silently doing
-# nothing (see docs/wifi.md).
-KIDS_SOCKETS=(omarchy-kids-authd.socket omarchy-kids-wifid.socket)
-# omarchy-kids-ask-collect.timer (R-ASK-1..3, issue #25): the every-minute
-# backstop that applies an "ask a parent" request a kid submitted while
-# no one was running the panel. Same enable-idempotently treatment as
-# every other unit here, not a one-off in omarchy-kids.install, so a
-# fresh `omarchy-kids-assert` run (by hand, the wizard, or the pacman
-# hook) is enough to pick it up too.
-KIDS_TIMERS=(omarchy-kids-time.timer omarchy-kids-ask-collect.timer)
+# KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS come from lib/units.sh, shared with
+# bin/omarchy-kids-wizard's own Apply-time enable --now (issue #46).
 unit_link() { printf '%s/etc/systemd/system/%s.wants/%s' "$(posture_root)" "$1" "$2"; }
 units_ok() {
     local u
@@ -625,7 +615,16 @@ main() {
     done < <(list_kids)
 
     if [[ ${#kids[@]} -eq 0 ]]; then
-        [[ "$QUIET" -eq 1 ]] || echo "omarchy-kids-assert: no kids provisioned; nothing to assert"
+        # units enabled is machine-level, not per-kid (R-BOOT-3): a fresh
+        # install before the first kid, or right after
+        # omarchy-kids-remove takes the last one away, still needs the
+        # package's own socket/timers/services enabled so the *next*
+        # wizard run's A2 (docs/authd.md) and Apply both work (issue
+        # #46) -- unlike every other machine-level lock below, this one
+        # doesn't wait for a kid to exist first.
+        assert_one "units" units_ok units_fix
+        [[ "$QUIET" -eq 1 ]] || echo "omarchy-kids-assert: no kids provisioned; nothing else to assert"
+        [[ "$ANY_FAIL" -eq 0 ]] || exit 1
         exit 0
     fi
 

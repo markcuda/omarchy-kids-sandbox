@@ -36,6 +36,13 @@ Each command's doc has a "Verified live" section with the exact evidence. In one
 - Kid sessions have private `noexec` `/tmp` and `/dev/shm` on both login stacks.
 - `test/live/all` runs seven scenarios end to end against the VM and all pass.
 
+## Round two (after Mark's note)
+
+Mark asked for DHH-grade code, Omarchy's own conventions and per-theme styling, and UX work
+from screenshots. In progress: `docs/style.md` and the Conventions section in `AGENTS.md`
+(merged), the antagonistic review in `docs/reviews/` with its security fixes (#51), theme
+plumbing for every surface (#47), the structural refactor (#49) and the wizard's look (#50).
+
 ## What is open
 
 - `#2` V1 and `#17` Pause: SDDM on 4.0.2 cannot open a second greeter; a design decision.
@@ -60,6 +67,7 @@ a separate PAM file; the greeter lists accounts alphabetically, not in our order
 ## State of the machines
 
 The laptop (`omarky-air`) was never rebooted and its own account was not touched beyond the
-repo clone. After the real Remove run the VM holds no kid profiles (their files are under the owner's
-"Kids Mode" folder); Cy is being re-provisioned by the wizard as the closing check; the owner `kid-vm` is in `omarchy-parents` and has the bar widget enabled. The
+repo clone. After the real Remove run the wizard re-provisioned Cy for real and a cold boot with Cy's
+password landed on the launcher again, which closes the cycle; the older kids' files are under
+the owner's "Kids Mode" folder; the owner `kid-vm` is in `omarchy-parents` and has the bar widget enabled. The
 scratchpad on the Mac holds only the driving scripts; every screenshot was deleted after viewing.

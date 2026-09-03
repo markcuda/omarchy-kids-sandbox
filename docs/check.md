@@ -301,3 +301,6 @@ dev box). Re-verifying against a real kid session on the QEMU VM — the false-F
 originally recorded should now read PASS — is still open; nothing in this repo runs `--apply` or
 provisions kids on a development machine (AGENTS.md rule 8), so that verification happens on the
 laptop, not here.
+After #41, same VM: `live:kid-cy:tmp-noexec` and `shm-noexec` PASS from the session leader's
+mount table, kids without a session get a WARN naming the commands, and the firmware card is the
+only FAIL until a parent marks it done.

@@ -42,10 +42,9 @@ Each command's doc has a "Verified live" section with the exact evidence. In one
 - `#4` V3: the captive-portal window needs a real captive portal to test.
 - `#24` `#26` `#28`: the real pack install, Wi-Fi on real hardware, and a populated plugins
   catalog need the laptop or upstream.
-- `#30`: Remove Kids Mode is merged and dry-run verified; the real run removes every kid on the
-  VM, so it is the last thing to run.
+- `#30`: Remove Kids Mode is merged and dry-run verified; the real run on the VM is the last
+  step of this loop (see the ticket for the result).
 - `#33`: the upstream notes for Pete's PR are written up; posting is yours.
-- `#41`: the check's live `/tmp` probe (agent in flight at the time of writing).
 
 Decisions waiting for you: `docs/phase1/DECISIONS-NEEDED.md` (Pause, snapshot entries, AUR
 publish, upstream notes). Blocked items: `docs/phase1/BLOCKED.md`.

@@ -68,6 +68,17 @@ is what a key falls back to if the band table ever didn't carry it.
 the wizard, used by the desktop session — and are never read through `get`/`set`/`show`, never
 written to a kid's `.conf` file, and aren't part of Appendix B.
 
+### Machine-level keys (`machine.conf`, not profile keys)
+
+`/etc/omarchy-kids/machine.conf` (SPEC.md §5.1) holds settings with no kid to scope them to —
+`parent` (docs/provision.md) and the key below — as plain `key=value` lines, read and written
+directly with `lib/conf.sh`'s `conf_get`/`conf_set`, not through `omarchy-kids-conf`: there is no
+kid argument for a machine-wide setting to hang off of.
+
+| Key | Values | Default | What it does |
+| --- | --- | --- | --- |
+| `boot.snapshot_entries` | `hide` `show` | `hide` | `omarchy-kids-assert`'s `limine-snapshots` lock (docs/assert.md, issue #38): while `hide` and any kid exists, `/etc/default/limine`'s `MAX_SNAPSHOT_ENTRIES=0` hides Snapper's boot-menu entries, so a kid with a disk password can't pick a pre-Kids-Mode snapshot from Limine's menu and land on the parent's desktop. `show` restores the value `MAX_SNAPSHOT_ENTRIES` held before we touched it. The parent's own rollback path stays `snapper rollback` from the running system. |
+
 ## Band defaults
 
 | Band | Level | Web | Budget / lights-out | Weekend lights-out | Wi-Fi | Terminal | Password |

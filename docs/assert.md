@@ -65,6 +65,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `hyprland-configs` | Every `*.lua` under `$OMARCHY_KIDS_SHARE/hyprland` is byte-identical to its copy under `/etc/omarchy-kids/hyprland` (R-DESK-1) | `omarchy-kids-session --install-configs` if that ever exists (it does not yet in this checkout — verified by grep before writing this), else copies the files directly |
 | `chromium-policy:<band>` | *Only for policy files that already exist* — `/etc/chromium/policies/managed/omarchy-kids-<band>.json` is mode `0640` (R-WEB-1) | `chmod 0640`; group ownership (`root:omarchy-kids-<band>`) is attempted best-effort and never decides ok/fixed/FAIL (see "Judgment calls") |
 | `boot-hook` | *Only if `/usr/lib/initcpio/hooks/omarchy-kids-unlock` is present* — the current UKI's initramfs contains the hook (R-BOOT-5), via `objcopy -O binary --only-section=.initrd <uki> img && lsinitcpio img \| grep omarchy-kids-unlock` | `mkinitcpio -P` |
+| `limine-snapshots` | *Only if `/etc/default/limine` exists* — while `boot.snapshot_entries` (`machine.conf`, docs/conf.md) is `hide` (the default), it holds `MAX_SNAPSHOT_ENTRIES=0`; while `show`, it holds no `MAX_SNAPSHOT_ENTRIES=0` line of ours (V6, issue #38) | Sets or replaces the line, remembering any previous value in a `# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=<old>` comment; `show` restores that value (or just drops our line if there was none). Then runs `limine-snapper-sync`, but only if that binary exists and this is a real run, not a scratch-tree test |
 
 ## Exit codes
 

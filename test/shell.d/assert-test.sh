@@ -170,6 +170,10 @@ cat "__LOG__/lsinitcpio-output" 2>/dev/null
 stub mkinitcpio '
 [[ "$1" == "-P" ]] && echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" > "__LOG__/lsinitcpio-output"
 '
+# limine-snapper-sync: present on PATH throughout, purely to prove the
+# limine-snapshots lock never calls it in this suite -- OMARCHY_KIDS_ROOT
+# is always set here, so posture_root is never empty (see below).
+stub limine-snapper-sync ''
 
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
@@ -401,6 +405,61 @@ out="$("$BIN" 2>&1)"
 if grep -q "fixed *limine-editor" <<<"$out" && head -1 "$SCRATCH_ROOT/boot/limine.conf" | grep -qx 'editor_enabled: no'; then echo "PASS  limine-editor: editor_enabled: no inserted at the top"; else echo "FAIL  limine-editor fix ($out)"; exit 1; fi
 out="$("$BIN" 2>&1)"
 if grep -q "ok *limine-editor" <<<"$out" && [[ "$(grep -c '^editor_enabled:' "$SCRATCH_ROOT/boot/limine.conf")" == "1" ]]; then echo "PASS  limine-editor: idempotent"; else echo "FAIL  limine-editor idempotence ($out)"; exit 1; fi
+
+# --- Limine snapshot entries lock (V6, issue #38) -----------------------
+
+LIMINE_DEFAULT="$SCRATCH_ROOT/etc/default/limine"
+mkdir -p "$SCRATCH_ROOT/etc/default"
+: > "$ARGV_LOG"
+
+# hide (the default: no boot.snapshot_entries override yet) fixes a
+# pre-existing, non-zero MAX_SNAPSHOT_ENTRIES, remembering it in a comment.
+printf 'KERNEL_CMDLINE[default]="quiet"\nMAX_SNAPSHOT_ENTRIES=10\n' > "$LIMINE_DEFAULT"
+out="$("$BIN")"
+check_status "$out" "limine-snapshots" "fixed" "limine-snapshots (hide, default): reports fixed"
+check_eq "$(grep -c '^MAX_SNAPSHOT_ENTRIES=0$' "$LIMINE_DEFAULT")" "1" "limine-snapshots: MAX_SNAPSHOT_ENTRIES=0 is set"
+check_eq "$(grep -c '^# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=10$' "$LIMINE_DEFAULT")" "1" \
+    "limine-snapshots: the old value (10) is remembered"
+check_contains "$(cat "$LIMINE_DEFAULT")" 'KERNEL_CMDLINE[default]="quiet"' "limine-snapshots: unrelated lines are kept"
+check_eq "$(grep -c "limine-snapper-sync" "$ARGV_LOG")" "0" \
+    "limine-snapshots: limine-snapper-sync is not run against a test root"
+
+# idempotent: a second run is ok, and nothing doubles up.
+out="$("$BIN")"
+check_status "$out" "limine-snapshots" "ok" "limine-snapshots (hide): idempotent"
+check_eq "$(grep -c '^MAX_SNAPSHOT_ENTRIES=' "$LIMINE_DEFAULT")" "1" "limine-snapshots: still exactly one MAX_SNAPSHOT_ENTRIES line"
+
+# show: restores the remembered value and drops our lines.
+conf_set "$ETC/machine.conf" boot.snapshot_entries show
+out="$("$BIN")"
+check_status "$out" "limine-snapshots" "fixed" "limine-snapshots (show): reports fixed"
+check_eq "$(grep -c '^MAX_SNAPSHOT_ENTRIES=10$' "$LIMINE_DEFAULT")" "1" "limine-snapshots: the old value (10) is restored"
+check_eq "$(grep -c 'omarchy-kids: was MAX_SNAPSHOT_ENTRIES' "$LIMINE_DEFAULT")" "0" "limine-snapshots: the marker comment is gone"
+
+# idempotent under show, too.
+out="$("$BIN")"
+check_status "$out" "limine-snapshots" "ok" "limine-snapshots (show): idempotent"
+
+# back to hide: re-hides whatever value is there now (10), re-recording it.
+conf_set "$ETC/machine.conf" boot.snapshot_entries hide
+out="$("$BIN")"
+check_status "$out" "limine-snapshots" "fixed" "limine-snapshots (back to hide): reports fixed"
+check_eq "$(grep -c '^MAX_SNAPSHOT_ENTRIES=0$' "$LIMINE_DEFAULT")" "1" "limine-snapshots: hidden again"
+check_eq "$(grep -c '^# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=10$' "$LIMINE_DEFAULT")" "1" "limine-snapshots: value re-recorded"
+
+# restore path with no remembered value at all: show just drops the line.
+printf 'MAX_SNAPSHOT_ENTRIES=0\n' > "$LIMINE_DEFAULT"  # our line present, but no "was" comment (e.g. after an upgrade)
+conf_set "$ETC/machine.conf" boot.snapshot_entries show
+out="$("$BIN")"
+check_status "$out" "limine-snapshots" "fixed" "limine-snapshots (show, no remembered value): reports fixed"
+check_eq "$(grep -c 'MAX_SNAPSHOT_ENTRIES' "$LIMINE_DEFAULT")" "0" \
+    "limine-snapshots: with nothing remembered, the line is simply removed"
+
+# no /etc/default/limine at all (no Limine, or a fresh test tree): nothing to assert.
+rm -f "$LIMINE_DEFAULT"
+conf_del "$ETC/machine.conf" boot.snapshot_entries
+out="$("$BIN")"
+check_status "$out" "limine-snapshots" "ok" "limine-snapshots: no /etc/default/limine means nothing to assert"
 
 echo "assert-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

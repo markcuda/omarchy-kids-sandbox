@@ -22,7 +22,9 @@ build order. Results of the Phase 1 checks live in [`docs/phase1/`](docs/phase1/
 evening of 2026-09-02, **V2, V4, V5 and V7 pass** (real hardware and the QEMU test VM described in
 [`docs/vm.md`](docs/vm.md)); V1, V3 and the rest of V6 are in progress. Merged so far: the
 parent-password verifier, the early-boot LUKS-slot hook with per-boot autologin, the package
-skeleton (`makepkg` builds it), and `omarchy-kids-conf` with the band and pack data.
+skeleton (`makepkg` builds it), `omarchy-kids-conf` with the band and pack data, and
+`omarchy-kids-assert`'s `limine-snapshots` lock, hiding pre-Kids-Mode Snapper boot entries
+(issue #38).
 
 ## What will be here
 

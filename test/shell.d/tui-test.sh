@@ -382,11 +382,44 @@ out="$(
 )" </dev/null
 check_contains "$(cat "$CLEAR_LOG")" "cleared" "tui_header: card mode clears the screen"
 check_contains "$(cat "$TPUT_LOG")" "cols" "tui_header: card mode measures the terminal with tput"
-check_contains "$(cat "$GUM_LOG")" "--border rounded" "tui_header: card mode draws a rounded-border card"
-check_contains "$(cat "$GUM_LOG")" "--margin" "tui_header: card mode centers the card with a margin"
-check_contains "$(cat "$GUM_LOG")" "--width" "tui_header: card mode bounds the card to a max width"
+check_contains "$out" "╭" "tui_header: card mode draws the card's top-left rounded corner"
+check_contains "$out" "╮" "tui_header: card mode draws the card's top-right rounded corner"
+check_contains "$out" "Kids Mode · Step 2 of 3" "tui_header: card mode puts the step line inside the card"
+check_contains "$out" "What can K see?" "tui_header: card mode puts the title inside the card"
 check_contains "$(cat "$GUM_LOG")" "choose" "tui_screen_choose: card mode still asks gum choose for the list"
+check_not_contains "$(cat "$GUM_LOG")" "--header What can K see?" "tui_screen_choose: card mode never hands gum choose the title as its own header (already in the card)"
 check_not_contains "$out" "Only sites you choose" "tui_screen_choose: card mode never prints gum's own list a second time"
+check_contains "$out" "╰" "tui_screen_choose: card mode closes the card with a bottom-left rounded corner after the chooser"
+check_contains "$out" "╯" "tui_screen_choose: card mode closes the card with a bottom-right rounded corner after the chooser"
+
+# The bottom rule closes the card *after* gum choose is asked for the list,
+# not before -- $GUM_LOG records every gum invocation (the card's own top
+# rule, gum choose, the closing rule) in the order lib/tui.sh made them, so
+# comparing line numbers there (not in $out, which the fake gum's `choose`
+# case never writes to) actually proves the sequence.
+top_line="$(grep -n '╭' "$GUM_LOG" | head -1 | cut -d: -f1)"
+choose_line="$(grep -n '^choose ' "$GUM_LOG" | head -1 | cut -d: -f1)"
+bottom_line="$(grep -n '╰' "$GUM_LOG" | head -1 | cut -d: -f1)"
+if [[ -n "$top_line" && -n "$choose_line" && -n "$bottom_line" \
+    && "$top_line" -lt "$choose_line" && "$choose_line" -lt "$bottom_line" ]]; then
+    pass "tui_screen_choose: card opens, then gum choose runs, then the card closes -- in that order"
+else
+    fail "tui_screen_choose: card open/choose/close are out of order (top=$top_line choose=$choose_line bottom=$bottom_line)"
+fi
+
+# _tui_measure pads the chooser to line up under the card's own text
+# (one column of border, one of padding), not flush with the terminal edge.
+pad_out="$(
+    unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+    # shellcheck source=/dev/null
+    source "$TUI_LIB"
+    tui_init 2>/dev/null
+    TUI_MODE="interactive"
+    _tui_measure
+    echo "left=$TUI_CARD_LEFT pad=$GUM_CHOOSE_PADDING"
+)" </dev/null
+left_val="$(sed -n 's/^left=\([0-9]*\).*/\1/p' <<<"$pad_out")"
+check_contains "$pad_out" "pad=0 0 0 $((left_val + 2))" "_tui_measure: GUM_CHOOSE_PADDING lines up with the card's text, not its left edge"
 
 # Plain (file) mode never clears, even for the exact same screen.
 : >"$CLEAR_LOG"

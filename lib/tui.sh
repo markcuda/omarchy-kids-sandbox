@@ -18,6 +18,7 @@ TUI_FOOTER_FIRST="Enter continue · Ctrl+C leave (nothing changes)"
 TUI_MODE=""      # "interactive" or "file", set by tui_init
 TUI_HAVE_GUM=0
 TUI_REPLY=""     # the answer from the last tui_screen_* call
+TUI_PRESET_ERROR="" # a caller's own verdict on the last answer, shown once on the next tui_screen_input
 TUI_NEXT_ANSWER="" # scratch: set by _tui_next_answer, read right after
 declare -a TUI_ANSWERS=()
 TUI_ANSWERS_I=0
@@ -378,11 +379,13 @@ tui_screen_input() {
     local title="$1" step="$2" total="$3" show_omy="$4" omy_line="$5"
     local kind="$6" placeholder="${7:-}" validator="${8:-}"
     local footer="${9:-$TUI_FOOTER_DEFAULT}"
-    local last_err=""
+    local last_err="$TUI_PRESET_ERROR"
+    TUI_PRESET_ERROR=""
 
     while true; do
-        # A failed validator's message rides along as an extra card line
-        # on the redraw, not a one-off line printed off to the side.
+        # A failed validator's message (or the caller's TUI_PRESET_ERROR)
+        # rides along as an extra card line on the redraw -- card mode
+        # clears the screen, so a line echoed off to the side is never read.
         local -a _tui_input_body=()
         [[ -n "$placeholder" ]] && _tui_input_body+=("$placeholder")
         [[ -n "$last_err" ]] && _tui_input_body+=("" "$last_err")

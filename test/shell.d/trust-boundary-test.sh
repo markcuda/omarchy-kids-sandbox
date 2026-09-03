@@ -85,7 +85,6 @@ ALLOWED=(
   OMARCHY_KIDS_WIFID_TIMEOUT   # socket timeout, seconds
   OMARCHY_KIDS_TIME_POLL_INTERVAL # daemon poll interval, seconds
   OMARCHY_KIDS_TIME_DAEMON_ONESHOT # run one poll instead of looping
-  OMARCHY_KIDS_ASK_GROWNUP_MINUTES # how many minutes "ask a grown-up" asks for
   OMARCHY_KIDS_BLOCKED_SLEEP   # how long its placeholder pauses
   OMARCHY_KIDS_SUPER_TAP_WINDOW_MS # the triple-tap window
   OMARCHY_KIDS_SUPER_TAP_NOW_MS    # a fixed clock for that window

@@ -184,7 +184,10 @@ A `tui_screen_choose` answer may be the choice's `value`, its `label`, the exact
 (what an interactive picker returns), or a bare 1-based number — the same number keys the footer
 advertises. `tui_screen_input`'s `VALIDATOR` callback (if given) is called as `VALIDATOR "$answer"`;
 it should print nothing and return `0` for a valid answer, or print a one-line reason and return
-non-zero to have the screen ask again (in file mode, that just consumes the next line).
+non-zero to have the screen ask again (in file mode, that just consumes the next line). A caller
+that judges the answer itself (the parent-password screen counts its own tries) sets
+`TUI_PRESET_ERROR` before calling `tui_screen_input` again: the message renders exactly like a
+validator's, once, on that redraw — a plain `echo` after the screen is cleared before anyone reads it.
 
 ## Example
 

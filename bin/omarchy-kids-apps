@@ -70,16 +70,6 @@ hide-from-mine, show-in-mine   Opt-in only (I-1): write/remove
 EOF
 }
 
-# --- small shared helpers ---------------------------------------------
-
-is_in() { # is_in NEEDLE HAYSTACK...
-    local needle="$1"; shift
-    local h
-    for h in "$@"; do [[ "$h" == "$needle" ]] && return 0; done
-    return 1
-}
-
-
 # pkg_resolves PKG — true if PKG is a real target in the sync db right
 # now (`pacman -Si`); catches a mismarked pack entry or a mirror that's
 # missing a package before it ever reaches a real -S transaction (issue

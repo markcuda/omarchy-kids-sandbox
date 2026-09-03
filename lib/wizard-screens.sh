@@ -32,12 +32,13 @@ screen_parent_password() {
         fi
 
         attempt=$((attempt + 1))
-        echo
         if ((attempt >= PARENT_PASSWORD_TRIES)); then
+            echo
             echo "That wasn't it."
             return 130
         fi
-        echo "That wasn't it. Try again."
+        # shellcheck disable=SC2034 # read by lib/tui.sh's tui_screen_input on the next redraw
+        TUI_PRESET_ERROR="That wasn't it. Try again."
     done
 }
 
@@ -276,8 +277,8 @@ screen_password() {
             KID_PASSWORD="$first"
             return 0
         fi
-        echo
-        echo "Those didn't match — let's try again."
+        # shellcheck disable=SC2034 # read by lib/tui.sh's tui_screen_input on the next redraw
+        TUI_PRESET_ERROR="Those didn't match — let's try again."
     done
 }
 

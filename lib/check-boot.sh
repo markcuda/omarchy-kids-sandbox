@@ -103,7 +103,7 @@ boot_check_luks_slots() {
 
     local missing=() m
     for m in "${mapped[@]}"; do
-        array_contains "$m" "${active[@]+"${active[@]}"}" || missing+=("$m")
+        is_in "$m" "${active[@]+"${active[@]}"}" || missing+=("$m")
     done
 
     if [[ ${#missing[@]} -eq 0 ]]; then

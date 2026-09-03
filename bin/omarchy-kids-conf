@@ -87,13 +87,6 @@ is_valid_key() {
     return 1
 }
 
-is_in() { # is_in NEEDLE HAYSTACK...
-    local needle="$1"; shift
-    local h
-    for h in "$@"; do [[ "$h" == "$needle" ]] && return 0; done
-    return 1
-}
-
 profile_file() { echo "$KIDS_DIR/$1.conf"; }
 
 # validate_value KEY VALUE — exits 2 with a one-line reason on a bad value.

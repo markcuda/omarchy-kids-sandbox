@@ -79,18 +79,11 @@ SECTION_ORDER=()
 CHECK_ANY_FAIL=0
 CHECK_ANY_WARN=0
 
-array_contains() { # array_contains NEEDLE [HAYSTACK...]
-    local needle="$1" x
-    shift
-    for x in "$@"; do [[ "$x" == "$needle" ]] && return 0; done
-    return 1
-}
-
 # add_result SECTION ID STATUS DETAIL — STATUS pass/warn/fail/skip; skip
 # never affects the verdict.
 add_result() {
     local section="$1" id="$2" status="$3" detail="$4"
-    array_contains "$section" "${SECTION_ORDER[@]+"${SECTION_ORDER[@]}"}" || SECTION_ORDER+=("$section")
+    is_in "$section" "${SECTION_ORDER[@]+"${SECTION_ORDER[@]}"}" || SECTION_ORDER+=("$section")
     RESULTS+=("$section"$'\x1f'"$id"$'\x1f'"$status"$'\x1f'"$detail")
     case "$status" in
         fail) CHECK_ANY_FAIL=1 ;;

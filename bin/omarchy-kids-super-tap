@@ -18,10 +18,10 @@ usage() {
   cat <<EOF
 Usage: omarchy-kids-super-tap
 
-Run once per Super key release (a Hyprland \`bindr\` bind -- see this
-file's header for why that bind isn't wired into share/hyprland/*.lua
-yet). Three releases within \${OMARCHY_KIDS_SUPER_TAP_WINDOW_MS:-1500}ms
-run omarchy-kids-exit (resolved beside this script, else
+Run once per bare Super release -- every Kids Mode level
+(share/hyprland/L1.lua, L2.lua, L3.lua) binds it with { release = true }.
+Three releases within \${OMARCHY_KIDS_SUPER_TAP_WINDOW_MS:-1500}ms run
+omarchy-kids-exit (resolved beside this script, else
 /usr/bin/omarchy-kids-exit -- never from the environment).
 
 Env:

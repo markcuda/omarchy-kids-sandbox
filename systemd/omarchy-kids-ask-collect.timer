@@ -1,0 +1,12 @@
+[Unit]
+Description=Collect and apply queued Omarchy Kids Mode "ask a parent" requests every minute (SPEC.md R-ASK-1)
+Documentation=file:///usr/share/doc/omarchy-kids/ask.md
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=1min
+Unit=omarchy-kids-ask-collect.service
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

@@ -257,6 +257,9 @@ for u in omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service
 done
 mkdir -p "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants"
 ln -sf /usr/lib/systemd/system/omarchy-kids-authd.socket "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants/omarchy-kids-authd.socket"
+# omarchy-kids-ask-collect.timer already enabled too (issue #25)
+mkdir -p "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants"
+ln -sf /usr/lib/systemd/system/omarchy-kids-ask-collect.timer "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants/omarchy-kids-ask-collect.timer"
 
 # hyprland configs already installed (copied from the real share/hyprland
 # fixture above, so a byte-for-byte cmp against $SHARE/hyprland passes)

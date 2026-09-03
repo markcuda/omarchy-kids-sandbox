@@ -205,3 +205,6 @@ after two ticks), the 5-minute toast fired at login with 3 minutes left, and a g
 Ask modal moved the boundary. Two small things to tidy (issue #40): the toast overlaps the
 launcher's clock, and a later "10 minutes left" toast fired after the grant raised the
 remaining time, so the thresholds should only fire on the way down.
+Later the same night the budget itself ran out live: the ledger counted 9 minutes down one per
+tick, "Time's up, Cy!" appeared at 0 with the fox avatar and the countdown, and the 60 s
+auto-Finish returned a fresh greeter. Whether the 1-minute toast showed is unconfirmed (#40).

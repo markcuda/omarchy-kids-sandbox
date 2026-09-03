@@ -69,6 +69,16 @@ web=${1:-garden}
 EOF
 }
 
+# --- stub: pkcheck answers what the polkit deny rule would make it answer ---
+cat > "$STUBS/pkcheck" <<'PK'
+#!/bin/bash
+ans="$(cat "${PKCHECK_ANSWER_FILE:-/dev/null}" 2>/dev/null)"
+[[ -z "$ans" ]] && ans="Not authorized."
+printf '%s\n' "$ans" >&2
+[[ "$ans" == *authorized* ]] && exit 1 || exit 0
+PK
+chmod +x "$STUBS/pkcheck"
+export PKCHECK_ANSWER_FILE="$TMP/pkcheck.answer"
 # --- stub PATH: findmnt, systemctl, Hyprland --------------------------
 
 cat > "$STUBS/findmnt" <<'EOF'
@@ -170,7 +180,7 @@ break_policy_unreadable() { chmod 000 "$POLICY"; }
 run_fail_case "policy unreadable (web=garden)" break_policy_unreadable policy "browser policy readable"
 
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"
-break_polkit() { rm -f "$POLKIT_DENY"; }
+break_polkit() { printf "Authorization requires authentication\n" > "$PKCHECK_ANSWER_FILE"; }
 run_fail_case "polkit deny rule missing" break_polkit polkit "polkit rules present"
 
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"

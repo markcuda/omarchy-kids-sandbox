@@ -165,17 +165,24 @@ check_policy() {
 }
 
 check_polkit() {
-  local admin="$SYSROOT/etc/polkit-1/rules.d/40-omarchy-kids.rules"
-  local deny="$SYSROOT/etc/polkit-1/rules.d/41-omarchy-kids-deny.rules"
-  local missing=()
-  [[ -f "$admin" ]] || missing+=("$admin")
-  [[ -f "$deny" ]] || missing+=("$deny")
-  if [[ ${#missing[@]} -eq 0 ]]; then
-    RESULT=PASS; DETAIL="both polkit rule files present"
-    return 0
+  # /etc/polkit-1/rules.d is 0750 root:polkitd by system default (tmpfiles re-applies it at boot),
+  # so a kid cannot see the rule files. Ask polkit itself instead: with the deny rule in place a
+  # denied action is refused outright; without it the default policy asks for admin authentication.
+  local out
+  if ! command -v pkcheck >/dev/null 2>&1; then
+    RESULT=FAIL; DETAIL="pkcheck not available to verify the deny rule"; return 1
   fi
-  RESULT=FAIL; DETAIL="missing: ${missing[*]}"
-  return 1
+  out="$(pkcheck --action-id org.freedesktop.systemd1.manage-units --process "$$" 2>&1 || true)"
+  case "$out" in
+    *"Not authorized"*|*"not authorized"*)
+      RESULT=PASS; DETAIL="polkit refuses a denied action outright (deny rule active; admin identity is root's job via omarchy-kids-assert)"; return 0 ;;
+    *"requires authentication"*|*"Authorization requires"*)
+      RESULT=FAIL; DETAIL="polkit would prompt for a denied action: the deny rule is not active"; return 1 ;;
+    "")
+      RESULT=FAIL; DETAIL="polkit authorized a denied action: the deny rule is not active"; return 1 ;;
+    *)
+      RESULT=FAIL; DETAIL="unexpected pkcheck answer: ${out%%$'\n'*}"; return 1 ;;
+  esac
 }
 
 check_home_noexec() {

@@ -1,0 +1,22 @@
+[Unit]
+Description=Omarchy Kids Mode screen-time ledger tick (R-TIME-1)
+Documentation=https://github.com/markcuda/omarchy-kids-sandbox/blob/main/docs/time.md
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/omarchy-kids-time-ledger tick
+# Talks to systemd-logind over D-Bus (loginctl) and writes the ledger
+# under /var/lib/omarchy-kids and the status file under
+# /run/omarchy-kids (R-BAR-3) -- everything else is locked down the
+# same way omarchy-kids-authd.service is.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/var/lib/omarchy-kids /run/omarchy-kids

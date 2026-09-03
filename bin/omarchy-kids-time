@@ -1,0 +1,250 @@
+#!/bin/bash
+# omarchy-kids-time: the kid-side half of the screen-time engine
+# (SPEC.md R-TIME-1..5, R-ASK-1, Appendix F). Started detached from the
+# kid's own session by bin/omarchy-kids-session-start; also the CLI a
+# parent (or a future panel/bar widget, R-BAR-2) uses to check or grant
+# time.
+#
+# Trust boundary: this whole command runs as the kid. It NEVER decides
+# how many minutes a kid has used -- it only reads
+# /var/lib/omarchy-kids/<kid>/usage/, which only
+# bin/omarchy-kids-time-ledger (root, via systemd/omarchy-kids-time.timer)
+# ever writes. A kid can kill this process (the warnings and the Time's
+# Up screen stop appearing) but cannot make it lie about the ledger,
+# because it has no write path into it -- see lib/time.sh's header for
+# the full argument. The one command below that DOES write
+# (`grant`) refuses to run as anyone but root, same as
+# omarchy-kids-time-ledger.
+#
+#   daemon           Runs until the session ends: every 30s (poll
+#                     interval below), while this session is Active and
+#                     unlocked (`loginctl show-session $XDG_SESSION_ID`),
+#                     shows a small toast at 10/5/1 minutes left
+#                     (SPEC.md R-TIME-3), and a full-screen "Time's Up"
+#                     overlay at 0 remaining or at lights-out (R-TIME-4).
+#                     Meant to be started once, detached, from
+#                     bin/omarchy-kids-session-start -- not run twice in
+#                     one session.
+#   status [<kid>]    Minutes used, minutes left, and the next boundary
+#                     (budget running out, or lights-out) for <kid>
+#                     (default: this account). Read-only; any account
+#                     can run this for any kid (the ledger files are
+#                     world-readable, same as a kid's own .conf).
+#   grant <kid> <n>   Adds <n> minutes to <kid>'s budget for today only
+#                     (R-TIME-4: "'More time' extends today's budget
+#                     only"). Root only.
+#   ask-grownup       Runs `omarchy-kids-ask-grownup time <n>` if that
+#                     command exists, else logs that a grant was asked
+#                     for and does nothing else. This is a placeholder
+#                     for the real "Ask a parent" flow (SPEC.md R-ASK-1,
+#                     a separate ticket): today it can only ask, never
+#                     itself grant -- share/time/timesup.qml's "Ask a
+#                     grown-up" button runs this, and I-6 ("honest UI")
+#                     is why that button's own label says "ask", not
+#                     "get", more time.
+#
+# Every path is overridable for tests, same convention as
+# bin/omarchy-kids-session-start and lib/time.sh:
+#   OMARCHY_KIDS_ETC      kid overrides root (default /etc/omarchy-kids)
+#   OMARCHY_KIDS_SHARE    bands.toml, time/ (default /usr/share/omarchy-kids)
+#   OMARCHY_KIDS_ROOT     scratch prefix for /var/lib/omarchy-kids
+#   OMARCHY_KIDS_RUN      runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
+#   OMARCHY_KIDS_ACCOUNT  kid account (default: this process's own user)
+#   OMARCHY_KIDS_CONF_BIN path to omarchy-kids-conf
+#   OMARCHY_KIDS_LIB      lib/ beside bin/, else /usr/lib/omarchy-kids
+#   OMARCHY_KIDS_NOW      "YYYY-MM-DD HH:MM:SS" clock override (tests)
+#   OMARCHY_KIDS_TIME_POLL_INTERVAL  daemon's sleep, seconds (default 30)
+#   OMARCHY_KIDS_TIME_DAEMON_ONESHOT=1  run one daemon iteration and
+#                         return instead of looping forever (test hook)
+#   OMARCHY_KIDS_ASK_GROWNUP_MINUTES  minutes `ask-grownup` names
+#                         (default 15)
+#   OMARCHY_KIDS_TIME_REQUIRE_ROOT=0  skip `grant`'s root check (test hook,
+#                         same convention as omarchy-kids-time-ledger's
+#                         OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT)
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
+CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+export OMARCHY_KIDS_CONF_BIN="$CONF_BIN" OMARCHY_KIDS_TIME_PY="$LIB/time.py"
+# shellcheck source=lib/time.sh
+source "$LIB/time.sh"
+
+SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
+TOAST_QML="$SHARE/time/toast.qml"
+TIMESUP_QML="$SHARE/time/timesup.qml"
+POLL_INTERVAL="${OMARCHY_KIDS_TIME_POLL_INTERVAL:-30}"
+ASK_MINUTES="${OMARCHY_KIDS_ASK_GROWNUP_MINUTES:-15}"
+
+die() { echo "omarchy-kids-time: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<'EOF'
+Usage: omarchy-kids-time daemon
+       omarchy-kids-time status [<kid>]
+       omarchy-kids-time grant <kid> <minutes>
+       omarchy-kids-time ask-grownup
+
+daemon        Run this session's screen-time warnings/enforcement loop
+              until the session ends (SPEC.md R-TIME-3, R-TIME-4).
+              Started once, detached, by omarchy-kids-session-start.
+status        Print <kid>'s minutes used, minutes left, and next
+              boundary today (default <kid>: this account).
+grant         Add <minutes> to <kid>'s budget for today only. Root only.
+ask-grownup   Ask for more time (a placeholder for SPEC.md R-ASK-1).
+
+  -h, --help  Show this help and exit.
+EOF
+}
+
+mkdir -p "$RUN" 2>/dev/null || true
+LOG_FILE="$RUN/session-$(id -u).log"
+log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/dev/null || true; }
+
+# --- status ----------------------------------------------------------------
+
+cmd_status() {
+    local kid="${1:-${OMARCHY_KIDS_ACCOUNT:-$(id -un)}}"
+    local now hm day weekend used granted budget remaining kind at
+    now="$(time_now)"; hm="$(time_hm "$now")"
+    IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
+    used="$(time_used_minutes "$kid" "$day")"
+    granted="$(time_granted_minutes "$kid" "$day")"
+    budget="$(time_budget_minutes "$kid" "$weekend")" || die "no budget configured for '$kid'"
+    remaining="$(time_remaining_minutes "$kid" "$day" "$weekend")"
+    read -r kind at <<<"$(time_next_boundary "$kid" "$day" "$weekend" "$hm")"
+    printf '%s: %d min used, %d min left today (budget %d' "$kid" "$used" "$remaining" "$budget"
+    (( granted > 0 )) && printf ' + %d granted' "$granted"
+    printf ')\n'
+    if [[ "$kind" == lights-out ]]; then
+        printf 'next boundary: lights-out at %s\n' "$at"
+    else
+        printf 'next boundary: budget runs out at %s\n' "$at"
+    fi
+    if time_is_paused "$kid"; then
+        printf 'paused: time is not counting for %s right now\n' "$kid"
+    fi
+}
+
+# --- grant -------------------------------------------------------------
+
+cmd_grant() {
+    local kid="${1:-}" minutes="${2:-}" now day weekend
+    [[ -n "$kid" && -n "$minutes" ]] || die "grant: needs <kid> <minutes> (see --help)"
+    [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -gt 0 ]] || die "grant: <minutes> must be a positive integer, got '$minutes'"
+    if [[ "${OMARCHY_KIDS_TIME_REQUIRE_ROOT:-1}" == "1" && "$(id -u)" != "0" ]]; then
+        die "grant: must run as root (a parent action, R-TIME-4 -- see docs/time.md)" 1
+    fi
+    now="$(time_now)"
+    IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
+    time_grant_add "$kid" "$day" "$minutes"
+    printf '%s: granted %d more minute(s) for today (now %d granted today)\n' \
+        "$kid" "$minutes" "$(time_granted_minutes "$kid" "$day")"
+}
+
+# --- ask-grownup ---------------------------------------------------------
+
+cmd_ask_grownup() {
+    local kid="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    if command -v omarchy-kids-ask-grownup >/dev/null 2>&1; then
+        log "ask-grownup: '$kid' asked for $ASK_MINUTES more minutes; running omarchy-kids-ask-grownup"
+        exec omarchy-kids-ask-grownup time "$ASK_MINUTES"
+    fi
+    log "ask-grownup: '$kid' asked for $ASK_MINUTES more minutes; no omarchy-kids-ask-grownup on PATH, logging only"
+}
+
+# --- daemon ----------------------------------------------------------------
+
+# overlay_running QML — 0 if a `quickshell -p QML` process is already
+# up (same pgrep pattern bin/omarchy-kids-exit uses for its own modal).
+overlay_running() {
+    command -v pgrep >/dev/null 2>&1 || return 1
+    pgrep -f "quickshell -p $1" >/dev/null 2>&1
+}
+
+show_toast() {
+    local text="$1"
+    overlay_running "$TOAST_QML" && return 0
+    OMARCHY_KIDS_TOAST_TEXT="$text" quickshell -p "$TOAST_QML" >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    log "toast: $text"
+}
+
+show_timesup() {
+    overlay_running "$TIMESUP_QML" && return 0
+    local kid="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}" name avatar_id
+    name="$("$CONF_BIN" get "$kid" name 2>/dev/null || echo "$kid")"
+    avatar_id="$("$CONF_BIN" get "$kid" avatar 2>/dev/null || echo "")"
+    OMARCHY_KIDS_ACCOUNT="$kid" OMARCHY_KIDS_NAME="$name" \
+        OMARCHY_KIDS_AVATAR="$SHARE/avatars/$avatar_id.svg" \
+        quickshell -p "$TIMESUP_QML" >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+    log "time's up shown for '$kid'"
+}
+
+dismiss_timesup() {
+    overlay_running "$TIMESUP_QML" || return 0
+    pkill -f "quickshell -p $TIMESUP_QML" >/dev/null 2>&1 || true
+    log "time's up dismissed (more time granted)"
+}
+
+# session_active_unlocked — 0 if this process's own session
+# ($XDG_SESSION_ID) is Active=yes and LockedHint=no right now.
+session_active_unlocked() {
+    [[ -n "${XDG_SESSION_ID:-}" ]] || return 1
+    local out active locked
+    out="$(loginctl show-session "$XDG_SESSION_ID" -p Active -p LockedHint 2>/dev/null)" || return 1
+    active="$(sed -n 's/^Active=//p' <<<"$out")"
+    locked="$(sed -n 's/^LockedHint=//p' <<<"$out")"
+    [[ "$active" == yes && "$locked" == no ]]
+}
+
+cmd_daemon() {
+    local kid="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    local warned10=0 warned5=0 warned1=0 shown=0
+    local now hm day weekend remaining lo
+
+    while true; do
+        if session_active_unlocked && ! time_is_paused "$kid"; then
+            now="$(time_now)"; hm="$(time_hm "$now")"
+            IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")"
+            remaining="$(time_remaining_minutes "$kid" "$day" "$weekend")"
+            lo="$(time_is_lights_out "$kid" "$weekend" "$hm")"
+
+            if (( remaining <= 0 )) || [[ "$lo" == yes ]]; then
+                show_timesup
+                shown=1
+            else
+                if (( shown == 1 )); then
+                    dismiss_timesup
+                    shown=0; warned10=0; warned5=0; warned1=0
+                fi
+                if (( remaining <= 1 && warned1 == 0 )); then
+                    show_toast "1 minute left"; warned1=1
+                elif (( remaining <= 5 && warned5 == 0 )); then
+                    show_toast "5 minutes left"; warned5=1
+                elif (( remaining <= 10 && warned10 == 0 )); then
+                    show_toast "10 minutes left"; warned10=1
+                fi
+            fi
+        fi
+
+        if [[ "${OMARCHY_KIDS_TIME_DAEMON_ONESHOT:-0}" == "1" ]]; then
+            return 0
+        fi
+        sleep "$POLL_INTERVAL"
+    done
+}
+
+# --- dispatch ----------------------------------------------------------
+
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+case "$1" in
+    -h|--help) usage; exit 0 ;;
+    daemon) shift; cmd_daemon "$@" ;;
+    status) shift; cmd_status "$@" ;;
+    grant) shift; cmd_grant "$@" ;;
+    ask-grownup) shift; cmd_ask_grownup "$@" ;;
+    *) die "unknown command '$1' (see --help)" ;;
+esac

@@ -1,0 +1,169 @@
+#!/bin/bash
+# omarchy-kids-time-ledger: the ONLY thing that ever writes a kid's
+# screen-time usage (SPEC.md R-TIME-1..2, Appendix F). Root, run from
+# systemd/omarchy-kids-time.timer (every minute) via
+# omarchy-kids-time-ledger.service.
+#
+# Trust boundary (see lib/time.sh's header for the long version): the
+# per-session daemon (bin/omarchy-kids-time) runs as the kid and can
+# only read what's under here -- if this script only ran as the kid,
+# the "ledger" would just be a kid-writable file with extra steps. It
+# runs as root instead, and the only thing that decides what counts is
+# what `loginctl` reports about a session it doesn't own, plus a
+# root-owned paused flag (lib/time.sh's time_paused_file) -- never
+# anything a kid process could write into.
+#
+#   tick    Lists every session with `loginctl list-sessions`, and for
+#           each one belonging to a known kid account (one with a
+#           profile under $OMARCHY_KIDS_ETC/kids/) whose session is
+#           Active=yes, LockedHint=no, and not paused (R-TIME-2: "Paused
+#           or locked time does not count"), adds one minute to that
+#           kid's ledger for today's logical day (Appendix F: the day
+#           rolls at 04:00). A kid with more than one such session only
+#           gets one minute added, not one per session. Also refreshes
+#           /run/omarchy-kids/status.json (R-BAR-3) for every known kid,
+#           whether or not they're live right now -- best-effort; a
+#           failure to write it never fails the tick itself, since the
+#           ledger write is the part that actually matters.
+#
+# Every path is overridable for tests, same convention as
+# bin/omarchy-kids-apps and lib/time.sh:
+#   OMARCHY_KIDS_ROOT    scratch prefix for /var/lib/omarchy-kids and
+#                        /run/omarchy-kids
+#   OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
+#   OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf
+#   OMARCHY_KIDS_LIB     lib/ beside bin/, else /usr/lib/omarchy-kids
+#   OMARCHY_KIDS_NOW     "YYYY-MM-DD HH:MM:SS" clock override (tests)
+#   OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT=0  skip the EUID check (tests
+#                        run as an ordinary user against a scratch
+#                        OMARCHY_KIDS_ROOT; set by test/shell.d/time-test.sh)
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
+CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+export OMARCHY_KIDS_CONF_BIN="$CONF_BIN" OMARCHY_KIDS_TIME_PY="$LIB/time.py"
+# shellcheck source=lib/time.sh
+source "$LIB/time.sh"
+
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
+SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+KIDS_DIR="$ETC/kids"
+RUN_DIR="$SYSROOT/run/omarchy-kids"
+STATUS_JSON="$RUN_DIR/status.json"
+
+die() { echo "omarchy-kids-time-ledger: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<'EOF'
+Usage: omarchy-kids-time-ledger tick
+
+Adds one minute to today's ledger for every kid whose session is
+currently active, unlocked, and not paused (SPEC.md R-TIME-1..2).
+Root only. Meant to be run once a minute by
+systemd/omarchy-kids-time.timer, not by hand.
+
+  -h, --help  Show this help and exit.
+EOF
+}
+
+# known_kids — every account with a profile under $KIDS_DIR, one per
+# line (the account is the .conf file's basename). Glob, not `ls`: an
+# empty directory must yield nothing, not a literal "*.conf".
+known_kids() {
+    local f base
+    [[ -d "$KIDS_DIR" ]] || return 0
+    for f in "$KIDS_DIR"/*.conf; do
+        [[ -e "$f" ]] || continue
+        base="$(basename "$f")"
+        printf '%s\n' "${base%.conf}"
+    done
+}
+
+# is_known_kid ACCOUNT — 0 if ACCOUNT has a profile under $KIDS_DIR.
+is_known_kid() { [[ -f "$KIDS_DIR/$1.conf" ]]; }
+
+# session_prop ID PROP — one `loginctl show-session` property's value.
+# Filters for the "PROP=" line rather than trusting the output to be
+# exactly one line: real loginctl with a single -p prints just that,
+# but this also tolerates a test stub (or a loginctl version) that
+# prints every property regardless of -p. Empty if the session or the
+# property doesn't exist.
+session_prop() {
+    local id="$1" prop="$2" out
+    out="$(loginctl show-session "$id" -p "$prop" 2>/dev/null)" || return 1
+    sed -n "s/^${prop}=//p" <<<"$out" | head -n1
+}
+
+# active_kid_sessions — one account per line, deduplicated, for every
+# kid account with at least one session that is Active=yes and
+# LockedHint=no right now.
+active_kid_sessions() {
+    local line id user active locked seen=$'\n'
+    while IFS= read -r line; do
+        [[ -n "$line" ]] || continue
+        # `loginctl list-sessions --no-legend`: "SESSION UID USER SEAT [TTY]".
+        id="$(awk '{print $1}' <<<"$line")"
+        user="$(awk '{print $3}' <<<"$line")"
+        [[ -n "$id" && -n "$user" ]] || continue
+        is_known_kid "$user" || continue
+        [[ "$seen" == *$'\n'"$user"$'\n'* ]] && continue
+        active="$(session_prop "$id" Active || true)"
+        locked="$(session_prop "$id" LockedHint || true)"
+        [[ "$active" == yes && "$locked" == no ]] || continue
+        seen+="$user"$'\n'
+        printf '%s\n' "$user"
+    done < <(loginctl list-sessions --no-legend 2>/dev/null)
+}
+
+# write_status_json — R-BAR-3: one row per known kid, root-written,
+# group `omarchy-parents` readable. Best-effort: never fails the tick.
+write_status_json() {
+    local now day weekend hm kid remaining paused live rows
+    now="$(time_now)"; hm="$(time_hm "$now")"
+    IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    install -d -m 0755 "$RUN_DIR" 2>/dev/null || return 0
+    rows="$(mktemp)" || return 0
+    while IFS= read -r kid; do
+        [[ -n "$kid" ]] || continue
+        remaining="$(time_remaining_minutes "$kid" "$day" "$weekend" 2>/dev/null || echo 0)"
+        paused="false"; time_is_paused "$kid" && paused="true"
+        live="false"
+        while IFS= read -r live_kid; do
+            [[ "$live_kid" == "$kid" ]] && live="true"
+        done <<<"$(active_kid_sessions)"
+        jq -n --arg kid "$kid" --argjson minutes_left "$remaining" \
+            --argjson paused "$paused" --argjson live "$live" \
+            '{kid: $kid, minutes_left: $minutes_left, paused: $paused, live: $live}' \
+            >>"$rows"
+    done < <(known_kids)
+    jq -s '{generated_at: (now | todate), kids: .}' "$rows" >"$STATUS_JSON.tmp" 2>/dev/null \
+        && mv "$STATUS_JSON.tmp" "$STATUS_JSON" && chmod 0640 "$STATUS_JSON"
+    chgrp omarchy-parents "$STATUS_JSON" 2>/dev/null || true
+    rm -f "$rows" "$STATUS_JSON.tmp"
+}
+
+cmd_tick() {
+    if [[ "${OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT:-1}" == "1" && "$(id -u)" != "0" ]]; then
+        die "tick must run as root (it is meant to be run by systemd/omarchy-kids-time.timer)" 1
+    fi
+    local now day weekend kid
+    now="$(time_now)"
+    IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
+    while IFS= read -r kid; do
+        [[ -n "$kid" ]] || continue
+        if time_is_paused "$kid"; then
+            continue
+        fi
+        time_ledger_add "$kid" "$day" 1
+    done < <(active_kid_sessions)
+    write_status_json
+}
+
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+case "$1" in
+    -h|--help) usage; exit 0 ;;
+    tick) cmd_tick ;;
+    *) die "unknown command '$1' (see --help)" ;;
+esac

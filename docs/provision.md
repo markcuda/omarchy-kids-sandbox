@@ -82,20 +82,29 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
 12. **AccountsService** (R-LOGIN-3): `/var/lib/AccountsService/users/<account>` gets
     `Session=omarchy-kids`, `XSession=omarchy-kids`, `Icon=/usr/share/omarchy-kids/avatars/<avatar>.svg`
     so the tile has no session picker at all.
-13. **The SDDM portal theme selection and its local-file-XHR drop-in** (R-LOGIN, issue #14,
-    issue #39): `/etc/sddm.conf.d/zz-omarchy-kids-theme.conf` selects the portal
-    (`docs/portal.md`), and `/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf`
-    sets `Environment=QML_XHR_ALLOW_FILE_READ=1` on `sddm.service`, an attempt to let the
-    greeter's QML read `portal.json` (next step) — **unverified** whether the greeter process
-    actually inherits it; see `docs/portal.md`. Both are machine-level (R-FND-6): written once,
-    left alone by `remove` until Remove Kids Mode takes the package out.
-14. **portal.json** (R-LOGIN, issue #39): `/etc/omarchy-kids/portal.json` (root-owned 0644) is
-    rebuilt in full from every kid profile under `$OMARCHY_KIDS_ETC/kids/*.conf` plus
-    `machine.conf`'s `parent=` — `{"parent":"<owner>","kids":{"<account>":{"name":...,
-    "avatar":...}}}` — so `Main.qml` can decide the parent tile and each kid's name/avatar from
-    the profile registry, never from the `kid-` username prefix (`docs/portal.md`'s "Verified
-    live" section: a VM whose owner account happened to be named `kid-vm` broke that heuristic).
-15. **Omarchy's own per-user setup** (issue #10 finding b): if `omarchy-provision-user` exists on
+13. **The SDDM face icon** (R-LOGIN, issue #39, a live VM finding): AccountsService's `Icon=`
+    line above is *not* what SDDM's `UserModel` actually reads for the avatar on this stack —
+    it checks `~/.face.icon`, then `/var/lib/AccountsService/icons/<account>` (a cache file
+    nothing in this repo populates), then `<FacesDir>/<account>.face.icon` (`FacesDir` defaults
+    to `/usr/share/sddm/faces`). `lib/posture.sh`'s `posture_write_face_icon` copies the chosen
+    avatar SVG, byte-for-byte, to the third path — never into the kid's own home, which stays
+    untrusted (I-3) and is also the *first* path checked. Re-asserted as the `face:<account>`
+    lock (`docs/assert.md`); see `docs/portal.md` for the full `UserModel.cpp` citation.
+14. **The SDDM portal theme selection** (R-LOGIN, issue #14): `/etc/sddm.conf.d/zz-omarchy-kids-theme.conf`
+    selects the portal (`docs/portal.md`). Machine-level (R-FND-6): written once, left alone by
+    `remove` until Remove Kids Mode takes the package out.
+15. **theme.conf.user** (R-LOGIN, issue #39): `/usr/share/sddm/themes/omarchy-kids/theme.conf.user`
+    (root-owned 0644) is rebuilt in full from every kid profile under `$OMARCHY_KIDS_ETC/kids/*.conf`
+    plus `machine.conf`'s `parent=` — `[General]` keys `parent=<owner>` and
+    `kids=<account>:<name>:<avatar>,...` — so `Main.qml` can decide the parent tile and each kid's
+    name/avatar from the profile registry, never from the `kid-` username prefix (`docs/portal.md`'s
+    "Verified live" section: a VM whose owner account happened to be named `kid-vm` broke that
+    heuristic). SDDM's own `ThemeConfig` loads this file automatically next to `theme.conf`
+    (`docs/portal.md` has the citation) — an earlier design wrote a separate `portal.json` and a
+    systemd drop-in for `Main.qml` to read it via XHR; dropped because that drop-in only took
+    effect after a `systemctl restart sddm`, which re-fires the owner's stock autologin on an
+    already-booted machine.
+16. **Omarchy's own per-user setup** (issue #10 finding b): if `omarchy-provision-user` exists on
     the target, it's run with the new account. If it doesn't, `mark_migrations_done` writes a
     best-effort stand-in — see "Known gap" below.
 
@@ -112,24 +121,26 @@ Reverses every account-level step `add` took, in reverse-ish order, then removes
 2. `pam_namespace` lines for the account removed from `namespace.conf` (the `pam.d/sddm` and
    `pam.d/systemd-user` marker lines stay — they're not per-account).
 3. The AccountsService file removed.
-4. **portal.json rebuilt without this account** (R-LOGIN, issue #39): the same full-rewrite
-   `posture_write_portal_json` `add` uses, excluding the account being removed — never an
+4. **The SDDM face icon removed** (R-LOGIN, issue #39): `posture_remove_face_icon` deletes
+   `/usr/share/sddm/faces/<account>.face.icon`.
+5. **theme.conf.user rebuilt without this account** (R-LOGIN, issue #39): the same full-rewrite
+   `posture_write_portal_conf` `add` uses, excluding the account being removed — never an
    in-place edit, for the same reason `luks-slots` is a full rewrite (see below).
-5. The home unmounted (`umount /home/<account>`) and its `fstab` line dropped.
-6. The profile file (`$OMARCHY_KIDS_ETC/kids/<account>.conf`) removed.
-7. `userdel <account>` (no `-r`: the home is left on disk on purpose, for the next step).
-8. Unless `--keep-home`, the home moves to `<parent home>/Kids Mode/<display name>/` — the
+6. The home unmounted (`umount /home/<account>`) and its `fstab` line dropped.
+7. The profile file (`$OMARCHY_KIDS_ETC/kids/<account>.conf`) removed.
+8. `userdel <account>` (no `-r`: the home is left on disk on purpose, for the next step).
+9. Unless `--keep-home`, the home moves to `<parent home>/Kids Mode/<display name>/` — the
    parent's login name comes from `machine.conf`'s `parent=`, and their home directory from
    `getent passwd` (falling back to `/home/<parent>` where `getent` isn't available, e.g. this
    repo's macOS dev environment).
 
 **Left alone, on purpose** (R-FND-6: machine-level, only removed by Remove Kids Mode): the
-`omarchy-kids*` groups, the console masks, both polkit rule files, the SDDM theme selection and
-its XHR drop-in (`lib/posture.sh` has `posture_remove_sddm_theme_dropin` and
-`posture_remove_sddm_xhr_dropin` for Remove Kids Mode to call later), and the parent-unlock PAM
-lines on `sddm` and the lock-screen stack (`lib/posture.sh` has `posture_remove_parent_unlock_line`
-for Remove Kids Mode to call later; `remove` itself doesn't, since a parent should still be able
-to unlock the lock screen and SDDM even after the *last* kid is removed).
+`omarchy-kids*` groups, the console masks, both polkit rule files, the SDDM theme selection
+(`lib/posture.sh` has `posture_remove_sddm_theme_dropin` for Remove Kids Mode to call later), and
+the parent-unlock PAM lines on `sddm` and the lock-screen stack (`lib/posture.sh` has
+`posture_remove_parent_unlock_line` for Remove Kids Mode to call later; `remove` itself doesn't,
+since a parent should still be able to unlock the lock screen and SDDM even after the *last* kid
+is removed).
 
 ## Why `luks-slots` is rewritten whole, not appended to (issue #10 finding a)
 
@@ -150,9 +161,9 @@ account being added or removed — never assuming a slot number that wasn't just
 | Env var | Default | Affects |
 | --- | --- | --- |
 | `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | profiles, `machine.conf`, `luks-slots` |
-| `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `omarchy-kids-conf`'s bands/packs (passed through) |
+| `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `omarchy-kids-conf`'s bands/packs (passed through); the avatar SVG `posture_write_face_icon` copies from (issue #39) |
 | `OMARCHY_KIDS_LIB` | `lib/` beside `bin/`, else `/usr/lib/omarchy-kids` | where `lib/conf.sh`, `lib/posture.sh` are sourced from |
-| `OMARCHY_KIDS_ROOT` | (none — the real paths) | prefixes every path `lib/posture.sh` writes: `/etc/polkit-1`, `/etc/security`, `/etc/pam.d`, `/etc/fstab`, `/var/lib/AccountsService`; also passed to `systemctl --root=` for the console masks |
+| `OMARCHY_KIDS_ROOT` | (none — the real paths) | prefixes every path `lib/posture.sh` writes: `/etc/polkit-1`, `/etc/security`, `/etc/pam.d`, `/etc/fstab`, `/var/lib/AccountsService`, `/usr/share/sddm/themes/omarchy-kids` (`theme.conf.user`), `/usr/share/sddm/faces`; also passed to `systemctl --root=` for the console masks |
 | `OMARCHY_KIDS_HOME_ROOT` | (none — the real `/home`) | prefixes `/home/<account>` for every `mount`/`umount`/`mv` this command itself runs (**not** in the spec's original env list — added here; see "Judgment calls" below) |
 | `OMARCHY_KIDS_LUKS_DEVICE` | (none) | `remove`'s LUKS device, since it has no `--luks-device` flag |
 | `OMARCHY_MIGRATIONS_DIR` | `/usr/share/omarchy/migrations` | source list for `mark_migrations_done`'s guessed markers |

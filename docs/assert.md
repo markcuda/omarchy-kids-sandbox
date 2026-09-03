@@ -51,6 +51,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `namespace:<account>` | Both `/etc/security/namespace.conf` lines for `/tmp` and `/dev/shm` (R-FND-2a) | `posture_add_namespace_lines` |
 | `accountsservice:<account>` | `/var/lib/AccountsService/users/<account>` matches exactly (R-LOGIN-3) | `posture_write_accountsservice` |
 | `gecos:<account>` | The passwd GECOS field (read via `getent passwd`) matches the profile's `name` (R-LOGIN, issue #39 — SDDM's greeter reads `realName` from GECOS, not AccountsService). "ok" if this box has no `getent` at all (this repo's own macOS dev environment) — nothing to compare against | `usermod -c "<name>" <account>` |
+| `face:<account>` | `/usr/share/sddm/faces/<account>.face.icon` is byte-for-byte the profile's avatar SVG (R-LOGIN, issue #39 — SDDM's `UserModel` reads the avatar from this path, not from AccountsService's `Icon=` key; `docs/portal.md` has the full `UserModel.cpp` citation) | `posture_write_face_icon` |
 | `groups:<account>` | Member of `omarchy-kids` and the band group (`omarchy-kids-3-5`/`6-8`/`9-12`/`13plus`) | `usermod -aG` with only the groups actually missing |
 
 ### Machine-level (once per run, only while at least one kid is provisioned)
@@ -60,8 +61,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `polkit-admin` | `/etc/polkit-1/rules.d/40-omarchy-kids.rules` names the parent from `machine.conf` (R-FND-3) | `posture_write_polkit_admin_rule` |
 | `polkit-deny` | `/etc/polkit-1/rules.d/41-omarchy-kids-deny.rules` (R-FND-4) | `posture_write_polkit_deny_rule` |
 | `sddm-theme` | `/etc/sddm.conf.d/zz-omarchy-kids-theme.conf` selects the portal (`[Theme] Current=omarchy-kids`, R-LOGIN, issue #14) | `posture_write_sddm_theme_dropin` |
-| `sddm-xhr` | `/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf` matches exactly (`Environment=QML_XHR_ALLOW_FILE_READ=1`, R-LOGIN, issue #39 — lets the greeter's QML read `portal.json`; **unverified** whether the greeter process actually inherits it, `docs/portal.md`) | `posture_write_sddm_xhr_dropin` |
-| `portal-json` | `/etc/omarchy-kids/portal.json` matches exactly, rebuilt from every provisioned kid's profile plus `machine.conf`'s `parent=` (R-LOGIN, issue #39) | `posture_write_portal_json` |
+| `portal-conf` | `/usr/share/sddm/themes/omarchy-kids/theme.conf.user` matches exactly, rebuilt from every provisioned kid's profile plus `machine.conf`'s `parent=` (R-LOGIN, issue #39 — SDDM's own `ThemeConfig::setTo()` loads this file automatically, `docs/portal.md` has the citation; replaces an earlier `portal.json` + `sddm.service` XHR drop-in design, dropped because that drop-in only took effect after a `systemctl restart sddm` that re-fires the owner's stock autologin on a live machine) | `posture_write_portal_conf` |
 | `pam:sddm`, `pam:systemd-user` | The `pam_namespace` marker + line in `/etc/pam.d/sddm` and `/etc/pam.d/systemd-user` (R-FND-2a) | `posture_ensure_pam_namespace`, seeding from `/usr/lib/pam.d` when needed |
 | `parent-unlock:sddm`, `parent-unlock:omarchy-lock-password` | The parent-unlock marker + `pam_exec.so … omarchy-kids-parent-auth` line (fixed `[success=done default=ignore]` control), anchored on the stack's own first non-comment `auth` line — after it if that line is itself a leading `pam_faillock.so … preauth` line, else before it (R-SEC-2, R-SEC-3; `docs/authd.md`; `lib/posture.sh`'s own header comment has the full placement rule, confirmed against a real Omarchy 4.0.2 box). `omarchy-lock-password` is the only lock-screen stack Omarchy 4.0.2 actually writes — there is no `hyprlock` PAM service on that box; an earlier version of this guessed one and fell back to it, confirmed wrong and removed. "ok" if the stack file doesn't exist at all — nothing to disprove, same shape as `boot-hook` below | `posture_ensure_parent_unlock_line`; **fails** (reports `FAIL`, not `fixed`) if the stack exists but has lost its anchor line — this command never reconstructs a vendor PAM stack from nothing, only the one line it owns |
 | `getty:tty2` .. `getty:tty6` | Each unit is masked — a symlink to `/dev/null` at `/etc/systemd/system/getty@ttyN.service` (R-FND-5), read directly rather than shelled out to `systemctl` | `systemctl mask getty@ttyN.service` |
@@ -158,14 +158,22 @@ nothing at all.
   machine: there's nothing to read the field back with, so there's nothing to disprove. A real
   Omarchy box always has `getent` (it's part of glibc), so this only ever matters here, never in
   production.
-- **`sddm-xhr` re-asserts a systemd drop-in whose actual effect (whether the greeter process
-  inherits `QML_XHR_ALLOW_FILE_READ`) this command cannot verify** — it can only confirm the
-  drop-in *file* matches, the same as every other exact-content-match lock here. If the greeter
-  doesn't inherit it, `sddm-xhr` reports `ok` forever while `Main.qml`'s `portal.json` read keeps
-  silently failing and falling back to its pre-#39 behavior (`docs/portal.md` has the full
-  reasoning). Confirming the actual effect needs a real VM, not this command.
-- **`portal-json` is machine-level but derived per-kid** (every provisioned kid's profile feeds
+- **`portal-conf` replaces an earlier `sddm-xhr` + `portal-json` pair of locks.** That design
+  wrote a separate `/etc/omarchy-kids/portal.json` and a systemd drop-in on `sddm.service` meant to
+  let `Main.qml` read it via `XMLHttpRequest`; dropped once testing found the drop-in only takes
+  effect after `systemctl restart sddm`, which on an already-booted, already-logged-in machine
+  re-fires the owner's stock autologin — not an acceptable cost for a display-name/avatar polish
+  fix. `portal-conf` re-asserts `theme.conf.user` instead, which SDDM's own `ThemeConfig` loads
+  automatically (`docs/portal.md` has the `ThemeConfig::setTo()` citation) — no drop-in, no
+  restart-triggered autologin risk.
+- **`portal-conf` is machine-level but derived per-kid** (every provisioned kid's profile feeds
   into the one file), unlike every other machine-level lock in the table above, which is either a
   fixed rule or reads only `machine.conf`. It's still checked once per run, after the per-kid
   loop, because the file itself is one file, not one per kid — same shape `luks-slots` uses in
   `omarchy-kids-provision`, just read back here instead of written incrementally.
+- **`face:<account>` copies a real file (`cmp -s`), not a text-content match** — the only
+  per-kid lock here that isn't `posture_install_if_changed`-based, since an SVG being copied
+  byte-for-byte matters more than the text-normalization that helper does (a trailing-newline
+  difference is invisible in a config file, not in image bytes). `posture_write_face_icon`'s own
+  header comment in `lib/posture.sh` has the full reasoning and the `UserModel.cpp` citation for
+  why this file, not AccountsService's `Icon=`, is what needed fixing.

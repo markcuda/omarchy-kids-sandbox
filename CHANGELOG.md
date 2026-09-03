@@ -62,6 +62,10 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 - Comments in `bin/` and `lib/` trimmed to one-line whys (18% -> 12% of lines); the mechanics
   and audit trails moved into the matching `docs/<command>.md` (#56)
 
+- One `account_home` resolver in `lib/kids.sh` (was two); the PKGBUILD's depends rationale
+  lives in `docs/packaging.md`; Omy's welcome is two sentences; Time's Up shows the owl when a
+  kid has no avatar; wizard, README, AGENTS and style.md say only what ships (maintainer-eye
+  review, the rest of the applied findings)
 - The structural refactor (#49): shared helpers in `lib/kids.sh`, one header shape and one
   dispatcher shape per command, `set -e` everywhere it is safe
 - Kids inherit the parent's Omarchy theme at provision and can be given their own with
@@ -70,6 +74,14 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Fixed (later)
 
+- Four things that only misbehaved on Linux, found by running the unit suite on the VM:
+  `omarchy-kids-check --live` aborted on `pkcheck`'s non-zero "not authorized" (the answer it
+  wanted); `omarchy-kids-wifi` died silently when `socat` found no socket instead of saying
+  "no reply"; an account with no `colors.toml` got the fallback palette plus one black parent
+  tile on the portal; `kids_bin`'s `/usr/bin` fallback made "not installed yet" untestable on
+  an installed box (branch `vmtests`)
+- The unit suite itself runs green on an Omarchy box with the package installed: one portable
+  `stat` and a sealed `PATH` in `test/shell.d/lib.sh`; live scenario 05 is the gate
 - Launch folding: the ledger unit's `ProtectHome=` hid `/run/user`, so the kid's runtime launch
   log was never folded into the root ledger (#55)
 

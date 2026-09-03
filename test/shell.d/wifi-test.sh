@@ -284,14 +284,17 @@ EOF
     # resolves omarchy-kids-conf beside itself -- nothing here is an env
     # override (AGENTS.md, "The trust boundary").
     kids_tree "$TMP/tree" "$DIR"
-    WIFI="$TMP/tree/bin/omarchy-kids-wifi"
-    kids_set_const "$WIFI" SOCK "$SOCK"
+    # Its own name, like section C's $WIFI_C: section D below still needs
+    # the checkout's own command, and this tree is gone by then (only ever
+    # bit on Linux, the one platform where section B actually runs).
+    WIFI_B="$TMP/tree/bin/omarchy-kids-wifi"
+    kids_set_const "$WIFI_B" SOCK "$SOCK"
 
-    out="$("$WIFI" list)"; st=$?
+    out="$("$WIFI_B" list)"; st=$?
     check_status "$st" 0 "wifi list: exits 0 for wifi=helper"
     check_contains "$out" "SchoolNet" "wifi list: passes through nmcli's terse output"
 
-    out="$(printf 'hunter2\n' | "$WIFI" join TestNet --password-stdin)"; st=$?
+    out="$(printf 'hunter2\n' | "$WIFI_B" join TestNet --password-stdin)"; st=$?
     check_status "$st" 0 "wifi join: exits 0"
     argv_log="$(cat "$ARGV_LOG")"
     check_contains "$argv_log" "connection add type wifi con-name kids-TestNet autoconnect no" \
@@ -302,12 +305,12 @@ EOF
       "wifi join: end-to-end activation happens after the DNS lockdown"
 
     : > "$ARGV_LOG"
-    out="$("$WIFI" forget TestNet)"; st=$?
+    out="$("$WIFI_B" forget TestNet)"; st=$?
     check_status "$st" 0 "wifi forget: exits 0"
     check "$(cat "$ARGV_LOG")" "connection delete -- kids-TestNet" \
       "wifi forget: end-to-end argv only ever deletes kids-<ssid>"
 
-    out="$("$WIFI" status)"; st=$?
+    out="$("$WIFI_B" status)"; st=$?
     check_status "$st" 0 "wifi status: exits 0"
     check_contains "$out" "kids-SchoolNet" "wifi status: passes through nmcli's terse output"
 

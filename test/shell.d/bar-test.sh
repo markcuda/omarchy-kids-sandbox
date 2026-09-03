@@ -10,6 +10,9 @@
 # unit-test here (see docs/bar.md's "What this doesn't test").
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 BAR=""     # a copy in a scratch tree, so the stub omarchy-kids-time /
@@ -34,6 +37,11 @@ check_status() { # got_status want_status label
 }
 
 TMP="$(mktemp -d)"
+
+# Stubs plus a base toolset only: an Omarchy box has the real floating-
+# terminal helper on PATH, and "falls back to alacritty" would never run
+# (AGENTS.md, testing rules).
+BASE_PATH="$(kids_base_path "$TMP/base")"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
@@ -235,7 +243,7 @@ chmod +x "$STUBS4/omarchy-launch-floating-terminal-with-presentation"
 
 LOGFILE="$TMP/grant.log"
 : >"$LOGFILE"
-out="$(PATH="$STUBS4:$PATH" LOGFILE="$LOGFILE" \
+out="$(PATH="$STUBS4:$BASE_PATH" LOGFILE="$LOGFILE" \
   "$BAR" grant kid-ada 15 </dev/null 2>&1)"
 check_status "$?" 0 "grant exits 0 when the terminal/sudo/time chain succeeds"
 log="$(cat "$LOGFILE")"
@@ -256,7 +264,7 @@ check_contains "$out" "positive integer" "the refusal explains why"
 #     terminate on a live session crashes sddm-helper, docs/exit.md) -----
 LOGFILE3="$TMP/end.log"
 : >"$LOGFILE3"
-out="$(PATH="$STUBS4:$PATH" LOGFILE="$LOGFILE3" \
+out="$(PATH="$STUBS4:$BASE_PATH" LOGFILE="$LOGFILE3" \
   "$BAR" end kid-ada </dev/null 2>&1)"
 check_status "$?" 0 "end exits 0 when the terminal/sudo/omarchy-kids-exit chain succeeds"
 log3="$(cat "$LOGFILE3")"
@@ -282,7 +290,7 @@ chmod +x "$STUBS5/sudo" "$STUBS5/alacritty"
 
 LOGFILE2="$TMP/grant2.log"
 : >"$LOGFILE2"
-PATH="$STUBS5:$PATH" LOGFILE="$LOGFILE2" "$BAR" grant kid-ada 15 </dev/null >/dev/null 2>&1
+PATH="$STUBS5:$BASE_PATH" LOGFILE="$LOGFILE2" "$BAR" grant kid-ada 15 </dev/null >/dev/null 2>&1
 log2="$(cat "$LOGFILE2")"
 check_contains "$log2" "ALACRITTY -e sh -c" "no floating-terminal helper on PATH falls back to alacritty -e"
 
@@ -313,14 +321,14 @@ EOF
   STUBS_LEDGER="$TMP/stubs-ledger"
   mkdir -p "$STUBS_LEDGER"
   kids_id_stub "$STUBS_LEDGER" kid-ada "$(id -u)"
-  PATH="$STUBS_LEDGER:$PATH" KIDS_TEST_UID=0 \
+  PATH="$STUBS_LEDGER:$BASE_PATH" KIDS_TEST_UID=0 \
     OMARCHY_KIDS_ETC="$ETC5" OMARCHY_KIDS_ROOT="$ROOT5" \
     OMARCHY_KIDS_NOW="2026-09-01 12:00:00" \
     "$LEDGER" tick >/dev/null 2>&1
 
   STATUS_JSON5="$ROOT5/run/omarchy-kids/status.json"
   if command -v jq >/dev/null 2>&1 && [[ -f "$STATUS_JSON5" ]]; then
-    mode="$(stat -f '%Lp' "$STATUS_JSON5" 2>/dev/null || stat -c '%a' "$STATUS_JSON5" 2>/dev/null)"
+    mode="$(kids_file_mode "$STATUS_JSON5")"
     check "$mode" "640" "status.json is written mode 0640 (group omarchy-parents readable, R-BAR-3)"
     check "$(jq -r '.kids[0].kid' "$STATUS_JSON5")" "kid-ada" "status.json lists the known kid"
     check "$(jq -r '.kids[0] | has("minutes_left")' "$STATUS_JSON5")" "true" "status.json rows have minutes_left"

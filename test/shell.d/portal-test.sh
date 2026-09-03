@@ -11,6 +11,9 @@
 # AGENTS.md rule 8).
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 THEME_DIR="$ROOT/share/sddm-theme"
 AVATARS_DIR="$ROOT/share/avatars"
@@ -219,6 +222,12 @@ fi
 # (never the real /etc/sddm.conf.d -- AGENTS.md rule 8).
 
 TMP="$(mktemp -d)"
+
+# A base toolset only: an Omarchy box has the real omarchy-theme-color,
+# and the "no theme to read, so every key falls back" cases below would
+# get its derived colors instead (AGENTS.md, testing rules).
+BASE_PATH="$(kids_base_path "$TMP/base")"
+export PATH="$BASE_PATH"
 trap 'rm -rf "$TMP"' EXIT
 # shellcheck source=lib/conf.sh
 source "$ROOT/lib/conf.sh"
@@ -263,15 +272,15 @@ if [[ -f "$PORTAL_CONF" ]]; then
     check "$(grep -c '^parent=mark$' "$PORTAL_CONF")" "1" "theme.conf.user: parent=mark"
     check "$(grep -c '^kids=kid-ada:Ada Lovelace:fox,kid-cy:Cy:owl$' "$PORTAL_CONF")" "1" \
         "theme.conf.user: kids= line has both kids in order"
-    mode="$(stat -f '%Lp' "$PORTAL_CONF" 2>/dev/null || stat -c '%a' "$PORTAL_CONF" 2>/dev/null)"
+    mode="$(kids_file_mode "$PORTAL_CONF")"
     check "$mode" "644" "theme.conf.user: mode 0644"
     # idempotence: a second write with the same content is a no-op
-    mtime1="$(stat -f '%m' "$PORTAL_CONF" 2>/dev/null || stat -c '%Y' "$PORTAL_CONF" 2>/dev/null)"
+    mtime1="$(kids_file_mtime "$PORTAL_CONF")"
     sleep 1
     posture_write_portal_conf mark \
         "$(printf 'kid-ada\tAda Lovelace\tfox')" \
         "$(printf 'kid-cy\tCy\towl')"
-    mtime2="$(stat -f '%m' "$PORTAL_CONF" 2>/dev/null || stat -c '%Y' "$PORTAL_CONF" 2>/dev/null)"
+    mtime2="$(kids_file_mtime "$PORTAL_CONF")"
     check "$mtime2" "$mtime1" "posture_write_portal_conf is idempotent (no rewrite on unchanged content)"
 else
     fail "posture_write_portal_conf did not write $PORTAL_CONF"
@@ -360,10 +369,9 @@ dark_background = "#050505"
 selection = "#303030"
 EOF
 
-ORIG_PATH="$PATH"
 OMARCHY_KIDS_ROOT="$TMP/root2c"
 OMARCHY_KIDS_HOME_ROOT="$HOMEROOT"
-PATH="$STUBS2:$PATH"
+PATH="$STUBS2:$BASE_PATH"
 export OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT PATH
 # Force lib/theme.sh's own readiness probe to run again: it caches its
 # answer per process (_theme_kids_tool_ready, "one log line, not one per
@@ -388,7 +396,7 @@ else
     fail "posture_write_portal_conf did not write $PORTAL_CONF3"
 fi
 unset OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
-PATH="$ORIG_PATH"
+PATH="$BASE_PATH"
 export PATH
 _THEME_KIDS_TOOL_STATUS=""
 
@@ -407,7 +415,7 @@ if [[ -f "$FACE_ICON" ]] && cmp -s "$FOX_SVG" "$FACE_ICON"; then
 else
     fail "posture_write_face_icon did not write an exact copy to $FACE_ICON"
 fi
-mode="$(stat -f '%Lp' "$FACE_ICON" 2>/dev/null || stat -c '%a' "$FACE_ICON" 2>/dev/null)"
+mode="$(kids_file_mode "$FACE_ICON")"
 if [[ "$mode" == "644" ]]; then
     pass "posture_write_face_icon: mode 0644"
 else

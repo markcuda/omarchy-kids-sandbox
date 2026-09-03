@@ -201,7 +201,9 @@ if grep -qx 'KIDS_PY=python3' "$ROOT/lib/kids.sh"; then
 else
     fail "lib/kids.sh's KIDS_PY is no longer the checkout constant"
 fi
-if grep -q "s|\^KIDS_PY=python3\$|KIDS_PY=/usr/bin/python3|" "$PKGBUILD"; then
+# -F: the sed script is a literal, and GNU and BSD grep disagree about
+# what a backslash-escaped ^ or $ means mid-pattern.
+if grep -qF 's|^KIDS_PY=python3$|KIDS_PY=/usr/bin/python3|' "$PKGBUILD"; then
     pass "package() bakes the absolute interpreter path into the installed lib/kids.sh"
 else
     fail "PKGBUILD no longer substitutes KIDS_PY at package time"

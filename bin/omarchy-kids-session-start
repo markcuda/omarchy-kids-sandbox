@@ -191,7 +191,8 @@ jq -s '{account: $account, band: $band, level: $level, tiles: .}' \
 mv "$LAUNCHER_JSON.tmp" "$LAUNCHER_JSON"
 chmod 0644 "$LAUNCHER_JSON"
 
-export OMARCHY_KIDS_LAUNCHER_JSON="$LAUNCHER_JSON"
+: > "$RUN/launcher-control"  # the launcher polls this file; create it so the poll never warns
+export OMARCHY_KIDS_LAUNCHER_JSON="$LAUNCHER_JSON" OMARCHY_KIDS_LAUNCHER_CONTROL="$RUN/launcher-control"
 
 case "$LEVEL" in
   1)

@@ -62,8 +62,9 @@ theme, not root's.
 
 **Issue #48 live finding**: running a Kids Mode command outside a full Omarchy session (no
 Hyprland login — SSH, `unshare`, CI) can leave `$OMARCHY_PATH` unset, and Omarchy's own tools
-depend on it to find their own installed files. Sourcing `lib/theme.sh` now, unconditionally and
-before any Omarchy tool runs:
+depend on it to find their own installed files. `_theme_kids_env_defaults`, called from every
+`lib/theme.sh` function that reads `$OMARCHY_PATH` or is about to run an Omarchy tool (not at
+source time — review 2.7: sourcing a library must never change the caller's environment):
 
 - defaults `OMARCHY_PATH` to `/usr/share/omarchy` (where the package installs itself) if unset;
 - upgrades `LANG` to `C.UTF-8` if it's unset or the plain `"C"` locale (gum's own box-drawing
@@ -359,9 +360,11 @@ login through Hyprland — an SSH session, a bare `unshare`, a CI runner)
 leaves $OMARCHY_PATH unset, and `omarchy-theme-color` (and Omarchy's
 other bin/omarchy-* tools generally) depend on it being set to find
 their own installed files, dying with "OMARCHY_PATH is not set" instead
-of just failing the one color lookup. Two defenses, both applied the
-moment this file is sourced (before any Omarchy tool below ever runs),
-not per-call:
+of just failing the one color lookup. Two defenses, applied by
+_theme_kids_env_defaults, called from every function below that reads
+$OMARCHY_PATH or is about to run an Omarchy tool -- not the moment this
+file is sourced (review 2.7: sourcing a library must never change the
+caller's environment):
   - OMARCHY_PATH defaults to /usr/share/omarchy (where the omarchy
     package installs itself) when unset, so a real Omarchy tool that
     needs it to find sibling files still can, even outside a full

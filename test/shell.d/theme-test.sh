@@ -215,49 +215,75 @@ check_eq "$out" "JetBrainsMono Nerd Font" "theme_font: falls back with no fc-mat
 
 # --- issue #48 live finding: OMARCHY_PATH/LANG defaults, a broken tool
 # never aborts the caller ---------------------------------------------------
+#
+# Review 2.7: the defaults are no longer set at source time -- sourcing a
+# library must never change the caller's environment. They apply lazily,
+# the first time a theme_* function that needs them runs (theme_dir here,
+# since it needs no stubbed tool).
 
 out="$(
     unset OMARCHY_PATH
     # shellcheck source=/dev/null
     source "$THEME_LIB"
+    printf '%s\n' "${OMARCHY_PATH:-<still unset>}"
+)"
+check_eq "$out" "<still unset>" "sourcing lib/theme.sh: OMARCHY_PATH is untouched at source time (review 2.7)"
+
+out="$(
+    unset OMARCHY_PATH
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_dir >/dev/null
     printf '%s\n' "$OMARCHY_PATH"
 )"
-check_eq "$out" "/usr/share/omarchy" "sourcing lib/theme.sh: OMARCHY_PATH defaults when unset"
+check_eq "$out" "/usr/share/omarchy" "calling a theme_* function: OMARCHY_PATH defaults when unset"
 
 out="$(
     OMARCHY_PATH=/some/other/path
     export OMARCHY_PATH
     # shellcheck source=/dev/null
     source "$THEME_LIB"
+    theme_dir >/dev/null
     printf '%s\n' "$OMARCHY_PATH"
 )"
-check_eq "$out" "/some/other/path" "sourcing lib/theme.sh: an already-set OMARCHY_PATH is left alone"
+check_eq "$out" "/some/other/path" "calling a theme_* function: an already-set OMARCHY_PATH is left alone"
 
 out="$(
     unset LANG
     # shellcheck source=/dev/null
     source "$THEME_LIB"
+    printf '%s\n' "${LANG:-<still unset>}"
+)"
+check_eq "$out" "<still unset>" "sourcing lib/theme.sh: LANG is untouched at source time (review 2.7)"
+
+out="$(
+    unset LANG
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_dir >/dev/null
     printf '%s\n' "$LANG"
 )"
-check_eq "$out" "C.UTF-8" "sourcing lib/theme.sh: LANG defaults to C.UTF-8 when unset"
+check_eq "$out" "C.UTF-8" "calling a theme_* function: LANG defaults to C.UTF-8 when unset"
 
 out="$(
     LANG=C
     export LANG
     # shellcheck source=/dev/null
     source "$THEME_LIB"
+    theme_dir >/dev/null
     printf '%s\n' "$LANG"
 )"
-check_eq "$out" "C.UTF-8" "sourcing lib/theme.sh: LANG=C is also upgraded to C.UTF-8"
+check_eq "$out" "C.UTF-8" "calling a theme_* function: LANG=C is also upgraded to C.UTF-8"
 
 out="$(
     LANG=en_US.UTF-8
     export LANG
     # shellcheck source=/dev/null
     source "$THEME_LIB"
+    theme_dir >/dev/null
     printf '%s\n' "$LANG"
 )"
-check_eq "$out" "en_US.UTF-8" "sourcing lib/theme.sh: a real LANG is left alone"
+check_eq "$out" "en_US.UTF-8" "calling a theme_* function: a real LANG is left alone"
 
 # A tool on PATH that always dies the way the live report described
 # ("OMARCHY_PATH is not set") must never abort a caller — not even one

@@ -180,11 +180,13 @@ reports `skipped`, with no separate `rm -rf` or move needed.
   exercise that branch to prove the rest of "mount:<account>" works), so this path is exercised for
   real only on the test laptop; see "What needs the VM to verify" on the PR body / commit for the
   reminder.
-- **`group_for_band`-style duplication.** `luks_slots_parent_line`, `luks_slots_kid_entries`,
-  `luks_slot_for_account` (minus `detect_luks_device`'s own `--luks-device` flag, which `remove`
-  commands never take — `detect_luks_device`, `parent_home_dir`, and `portal_conf_entries` itself
-  moved into shared `lib/kids.sh` in issue #49, so those three are no longer duplicated here),
-  the `/etc/default/limine` restore logic, and `current_groups`/`has_group` (the `parent-group`
+- **`group_for_band`-style duplication.** `luks_slots_parent_line`, `luks_slots_kid_entries`, and
+  `luks_slot_for_account` used to be here too (minus `detect_luks_device`'s own `--luks-device`
+  flag, which `remove` commands never take), duplicated from `bin/omarchy-kids-provision`; they
+  moved into shared `lib/kids.sh` for the parent-slot fix, alongside `detect_luks_device`,
+  `parent_home_dir`, and `portal_conf_entries` from issue #49, once `omarchy-kids-conf machine
+  set parent` needed the same parsing to record the parent's own slot without a fourth copy.
+  The `/etc/default/limine` restore logic, and `current_groups`/`has_group` (the `parent-group`
   step, issue #45 item 3, duplicated from `lib/assert-locks.sh`'s own parent-group lock) are all
   duplicated from `bin/omarchy-kids-provision` / `bin/omarchy-kids-assert` rather than shared, for
   the same reason `docs/assert.md`'s "Judgment calls" already gives for `group_for_band`: those

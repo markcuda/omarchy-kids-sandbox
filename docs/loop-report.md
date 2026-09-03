@@ -160,6 +160,12 @@ from screenshots. Done since:
   an empty map silently; fixed the same hour with two rules that now have tests: root-side
   builders never replace state on failure, and root paths are exercised with an empty
   environment.
+- Codex's fixes for its own review are in: #60 (root-owned launcher map, no shell evaluation),
+  #59 (no environment-selected paths in any kid-facing command, absolute Quickshell, the home
+  from getent, /tmp and /dev/shm fail closed, all six gettys masked) and #61 (exact group
+  allowlist, root checks at the entry of ask's root verbs). Each was gated on both suites and
+  the live login scenario; #59 needed two rebases and one Linux-only test fix on the way.
+  Spec 01's first ticket (#64, the session manifest builder) is the first spec-driven merge.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

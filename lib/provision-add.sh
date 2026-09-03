@@ -46,7 +46,7 @@ cmd_add() {
     fi
 
     local base_account account group
-    base_account="$("$CONF" slug "$display")"
+    base_account="$("$CONF_BIN" slug "$display")"
     account="$(unique_account "$base_account")"
     group="$(group_for_band "$band")"
 
@@ -92,11 +92,11 @@ cmd_add() {
     run mount -o remount,bind,nosuid,nodev,noexec "$(home_dir_for "$account")"
 
     # Appendix B: the profile.
-    run "$CONF" set "$account" name "$display"
-    run "$CONF" set "$account" avatar "$avatar"
-    run "$CONF" set "$account" band "$band"
-    run "$CONF" set "$account" password "$([[ $no_password == 1 ]] && echo none || echo set)"
-    run "$CONF" set "$account" onboarded no
+    run "$CONF_BIN" set "$account" name "$display"
+    run "$CONF_BIN" set "$account" avatar "$avatar"
+    run "$CONF_BIN" set "$account" band "$band"
+    run "$CONF_BIN" set "$account" password "$([[ $no_password == 1 ]] && echo none || echo set)"
+    run "$CONF_BIN" set "$account" onboarded no
 
     # R-FND-3, R-FND-4: polkit admin identity + denies.
     local parent
@@ -182,12 +182,12 @@ cmd_add() {
     run install_kids_chromium_flags "$account"
 
     # R-DESK, issue #53: the kid's desktop matches the house look at first
-    # login -- docs/theming.md. "$CONF" set is the one writer; nothing here
+    # login -- docs/theming.md. "$CONF_BIN" set is the one writer; nothing here
     # touches theme files directly.
     local parent_theme=""
     parent_theme="$(THEME_KIDS_HOME="$(posture_parent_home "$parent")" theme_current_name)"
     if [[ -n "$parent_theme" ]]; then
-        run "$CONF" set "$account" theme "$parent_theme"
+        run "$CONF_BIN" set "$account" theme "$parent_theme"
     else
         echo "warning: parent '$parent' has no current Omarchy theme yet (never ran 'omarchy theme set'); $account keeps the desktop's stock theme" >&2
     fi

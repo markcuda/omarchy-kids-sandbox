@@ -25,7 +25,7 @@ KIDS_DIR="$ETC/kids"
 SLOTS_FILE="$ETC/luks-slots"
 MACHINE_CONF="$ETC/machine.conf"
 
-CONF="$(kids_bin conf "$DIR")"
+CONF_BIN="$(kids_bin conf "$DIR")"
 
 
 die() { echo "omarchy-kids-provision: $1" >&2; exit "${2:-2}"; }
@@ -95,7 +95,7 @@ valid_display_name() {
 # band_field BAND KEY — lib/kids.sh's kids_band_field, with this
 # command's own error message (docs/conf.md).
 band_field() {
-    kids_band_field "$CONF" "$@" || die "could not read band '$1' defaults from $CONF"
+    kids_band_field "$CONF_BIN" "$@" || die "could not read band '$1' defaults from $CONF_BIN"
 }
 
 # read_parent — the "parent=" account name from $MACHINE_CONF, via

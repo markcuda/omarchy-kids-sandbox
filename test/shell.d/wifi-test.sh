@@ -303,7 +303,11 @@ EOF
     kids_set_const "$WIFI_B" SOCK "$SOCK"
     kids_set_const "$WIFI_B" ETC "$ETC"
     kids_set_const "$WIFI_B" SHARE "$SHARE"
-    kids_set_const "$WIFI_B" QUICKSHELL_BIN "$STUBS/quickshell"
+    STUBS_B="$TMP/stubs-b" # section B has no stub dir of its own; the picker is not exercised here
+    mkdir -p "$STUBS_B"
+    printf '#!/bin/bash\nexit 0\n' >"$STUBS_B/quickshell"
+    chmod +x "$STUBS_B/quickshell"
+    kids_set_const "$WIFI_B" QUICKSHELL_BIN "$STUBS_B/quickshell"
 
     out="$("$WIFI_B" list)"
     st=$?

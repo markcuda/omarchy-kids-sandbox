@@ -34,6 +34,14 @@
 //     rounds or reserves space differently, `GridNav.columnsFor()` in
 //     gridnav.js is the one place to correct -- key navigation and the
 //     GridView both read that same value, so a fix there fixes both.
+//   - issue #54: `Quickshell.iconPath()` (used by `iconSource()` below)
+//     is confirmed to exist and to be the real Omarchy launcher's own
+//     icon lookup -- `shell/services/AppLibrary.qml`'s `iconSource()`
+//     (omacom/omarchy@v4.0.2, commit
+//     346e69e1cec6c4e8924531874af6ba010a1bc99e) calls
+//     `Quickshell.iconPath(value, true)` the same way -- but the exact
+//     rendered size/DPI behavior of the returned source still needs a
+//     real Quickshell to confirm, like everything else in this file.
 //
 // What this does NOT depend on the kid's home for (I-3): the tile list
 // comes from $XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json (written by session-start),
@@ -76,6 +84,53 @@ Window {
     // and the rendered layout can never disagree on column count again.
     readonly property int columns: GridNav.columnsFor(grid.width, grid.cellWidth)
     property int currentIndex: 0
+
+    // --- Grid layout (issue #54) -----------------------------------------
+    // Live at 1280x800: two tiles sat top-left with the rest of the
+    // screen empty, and ten tiles filled only the top third -- GridView
+    // was anchored top-left, full-width, with a hardcoded 160px cell.
+    // margin is one number so the grid's left/right/top edges and the
+    // clock's top-right position (below) share the exact same inset.
+    // targetColumns/minTileWidth is the "five per row at 1280, tile
+    // width derived, min 160px" rule from the issue: cellSize is
+    // whatever width fits five tiles in the space left after margin on
+    // each side, floored at minTileWidth, so a bigger screen gets bigger
+    // tiles (not just more of them) and a narrower one falls back to
+    // fewer than five per row -- grid.width below (columns actually
+    // rendered * cellSize) drives GridNav.columnsFor() the same way it
+    // always has, so this never disagrees with itself.
+    readonly property int margin: 56
+    readonly property int minTileWidth: 160
+    readonly property int targetColumns: 5
+    readonly property real availableWidth: Math.max(minTileWidth, root.width - margin * 2)
+    readonly property int cellSize: Math.max(minTileWidth, Math.floor(availableWidth / targetColumns))
+    // How many columns the grid itself should be exactly as wide as --
+    // never more than targetColumns, and never more than there are
+    // tiles to show (so two tiles sit in a small, centred 2-wide grid
+    // instead of a full-width one with empty space to their right, the
+    // live "two tiles top-left, the rest empty" screenshot this issue
+    // is fixing).
+    readonly property int neededColumns: Math.max(1, Math.min(targetColumns, tiles.length))
+
+    // iconSource ICON -> a themed icon file/URL for a freedesktop
+    // Icon= value, or "" if nothing resolves. Same shape as the real
+    // Omarchy shell's own launcher icon lookup --
+    // shell/services/AppLibrary.qml's iconSource() (omacom/omarchy
+    // @v4.0.2, commit 346e69e1cec6c4e8924531874af6ba010a1bc99e): an
+    // already-literal file://, image://, or absolute-path source is
+    // used as-is; otherwise Quickshell.iconPath(name, true) resolves the
+    // name through the active icon theme, the same call that file makes.
+    // Unlike that file, an unresolved name here returns "" rather than
+    // falling back to a generic "application-x-executable" glyph -- the
+    // delegate below draws a rounded initial instead (I-6: no icon
+    // resolving isn't hidden behind a placeholder that looks like one).
+    function iconSource(icon) {
+        var value = String(icon || "")
+        if (value.length === 0) return ""
+        if (value.indexOf("file://") === 0 || value.indexOf("image://") === 0) return value
+        if (value.charAt(0) === "/") return "file://" + value
+        return Quickshell.iconPath(value, true)
+    }
 
     FileView {
         id: tilesFile
@@ -216,12 +271,22 @@ Window {
         // it to fall back to (I-6: don't offer an exit this isn't).
         Keys.onEscapePressed: (event) => { event.accepted = true }
 
+        // issue #54: centred in the upper part of the screen, not
+        // anchors.fill -- width is exactly as many cells as fit (never
+        // the full window width, so it centres instead of hugging the
+        // left edge with two tiles), and height is exactly as many rows
+        // as the tile count needs (never the full window height, so
+        // this sits in the upper third with the rest of the screen
+        // empty below it, matching the issue's live screenshots).
         GridView {
             id: grid
-            anchors.fill: parent
-            anchors.margins: 48
-            cellWidth: 160
-            cellHeight: 160
+            anchors.top: parent.top
+            anchors.topMargin: root.margin
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: Math.min(root.availableWidth, cellWidth * root.neededColumns)
+            height: Math.max(cellHeight, Math.ceil(root.tiles.length / Math.max(1, root.columns)) * cellHeight)
+            cellWidth: root.cellSize
+            cellHeight: root.cellSize
             model: root.tiles
             currentIndex: root.currentIndex
             interactive: false
@@ -238,15 +303,27 @@ Window {
                 // carries no `installed` key at all and must render
                 // exactly as before.
                 readonly property bool missing: modelData.installed === false
+                // issue #54: the resolved icon source, or "" -- an
+                // empty Image source (Image.Null) never reaches
+                // Image.Ready, so the rounded-initial fallback below
+                // shows automatically with no extra branching here.
+                readonly property string resolvedIcon: root.iconSource(modelData.icon)
+                readonly property string initial: {
+                    var s = String(modelData.label || modelData.id || "?").trim()
+                    return s.length > 0 ? s.charAt(0).toUpperCase() : "?"
+                }
 
-                width: 140
-                height: 140
+                // issue #54: derived from the shared cell size (min
+                // 160px per the issue), inset from the cell itself so
+                // adjacent tiles never touch -- still comfortably over
+                // the 96px tap-target floor even at the smallest cell.
+                width: grid.cellWidth - 20
+                height: grid.cellHeight - 20
                 radius: 16
-                // >= 96px target per the issue's tap-target floor, well
-                // clear of it at 140px so this also works as a touch
-                // target if the machine has a touchscreen.
                 color: missing ? theme.background : (GridView.isCurrentItem ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6))
                 opacity: missing ? 0.55 : 1.0
+                // Highlight ring in the theme accent (docs/theming.md) --
+                // only the current tile gets a border at all.
                 border.width: GridView.isCurrentItem ? 4 : 0
                 border.color: theme.accent
 
@@ -254,31 +331,53 @@ Window {
                     anchors.centerIn: parent
                     spacing: 8
 
-                    Image {
+                    Item {
+                        id: iconSlot
                         anchors.horizontalCenter: parent.horizontalCenter
-                        // UNVERIFIED: modelData.icon is usually a
-                        // freedesktop icon *name* (from a .desktop
-                        // file's Icon= key), not a path. This tries it
-                        // as a literal source first; a themed-icon
-                        // provider (e.g. "image://icon/<name>", if
-                        // Quickshell exposes one) would be more correct
-                        // but wasn't confirmed. onStatusChanged below
-                        // hides a broken image rather than showing a
-                        // missing-image glyph.
-                        source: modelData.icon && modelData.icon.length > 0 ? modelData.icon : ""
                         width: 64
                         height: 64
-                        fillMode: Image.PreserveAspectFit
-                        visible: status === Image.Ready
+
+                        Image {
+                            id: iconImg
+                            anchors.fill: parent
+                            source: resolvedIcon
+                            fillMode: Image.PreserveAspectFit
+                            asynchronous: true
+                            visible: status === Image.Ready
+                        }
+
+                        // issue #54: no icon resolved through
+                        // Quickshell.iconPath() (a fresh install not yet
+                        // in the icon theme cache, a bad Icon= name, or
+                        // no Icon= at all) -- a rounded initial in the
+                        // theme accent colour instead of a broken-image
+                        // glyph or empty space, so every tile still
+                        // looks intentional (I-6).
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: width / 2
+                            color: theme.accent
+                            visible: !iconImg.visible
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: initial
+                                color: theme.background
+                                font.family: theme.fontFamily
+                                font.pixelSize: 28
+                                font.bold: true
+                            }
+                        }
                     }
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: modelData.label || modelData.id || ""
                         color: theme.foreground
+                        font.family: theme.fontFamily
                         font.pixelSize: 18
                         wrapMode: Text.WordWrap
-                        width: 120
+                        width: parent.parent.width - 16
                         horizontalAlignment: Text.AlignHCenter
                     }
 
@@ -292,9 +391,10 @@ Window {
                         visible: missing && modelData.caption && modelData.caption.length > 0
                         text: modelData.caption || ""
                         color: theme.muted
+                        font.family: theme.fontFamily
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
-                        width: 120
+                        width: parent.parent.width - 16
                         horizontalAlignment: Text.AlignHCenter
                     }
                 }
@@ -302,12 +402,17 @@ Window {
         }
     }
 
-    // --- Clock -------------------------------------------------------------
+    // --- Clock ---------------------------------------------------------
+    // issue #54: topMargin is root.margin, the same inset the grid's
+    // own anchors.topMargin uses above, so the clock lines up with the
+    // grid's top edge instead of floating at its own hardcoded margin.
     Text {
         anchors.top: parent.top
         anchors.right: parent.right
-        anchors.margins: 24
+        anchors.topMargin: root.margin
+        anchors.rightMargin: root.margin
         color: theme.foreground
+        font.family: theme.fontFamily
         font.pixelSize: 28
         text: Qt.formatTime(new Date(), "hh:mm")
 

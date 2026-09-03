@@ -50,6 +50,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `mount:<account>` | The home is *actually* mounted `noexec,nosuid,nodev` right now, via `findmnt`, not just that `fstab` says it should be | `mount --bind` (only if not already a mountpoint) then `mount -o remount,bind,nosuid,nodev,noexec` |
 | `namespace:<account>` | Both `/etc/security/namespace.conf` lines for `/tmp` and `/dev/shm` (R-FND-2a) | `posture_add_namespace_lines` |
 | `accountsservice:<account>` | `/var/lib/AccountsService/users/<account>` matches exactly (R-LOGIN-3) | `posture_write_accountsservice` |
+| `gecos:<account>` | The passwd GECOS field (read via `getent passwd`) matches the profile's `name` (R-LOGIN, issue #39 — SDDM's greeter reads `realName` from GECOS, not AccountsService). "ok" if this box has no `getent` at all (this repo's own macOS dev environment) — nothing to compare against | `usermod -c "<name>" <account>` |
 | `groups:<account>` | Member of `omarchy-kids` and the band group (`omarchy-kids-3-5`/`6-8`/`9-12`/`13plus`) | `usermod -aG` with only the groups actually missing |
 
 ### Machine-level (once per run, only while at least one kid is provisioned)
@@ -59,6 +60,8 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `polkit-admin` | `/etc/polkit-1/rules.d/40-omarchy-kids.rules` names the parent from `machine.conf` (R-FND-3) | `posture_write_polkit_admin_rule` |
 | `polkit-deny` | `/etc/polkit-1/rules.d/41-omarchy-kids-deny.rules` (R-FND-4) | `posture_write_polkit_deny_rule` |
 | `sddm-theme` | `/etc/sddm.conf.d/zz-omarchy-kids-theme.conf` selects the portal (`[Theme] Current=omarchy-kids`, R-LOGIN, issue #14) | `posture_write_sddm_theme_dropin` |
+| `sddm-xhr` | `/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf` matches exactly (`Environment=QML_XHR_ALLOW_FILE_READ=1`, R-LOGIN, issue #39 — lets the greeter's QML read `portal.json`; **unverified** whether the greeter process actually inherits it, `docs/portal.md`) | `posture_write_sddm_xhr_dropin` |
+| `portal-json` | `/etc/omarchy-kids/portal.json` matches exactly, rebuilt from every provisioned kid's profile plus `machine.conf`'s `parent=` (R-LOGIN, issue #39) | `posture_write_portal_json` |
 | `pam:sddm`, `pam:systemd-user` | The `pam_namespace` marker + line in `/etc/pam.d/sddm` and `/etc/pam.d/systemd-user` (R-FND-2a) | `posture_ensure_pam_namespace`, seeding from `/usr/lib/pam.d` when needed |
 | `parent-unlock:sddm`, `parent-unlock:omarchy-lock-password` | The parent-unlock marker + `pam_exec.so … omarchy-kids-parent-auth` line (fixed `[success=done default=ignore]` control), anchored on the stack's own first non-comment `auth` line — after it if that line is itself a leading `pam_faillock.so … preauth` line, else before it (R-SEC-2, R-SEC-3; `docs/authd.md`; `lib/posture.sh`'s own header comment has the full placement rule, confirmed against a real Omarchy 4.0.2 box). `omarchy-lock-password` is the only lock-screen stack Omarchy 4.0.2 actually writes — there is no `hyprlock` PAM service on that box; an earlier version of this guessed one and fell back to it, confirmed wrong and removed. "ok" if the stack file doesn't exist at all — nothing to disprove, same shape as `boot-hook` below | `posture_ensure_parent_unlock_line`; **fails** (reports `FAIL`, not `fixed`) if the stack exists but has lost its anchor line — this command never reconstructs a vendor PAM stack from nothing, only the one line it owns |
 | `getty:tty2` .. `getty:tty6` | Each unit is masked — a symlink to `/dev/null` at `/etc/systemd/system/getty@ttyN.service` (R-FND-5), read directly rather than shelled out to `systemctl` | `systemctl mask getty@ttyN.service` |
@@ -150,3 +153,19 @@ nothing at all.
   each lock in turn, expect exactly that lock to report fixed" test meaningfully check that a
   broken `tty4` mask, say, doesn't get lost inside a coarser "getty" line, or reported as fixed
   when only `tty2` actually needed it.
+- **`gecos:<account>` reports `ok` (never `FAIL`) when `getent` doesn't exist at all**, same
+  reasoning as `docs/provision.md`'s own note on `lsblk` not existing on this repo's macOS dev
+  machine: there's nothing to read the field back with, so there's nothing to disprove. A real
+  Omarchy box always has `getent` (it's part of glibc), so this only ever matters here, never in
+  production.
+- **`sddm-xhr` re-asserts a systemd drop-in whose actual effect (whether the greeter process
+  inherits `QML_XHR_ALLOW_FILE_READ`) this command cannot verify** — it can only confirm the
+  drop-in *file* matches, the same as every other exact-content-match lock here. If the greeter
+  doesn't inherit it, `sddm-xhr` reports `ok` forever while `Main.qml`'s `portal.json` read keeps
+  silently failing and falling back to its pre-#39 behavior (`docs/portal.md` has the full
+  reasoning). Confirming the actual effect needs a real VM, not this command.
+- **`portal-json` is machine-level but derived per-kid** (every provisioned kid's profile feeds
+  into the one file), unlike every other machine-level lock in the table above, which is either a
+  fixed rule or reads only `machine.conf`. It's still checked once per run, after the per-kid
+  loop, because the file itself is one file, not one per kid — same shape `luks-slots` uses in
+  `omarchy-kids-provision`, just read back here instead of written incrementally.

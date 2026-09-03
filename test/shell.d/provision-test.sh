@@ -263,6 +263,25 @@ check_contains "$(cat "$ASFILE" 2>/dev/null)" "Icon=/usr/share/omarchy-kids/avat
 THEME_DROPIN="$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-theme.conf"
 check_contains "$(cat "$THEME_DROPIN" 2>/dev/null)" "Current=omarchy-kids" "add: SDDM portal theme selected (R-LOGIN)"
 
+# --- add: issue #39 -- GECOS display name, the XHR drop-in, portal.json --
+
+check_contains "$argv" "usermod -c Ada Lovelace $SLUG" "add: GECOS set via usermod -c with the display name"
+
+XHR_DROPIN="$SCRATCH_ROOT/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf"
+check_contains "$(cat "$XHR_DROPIN" 2>/dev/null)" "Environment=QML_XHR_ALLOW_FILE_READ=1" \
+    "add: the sddm.service XHR drop-in is written"
+
+PORTAL_JSON="$ETC/portal.json"
+if command -v jq >/dev/null 2>&1; then
+    check_eq "$(jq -r '.parent' "$PORTAL_JSON" 2>/dev/null)" "mark" "portal.json: parent is the machine owner"
+    check_eq "$(jq -r --arg a "$SLUG" '.kids[$a].name' "$PORTAL_JSON" 2>/dev/null)" "Ada Lovelace" \
+        "portal.json: $SLUG's name"
+    check_eq "$(jq -r --arg a "$SLUG" '.kids[$a].avatar' "$PORTAL_JSON" 2>/dev/null)" "fox" \
+        "portal.json: $SLUG's avatar"
+else
+    echo "SKIP portal.json content checks: jq not found"
+fi
+
 check_contains "$argv" "mount --bind $OMARCHY_KIDS_HOME_ROOT/home/$SLUG $OMARCHY_KIDS_HOME_ROOT/home/$SLUG" "add: bind mount created before the noexec remount"
 check_contains "$argv" "runuser -l $SLUG -c omarchy-provision-user --first-install" "add: omarchy-provision-user --first-install runs as the kid via runuser"
 check_contains "$argv" "groupadd -f omarchy-kids" "add: groups are created defensively"
@@ -285,6 +304,12 @@ check_eq "$(grep -c "^$MARKER\$" "$SCRATCH_ROOT/etc/pam.d/sddm")" "1" \
 check_eq "$(grep -c "$SLUG-2\$" "$NSCONF")" "2" "namespace.conf gained exactly 2 lines (not more) for the second kid"
 check_eq "$(grep -c "^0=mark:omarchy.desktop\$" "$ETC/luks-slots")" "1" \
     "luks-slots still has exactly one slot-0 line after a second add"
+
+if command -v jq >/dev/null 2>&1; then
+    check_eq "$(jq -r '.kids | length' "$PORTAL_JSON" 2>/dev/null)" "2" "portal.json: gained the second kid too"
+    check_eq "$(jq -r --arg a "$SLUG-2" '.kids[$a].avatar' "$PORTAL_JSON" 2>/dev/null)" "bear" \
+        "portal.json: $SLUG-2's avatar"
+fi
 
 # --- add: --no-password only for band 3-5 --------------------------------
 
@@ -346,6 +371,13 @@ check_contains "$argv6" "umount $HOMEROOT/home/$SLUG" "remove: unmounted the hom
 check_contains "$argv6" "userdel $SLUG" "remove: userdel called"
 [[ -d "$HOMEROOT/home/mark/Kids Mode/Ada Lovelace" ]] && pass "home moved to <parent home>/Kids Mode/<name>" \
     || fail "home was not moved to $HOMEROOT/home/mark/Kids Mode/Ada Lovelace"
+
+if command -v jq >/dev/null 2>&1; then
+    check_eq "$(jq -e --arg a "$SLUG" 'has($a) | not' <<<"$(jq '.kids' "$PORTAL_JSON")" 2>/dev/null)" "true" \
+        "portal.json: $SLUG's entry is gone after remove"
+    check_eq "$(jq -r --arg a "$SLUG-2" '.kids[$a].name' "$PORTAL_JSON" 2>/dev/null)" "Ada Lovelace" \
+        "portal.json: $SLUG-2's entry survives $SLUG's removal"
+fi
 
 # --- remove --keep-home: home stays put -------------------------------------
 

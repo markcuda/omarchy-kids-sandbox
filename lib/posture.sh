@@ -24,6 +24,7 @@ posture_pam_dir() { printf '%s/etc/pam.d' "$(posture_root)"; }
 posture_fstab() { printf '%s/etc/fstab' "$(posture_root)"; }
 posture_accountsservice_dir() { printf '%s/var/lib/AccountsService/users' "$(posture_root)"; }
 posture_sddm_conf_dir() { printf '%s/etc/sddm.conf.d' "$(posture_root)"; }
+posture_sddm_service_dropin_dir() { printf '%s/etc/systemd/system/sddm.service.d' "$(posture_root)"; }
 
 # posture_install_if_changed FILE CONTENT [MODE] — writes CONTENT (plus a
 # trailing newline) to FILE via a same-directory temp file and rename, but
@@ -409,6 +410,106 @@ posture_write_sddm_theme_dropin() {
 # greeter for the machine as long as any other kid remains provisioned.
 posture_remove_sddm_theme_dropin() {
     rm -f "$(posture_sddm_conf_dir)/zz-omarchy-kids-theme.conf"
+}
+
+# --- portal.json: parent detection + avatars for the greeter (issue #39) ---
+#
+# V1's live VM run (docs/portal.md's "Verified live" section) found the
+# portal's tiles keying "who is the parent" off the "kid-" username prefix
+# broke as soon as the machine's *owner* was named "kid-vm" (a VM test
+# fixture, not a real child) -- the owner's own tile was misclassified as
+# a kid. /etc/omarchy-kids/portal.json is a theme-readable file so
+# Main.qml can decide parenthood from the profile registry instead
+# (docs/assert.md's own "never provisioned means nothing to assert"
+# framing applies here too: this file only ever lists kids actually
+# provisioned, from $OMARCHY_KIDS_ETC/kids/*.conf, and whoever
+# machine.conf's "parent=" names -- never a guess from account naming).
+#
+# Root-owned 0644 (world-readable, like every other file lib/posture.sh
+# writes for the greeter to read) -- it holds names and avatar ids, none
+# of which is a secret, and SDDM's greeter runs as an unprivileged user
+# that needs to read it (see the "Reading portal.json" note in
+# docs/portal.md for exactly how Main.qml gets at it).
+
+# posture_portal_json_text PARENT [ENTRY...] — ENTRY is
+# "account<TAB>name<TAB>avatar" (a tab, not ':' -- a display name could
+# plausibly contain a colon; AGENTS.md rule 5's shell style forbids
+# assuming it can't contain a tab too, so callers are responsible for
+# never handing this a name with an embedded tab -- the wizard's own
+# name field, once it exists, is the one place that would need to
+# enforce that). Built with jq, already a hard PKGBUILD dependency
+# (bin/omarchy-kids-web, bin/omarchy-kids-session-start both already
+# shell out to it) rather than hand-rolled string concatenation, so a
+# display name with a quote or backslash in it can never produce
+# invalid JSON.
+posture_portal_json_text() {
+    local parent="$1" kids_json="{}" entry account name avatar
+    shift
+    for entry in "$@"; do
+        IFS=$'\t' read -r account name avatar <<<"$entry"
+        kids_json="$(jq -n --argjson kids "$kids_json" --arg acct "$account" --arg name "$name" --arg avatar "$avatar" \
+            '$kids + {($acct): {name: $name, avatar: $avatar}}')"
+    done
+    jq -n --arg parent "$parent" --argjson kids "$kids_json" '{parent: $parent, kids: $kids}'
+}
+
+# posture_write_portal_json FILE PARENT [ENTRY...] — FILE is a full path
+# (like posture_write_luks_slots' FILE argument), not computed from
+# posture_root: portal.json lives under $OMARCHY_KIDS_ETC
+# (/etc/omarchy-kids/portal.json), alongside the kid profiles and
+# machine.conf it is derived from, not under the OMARCHY_KIDS_ROOT-scoped
+# paths (/etc/polkit-1, /etc/pam.d, ...) every other posture_* writer in
+# this file owns -- the caller (omarchy-kids-provision,
+# omarchy-kids-assert) already knows that path.
+posture_write_portal_json() {
+    local file="$1" parent="$2"
+    shift 2
+    posture_install_if_changed "$file" "$(posture_portal_json_text "$parent" "$@")" 0644
+}
+
+# --- SDDM greeter local-file XHR (issue #39, "reading portal.json") -------
+#
+# By default Qt's QML XMLHttpRequest refuses to read local files at all --
+# confirmed against Qt 6's own documentation (doc.qt.io/qt-6/qml-qtqml-
+# xmlhttprequest.html, fetched 2026-09): "By default, you cannot use the
+# XMLHttpRequest object to read files from your local file system,"
+# lifted only by setting QML_XHR_ALLOW_FILE_READ=1 in the process
+# environment. SDDM's own greeter source (sddm/sddm's
+# src/greeter/GreeterApp.cpp, fetched 2026-09) sets no such variable
+# itself -- grepped for `qputenv`/`setenv` there: only QT_QPA_PLATFORM is
+# ever *read*, nothing XHR-related is ever *set*. So without this,
+# Main.qml's portal.json read (see its own header comment) will silently
+# fail every time and the theme falls back to its old kid-<slug> prefix
+# heuristic -- not a hypothetical risk, an active one.
+#
+# This writes a systemd drop-in on sddm.service (never sddm.service
+# itself -- I-7: core untouched) exporting that variable, on the
+# assumption that systemd inherits a unit's own Environment= into every
+# process that unit's main PID subsequently forks/execs, which should
+# include the greeter helper sddm.service spawns. UNVERIFIED: nothing in
+# this checkout can confirm the greeter process actually inherits it
+# short of the real VM (docs/portal.md's test plan has the check); if it
+# doesn't, Main.qml's fallback heuristic is what actually runs in
+# practice, same as if this drop-in didn't exist at all.
+posture_sddm_xhr_dropin_text() {
+    cat <<'EOF'
+[Service]
+Environment=QML_XHR_ALLOW_FILE_READ=1
+EOF
+}
+
+posture_write_sddm_xhr_dropin() {
+    local file
+    file="$(posture_sddm_service_dropin_dir)/omarchy-kids-portal-xhr.conf"
+    posture_install_if_changed "$file" "$(posture_sddm_xhr_dropin_text)" 0644
+}
+
+# posture_remove_sddm_xhr_dropin — same shape and same "not called from
+# anywhere yet" status as posture_remove_sddm_theme_dropin just above:
+# machine-level (R-FND-6), left in place by "provision remove" until
+# Remove Kids Mode takes the whole package out.
+posture_remove_sddm_xhr_dropin() {
+    rm -f "$(posture_sddm_service_dropin_dir)/omarchy-kids-portal-xhr.conf"
 }
 
 # --- luks-slots (R-SEC-4, and the "LUKS2 reuses slot numbers" finding) -----

@@ -27,14 +27,18 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
    logged. With `--no-password` (3-5 only; refused for every other band, checking
    `password_optional` from `omarchy-kids-conf band <band>`), the account is locked instead
    (`usermod -L`).
-4. **Home, bind-mounted `nosuid,nodev,noexec`** (R-FND-2): a line is appended to
+4. **Display name** (R-LOGIN, issue #39): `usermod -c "<display-name>" <account>` sets the passwd
+   GECOS field. SDDM's greeter reads its `realName` role from GECOS (`getpwnam(3)`'s
+   `pw_gecos`), not from AccountsService, so this is a separate call from the AccountsService pin
+   below, not folded into it. Re-asserted as the `gecos:<account>` lock (`docs/assert.md`).
+5. **Home, bind-mounted `nosuid,nodev,noexec`** (R-FND-2): a line is appended to
    `/etc/fstab` — `/home/<account> /home/<account> none bind,nosuid,nodev,noexec 0 0` — and then
    `mount -o remount,bind,nosuid,nodev,noexec /home/<account>` applies it immediately, without
    waiting for the next boot.
-5. **The profile** (Appendix B): `omarchy-kids-conf set <account> name|avatar|band|password|onboarded ...`
+6. **The profile** (Appendix B): `omarchy-kids-conf set <account> name|avatar|band|password|onboarded ...`
    writes `name`, `avatar`, `band`, `password` (`set` or `none`), `onboarded=no` to
    `$OMARCHY_KIDS_ETC/kids/<account>.conf`.
-6. **Polkit** (R-FND-3, R-FND-4): `/etc/polkit-1/rules.d/40-omarchy-kids.rules` (admin identity
+7. **Polkit** (R-FND-3, R-FND-4): `/etc/polkit-1/rules.d/40-omarchy-kids.rules` (admin identity
    `["unix-user:<parent>"]` for `omarchy-kids` members — the parent's name comes from `parent=`
    in `$OMARCHY_KIDS_ETC/machine.conf`, written by machine setup before any kid exists) and
    `/etc/polkit-1/rules.d/41-omarchy-kids-deny.rules` (outright `polkit.Result.NO`, no prompt, for
@@ -42,16 +46,16 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
    packagekit, flatpak, and any `org.omarchy.*` action). Both are written once and are
    idempotent: a second kid's `add` compares content and leaves an unchanged file alone, so
    there's never a duplicate rule block.
-7. **Text consoles masked** (R-FND-5): `systemctl mask getty@tty2.service` .. `tty6.service`.
+8. **Text consoles masked** (R-FND-5): `systemctl mask getty@tty2.service` .. `tty6.service`.
    Also idempotent (masking an already-masked unit is a no-op).
-8. **A private noexec tmpfs for `/tmp` and `/dev/shm`** (R-FND-2a, issue #10 finding c): two
+9. **A private noexec tmpfs for `/tmp` and `/dev/shm`** (R-FND-2a, issue #10 finding c): two
    lines appended to `/etc/security/namespace.conf` —
    `/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec <account>` and the same shape for
    `/dev/shm` — plus, in `/etc/pam.d/sddm` and `/etc/pam.d/systemd-user`, a marker comment
    (`# omarchy-kids: pam_namespace for kid sessions (R-FND-2a)`) followed by
    `session required pam_namespace.so`, appended once per file and never duplicated (the marker
    is the idempotence check).
-9. **The parent-unlock verifier line** (R-SEC-2, R-SEC-3; `docs/authd.md`), machine-level and
+10. **The parent-unlock verifier line** (R-SEC-2, R-SEC-3; `docs/authd.md`), machine-level and
    idempotent: `lib/posture.sh`'s `posture_ensure_parent_unlock_line` inserts the
    `pam_exec.so … omarchy-kids-parent-auth` line (a fixed `[success=done default=ignore]`
    control — "done" ends the stack on a verified parent password before pam_unix is ever
@@ -65,7 +69,7 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
    `pam_unix.so` line worth jumping around (`lib/posture.sh`'s own header comment has the full
    placement rule). A stack that doesn't exist yet on this box (the lock screen hasn't been
    configured) is a warning, not a reason to fail the whole `add` — see "Judgment calls" below.
-10. **A LUKS key slot** (R-SEC-4), only when a password was given *and* an encrypted device is
+11. **A LUKS key slot** (R-SEC-4), only when a password was given *and* an encrypted device is
    found (`--luks-device`, or auto-detected via `lsblk` for the first `crypto_LUKS` device — see
    "Known gap" below): the parent's own passphrase (needed to authorize the add; the second line
    of stdin with `--parent-password-stdin`, or an already-open fd with `--parent-password-fd`)
@@ -75,10 +79,23 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
    (`cryptsetup open --test-passphrase --verbose --key-file=<(kid password) DEVICE`, parsing its
    own `Key slot N unlocked.` line) — see "Why luks-slots is rewritten whole" below for why this
    step exists at all instead of just remembering the slot cryptsetup handed out.
-11. **AccountsService** (R-LOGIN-3): `/var/lib/AccountsService/users/<account>` gets
+12. **AccountsService** (R-LOGIN-3): `/var/lib/AccountsService/users/<account>` gets
     `Session=omarchy-kids`, `XSession=omarchy-kids`, `Icon=/usr/share/omarchy-kids/avatars/<avatar>.svg`
     so the tile has no session picker at all.
-12. **Omarchy's own per-user setup** (issue #10 finding b): if `omarchy-provision-user` exists on
+13. **The SDDM portal theme selection and its local-file-XHR drop-in** (R-LOGIN, issue #14,
+    issue #39): `/etc/sddm.conf.d/zz-omarchy-kids-theme.conf` selects the portal
+    (`docs/portal.md`), and `/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf`
+    sets `Environment=QML_XHR_ALLOW_FILE_READ=1` on `sddm.service`, an attempt to let the
+    greeter's QML read `portal.json` (next step) — **unverified** whether the greeter process
+    actually inherits it; see `docs/portal.md`. Both are machine-level (R-FND-6): written once,
+    left alone by `remove` until Remove Kids Mode takes the package out.
+14. **portal.json** (R-LOGIN, issue #39): `/etc/omarchy-kids/portal.json` (root-owned 0644) is
+    rebuilt in full from every kid profile under `$OMARCHY_KIDS_ETC/kids/*.conf` plus
+    `machine.conf`'s `parent=` — `{"parent":"<owner>","kids":{"<account>":{"name":...,
+    "avatar":...}}}` — so `Main.qml` can decide the parent tile and each kid's name/avatar from
+    the profile registry, never from the `kid-` username prefix (`docs/portal.md`'s "Verified
+    live" section: a VM whose owner account happened to be named `kid-vm` broke that heuristic).
+15. **Omarchy's own per-user setup** (issue #10 finding b): if `omarchy-provision-user` exists on
     the target, it's run with the new account. If it doesn't, `mark_migrations_done` writes a
     best-effort stand-in — see "Known gap" below.
 
@@ -95,16 +112,21 @@ Reverses every account-level step `add` took, in reverse-ish order, then removes
 2. `pam_namespace` lines for the account removed from `namespace.conf` (the `pam.d/sddm` and
    `pam.d/systemd-user` marker lines stay — they're not per-account).
 3. The AccountsService file removed.
-4. The home unmounted (`umount /home/<account>`) and its `fstab` line dropped.
-5. The profile file (`$OMARCHY_KIDS_ETC/kids/<account>.conf`) removed.
-6. `userdel <account>` (no `-r`: the home is left on disk on purpose, for the next step).
-7. Unless `--keep-home`, the home moves to `<parent home>/Kids Mode/<display name>/` — the
+4. **portal.json rebuilt without this account** (R-LOGIN, issue #39): the same full-rewrite
+   `posture_write_portal_json` `add` uses, excluding the account being removed — never an
+   in-place edit, for the same reason `luks-slots` is a full rewrite (see below).
+5. The home unmounted (`umount /home/<account>`) and its `fstab` line dropped.
+6. The profile file (`$OMARCHY_KIDS_ETC/kids/<account>.conf`) removed.
+7. `userdel <account>` (no `-r`: the home is left on disk on purpose, for the next step).
+8. Unless `--keep-home`, the home moves to `<parent home>/Kids Mode/<display name>/` — the
    parent's login name comes from `machine.conf`'s `parent=`, and their home directory from
    `getent passwd` (falling back to `/home/<parent>` where `getent` isn't available, e.g. this
    repo's macOS dev environment).
 
 **Left alone, on purpose** (R-FND-6: machine-level, only removed by Remove Kids Mode): the
-`omarchy-kids*` groups, the console masks, both polkit rule files, and the parent-unlock PAM
+`omarchy-kids*` groups, the console masks, both polkit rule files, the SDDM theme selection and
+its XHR drop-in (`lib/posture.sh` has `posture_remove_sddm_theme_dropin` and
+`posture_remove_sddm_xhr_dropin` for Remove Kids Mode to call later), and the parent-unlock PAM
 lines on `sddm` and the lock-screen stack (`lib/posture.sh` has `posture_remove_parent_unlock_line`
 for Remove Kids Mode to call later; `remove` itself doesn't, since a parent should still be able
 to unlock the lock screen and SDDM even after the *last* kid is removed).

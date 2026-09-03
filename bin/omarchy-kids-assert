@@ -16,7 +16,7 @@
 # trusting it -- can point the whole run at a scratch tree, and nothing
 # under this dev checkout's real /etc, /var, or /home is ever touched by
 # test/shell.d/assert-test.sh:
-#   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (kid profiles, machine.conf)
+#   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (kid profiles, machine.conf, portal.json)
 #   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids  (hyprland/*.lua source)
 #   OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
 #   OMARCHY_KIDS_ROOT       scratch prefix for every real machine path this
@@ -46,6 +46,7 @@ SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 HOME_ROOT="${OMARCHY_KIDS_HOME_ROOT:-}"
 KIDS_DIR="$ETC/kids"
 MACHINE_CONF="$ETC/machine.conf"
+PORTAL_JSON_FILE="$ETC/portal.json"
 
 QUIET=0
 DRY_RUN=0
@@ -58,11 +59,12 @@ Usage: omarchy-kids-assert [--quiet] [--dry-run]
 Re-asserts every Kids Mode lock for every provisioned kid, and every
 machine-level lock, idempotently (SPEC.md I-4, R-TRUST-5): fstab bind
 lines and noexec mounts, pam_namespace lines, the AccountsService pin,
-group membership, the polkit admin/deny rules, the SDDM portal theme
-selection (R-LOGIN), pam_namespace on sddm and systemd-user, masked
-getty@tty2..6, the /etc/omarchy-kids/hyprland/*.lua copies, per-band
-Chromium policy file permissions, and the boot hook (R-BOOT-5). See
-docs/assert.md for the full lock list and exit codes.
+the passwd GECOS display name, group membership, the polkit admin/deny
+rules, the SDDM portal theme selection and its portal.json/local-file-XHR
+support (R-LOGIN, issue #39), pam_namespace on sddm and systemd-user,
+masked getty@tty2..6, the /etc/omarchy-kids/hyprland/*.lua copies,
+per-band Chromium policy file permissions, and the boot hook (R-BOOT-5).
+See docs/assert.md for the full lock list and exit codes.
 
 Applies fixes for real by default -- this is the command the pacman hook
 and the boot unit call with no other flags, so it must self-heal without
@@ -195,6 +197,23 @@ accountsservice_ok() {
 }
 accountsservice_fix() { posture_write_accountsservice "$1" "$2"; }
 
+# gecos (issue #39): the greeter's realName comes from the passwd GECOS
+# field, not AccountsService -- SDDM's UserModel reads getpwnam(3)'s
+# pw_gecos (docs/portal.md). "add" sets it once with `usermod -c`; this
+# re-asserts it against a stray edit or a package reinstall the same way
+# every other per-kid lock here does. Needs `getent` to read the field
+# back; a box without one (this repo's own macOS dev environment --
+# docs/provision.md's own note on `lsblk` is the same situation) has
+# nothing to compare against, so this reports "ok" rather than guessing
+# at a fix it can't verify.
+gecos_ok() {
+    local account="$1" name="$2" current
+    command -v getent >/dev/null 2>&1 || return 0
+    current="$(getent passwd "$account" 2>/dev/null | cut -d: -f5)"
+    [[ "$current" == "$name" ]]
+}
+gecos_fix() { usermod -c "$2" "$1"; }
+
 # groups: member of omarchy-kids and the band group. No writer for this
 # in lib/posture.sh (omarchy-kids-provision sets it once via `useradd -G`
 # at creation time, not through a posture_* function), so this is the one
@@ -251,6 +270,58 @@ sddm_theme_ok() {
     [[ -f "$file" ]] && [[ "$(cat "$file")" == "$(posture_sddm_theme_dropin_text)" ]]
 }
 sddm_theme_fix() { posture_write_sddm_theme_dropin; }
+
+# sddm-xhr (issue #39): the systemd drop-in that (unverified -- see
+# lib/posture.sh's own header comment) lets the greeter's QML actually
+# read portal.json via XMLHttpRequest. Same exact-content-match shape as
+# sddm-theme above.
+sddm_xhr_ok() {
+    local file
+    file="$(posture_sddm_service_dropin_dir)/omarchy-kids-portal-xhr.conf"
+    [[ -f "$file" ]] && [[ "$(cat "$file")" == "$(posture_sddm_xhr_dropin_text)" ]]
+}
+sddm_xhr_fix() { posture_write_sddm_xhr_dropin; }
+
+# portal-json (issue #39): /etc/omarchy-kids/portal.json, rebuilt from
+# the current, known-correct set of kid profiles plus machine.conf's
+# parent= every time -- same "recompute the whole thing, exact-content
+# match" shape sddm-theme/polkit-admin above already use, not
+# reconstructed incrementally, so a stray hand-edit or a kid profile
+# quietly falling out of sync with the file can't leave stale entries
+# behind.
+portal_json_entries() {
+    local f account name avatar
+    for f in "$KIDS_DIR"/*.conf; do
+        [[ -e "$f" ]] || continue
+        account="$(basename "$f" .conf)"
+        name="$(conf_get "$f" name 2>/dev/null || true)"
+        avatar="$(conf_get "$f" avatar 2>/dev/null || true)"
+        printf '%s\t%s\t%s\n' "$account" "$name" "$avatar"
+    done
+}
+portal_json_expected() {
+    local parent entries=() line
+    parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && entries+=("$line")
+    done < <(portal_json_entries)
+    posture_portal_json_text "$parent" "${entries[@]+"${entries[@]}"}"
+}
+portal_json_ok() {
+    local expected
+    expected="$(portal_json_expected)" || return 1
+    [[ -f "$PORTAL_JSON_FILE" ]] && [[ "$(cat "$PORTAL_JSON_FILE")" == "$expected" ]]
+}
+portal_json_fix() {
+    local parent entries=() line
+    parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && entries+=("$line")
+    done < <(portal_json_entries)
+    posture_write_portal_json "$PORTAL_JSON_FILE" "$parent" "${entries[@]+"${entries[@]}"}"
+}
 
 pam_ok() {
     local file
@@ -508,20 +579,24 @@ main() {
         exit 0
     fi
 
-    local account band avatar
+    local account band avatar name
     for account in "${kids[@]}"; do
         band="$(profile_field "$account" band)"
         avatar="$(profile_field "$account" avatar)"
+        name="$(profile_field "$account" name)"
         assert_one "fstab:$account" fstab_ok fstab_fix "$account"
         assert_one "mount:$account" mount_ok mount_fix "$account"
         assert_one "namespace:$account" namespace_ok namespace_fix "$account"
         assert_one "accountsservice:$account" accountsservice_ok accountsservice_fix "$account" "$avatar"
+        assert_one "gecos:$account" gecos_ok gecos_fix "$account" "$name"
         assert_one "groups:$account" groups_ok groups_fix "$account" "$band"
     done
 
     assert_one "polkit-admin" polkit_admin_ok polkit_admin_fix
     assert_one "polkit-deny" polkit_deny_ok polkit_deny_fix
     assert_one "sddm-theme" sddm_theme_ok sddm_theme_fix
+    assert_one "sddm-xhr" sddm_xhr_ok sddm_xhr_fix
+    assert_one "portal-json" portal_json_ok portal_json_fix
     assert_one "pam:sddm" pam_ok pam_fix sddm
     assert_one "pam:systemd-user" pam_ok pam_fix systemd-user
 

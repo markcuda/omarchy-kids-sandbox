@@ -117,6 +117,21 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
     else
         fail "Main.qml does not look up both omarchy-kids.desktop and omarchy.desktop"
     fi
+
+    # issue #39: parent detection from portal.json, never solely the
+    # "kid-" username prefix; display name and avatar fallbacks.
+    for needle in "portal.json" "XMLHttpRequest" "isParentAccount" "portalParent" "portalKids" "avatarSourceFor"; do
+        if grep -qF "$needle" "$MAIN_QML"; then
+            pass "Main.qml references $needle"
+        else
+            fail "Main.qml missing a reference to $needle"
+        fi
+    done
+    if grep -qF 'charAt(0).toUpperCase()' "$MAIN_QML"; then
+        pass "Main.qml capitalizes the stripped-account-name display fallback"
+    else
+        fail "Main.qml does not capitalize the stripped-account-name display fallback"
+    fi
 else
     fail "$MAIN_QML not found"
 fi
@@ -173,6 +188,14 @@ if [[ -f "$PKGBUILD" ]]; then
     else
         fail "package() does not install share/sddm-theme/ to /usr/share/sddm/themes/omarchy-kids/"
     fi
+
+    # issue #39: qt6-svg so the avatar SVGs actually rasterize.
+    depends_line="$(grep -E '^depends=' "$PKGBUILD")"
+    if grep -qF 'qt6-svg' <<<"$depends_line"; then
+        pass "PKGBUILD depends= includes qt6-svg"
+    else
+        fail "PKGBUILD depends= is missing qt6-svg"
+    fi
 else
     fail "$PKGBUILD not found"
 fi
@@ -203,6 +226,63 @@ else
     fail "posture_remove_sddm_theme_dropin left the drop-in in place"
 fi
 unset OMARCHY_KIDS_ROOT
+
+# --- lib/posture.sh: the sddm.service XHR drop-in writer (issue #39) ------
+
+OMARCHY_KIDS_ROOT="$TMP/root2"
+export OMARCHY_KIDS_ROOT
+posture_write_sddm_xhr_dropin
+XHR_DROPIN="$OMARCHY_KIDS_ROOT/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf"
+if [[ -f "$XHR_DROPIN" ]] && grep -qE '^\[Service\]$' "$XHR_DROPIN" && grep -qxF 'Environment=QML_XHR_ALLOW_FILE_READ=1' "$XHR_DROPIN"; then
+    pass "posture_write_sddm_xhr_dropin writes the QML_XHR_ALLOW_FILE_READ drop-in"
+else
+    fail "posture_write_sddm_xhr_dropin did not write the expected drop-in"
+fi
+posture_remove_sddm_xhr_dropin
+if [[ ! -e "$XHR_DROPIN" ]]; then
+    pass "posture_remove_sddm_xhr_dropin removes the drop-in"
+else
+    fail "posture_remove_sddm_xhr_dropin left the drop-in in place"
+fi
+unset OMARCHY_KIDS_ROOT
+
+# --- lib/posture.sh: portal.json (issue #39) -------------------------------
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "SKIP portal.json checks: jq not found"
+elif ! command -v python3 >/dev/null 2>&1; then
+    echo "SKIP portal.json checks: python3 not found"
+else
+    PORTAL_JSON="$TMP/portal.json"
+    posture_write_portal_json "$PORTAL_JSON" mark \
+        "$(printf 'kid-ada\tAda Lovelace\tfox')" \
+        "$(printf 'kid-cy\tCy\towl')"
+    if [[ -f "$PORTAL_JSON" ]]; then
+        pass "posture_write_portal_json writes the file"
+        check() { # got want label
+            if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
+        }
+        check "$(jq -e -r '.' "$PORTAL_JSON" >/dev/null 2>&1 && echo valid || echo invalid)" "valid" \
+            "portal.json is valid JSON"
+        check "$(jq -r '.parent' "$PORTAL_JSON")" "mark" "portal.json: parent"
+        check "$(jq -r '.kids["kid-ada"].name' "$PORTAL_JSON")" "Ada Lovelace" "portal.json: kids[kid-ada].name"
+        check "$(jq -r '.kids["kid-ada"].avatar' "$PORTAL_JSON")" "fox" "portal.json: kids[kid-ada].avatar"
+        check "$(jq -r '.kids["kid-cy"].name' "$PORTAL_JSON")" "Cy" "portal.json: kids[kid-cy].name"
+        check "$(jq -r '.kids | length' "$PORTAL_JSON")" "2" "portal.json: exactly two kids"
+        mode="$(stat -f '%Lp' "$PORTAL_JSON" 2>/dev/null || stat -c '%a' "$PORTAL_JSON" 2>/dev/null)"
+        check "$mode" "644" "portal.json: mode 0644"
+        # idempotence: a second write with the same content is a no-op
+        mtime1="$(stat -f '%m' "$PORTAL_JSON" 2>/dev/null || stat -c '%Y' "$PORTAL_JSON" 2>/dev/null)"
+        sleep 1
+        posture_write_portal_json "$PORTAL_JSON" mark \
+            "$(printf 'kid-ada\tAda Lovelace\tfox')" \
+            "$(printf 'kid-cy\tCy\towl')"
+        mtime2="$(stat -f '%m' "$PORTAL_JSON" 2>/dev/null || stat -c '%Y' "$PORTAL_JSON" 2>/dev/null)"
+        check "$mtime2" "$mtime1" "posture_write_portal_json is idempotent (no rewrite on unchanged content)"
+    else
+        fail "posture_write_portal_json did not write $PORTAL_JSON"
+    fi
+fi
 
 echo "portal-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

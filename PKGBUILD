@@ -19,7 +19,16 @@ pkgdesc="Kids Mode for Omarchy: a Kids Mode app on a normal Omarchy install (san
 arch=('x86_64')
 url="https://github.com/markcuda/omarchy-kids-sandbox"
 license=('MIT')
-depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd')
+# qt6-svg (issue #39): the portal's avatars (share/avatars/*.svg) only
+# rasterize in the SDDM greeter if Qt's SVG image plugin is loaded.
+# UNVERIFIED whether sddm/qt6-declarative already pull this in
+# transitively on a real Omarchy 4.0.2 box -- there is no pacman on this
+# dev machine to confirm with `pacman -Si sddm`'s own dependency tree,
+# and docs/portal.md's "Verified live" run predates this fix. Listed
+# explicitly rather than assumed, since an extra depends= on an already-
+# satisfied package is a no-op, but a missing one silently ships the
+# letter-circle fallback forever.
+depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg')
 optdepends=('socat: faster transport between omarchy-kids-parent-auth and omarchy-kids-authd')
 install=omarchy-kids.install
 source=()

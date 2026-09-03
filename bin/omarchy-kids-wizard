@@ -43,11 +43,16 @@
 #   OMARCHY_KIDS_WEB_BIN           path to omarchy-kids-web (default: sibling, else PATH)
 #   OMARCHY_KIDS_ASSERT_BIN        path to omarchy-kids-assert (default: sibling, else PATH)
 #   OMARCHY_KIDS_SESSION_BIN       path to omarchy-kids-session (default: sibling, else PATH)
+#   OMARCHY_KIDS_APPS_BIN          path to omarchy-kids-apps (default: sibling, else PATH)
 #   OMARCHY_KIDS_AUTH_SOCK         the parent-password verifier socket (default
 #                                  /run/omarchy-kids/auth.sock, same var
 #                                  bin/omarchy-kids-parent-auth uses)
 #   OMARCHY_KIDS_SETUP_LOG         the technical log Apply writes to (R-WIZ-5;
-#                                  default /var/log/omarchy-kids/setup.log)
+#                                  default /var/log/omarchy-kids/setup.log). A
+#                                  real run creates it (`sudo install -d` then
+#                                  `sudo tee -a`, since a parent's own process
+#                                  can't append to a root-owned file); a
+#                                  --dry-run never writes it.
 #   OMARCHY_KIDS_TUI_ANSWERS       one answer per line; see lib/tui.sh / docs/tui.md
 #   DRY_RUN                        default 1; 0 (or --apply) makes Apply real
 set -uo pipefail
@@ -68,6 +73,7 @@ PROVISION_BIN="${OMARCHY_KIDS_PROVISION_BIN:-$DIR/bin/omarchy-kids-provision}"; 
 WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=omarchy-kids-web
 ASSERT_BIN="${OMARCHY_KIDS_ASSERT_BIN:-$DIR/bin/omarchy-kids-assert}"; [[ -x "$ASSERT_BIN" ]] || ASSERT_BIN=omarchy-kids-assert
 SESSION_BIN="${OMARCHY_KIDS_SESSION_BIN:-$DIR/bin/omarchy-kids-session}"; [[ -x "$SESSION_BIN" ]] || SESSION_BIN=omarchy-kids-session
+APPS_BIN="${OMARCHY_KIDS_APPS_BIN:-$DIR/bin/omarchy-kids-apps}"; [[ -x "$APPS_BIN" ]] || APPS_BIN=omarchy-kids-apps
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 PYHELPER="$LIB/conf.py"
 
@@ -728,9 +734,133 @@ screen_summary() {
     return 1 # "Change something" == Esc: don't proceed, go back a screen
 }
 
+# --- Apply's five steps, one function each -------------------------------
+# Each prints/runs its own commands (via run_priv/run_priv_stdin/run_priv_as,
+# every one of which gets an explicit --apply where that command's own
+# convention needs it — DRY_RUN never crosses `sudo` into a child process,
+# so the flag on argv is the only thing that actually turns a real run on;
+# see docs/wizard.md "Root and the one sudo prompt") and returns that
+# command's real exit code, which run_apply_step below both displays and
+# uses to decide whether to keep going.
+
+# Step 1: the one sudo prompt for the whole Apply step, spending the A2
+# password, then making sure the technical log's directory exists (a
+# parent's own unprivileged process can't create a root-owned directory
+# itself — run_apply_step's `sudo tee -a` needs it to already exist).
+apply_step_getok() {
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '  [dry-run] sudo -v\n'
+        printf '  [dry-run] sudo install -d -m 0755 %q\n' "$(dirname "$SETUP_LOG")"
+        return 0
+    fi
+    if ! sudo -n true 2>/dev/null; then
+        printf '%s\n' "$PARENT_PASSWORD" | sudo -S -p '' -v 2>/dev/null || return 1
+    fi
+    sudo install -d -m 0755 "$(dirname "$SETUP_LOG")"
+}
+
+# Step 2: the account itself, plus every A7/A10/A11 choice that differs
+# from the band default (R-BAND-2: only overrides are ever written). A
+# failed override still fails the step — none of these are optional once
+# chosen — but doesn't stop the others from being attempted, so a parent
+# sees every problem at once rather than one at a time across re-runs.
+apply_step_account() {
+    local rc=0
+    if ((NO_PASSWORD)); then
+        run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --no-password --apply </dev/null
+    else
+        printf '%s\n%s\n' "$KID_PASSWORD" "$PARENT_PASSWORD" |
+            run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --password-stdin --parent-password-stdin --apply
+    fi
+    rc=$?
+    ((rc == 0)) || return "$rc"
+
+    maybe_override level "$LEVEL" "$(band_field "$BAND" level)" || rc=$?
+    maybe_override web "$WEB_MODE" "$(band_field "$BAND" web)" || rc=$?
+    maybe_override wifi "$WIFI_MODE" "$(band_field "$BAND" wifi)" || rc=$?
+    maybe_override budget_min "$BUDGET_MIN" "$(band_field "$BAND" budget_min)" || rc=$?
+    maybe_override lights_out "$LIGHTS_OUT" "$(band_field "$BAND" lights_out)" || rc=$?
+    if [[ -n "$ALLOWLIST_IDS" ]]; then
+        run_priv "$CONF_BIN" set "$ACCOUNT" allowlist "$ALLOWLIST_IDS" || rc=$?
+    fi
+    return "$rc"
+}
+
+# Step 3: web policy.
+apply_step_web() {
+    run_priv "$WEB_BIN" install "$BAND" --apply
+}
+
+# Step 4: starter pack, from cache (R-WIZ-4/R-APPS-3), via omarchy-kids-apps
+# (issue #24) rather than a raw pacman call here — --now makes this
+# synchronous, so the ✓ on screen means the packages are actually in
+# (the default, queue-and-background, would show ✓ before anything was
+# really installed). Prefetch (start_prefetch, the age screen) always
+# downloads the *whole* band pack regardless of A9's "let me pick"
+# (R-WIZ-4: "changed selections need no undo"); only the allowlist
+# written in apply_step_account controls what the kid actually sees in
+# their launcher, so installing the whole pack here even after a partial
+# pick is correct, not a bug.
+apply_step_pkgs() {
+    run_priv "$APPS_BIN" install "$BAND" --now --apply
+}
+
+# Step 5: the safety check (A13c): omarchy-kids-assert (I-4) and the same
+# R-DESK-2 preflight a real login runs, as the new kid's own account
+# (omarchy-kids-session --check figures out who it's checking via
+# `id -un`). Skips the second half with a clear line, rather than handing
+# `sudo -u` a user that was never actually created, whenever the account
+# genuinely doesn't exist in a real run — belt-and-suspenders alongside
+# run_apply_step stopping the whole dashboard on step 2's own failure.
+# --dry-run always shows both commands (there's nothing real to check).
+apply_step_safety() {
+    local rc=0
+    run_priv "$ASSERT_BIN"
+    rc=$?
+    if [[ "$DRY_RUN" == "1" ]] || id "$ACCOUNT" >/dev/null 2>&1; then
+        run_priv_as "$ACCOUNT" "$SESSION_BIN" --check
+        local session_rc=$?
+        ((session_rc == 0)) || rc=$session_rc
+    else
+        echo "  (skipping the session check — account $ACCOUNT does not exist)"
+        rc=1
+    fi
+    return "$rc"
+}
+
+# run_apply_step LABEL FUNC — runs FUNC (one of the apply_step_* above),
+# showing its output live and, in a real run, also appending it to
+# $SETUP_LOG (R-WIZ-5) via `sudo tee -a` — a parent's own unprivileged
+# wizard process can't append to that root-owned file directly, so the
+# write itself has to go through sudo too, same as every other Apply
+# command. A --dry-run never touches the log. FUNC's own real exit code
+# (not tee's) decides ✓ or ✗, via bash's PIPESTATUS, regardless of
+# whether pipefail happens to be set.
+run_apply_step() {
+    local func="$2" tmp rc
+    tmp="$(mktemp)"
+    if [[ "$DRY_RUN" == "1" ]]; then
+        "$func" 2>&1 | tee "$tmp"
+        rc="${PIPESTATUS[0]}"
+    else
+        "$func" 2>&1 | tee "$tmp" | sudo tee -a "$SETUP_LOG" >/dev/null
+        rc="${PIPESTATUS[0]}"
+    fi
+    if ((rc != 0)); then
+        echo
+        echo "\"$1\" failed. Last lines:"
+        tail -n 10 "$tmp"
+    fi
+    rm -f "$tmp"
+    return "$rc"
+}
+
 # A13b/A13c: Apply, then the safety check. The parent password was
 # already collected and (where possible) verified at A2 — see
 # screen_parent_password and docs/wizard.md "Root and the one sudo prompt".
+# Stops at the first failing step (real run only — --dry-run's steps
+# always "succeed", there being nothing real to fail) rather than
+# marching on and reporting success for a step that changed nothing.
 screen_apply() {
     tui_header "Apply" 14 "$TOTAL_STEPS" 0 ""
     echo
@@ -743,75 +873,35 @@ screen_apply() {
         "Installing $BAND starter apps"
         "Double-checking everything is safe"
     )
-    local i=0
-    tui_progress steps "$i" "You can watch this happen — nothing here needs another click."
+    local -a funcs=(apply_step_getok apply_step_account apply_step_web apply_step_pkgs apply_step_safety)
+    local total=${#steps[@]} i rc k
 
-    # Step 1: the one sudo prompt for the whole Apply step, spending the
-    # A2 password (see run_priv's comment / docs/wizard.md).
-    if [[ "$DRY_RUN" == "1" ]]; then
-        printf '  [dry-run] sudo -v\n'
-    elif ! sudo -n true 2>/dev/null; then
-        printf '%s\n' "$PARENT_PASSWORD" | sudo -S -p '' -v 2>/dev/null
-    fi
-    i=1
-    tui_progress steps "$i"
-
-    # Step 2: the account itself, plus every choice that differs from
-    # the band default (R-BAND-2: only overrides are ever written).
-    if ((NO_PASSWORD)); then
-        run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --no-password --apply </dev/null
-    else
-        printf '%s\n%s\n' "$KID_PASSWORD" "$PARENT_PASSWORD" |
-            run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --password-stdin --parent-password-stdin --apply
-    fi
-    local provision_rc=$?
-    maybe_override level "$LEVEL" "$(band_field "$BAND" level)"
-    maybe_override web "$WEB_MODE" "$(band_field "$BAND" web)"
-    maybe_override wifi "$WIFI_MODE" "$(band_field "$BAND" wifi)"
-    maybe_override budget_min "$BUDGET_MIN" "$(band_field "$BAND" budget_min)"
-    maybe_override lights_out "$LIGHTS_OUT" "$(band_field "$BAND" lights_out)"
-    [[ -n "$ALLOWLIST_IDS" ]] && run_priv "$CONF_BIN" set "$ACCOUNT" allowlist "$ALLOWLIST_IDS"
-    i=2
-    tui_progress steps "$i"
-
-    # Step 3: web policy.
-    run_priv "$WEB_BIN" install "$BAND" --apply
-    local web_rc=$?
-    i=3
-    tui_progress steps "$i"
-
-    # Step 4: starter pack, from cache (R-WIZ-4/R-APPS-3) — only the apps
-    # the apps screen actually chose, if it chose a subset.
-    repo_and_aur_pkgs "$BAND" "$ALLOWLIST_IDS"
-    if ((${#REPO_PKGS[@]})); then
-        run_priv pacman -S --noconfirm --needed "${REPO_PKGS[@]}"
-    fi
-    if ((${#AUR_PKGS[@]})); then
-        echo "  (AUR packages deferred — no AUR helper wired up yet: ${AUR_PKGS[*]})"
-    fi
-    i=4
-    tui_progress steps "$i"
-
-    # Step 5: the safety check (A13c): omarchy-kids-assert (I-4) and the
-    # same R-DESK-2 preflight a real login runs, as the new kid's own
-    # account (omarchy-kids-session --check figures out who it's
-    # checking via `id -un`).
-    echo
-    echo "Safety check:"
-    run_priv "$ASSERT_BIN"
-    local assert_rc=$?
-    run_priv_as "$ACCOUNT" "$SESSION_BIN" --check
-    local session_rc=$?
-    i=5
-    tui_progress steps "$i" "The technical log is at $SETUP_LOG."
+    tui_progress steps 0 "You can watch this happen — nothing here needs another click."
 
     APPLY_OK=1
-    if [[ "$DRY_RUN" != "1" ]]; then
-        ((provision_rc == 0)) || APPLY_OK=0
-        ((web_rc == 0)) || APPLY_OK=0
-        ((assert_rc == 0)) || APPLY_OK=0
-        ((session_rc == 0)) || APPLY_OK=0
-    fi
+    for ((i = 0; i < total; i++)); do
+        run_apply_step "${steps[i]}" "${funcs[i]}"
+        rc=$?
+        if [[ "$DRY_RUN" != "1" ]] && ((rc != 0)); then
+            APPLY_OK=0
+            for ((k = 0; k < total; k++)); do
+                if ((k < i)); then
+                    echo "  ✓ ${steps[k]}"
+                elif ((k == i)); then
+                    echo "  ✗ ${steps[k]}"
+                else
+                    echo "  · ${steps[k]}"
+                fi
+            done
+            FAILED_STEP="${steps[i]}"
+            return 0
+        fi
+        if ((i == total - 1)); then
+            tui_progress steps $((i + 1)) "The technical log is at $SETUP_LOG."
+        else
+            tui_progress steps $((i + 1))
+        fi
+    done
     return 0
 }
 
@@ -821,7 +911,7 @@ screen_done() {
     if ((APPLY_OK)); then
         headline="$DISPLAY_NAME's desktop is ready."
     else
-        headline="$DISPLAY_NAME's account is set up, but the safety check found something to fix — see the lines above."
+        headline="Setup stopped at \"$FAILED_STEP\" — see the lines above for what went wrong."
     fi
     local omy="$headline Next time the computer starts, $DISPLAY_NAME can just type their password."
     local choices=(
@@ -855,6 +945,7 @@ NO_PASSWORD=0
 KID_PASSWORD=""
 PARENT_PASSWORD=""
 APPLY_OK=1
+FAILED_STEP=""
 
 tui_init || exit $?
 

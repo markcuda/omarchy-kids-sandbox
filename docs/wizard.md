@@ -57,12 +57,28 @@ The wizard itself never needs root — reading `bands.toml`/`packs/`/`avatars/` 
 screens is all unprivileged. Apply is the one place a real system change happens, so it's the one
 place `sudo` is used, and only once: right at the start of Apply, `sudo -S -p '' -v` spends the
 password collected back at A2 to warm sudo's credential cache (or, in `--dry-run`, just prints
-`sudo -v`). Every subsequent Apply command (`run_priv`/`run_priv_stdin`/`run_priv_as` below) is
-then a plain `sudo <command>`, which shouldn't prompt again inside that cached window. This needs
-the parent's account to actually be in `sudoers`/`wheel` with the usual Arch/Omarchy defaults —
-verifying that assumption, and that the single A2 password really does cover the whole Apply
-sequence with no surprise second prompt, needs a real terminal (or the test laptop/VM):
-`test/shell.d/wizard-test.sh` only exercises `--dry-run`, where `sudo` is never actually invoked.
+`sudo -v`). Every subsequent Apply command (`run_priv`/`run_priv_stdin`/`run_priv_as`, called from
+one of the five `apply_step_*` functions) is then a plain `sudo <command>`, which shouldn't prompt
+again inside that cached window. This needs the parent's account to actually be in
+`sudoers`/`wheel` with the usual Arch/Omarchy defaults — verifying that assumption, and that the
+single A2 password really does cover the whole Apply sequence with no surprise second prompt,
+needs a real terminal (or the test laptop/VM): `test/shell.d/wizard-test.sh` exercises both
+`--dry-run` (where `sudo` is never actually invoked) and `DRY_RUN=0` against a fake `sudo` that
+really execs its argv, but neither one is a real `sudoers` file.
+
+**A VM run once got past every command below with every dashboard row showing ✓, yet `kid-ben`
+was never actually created.** Root cause: `DRY_RUN=0` in the wizard's own environment does not
+cross `sudo` into the child process at all (a fresh `sudo` invocation starts a fresh environment
+unless the target's `sudoers` config explicitly keeps a variable, which none here do), and every
+downstream command — `omarchy-kids-provision`, `omarchy-kids-web install`, `omarchy-kids-apps
+install` — defaults to `DRY_RUN=1` and only actually writes anything when it sees its own
+`--apply` on argv. So every `run_priv`/`run_priv_stdin` call in this file passes `--apply`
+literally, on the command line, to every one of those three commands (see `apply_step_account`,
+`apply_step_web`, `apply_step_pkgs`) — never the environment, which is the one thing that reliably
+survives a `sudo` boundary. `omarchy-kids-assert` doesn't need this (it defaults to *acting* for
+real and only previews with its own `--dry-run`, the one command in `bin/` that inverts the usual
+convention — see `docs/assert.md`), and `omarchy-kids-conf set` has no dry-run concept at all,
+so neither of those two needed a fix here.
 
 ## Prefetch (R-WIZ-4): a known gap
 
@@ -79,18 +95,50 @@ and defer" fallback, just a different reason. Fixing this for real (a root helpe
 drop-in scoped to exactly `pacman -Sw` for the `omarchy-kids` group) is follow-on work, not part of
 this issue. Ctrl+C before Apply kills the background prefetch job if one is running
 (`stop_prefetch`, on an `EXIT` trap) — SPEC's own "abort it on Ctrl+C". Prefetch always downloads
-the *whole* band pack regardless of what the A9 apps screen later picks — R-WIZ-4's own words,
-"changed selections need no undo" — only Apply's install step installs a chosen subset.
+the *whole* band pack via a raw `pacman -Sw` (not `omarchy-kids-apps`, which has no download-only
+mode) regardless of what the A9 apps screen later picks — R-WIZ-4's own words, "changed selections
+need no undo" — Apply's own install step (below) installs the whole pack too; only the allowlist
+override A9 writes actually restricts what the kid sees in their launcher.
+
+## Apply's five steps: exit codes, stopping on failure, and the technical log
+
+Each of Apply's five dashboard rows is one function (`apply_step_getok`, `apply_step_account`,
+`apply_step_web`, `apply_step_pkgs`, `apply_step_safety`), and `run_apply_step` is the one place
+that runs one, decides ✓ or ✗, and does something about it:
+
+- **✓/✗ is the step's own real exit code**, not "we got this far without the script itself
+  crashing." `run_apply_step` captures it through `PIPESTATUS[0]`, which stays correct regardless
+  of `pipefail`, even though the step's output is piped through `tee` on the way to the screen and
+  the log (below) — a step that printed a happy-looking line but exited non-zero still shows ✗.
+- **The dashboard stops at the first ✗** (real runs only — every `--dry-run` step "succeeds",
+  there being nothing real to fail): the remaining rows print as `·` (never attempted, never
+  claimed to be), the failing command's last ten lines print under the dashboard, and Done's
+  headline names which step it was ("Setup stopped at ...") instead of claiming the desktop is
+  ready.
+- **The technical log** (R-WIZ-5's tip line, `$SETUP_LOG`, default `/var/log/omarchy-kids/setup.log`)
+  is now actually written on a real run, not just named: `apply_step_getok` creates its directory
+  (`sudo install -d`, since a parent's own unprivileged wizard process can't create anything under
+  `/var/log` itself), and every step's combined output is piped through `sudo tee -a "$SETUP_LOG"`
+  on its way to the screen — a second, separate `sudo` call from the step's own (already-elevated)
+  command, which the A2-warmed credential cache covers the same way it covers everything else. A
+  `--dry-run` never touches this file at all; the tip line only mentions it after the real dashboard
+  finishes.
 
 ## The safety check
 
-Apply's last step runs two things and shows both outputs directly: `omarchy-kids-assert`
-(SPEC I-4, `docs/assert.md`) reasserts every lock and prints one `ok`/`fixed`/`FAIL` line per
-check; `sudo -u <account> omarchy-kids-session --check` (`docs/session.md`) runs the same R-DESK-2
-preflight the kid's own real login would run, as the kid's own account, and prints its own
-PASS/FAIL/WARN table. Running the second one *as* the new account (rather than the parent) is
-what makes it check the right kid's facts — `omarchy-kids-session --check` figures out which
-account it's checking via `id -un`.
+Apply's last step (`apply_step_safety`) runs two things and shows both outputs directly:
+`omarchy-kids-assert` (SPEC I-4, `docs/assert.md`) reasserts every lock and prints one
+`ok`/`fixed`/`FAIL` line per check; `sudo -u <account> omarchy-kids-session --check`
+(`docs/session.md`) runs the same R-DESK-2 preflight the kid's own real login would run, as the
+kid's own account, and prints its own PASS/FAIL/WARN table. Running the second one *as* the new
+account (rather than the parent) is what makes it check the right kid's facts —
+`omarchy-kids-session --check` figures out which account it's checking via `id -un`. On a real run
+(never in `--dry-run`, where there's nothing real to check), this step first checks that the
+account genuinely exists (`id "$ACCOUNT"`); if it doesn't, it prints one line explaining that and
+skips the `sudo -u` call entirely, rather than handing `sudo` a user that was never created and
+getting back a confusing "no such user" error. In practice `apply_step_account` failing would
+already have stopped the whole dashboard before this step ever runs — this is belt-and-suspenders
+for exactly that kind of gap, not the primary defense.
 
 ## Open `<Name>`'s desktop, on Done
 
@@ -105,8 +153,26 @@ computer starts. Building a real preview switch is separate, later work.
 ## The answers-file layout
 
 Every screen is driven by `lib/tui.sh`'s `OMARCHY_KIDS_TUI_ANSWERS` (`docs/tui.md`): one answer
-per line, `@esc`/`@ctrlc` for the two keys a file can't press. A full happy-path run, band 6-8,
-with a password and every A7-A11 choice left at its band default:
+per line, `@esc`/`@ctrlc` for the two keys a file can't press.
+
+### Which token a choose screen (A1, A5-A11, A13, A14) accepts
+
+Every one of this wizard's choice screens is `tui_screen_choose` (`docs/tui.md`), and it matches a
+line against exactly four things for each option, in this order: the option's **value** (the short
+id shown before `|` in this file's own `choices=(...)` arrays — e.g. Done's two options are
+`parent|Return to my desktop|` and `kid|Open <Name>'s desktop|`), its **label** verbatim (e.g.
+`Return to my desktop`, capital R, no trailing period), the **whole rendered line** verbatim
+(`1) Return to my desktop`), or a bare **1-based number** (`1`). Nothing else matches — not a
+lowercase or partial label, not the first word of one. Typing `return` for Done's first option
+does **not** match anything (it's not the value, not the label, not the numbered line) and fails
+the run with `tui: 'return' does not match any choice on 'Done'`; the value `parent` does. This
+file's own examples always use each screen's **value**, since those are what's shortest and least
+likely to collide with another screen's own value (Wi-Fi's A10 also happens to use `parent` as a
+value, for "Ask me first" — a coincidence with Done's `parent`, not a bug: they're different
+screens, so there's no ambiguity in an actual answers file, only when reading two screens' values
+side by side out of context, as in the examples below).
+
+A full happy-path run, band 6-8, with a password and every A7-A11 choice left at its band default:
 
 ```text
 begin              # A1 Welcome
@@ -147,13 +213,17 @@ parent
 
 Picking "I'll set my own" at A8 inserts two more lines (minutes, then lights-out); picking
 "Let me pick" at A9 inserts one `yes`/`no` line per app in the band's starter pack, in pack order.
-`test/shell.d/wizard-test.sh` builds every one of these programmatically and checks the exact
-`[dry-run] sudo ...` lines Apply prints — provision's flags (face included), the `omarchy-kids-conf
-set` override lines for any A7/A10/A11 choice that differs from the band default (and their
-absence when every choice matches the default — R-BAND-2), the web install call, the pacman
-install line (the full pack, or just the chosen subset), and the two safety-check commands — plus
+`test/shell.d/wizard-test.sh` builds every one of these programmatically under `--dry-run` and
+checks the exact `[dry-run] sudo ...` lines Apply prints — provision's flags (`--apply` and the
+face included), the `omarchy-kids-conf set` override lines for any A7/A10/A11 choice that differs
+from the band default (and their absence when every choice matches the default — R-BAND-2), the
+web install call (also with `--apply`), and the `omarchy-kids-apps install <band> --now --apply`
+call (always the whole band pack, regardless of A9's pick — see "Apply's five steps" above) — plus
 name validation, the A8/A9 branches, Esc-back, and that Ctrl+C right after Welcome prints no
-command at all.
+command at all. A separate block of scenarios runs with `DRY_RUN=0` against a fake `sudo` that
+actually execs its argv, to check the things `--dry-run` can't: a failing step showing ✗ and
+stopping the dashboard before any later step runs, the failing command's tail on screen, the
+technical log actually gaining that same content, and the safety check's account-existence guard.
 
 ## Every path is overridable, same convention as the rest of `bin/`
 
@@ -168,8 +238,9 @@ command at all.
 | `OMARCHY_KIDS_WEB_BIN` | sibling `bin/omarchy-kids-web`, else `PATH` | Apply's web-policy step |
 | `OMARCHY_KIDS_ASSERT_BIN` | sibling `bin/omarchy-kids-assert`, else `PATH` | the safety check |
 | `OMARCHY_KIDS_SESSION_BIN` | sibling `bin/omarchy-kids-session`, else `PATH` | the safety check's `--check` |
+| `OMARCHY_KIDS_APPS_BIN` | sibling `bin/omarchy-kids-apps`, else `PATH` | Apply's starter-pack install step (issue #24) |
 | `OMARCHY_KIDS_AUTH_SOCK` | `/run/omarchy-kids/auth.sock` | A2's parent-password verification, if `omarchy-kids-authd` is running (`docs/authd.md`) |
-| `OMARCHY_KIDS_SETUP_LOG` | `/var/log/omarchy-kids/setup.log` | named in Apply's tip line (R-WIZ-5); nothing here writes to it yet — a later issue's job |
+| `OMARCHY_KIDS_SETUP_LOG` | `/var/log/omarchy-kids/setup.log` | Apply's technical log (see "Apply's five steps" above) — a real run writes it; `--dry-run` never does |
 | `OMARCHY_KIDS_TUI_ANSWERS` | (unset — real terminal) | see `docs/tui.md` |
 | `DRY_RUN` | `1` | `0` (or `--apply`) makes Apply real |
 

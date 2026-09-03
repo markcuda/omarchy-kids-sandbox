@@ -383,16 +383,24 @@ getty_fix() {
 # root; the fix is plain `systemctl enable`, which also works with --root.
 KIDS_UNITS=(omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service)
 KIDS_SOCKETS=(omarchy-kids-authd.socket)
+# omarchy-kids-ask-collect.timer (R-ASK-1..3, issue #25): the every-minute
+# backstop that applies an "ask a parent" request a kid submitted while
+# no one was running the panel. Same enable-idempotently treatment as
+# every other unit here, not a one-off in omarchy-kids.install, so a
+# fresh `omarchy-kids-assert` run (by hand, the wizard, or the pacman
+# hook) is enough to pick it up too.
+KIDS_TIMERS=(omarchy-kids-ask-collect.timer)
 unit_link() { printf '%s/etc/systemd/system/%s.wants/%s' "$(posture_root)" "$1" "$2"; }
 units_ok() {
     local u
     for u in "${KIDS_UNITS[@]}"; do [[ -L "$(unit_link multi-user.target "$u")" ]] || return 1; done
     for u in "${KIDS_SOCKETS[@]}"; do [[ -L "$(unit_link sockets.target "$u")" ]] || return 1; done
+    for u in "${KIDS_TIMERS[@]}"; do [[ -L "$(unit_link timers.target "$u")" ]] || return 1; done
 }
 units_fix() {
     local root_args=()
     [[ -n "$(posture_root)" ]] && root_args=(--root="$(posture_root)")
-    systemctl "${root_args[@]}" enable "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}"
+    systemctl "${root_args[@]}" enable "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"
 }
 
 # hyprland configs: every *.lua in $SHARE/hyprland copied verbatim to

@@ -1,0 +1,474 @@
+#!/bin/bash
+# omarchy-kids-ask -- "Ask a parent" for more time, an app, a plugin, or a
+# site (SPEC.md R-ASK-1..3, Appendix D; issue #25). One verb, four kinds.
+#
+# NOTE on the name: this is the `-ask` command R-BUILD-4 lists.
+# bin/omarchy-kids-ask-grownup already exists under a similar name but is
+# a different, already-shipped thing (issue #11's full-screen message
+# for a fail-closed check at login, R-DESK-2) -- it is not touched here.
+#
+# Kid-side (unprivileged, run inside the kid's session):
+#
+#   time <minutes>            Opens the modal asking for more screen time.
+#   app <package-or-id>       Opens the modal asking for one app.
+#   plugin <plugin-id>        Opens the modal asking for one launcher plugin.
+#   site <host>                Opens the modal asking for one website.
+#
+#     Each execs `quickshell -p $OMARCHY_KIDS_SHARE/ask/shell.qml`
+#     (share/ask/shell.qml), exporting what's being asked in kid words.
+#     The modal itself calls back into this command's `submit`:
+#
+#   submit <kind> <what> --state open|approved --by keyboard [--minutes N]
+#     Writes one Appendix D record into the *kid's own* outbox --
+#     $OMARCHY_KIDS_RUN/ask-outbox/<unix-ts>-<account>-<kind>.json --
+#     never anywhere root-owned. This is the trust boundary (see
+#     docs/ask.md): a kid can only ever write a *claim* about themself,
+#     into a directory only they can read or write ($XDG_RUNTIME_DIR is
+#     systemd-logind's own per-user, mode-0700 directory -- nothing new
+#     had to be made writable for this). Nothing here enforces anything.
+#
+# Root-side (run by the parent, from the panel, or by
+# systemd/omarchy-kids-ask-collect.timer):
+#
+#   collect [--apply]          For every kid account, moves whatever is
+#                               sitting in that kid's outbox into the
+#                               real queue (/var/lib/omarchy-kids/queue/,
+#                               Appendix D) -- root can read every kid's
+#                               $XDG_RUNTIME_DIR, so this is the one and
+#                               only place a claim becomes a queue
+#                               record. Any record that already arrived
+#                               pre-approved (the modal's "A grown-up is
+#                               here" path, state=approved, by=keyboard)
+#                               is applied on the spot, right here. This
+#                               is what actually makes R-ASK-1's "granted
+#                               on the spot" true: not instantly in the
+#                               kid's session (nothing there can reach
+#                               root), but as soon as collect next runs
+#                               -- the panel runs it directly when a
+#                               parent is looking, and the timer is the
+#                               every-minute backstop otherwise. See
+#                               docs/ask.md's "Judgment calls".
+#   list [<kid>]                Every open (undecided) request, all kids
+#                               or one.
+#   approve <id> [--apply]      Performs the action, then marks the
+#                               record approved (by=panel).
+#   decline <id> [--apply]      Marks the record declined (by=panel).
+#                               Never performs the action.
+#
+# Every path is overridable for tests, same convention as
+# omarchy-kids-apps and omarchy-kids-web:
+#   OMARCHY_KIDS_ETC        default /etc/omarchy-kids (kid overrides, per-kid allow.txt)
+#   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids (share/ask/shell.qml)
+#   OMARCHY_KIDS_ROOT       scratch prefix for /var/lib/omarchy-kids (the queue)
+#   OMARCHY_KIDS_RUN        kid-side outbox root, default $XDG_RUNTIME_DIR/omarchy-kids
+#                           (falls back to /tmp/omarchy-kids, same as
+#                           bin/omarchy-kids-super-tap)
+#   OMARCHY_KIDS_RUN_USER_ROOT  where `collect` looks for every kid's own
+#                           outbox: <this>/*/omarchy-kids/ask-outbox/
+#                           (default /run/user, i.e. every logged-in
+#                           kid's real $XDG_RUNTIME_DIR)
+#   OMARCHY_KIDS_ACCOUNT    kid-side: this session's account (default `id -un`)
+#   OMARCHY_KIDS_CONF_BIN   path to omarchy-kids-conf (default: resolved
+#                           beside this script, else /usr/bin/omarchy-kids-conf)
+#   OMARCHY_KIDS_WEB_BIN    path to omarchy-kids-web (same resolution)
+#   DRY_RUN                 default 1 for collect/approve/decline
+#                           (AGENTS.md rule 8); --apply or DRY_RUN=0 does
+#                           it for real. submit/time/app/plugin/site only
+#                           ever touch the kid's own runtime dir, so they
+#                           are never gated by DRY_RUN (same reasoning as
+#                           bin/omarchy-kids-super-tap).
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
+PY="${OMARCHY_KIDS_CONF_PY:-python3}"
+ASKPY="$LIB/ask.py"
+CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=/usr/bin/omarchy-kids-web
+SELF="${OMARCHY_KIDS_ASK_BIN:-$DIR/bin/omarchy-kids-ask}"; [[ -x "$SELF" ]] || SELF=/usr/bin/omarchy-kids-ask
+
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
+SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
+RUN_USER_ROOT="${OMARCHY_KIDS_RUN_USER_ROOT:-/run/user}"
+KIDS_DIR="$ETC/kids"
+QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
+OUTBOX_DIR="$RUN/ask-outbox"
+MODAL_QML="$SHARE/ask/shell.qml"
+
+DRY_RUN="${DRY_RUN:-1}"
+
+VALID_KINDS=(time app plugin site)
+
+die() { echo "omarchy-kids-ask: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<'EOF'
+Usage: omarchy-kids-ask time <minutes>
+       omarchy-kids-ask app <package-or-desktop-id>
+       omarchy-kids-ask plugin <plugin-id>
+       omarchy-kids-ask site <host>
+       omarchy-kids-ask submit <kind> <what> --state open|approved --by keyboard [--minutes N]
+       omarchy-kids-ask collect [--apply]
+       omarchy-kids-ask list [<kid>]
+       omarchy-kids-ask approve <id> [--apply]
+       omarchy-kids-ask decline <id> [--apply]
+       omarchy-kids-ask --help
+
+time/app/plugin/site   Kid-side: opens share/ask/shell.qml, the "Ask a
+              grown-up" modal, describing the request in kid words.
+
+submit        Internal: what the modal calls after Esc/"Ask later"/"A
+              grown-up is here". Writes one Appendix D record into the
+              kid's own outbox. Not meant to be run by a kid directly.
+
+collect       Root: moves every kid's outbox into the real queue
+              (/var/lib/omarchy-kids/queue/) and applies any record that
+              arrived pre-approved. Run by the panel, or by
+              systemd/omarchy-kids-ask-collect.timer every minute.
+
+list          Root: every undecided (open) request, all kids or one.
+
+approve       Root: performs the action, marks the record approved.
+decline       Root: marks the record declined; never performs the action.
+
+DRY_RUN=1 is the default for collect/approve/decline (AGENTS.md rule 8):
+they only print the plan. Pass --apply, or set DRY_RUN=0, to make it real.
+
+  -h, --help  Show this help and exit.
+EOF
+}
+
+run() { # run CMD [ARGS...] -- DRY_RUN=1 (default) previews; 0/--apply runs it.
+    if [[ "$DRY_RUN" == "0" ]]; then
+        "$@"
+    else
+        printf '  [dry-run]'
+        printf ' %q' "$@"
+        printf '\n'
+    fi
+}
+
+is_in() {
+    local needle="$1"; shift
+    local h
+    for h in "$@"; do [[ "$h" == "$needle" ]] && return 0; done
+    return 1
+}
+
+is_valid_kind() { is_in "$1" "${VALID_KINDS[@]}"; }
+
+# --- kid-side: open the modal ---------------------------------------------
+
+modal_already_open() {
+    command -v pgrep >/dev/null 2>&1 || return 1
+    pgrep -f "quickshell -p ${MODAL_QML}" >/dev/null 2>&1
+}
+
+# open_modal KIND WHAT DESC [MINUTES] -- exports what the QML needs and
+# execs quickshell, same shape as bin/omarchy-kids-exit's cmd_open.
+open_modal() {
+    local kind="$1" what="$2" desc="$3" minutes="${4:-}"
+
+    if modal_already_open; then
+        exit 0
+    fi
+
+    export OMARCHY_KIDS_ACCOUNT="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    export OMARCHY_KIDS_ASK_KIND="$kind"
+    export OMARCHY_KIDS_ASK_WHAT="$what"
+    export OMARCHY_KIDS_ASK_DESC="$desc"
+    export OMARCHY_KIDS_ASK_MINUTES="$minutes"
+    export OMARCHY_KIDS_ASK_BIN="$SELF"
+
+    exec quickshell -p "$MODAL_QML"
+}
+
+cmd_time() {
+    local minutes="${1:?omarchy-kids-ask time <minutes>}"
+    [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -gt 0 ]] || die "time: <minutes> must be a positive whole number"
+    local plural=""; [[ "$minutes" != 1 ]] && plural="s"
+    open_modal time "$minutes" "$minutes more minute$plural of screen time" "$minutes"
+}
+
+cmd_app() {
+    local id="${1:?omarchy-kids-ask app <package-or-desktop-id>}"
+    open_modal app "$id" "the app \"$id\""
+}
+
+cmd_plugin() {
+    local id="${1:?omarchy-kids-ask plugin <plugin-id>}"
+    open_modal plugin "$id" "the plugin \"$id\""
+}
+
+cmd_site() {
+    local host="${1:?omarchy-kids-ask site <host>}"
+    open_modal site "$host" "the website \"$host\""
+}
+
+# --- submit: kid-side, writes into the kid's own outbox --------------------
+
+cmd_submit() {
+    local kind="" what="" state="open" by="" minutes=""
+    if (($# >= 1)); then kind="$1"; shift; fi
+    if (($# >= 1)); then what="$1"; shift; fi
+    while (($#)); do
+        case "$1" in
+            --state) state="${2:?--state needs a value}"; shift 2 ;;
+            --by) by="${2:?--by needs a value}"; shift 2 ;;
+            --minutes) minutes="${2:?--minutes needs a value}"; shift 2 ;;
+            -h|--help) usage; exit 0 ;;
+            *) die "submit: unknown argument '$1'" ;;
+        esac
+    done
+    [[ -n "$kind" && -n "$what" ]] || die "submit: needs <kind> <what>"
+    is_valid_kind "$kind" || die "submit: unknown kind '$kind' (must be one of ${VALID_KINDS[*]})"
+
+    local account; account="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    install -d -m 0700 "$OUTBOX_DIR"
+
+    local -a args=("write" "$OUTBOX_DIR" --kid "$account" --kind "$kind" --what "$what" --state "$state")
+    [[ -n "$minutes" ]] && args+=(--minutes "$minutes")
+    [[ -n "$by" ]] && args+=(--by "$by")
+    "$PY" "$ASKPY" "${args[@]}"
+}
+
+# --- root: collect --------------------------------------------------------
+
+list_kids() {
+    [[ -d "$KIDS_DIR" ]] || return 0
+    local f
+    for f in "$KIDS_DIR"/*.conf; do
+        [[ -e "$f" ]] || continue
+        basename "$f" .conf
+    done
+}
+
+# apply_record PATH -- performs the action a decided (approved) record
+# names. Never rewrites the record itself (lib/ask.py decide already
+# did, or collect is about to for an on-the-spot one) -- this is purely
+# "do the thing", separate from "who decided".
+apply_record() {
+    local path="$1" kid kind what minutes
+    kid="$("$PY" "$ASKPY" show "$path" --field kid)"
+    kind="$("$PY" "$ASKPY" show "$path" --field kind)"
+    what="$("$PY" "$ASKPY" show "$path" --field what)"
+    minutes="$("$PY" "$ASKPY" show "$path" --field minutes)"
+
+    case "$kind" in
+        time) apply_time "$kid" "$minutes" ;;
+        app|plugin) apply_apps_extra "$kid" "$what" ;;
+        site) apply_site "$kid" "$what" ;;
+        *) echo "omarchy-kids-ask: record $path has an unknown kind '$kind'; skipped" >&2; return 1 ;;
+    esac
+}
+
+# apply_time KID MINUTES -- omarchy-kids-time is being built in a
+# parallel issue; call it by name and degrade gracefully (never fail the
+# decision) if it isn't on this box yet.
+apply_time() {
+    local kid="$1" minutes="$2"
+    if command -v omarchy-kids-time >/dev/null 2>&1; then
+        run omarchy-kids-time grant "$kid" "$minutes"
+    else
+        echo "omarchy-kids-ask: omarchy-kids-time isn't installed yet -- approved but NOT applied; grant $minutes minute(s) to $kid by hand once it exists" >&2
+    fi
+}
+
+# apply_apps_extra KID WHAT -- appends WHAT (an app or plugin id) to the
+# kid's apps.extra, same mechanism bin/omarchy-kids-apps hide/show use
+# for apps.hidden (docs/conf.md: nothing else touches a kid's .conf
+# directly). Idempotent: asking for the same id twice is a no-op the
+# second time.
+apply_apps_extra() {
+    local kid="$1" what="$2" extra
+    extra="$("$CONF_BIN" get "$kid" apps.extra 2>/dev/null || true)"
+    local -a arr=() out=()
+    IFS=',' read -ra arr <<<"$extra"
+    local id
+    for id in "${arr[@]+"${arr[@]}"}"; do
+        [[ -n "$id" ]] || continue
+        [[ "$id" == "$what" ]] && return 0  # already granted
+        out+=("$id")
+    done
+    out+=("$what")
+    local IFS_SAVE="$IFS" joined
+    IFS=,; joined="${out[*]}"; IFS="$IFS_SAVE"
+    run "$CONF_BIN" set "$kid" apps.extra "$joined"
+}
+
+# append_allow_line FILE HOST -- the actual write append_allow does under
+# `run`, so a dry run never touches the file.
+append_allow_line() {
+    local file="$1" host="$2"
+    install -d -m 0755 "$(dirname "$file")"
+    grep -qxF "$host" "$file" 2>/dev/null || printf '%s\n' "$host" >>"$file"
+}
+
+# apply_site KID HOST -- SPEC.md's `omarchy-kids-web` only renders a
+# *band-wide* Chromium policy (R-WEB-1), not a per-kid one, so this
+# keeps a per-kid record of what THIS kid was granted
+# (/etc/omarchy-kids/kids/<kid>/allow.txt, for a future per-kid policy
+# and for audit) and re-installs the band's policy with it merged in.
+# Known, documented limitation (docs/ask.md "Judgment calls"): today
+# this makes the site visible to every kid sharing the band, not just
+# the one who asked, until web gets real per-kid policies.
+apply_site() {
+    local kid="$1" host="$2" band allow_file
+    band="$("$CONF_BIN" get "$kid" band 2>/dev/null)" || {
+        echo "omarchy-kids-ask: could not read '$kid's band; site grant not applied" >&2
+        return 1
+    }
+    allow_file="$ETC/kids/$kid/allow.txt"
+    run append_allow_line "$allow_file" "$host"
+    run "$WEB_BIN" install "$band" --allow "$allow_file" --apply
+}
+
+cmd_collect() {
+    while (($#)); do
+        case "$1" in
+            --apply) DRY_RUN=0; shift ;;
+            -h|--help) usage; exit 0 ;;
+            *) die "collect: unexpected argument '$1'" ;;
+        esac
+    done
+
+    install -d -m 0755 "$QUEUE_DIR"
+
+    local collected=0 applied=0
+    local -a outbox_dirs=("$RUN_USER_ROOT"/*/omarchy-kids/ask-outbox)
+    local dir file base dest state n
+    for dir in "${outbox_dirs[@]}"; do
+        [[ -d "$dir" ]] || continue
+        for file in "$dir"/*.json; do
+            [[ -e "$file" ]] || continue
+            base="$(basename "$file")"
+            dest="$QUEUE_DIR/$base"
+            n=1
+            while [[ -e "$dest" ]]; do
+                n=$((n + 1))
+                dest="$QUEUE_DIR/${base%.json}-$n.json"
+            done
+
+            if [[ "$DRY_RUN" == "0" ]]; then
+                mv -n "$file" "$dest" || continue
+                collected=$((collected + 1))
+                state="$("$PY" "$ASKPY" show "$dest" --field state 2>/dev/null || true)"
+                if [[ "$state" == "approved" ]]; then
+                    apply_record "$dest" && applied=$((applied + 1))
+                fi
+            else
+                echo "  [dry-run] would collect $file -> $dest"
+                collected=$((collected + 1))
+            fi
+        done
+    done
+
+    if [[ "$DRY_RUN" == "0" ]]; then
+        echo "omarchy-kids-ask: collect: $collected request(s) collected, $applied applied on the spot"
+    else
+        echo "omarchy-kids-ask: collect: $collected request(s) would be collected (dry-run; pass --apply for real)"
+    fi
+}
+
+# --- root: list / approve / decline ---------------------------------------
+
+cmd_list() {
+    local kid="${1:-}"
+    install -d -m 0755 "$QUEUE_DIR"
+    local -a args=("list-open" "$QUEUE_DIR")
+    [[ -n "$kid" ]] && args+=(--kid "$kid")
+
+    local rows; rows="$("$PY" "$ASKPY" "${args[@]}")"
+    if [[ -z "$rows" ]]; then
+        echo "omarchy-kids-ask: no open requests"
+        return 0
+    fi
+    printf '%-28s %-12s %-8s %-24s %s\n' ID KID KIND WHAT ASKED_AT
+    printf '%s\n' "$rows" | while IFS=$'\t' read -r id rkid kind what minutes asked_at; do
+        [[ "$kind" == time ]] && what="${minutes} min"
+        printf '%-28s %-12s %-8s %-24s %s\n' "$id" "$rkid" "$kind" "$what" "$asked_at"
+    done
+}
+
+record_path_for_id() {
+    local id="$1"
+    local path="$QUEUE_DIR/$id.json"
+    [[ -f "$path" ]] || die "no such request id '$id' (see 'omarchy-kids-ask list')"
+    printf '%s\n' "$path"
+}
+
+cmd_approve() {
+    local id="" apply_flag=0
+    while (($#)); do
+        case "$1" in
+            --apply) apply_flag=1; shift ;;
+            -h|--help) usage; exit 0 ;;
+            *) if [[ -z "$id" ]]; then id="$1"; else die "approve: unexpected argument '$1'"; fi; shift ;;
+        esac
+    done
+    [[ -n "$id" ]] || die "approve: needs <id>"
+    [[ "$apply_flag" == 1 ]] && DRY_RUN=0
+
+    local path; path="$(record_path_for_id "$id")"
+    local state; state="$("$PY" "$ASKPY" show "$path" --field state)"
+    [[ "$state" == "open" ]] || die "request '$id' is already decided ($state)"
+
+    apply_record "$path"
+    if [[ "$DRY_RUN" == "0" ]]; then
+        "$PY" "$ASKPY" decide "$path" --state approved --by panel
+        echo "omarchy-kids-ask: approved $id"
+    else
+        echo "  [dry-run] would mark $id approved (by=panel)"
+    fi
+}
+
+cmd_decline() {
+    local id="" apply_flag=0
+    while (($#)); do
+        case "$1" in
+            --apply) apply_flag=1; shift ;;
+            -h|--help) usage; exit 0 ;;
+            *) if [[ -z "$id" ]]; then id="$1"; else die "decline: unexpected argument '$1'"; fi; shift ;;
+        esac
+    done
+    [[ -n "$id" ]] || die "decline: needs <id>"
+    [[ "$apply_flag" == 1 ]] && DRY_RUN=0
+
+    local path; path="$(record_path_for_id "$id")"
+    local state; state="$("$PY" "$ASKPY" show "$path" --field state)"
+    [[ "$state" == "open" ]] || die "request '$id' is already decided ($state)"
+
+    if [[ "$DRY_RUN" == "0" ]]; then
+        "$PY" "$ASKPY" decide "$path" --state declined --by panel
+        echo "omarchy-kids-ask: declined $id"
+    else
+        echo "  [dry-run] would mark $id declined (by=panel), no action performed"
+    fi
+}
+
+# --- main ------------------------------------------------------------------
+
+main() {
+    local cmd="${1:-}"
+    case "$cmd" in
+        -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
+    esac
+    shift
+
+    case "$cmd" in
+        time) cmd_time "$@" ;;
+        app) cmd_app "$@" ;;
+        plugin) cmd_plugin "$@" ;;
+        site) cmd_site "$@" ;;
+        submit) cmd_submit "$@" ;;
+        collect) cmd_collect "$@" ;;
+        list) cmd_list "$@" ;;
+        approve) cmd_approve "$@" ;;
+        decline) cmd_decline "$@" ;;
+        *) die "unknown command: '$cmd' (see --help)" ;;
+    esac
+}
+
+main "$@"

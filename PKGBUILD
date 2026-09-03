@@ -56,7 +56,8 @@ package() {
 		"$pkgdir/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 
 	# systemd units (authd socket/service, boot-login + its cleanup unit,
-	# the screen-time ledger's timer/service, R-TIME-1).
+	# the screen-time ledger's timer/service, R-TIME-1, and the ask-collect timer,
+	# R-ASK-1..3, issue #25).
 	install -dm755 "$pkgdir/usr/lib/systemd/system"
 	install -m644 systemd/*.service systemd/*.socket systemd/*.timer "$pkgdir/usr/lib/systemd/system/"
 

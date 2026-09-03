@@ -1,0 +1,15 @@
+[Unit]
+Description=Collect and apply queued Omarchy Kids Mode "ask a parent" requests (SPEC.md R-ASK-1..3)
+Documentation=file:///usr/share/doc/omarchy-kids/ask.md
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/omarchy-kids-ask collect --apply
+# Reads every kid's own $XDG_RUNTIME_DIR (/run/user/<uid>/omarchy-kids/
+# ask-outbox/, root can always read this) and writes only
+# /var/lib/omarchy-kids/queue/, /etc/omarchy-kids/kids/<kid>/allow.txt,
+# and whatever omarchy-kids-conf/-web/-time themselves touch for a
+# decided grant -- never a kid's or the parent's home. ProtectHome=yes
+# is deliberately NOT set here: systemd's own docs say it also hides
+# /run/user/* from the unit, which is exactly what this has to read.
+NoNewPrivileges=yes

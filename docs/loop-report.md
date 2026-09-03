@@ -120,7 +120,10 @@ from screenshots. Done since:
   Super taps must wait for the launcher), the owner's boot now autologs the owner so a portal
   reset must wait for that session before exiting it cleanly, and a kid whose daily budget
   earlier scenarios used up gets Time's Up at login, which swallows the exit keystrokes.
-- Harness run 7, after all of that: all eight scenarios green in one run.
+- Harness run 7, after all of that: all eight scenarios green in one run. Then the launcher,
+  the exit modal, the Ask modal and Time's Up were screenshotted with catppuccin-latte as the
+  kid's own theme: all four read well on light. Setting that theme under `sudo` had died on an
+  unset variable left by a review refactor; fixed with a test that runs it unset.
 - One more harness lesson: the exit modal preselects Finish while Pause has no mechanism (the
   honest-UI rule), and the scenario's extra Tab was moving the selection onto Pause, which the
   modal refuses. The launcher change was never at fault; scenario 30 passes with the launcher

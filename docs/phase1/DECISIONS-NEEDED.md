@@ -27,4 +27,3 @@ before the first upload.
 The findings worth sending upstream are written up (the `ignore-auto-dns` Wi-Fi helper,
 `success=done` parent-unlock PAM line placement, SDDM's no-greeter-after-hard-terminate
 behaviour, the Limine snapshot-entry bypass). Posting on omacom/omarchy#9750 is yours.
-

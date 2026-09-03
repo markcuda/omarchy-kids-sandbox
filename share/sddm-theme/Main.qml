@@ -192,6 +192,7 @@ Rectangle {
         root.currentIndex = i
         root.passwordMode = false
         root.loginFailed = false
+        keyScope.forceActiveFocus() // the closed password field would otherwise keep the arrows
     }
 
     // Enter on the highlighted tile (R-LOGIN-2/4): "no password" profiles
@@ -326,9 +327,8 @@ Rectangle {
                                     sddm.login(modelData.name, passwordField.text, root.sessionIndexForUser(modelData))
                                     event.accepted = true
                                 } else if (event.key === Qt.Key_Escape) {
-                                    root.passwordMode = false
                                     passwordField.text = ""
-                                    root.loginFailed = false
+                                    root.selectTile(root.currentIndex)
                                     event.accepted = true
                                 }
                             }

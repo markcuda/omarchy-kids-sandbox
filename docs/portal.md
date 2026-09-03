@@ -126,6 +126,11 @@ now listed explicitly in `PKGBUILD`'s `depends=` (unverified whether `sddm`/`qt6
 already pull it in transitively; there is no `pacman` on this dev machine to check with
 `pacman -Si sddm`'s own dependency tree).
 
+**2026-09-03, keyboard focus.** Left/Right went dead after a password field had been opened and
+closed once (Enter, Esc): the field kept keyboard focus. `selectTile()` now hands focus back to
+the key scope, and the field's own Escape goes through it. Seen and fixed on the VM: Left, Enter,
+Esc, Left moves the highlight again; the parent tile opens its field from the keyboard.
+
 ## Ground truth this was checked against (2026-09, no local SDDM/Qt install)
 
 Everything below was fetched and read from source, not guessed, since this machine has no SDDM

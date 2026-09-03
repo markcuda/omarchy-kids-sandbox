@@ -216,6 +216,21 @@ if [[ "$WEB" != "none" ]]; then
   fi
 fi
 
+# "More apps" tile (SPEC.md R-APPS-7; issue #28): the kids-plugins
+# shelf, Level 1 only, bands 6-8 and up -- 3-5 gets no shelf tile at
+# all, not a shelf that always shows nothing (I-6: don't offer a door
+# to an empty room). Opens share/plugins/shell.qml, a read-only list of
+# the shelf (same overlay pattern as the "Ask a grown-up" modal); its
+# own Enter runs `omarchy-kids-ask app <plugin>`, so nothing here needs
+# to plumb the kid's account through -- only the band, for the shelf's
+# own age filter (bin/omarchy-kids-plugins shelf --band).
+if [[ "$LEVEL" == "1" && "$BAND" != "3-5" ]]; then
+  jq -n --arg band "$BAND" --arg qml "$SHARE/plugins/shell.qml" \
+    '{id: "more-apps", label: "More apps", icon: "",
+      exec: ("OMARCHY_KIDS_BAND=" + ($band | @sh) + " quickshell -p " + ($qml | @sh))}' \
+    >>"$TILES_FILE"
+fi
+
 jq -s '{account: $account, band: $band, level: $level, tiles: .}' \
   --arg account "$ACCOUNT" --arg band "$BAND" --arg level "$LEVEL" \
   "$TILES_FILE" >"$LAUNCHER_JSON.tmp"

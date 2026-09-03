@@ -376,5 +376,14 @@ out2="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"; st2=$?
 check_eq "$st2" 0 "no profiles, not quiet: still exits 0"
 check_contains "$out2" "nothing to assert" "no profiles, not quiet: names why"
 
+# --- Limine editor lock (V6) -------------------------------------------------
+mkdir -p "$TMP/boot" "$ETC/kids"
+printf 'name=Ada\navatar=fox\nband=6-8\npassword=set\nonboarded=no\n' > "$ETC/kids/kid-ada.conf"  # a provisioned kid again, so machine locks run
+printf 'default_entry: 2\ninterface_branding: Omarchy Bootloader\n' > "$TMP/boot/limine.conf"
+out="$("$BIN" 2>&1)"
+if grep -q "fixed *limine-editor" <<<"$out" && head -1 "$TMP/boot/limine.conf" | grep -qx 'editor_enabled: no'; then echo "PASS  limine-editor: editor_enabled: no inserted at the top"; else echo "FAIL  limine-editor fix ($out)"; exit 1; fi
+out="$("$BIN" 2>&1)"
+if grep -q "ok *limine-editor" <<<"$out" && [[ "$(grep -c '^editor_enabled:' "$TMP/boot/limine.conf")" == "1" ]]; then echo "PASS  limine-editor: idempotent"; else echo "FAIL  limine-editor idempotence ($out)"; exit 1; fi
+
 echo "assert-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

@@ -355,6 +355,22 @@ list_kids() {
     done
 }
 
+# --- Limine editor (V6): the menu editor and "Blank Entry" let anyone append init=/bin/bash ---
+limine_conf() { printf '%s/boot/limine.conf' "$(posture_root)"; }
+limine_editor_ok() {
+    local f; f="$(limine_conf)"
+    [[ -f "$f" ]] || return 0   # no Limine config here (a VM without it, a test tree): nothing to assert
+    grep -qE '^editor_enabled:[[:space:]]*no[[:space:]]*$' "$f"
+}
+limine_editor_fix() {
+    local f tmp; f="$(limine_conf)"
+    [[ -f "$f" ]] || return 0
+    tmp="$(mktemp)"
+    # Drop any existing editor_enabled line, then put ours first so a regenerated file gets it back.
+    { printf 'editor_enabled: no\n'; grep -vE '^editor_enabled:' "$f"; } > "$tmp" && cat "$tmp" > "$f"
+    rm -f "$tmp"
+}
+
 main() {
     local kids=() k
     while IFS= read -r k; do
@@ -403,6 +419,7 @@ main() {
 
     if [[ -f "$HOOK_FILE" ]]; then
         assert_one "boot-hook" boot_hook_ok boot_hook_fix
+    assert_one "limine-editor" limine_editor_ok limine_editor_fix
     fi
 
     [[ "$ANY_FAIL" -eq 0 ]] || exit 1

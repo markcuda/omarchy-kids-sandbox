@@ -122,6 +122,17 @@ step needs a command it can name on a plain `sudo <command>` argv (`run_priv`'s 
 an inline shell that could call `conf_set` directly. `boot.snapshot_entries` still has no writer of
 its own in this repo; nothing else needs one yet.
 
+`machine set parent` has a real side effect, the same way `set <kid> theme` does (above):
+right after `machine.conf` is written, it calls `lib/kids.sh`'s `luks_slots_record_parent`
+against `/etc/omarchy-kids/luks-slots`, so a `0=<parent>` line exists once a parent is recorded
+(docs/boot.md step 5 — without it, a boot unlocked with the parent's own disk password maps to
+nothing and lands on the portal). Every existing kid entry in the file is kept untouched. An
+already-present `0=` line is left exactly as it is — even one naming someone else — noted on
+stderr; `machine set parent` still succeeds. The one case it refuses outright, exiting non-zero:
+the existing `0=` line names a currently-provisioned kid, meaning slot 0 is already how that kid's
+own account unlocks, and writing the parent there too would be a real LUKS slot clash rather than
+a naming question — that needs a human to resolve the slot mapping by hand.
+
 | Key | Values | Default | What it does |
 | --- | --- | --- | --- |
 | `parent` | a login name | *(none — see below)* | The parent's own account name. Read by `omarchy-kids-authd` (`docs/authd.md`) to know whose shadow hash to check, and by `omarchy-kids-provision`, which refuses to add a kid without it. Written by `omarchy-kids-conf machine set parent <name>` — `bin/omarchy-kids-wizard`'s Apply step does this first, before anything else, to `$OMARCHY_KIDS_INVOKING_USER` (default `id -un`, since the wizard always runs unprivileged, as the parent) — since nothing else in this repo writes it (issue #46: seen live, missing entirely right after a real `omarchy-kids-remove`, which deletes the whole `$ETC` tree). |
@@ -160,7 +171,8 @@ omarchy-kids-conf reset <kid>                clear overrides except band/name/av
 omarchy-kids-conf bands                      list bands with their label and blurb
 omarchy-kids-conf band <band>                print one band's defaults
 omarchy-kids-conf slug <display name>        the kid- account-name slug for a display name (Appendix B.1)
-omarchy-kids-conf machine set parent <name>  write machine.conf's parent= (issue #46)
+omarchy-kids-conf machine set parent <name>  write machine.conf's parent= (issue #46),
+                                              then record the parent's LUKS slot 0
 ```text
 
 `set` refuses a key that isn't in Appendix B, and a value that doesn't match the key's format, with

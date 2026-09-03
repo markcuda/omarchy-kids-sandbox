@@ -855,6 +855,17 @@ apply_step_pkgs() {
 # genuinely doesn't exist in a real run — belt-and-suspenders alongside
 # run_apply_step stopping the whole dashboard on step 2's own failure.
 # --dry-run always shows both commands (there's nothing real to check).
+#
+# TODO(issue #29, docs/check.md "Judgment calls"): NOT swapped to a
+# single `omarchy-kids-check --json` call here, on purpose. Two of
+# these three things omarchy-kids-check itself cannot replace: the
+# `$ASSERT_BIN` call above is the one place in Apply that actually
+# *fixes* a lock (omarchy-kids-check is read-only, by design — a FAIL
+# there means "run omarchy-kids-assert", never "already handled"), and
+# `--json` is a flat machine-readable blob, not the human-readable
+# table this screen shows live to a parent. Revisit only alongside a
+# real A13c redesign (rendering the JSON's sections into gum output),
+# not as a one-line substitution.
 apply_step_safety() {
     local rc=0
     run_priv "$ASSERT_BIN"

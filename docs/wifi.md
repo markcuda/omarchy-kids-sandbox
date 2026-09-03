@@ -40,12 +40,12 @@ this daemon at all — R-WIFI-1's other value.
 A client connects to `/run/omarchy-kids/wifi.sock`, writes its request, shuts down its write side
 (or just closes), and reads the reply:
 
-```
+```text
 LIST\n                          -> "OK\n" + nmcli's own terse output, or "REFUSED ...\n"/"ERROR ...\n"
 STATUS\n                        -> "OK\n" + nmcli's own terse output
 JOIN <ssid>\n<password>\n       -> "OK\njoined kids-<ssid>\n", or an ERROR line
 FORGET <ssid>\n                 -> "OK\nforgot kids-<ssid>\n", or an ERROR line
-```
+```text
 
 `<password>` may be empty (an open network); the header line is required, the password line is
 not. The daemon serves one request per connection — same reasoning as authd: there's no need for
@@ -117,11 +117,11 @@ deliberately plain HTTP, so a captive portal's intercept actually fires) and, on
 (walled-garden) band, temporarily adds `neverssl.com` to that band's Chromium
 `URLAllowlist` (R-WEB-3) for ten minutes:
 
-```
+```text
 omarchy-kids-web install <band> --allow <tmp-file-with-just-neverssl.com> --apply
 systemd-run --unit omarchy-kids-wifi-portal-restore-<band> --on-active=10min \
   --description "..." -- omarchy-kids-web install <band> --apply
-```
+```text
 
 The second command (no `--allow`) re-renders the band's normal policy ten minutes later,
 restoring the strict allowlist. Like every other command that writes under `/etc`, this is
@@ -184,9 +184,9 @@ claims to open anything it doesn't (I-6).
 - `omarchy-kids-wifi portal`'s temporary-allow-file and `systemd-run` restore command, in
   `DRY_RUN=1` (the default) — printed, never executed, per AGENTS.md rule 8.
 
-```
+```text
 bash test/shell.d/wifi-test.sh
-```
+```text
 
 ## What needs the VM (never run here — AGENTS.md rule 8)
 

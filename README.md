@@ -18,8 +18,10 @@ The two share the parent command and its feature commands.
 
 The spec is **[SPEC.md](SPEC.md)**; the work is
 [issues in six milestones](https://github.com/markcuda/omarchy-kids-sandbox/milestones), in build
-order. Results of the Phase 1 checks live in [`docs/phase1/`](docs/phase1/): **V2, V4, V5 and V7 pass** (real hardware and the QEMU test VM described in
-[`docs/vm.md`](docs/vm.md)); V1, V3 and the rest of V6 are in progress.
+order. Results of the Phase 1 checks live in [`docs/phase1/`](docs/phase1/) (real hardware and the
+QEMU test VM described in [`docs/vm.md`](docs/vm.md)): **V2, V4, V5 and V7 pass**; **V1 is
+finished and failed** — that's the reason Pause isn't built yet, see
+[`docs/phase1/V1.md`](docs/phase1/V1.md); V3 and the rest of V6 are still in progress.
 
 ### What works today
 
@@ -75,9 +77,10 @@ verified live, what is open, and which decisions are still waiting.
 
 ## What is here now
 
-Twenty-six `bin/omarchy-kids-*` commands, each with a `--help` and a `docs/<command>.md`; the
-shared shell under `lib/`; the data, policies, Hyprland levels, and Quickshell surfaces under
-`share/`; and `test/all`. [`AGENTS.md`](AGENTS.md)'s Layout table is the map.
+Twenty-seven `bin/omarchy-kids-*` commands, each with a `--help`; most have their own
+`docs/<command>.md`, the rest documented alongside a related command's page instead. The shared
+shell under `lib/`; the data, policies, Hyprland levels, and Quickshell surfaces under `share/`;
+and `test/all`. [`AGENTS.md`](AGENTS.md)'s Layout table is the map.
 
 ## Rules
 

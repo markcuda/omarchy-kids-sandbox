@@ -2,16 +2,19 @@
 # plus this band's own additions. `id` is the launcher entry id
 # `omarchy-kids-conf get <kid> allowlist` falls back to when a kid has no
 # override (the full pack, in file order).
+# `source` (extra/aur) is issue #52's audit against archlinux.org's package search API; see docs/apps.md.
 
 [[app]]
 pkg = "gcompris-qt"
+source = "extra"
 id = "gcompris"
 label = "GCompris"
 category = "education"
 age = "3-5"
 
 [[app]]
-pkg = "tuxpaint"
+pkg = "aur:tuxpaint"
+source = "aur"
 id = "tuxpaint"
 label = "Tux Paint"
 category = "creativity"
@@ -19,6 +22,7 @@ age = "3-5"
 
 [[app]]
 pkg = "ktuberling"
+source = "extra"
 id = "ktuberling"
 label = "KTuberling"
 category = "play"
@@ -26,6 +30,7 @@ age = "3-5"
 
 [[app]]
 pkg = "blinken"
+source = "extra"
 id = "blinken"
 label = "Blinken"
 category = "games"
@@ -33,6 +38,7 @@ age = "3-5"
 
 [[app]]
 pkg = "supertux"
+source = "extra"
 id = "supertux"
 label = "SuperTux"
 category = "games"
@@ -40,6 +46,7 @@ age = "6-8"
 
 [[app]]
 pkg = "supertuxkart"
+source = "extra"
 id = "supertuxkart"
 label = "SuperTuxKart"
 category = "games"
@@ -47,6 +54,7 @@ age = "6-8"
 
 [[app]]
 pkg = "klettres"
+source = "extra"
 id = "klettres"
 label = "KLettres"
 category = "education"
@@ -54,6 +62,7 @@ age = "6-8"
 
 [[app]]
 pkg = "kanagram"
+source = "extra"
 id = "kanagram"
 label = "Kanagram"
 category = "education"
@@ -61,6 +70,7 @@ age = "6-8"
 
 [[app]]
 pkg = "aur:turbowarp-desktop-bin"
+source = "aur"
 id = "turbowarp"
 label = "TurboWarp"
 category = "coding"
@@ -68,6 +78,7 @@ age = "9-12"
 
 [[app]]
 pkg = "luanti"
+source = "extra"
 id = "luanti"
 label = "Luanti"
 category = "play"
@@ -75,6 +86,7 @@ age = "9-12"
 
 [[app]]
 pkg = "ktouch"
+source = "extra"
 id = "ktouch"
 label = "KTouch"
 category = "education"
@@ -82,6 +94,7 @@ age = "9-12"
 
 [[app]]
 pkg = "aur:pixelorama"
+source = "aur"
 id = "pixelorama"
 label = "Pixelorama"
 category = "creativity"
@@ -89,27 +102,35 @@ age = "9-12"
 
 [[app]]
 pkg = "kiwix-desktop"
+source = "extra"
 id = "kiwix"
 label = "Kiwix"
 category = "reference"
 age = "9-12"
 
 [[app]]
-pkg = "sonic-pi"
+pkg = "aur:sonic-pi"
+source = "aur"
 id = "sonic-pi"
 label = "Sonic Pi"
 category = "music"
 age = "13+"
 
+# thonny is AUR-only (issue #52 audit); pyzo is extra's own beginner-
+# friendly interactive Python IDE, same kind for this band's "coding"
+# category, so it replaces thonny here instead of adding another aur:
+# entry.
 [[app]]
-pkg = "thonny"
-id = "thonny"
-label = "Thonny"
+pkg = "pyzo"
+source = "extra"
+id = "pyzo"
+label = "Pyzo"
 category = "coding"
 age = "13+"
 
 [[app]]
 pkg = "kstars"
+source = "extra"
 id = "kstars"
 label = "KStars"
 category = "reference"

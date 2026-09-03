@@ -6,23 +6,31 @@
 #   list <band|kid>          Every app in a band's pack (or, given a kid
 #                             account, that kid's band) with its
 #                             installed/missing state (`pacman -Q`).
-#   install <band> [--now]   Missing packages for a band's pack. By
-#                             default, enqueues them to
+#   install <band> [--now]   Missing packages for a band's pack, resolved
+#                             against the sync db first (`pacman -Si`,
+#                             issue #52) so one bad/missing target never
+#                             sinks the whole transaction. By default,
+#                             enqueues the resolvable ones to
 #                             /var/lib/omarchy-kids/apps-queue and starts
 #                             omarchy-kids-apps-install.service in the
 #                             background (`systemctl start --no-block`),
 #                             so the parent keeps going (R-APPS-3).
 #                             --now runs `pacman -S --needed --noconfirm`
 #                             for them directly, right away. AUR packages
-#                             (pkg = "aur:...") are named but skipped
-#                             either way -- building those is R-APPS-1's
-#                             own job, not built here. DRY_RUN=1 by
-#                             default (AGENTS.md rule 8); --apply or
-#                             DRY_RUN=0 makes either mode real.
-#   install-queued           The queue's worker: installs everything
-#                             still in the queue file that isn't already
-#                             installed, then empties the file. Always
-#                             runs for real -- see "Judgment calls" in
+#                             (pkg = "aur:...") and any target `pacman -Si`
+#                             can't find are named on stderr and skipped
+#                             either way -- building AUR is R-APPS-1's own
+#                             job, not built here. Exits 0 as long as
+#                             nothing that *was* attempted failed.
+#                             DRY_RUN=1 by default (AGENTS.md rule 8);
+#                             --apply or DRY_RUN=0 makes either mode real.
+#   install-queued           The queue's worker: resolves everything still
+#                             in the queue file against the sync db
+#                             (`pacman -Si`, issue #52), installs whatever
+#                             resolves and isn't already installed in one
+#                             transaction, reports anything that doesn't
+#                             resolve, then empties the file. Always runs
+#                             for real -- see "Judgment calls" in
 #                             docs/apps.md. Meant to be called by
 #                             systemd/omarchy-kids-apps-install.service,
 #                             not by a parent directly.
@@ -104,13 +112,16 @@ Usage: omarchy-kids-apps list <band|kid>
 list          Pack entries for a band (or a kid's own band) with
               installed/missing state (`pacman -Q`).
 
-install       Missing pack packages for a band. Default: enqueue for the
-              background install unit. --now: run pacman right away.
-              AUR packages (pkg = "aur:...") are named but skipped
-              either way. DRY_RUN=1 by default (AGENTS.md rule 8);
+install       Missing pack packages for a band, resolved against the sync
+              db first (pacman -Si) so one bad target can't sink the rest.
+              Default: enqueue the resolvable ones for the background
+              install unit. --now: run pacman right away. AUR packages
+              (pkg = "aur:...") and any unresolved target are named but
+              skipped either way. DRY_RUN=1 by default (AGENTS.md rule 8);
               --apply or DRY_RUN=0 makes it real.
 
 install-queued  The queue's worker (always real -- see docs/apps.md).
+                Resolves against the sync db first, same as install.
                 Meant for systemd/omarchy-kids-apps-install.service.
 
 allowlist     The kid's effective launcher allowlist: pack, plus
@@ -138,6 +149,12 @@ is_in() { # is_in NEEDLE HAYSTACK...
 }
 
 is_valid_band() { is_in "$1" "${VALID_BANDS[@]}"; }
+
+# pkg_resolves PKG — true if PKG is a real target in the sync db right
+# now (`pacman -Si`); catches a mismarked pack entry or a mirror that's
+# missing a package before it ever reaches a real -S transaction (issue
+# #52: this is what "target not found: tuxpaint" looked like live).
+pkg_resolves() { pacman -Si "$1" >/dev/null 2>&1; }
 
 # run CMD [ARGS...] — DRY_RUN=1 (default) prints the shell-quoted command
 # instead of running it; DRY_RUN=0 (or --apply) runs it for real. Same
@@ -292,7 +309,7 @@ cmd_install() {
     [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
     pack_ids_array "$band"
 
-    local -a missing=() aur_skipped=()
+    local -a missing=() aur_skipped=() unresolved=()
     local id pkgname
     for id in "${PACK_IDS[@]+"${PACK_IDS[@]}"}"; do
         [[ -n "$id" ]] || continue
@@ -303,13 +320,22 @@ cmd_install() {
                 pacman -Q "$pkgname" >/dev/null 2>&1 || aur_skipped+=("$pkgname")
                 ;;
             *)
-                pacman -Q "$PKG" >/dev/null 2>&1 || missing+=("$PKG")
+                if pacman -Q "$PKG" >/dev/null 2>&1; then
+                    :
+                elif pkg_resolves "$PKG"; then
+                    missing+=("$PKG")
+                else
+                    unresolved+=("$PKG")
+                fi
                 ;;
         esac
     done
 
     if [[ ${#aur_skipped[@]} -gt 0 ]]; then
         echo "omarchy-kids-apps: skipping AUR package(s), not yet automated (R-APPS-1): ${aur_skipped[*]}" >&2
+    fi
+    if [[ ${#unresolved[@]} -gt 0 ]]; then
+        echo "omarchy-kids-apps: not found in the synced repos, skipping (pack.toml or mirror gap, issue #52): ${unresolved[*]}" >&2
     fi
 
     if [[ ${#missing[@]} -eq 0 ]]; then
@@ -339,19 +365,33 @@ cmd_install_queued() {
         return 0
     fi
 
-    local -a queued=() still_missing=()
+    local -a queued=() still_missing=() unresolved=()
     local line
     while IFS= read -r line || [[ -n "$line" ]]; do
         [[ -n "$line" ]] && queued+=("$line")
     done <"$QUEUE_FILE"
 
+    # Resolve against the sync db before ever handing pacman a
+    # transaction (issue #52) -- a queued entry that no longer resolves
+    # (mirror gap, or a mismarked pack) is reported and dropped, never
+    # retried forever.
     local p
     for p in "${queued[@]+"${queued[@]}"}"; do
-        pacman -Q "$p" >/dev/null 2>&1 || still_missing+=("$p")
+        if pacman -Q "$p" >/dev/null 2>&1; then
+            continue
+        elif pkg_resolves "$p"; then
+            still_missing+=("$p")
+        else
+            unresolved+=("$p")
+        fi
     done
 
+    if [[ ${#unresolved[@]} -gt 0 ]]; then
+        echo "omarchy-kids-apps: install-queued: not found in the synced repos, dropping from the queue: ${unresolved[*]}" >&2
+    fi
+
     if [[ ${#still_missing[@]} -eq 0 ]]; then
-        echo "omarchy-kids-apps: install-queued: everything queued is already installed"
+        echo "omarchy-kids-apps: install-queued: nothing left in the queue to install"
     else
         echo "omarchy-kids-apps: install-queued: installing ${still_missing[*]}"
         if ! pacman -S --needed --noconfirm "${still_missing[@]}"; then

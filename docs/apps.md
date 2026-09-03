@@ -28,33 +28,45 @@ the prefix stripped (`pacman -Q` doesn't know about it), same as `install`.
 
 ### `install <band> [--now]`
 
-Finds the band's pack packages that `pacman -Q` says aren't installed yet, and either:
+Finds the band's pack packages that `pacman -Q` says aren't installed yet, then resolves each one
+against the sync db with `pacman -Si` before it goes anywhere near a real transaction (issue #52:
+this is exactly what caught "target not found: tuxpaint" on a VM with fully synced mirrors — one
+bad target used to sink the whole `pacman -S` transaction, so *nothing* in the pack installed).
+Only targets `pacman -Si` confirms go on to be queued or installed; either way:
 
-- **Default** — enqueues them (deduplicated, one per line) to
+- **Default** — enqueues the resolvable ones (deduplicated, one per line) to
   `/var/lib/omarchy-kids/apps-queue`, then `systemctl start --no-block
   omarchy-kids-apps-install.service` (R-APPS-3: "the parent keeps going"). The unit's own
   `install-queued` is what actually runs pacman, in the background, whenever systemd gets to it.
-- **`--now`** — runs `pacman -S --needed --noconfirm` for the missing packages directly, in the
-  foreground, right away.
+- **`--now`** — runs `pacman -S --needed --noconfirm` for the resolvable ones directly, in the
+  foreground, right away, as one transaction.
 
-Either way, an `aur:`-prefixed package is named on stderr and skipped, not queued and not
-installed: building AUR packages is R-APPS-1's own job (`omarchy-pkg-*`), not yet built. Nothing
-here ever removes a package or reboots.
+Either way, an `aur:`-prefixed package is named on stderr and skipped (not queued, not installed:
+building AUR packages is R-APPS-1's own job, `omarchy-pkg-*`, not yet built), and any other package
+`pacman -Si` can't find is also named on stderr and skipped — a mismarked pack entry or a mirror
+that's missing a target no longer stops the rest of the band from installing. Nothing here ever
+removes a package or reboots. Exits 0 as long as nothing that was actually attempted failed.
 
-`DRY_RUN=1` by default (AGENTS.md rule 8): both modes only print what they would do. `--apply`, or
-`DRY_RUN=0`, makes either one real.
+`DRY_RUN=1` by default (AGENTS.md rule 8): both modes only print what they would do (the `pacman
+-Q`/`pacman -Si` resolution itself is a read, so it always runs, dry-run or not — same as `list`).
+`--apply`, or `DRY_RUN=0`, makes either mode real.
 
 ### `install-queued`
 
-The queue's own worker: reads `/var/lib/omarchy-kids/apps-queue`, installs whatever in it isn't
-already installed (`pacman -S --needed --noconfirm`), then empties the file. Meant to be run by
+The queue's own worker: reads `/var/lib/omarchy-kids/apps-queue`, resolves each entry against the
+sync db the same way `install` does (`pacman -Si`, issue #52), installs whatever resolves and isn't
+already installed in one `pacman -S --needed --noconfirm` transaction, names anything that doesn't
+resolve on stderr, then empties the file. Meant to be run by
 `systemd/omarchy-kids-apps-install.service`, never by a parent directly — see "Judgment calls"
 below for why this one command always runs for real, unlike the rest of this file.
 
-Idempotent: an empty queue, or a queue where everything is already installed, is a no-op. If
-`pacman` fails, the queue file is left untouched (not emptied) so the next run — another
-`install`, or a manual `install-queued` — tries again; this is the "retry from the panel" R-APPS-3
-mentions, not a timer (no timer is built by this issue).
+Idempotent: an empty queue, a queue where everything is already installed, or a queue where nothing
+left resolves, is a no-op that still empties the file — an entry `pacman -Si` can't find would never
+succeed on a later run either, so it is reported once and dropped rather than retried forever. If
+`pacman -S` itself fails on the resolvable set (a real transaction failure, not a missing target),
+the queue file is left untouched so the next run — another `install`, or a manual `install-queued`
+— tries again; this is the "retry from the panel" R-APPS-3 mentions, not a timer (no timer is built
+by this issue).
 
 `bin/omarchy-kids-session-start` also reads this same queue file (issue #42, docs/levels.md's "The
 launcher's tile list") — never writes it — to tell a launcher tile whose app is merely missing
@@ -98,6 +110,48 @@ created themselves some other way, even one that also happens to set `NoDisplay=
 
 Both are `DRY_RUN=1` by default; `--apply` or `DRY_RUN=0` makes them real.
 
+## Package audit (issue #52)
+
+Every `pkg` in `share/packs/*.toml` was checked against
+`https://archlinux.org/packages/search/json/?name=<pkg>` (the same official-repo data `pacman -Si`
+resolves against) on 2026-09-03. Each pack entry now carries a `source` field (`extra` or `aur`)
+recording that result, so this table is a live cross-check, not just a point-in-time note. `extra`
+is Arch's post-2023 merged repo (what used to be `community` is folded into it); nothing here needs
+`core` or `multilib`.
+
+| pkg | id | band | `source` |
+| --- | --- | --- | --- |
+| `gcompris-qt` | gcompris | 3-5 | extra |
+| `aur:tuxpaint` | tuxpaint | 3-5 | aur — not in any official repo; a genuine gap, not a mirror issue (this is the pack entry issue #52 was filed over) |
+| `ktuberling` | ktuberling | 3-5 | extra |
+| `blinken` | blinken | 3-5 | extra |
+| `supertux` | supertux | 6-8 | extra |
+| `supertuxkart` | supertuxkart | 6-8 | extra |
+| `klettres` | klettres | 6-8 | extra |
+| `kanagram` | kanagram | 6-8 | extra |
+| `aur:turbowarp-desktop-bin` | turbowarp | 9-12 | aur (already marked before this issue) |
+| `luanti` | luanti | 9-12 | extra |
+| `ktouch` | ktouch | 9-12 | extra |
+| `aur:pixelorama` | pixelorama | 9-12 | aur (already marked before this issue) |
+| `kiwix-desktop` | kiwix | 9-12 | extra |
+| `aur:sonic-pi` | sonic-pi | 13+ | aur — no repo package plays the same "live-coding music synth for kids" role, so it stays `aur:` rather than being swapped |
+| `pyzo` | pyzo | 13+ | extra — replaces `thonny` (AUR-only); `pyzo` is `extra`'s own interactive, beginner-oriented Python IDE, the same kind of app for this band's "coding" category |
+| `kstars` | kstars | 13+ | extra |
+
+Two calls worth spelling out:
+
+- **`tuxpaint` and `sonic-pi` were left as their real apps, just `aur:`-prefixed**, rather than
+  swapped for a repo alternative. Neither has a same-kind repo equivalent worth the trade — Tux
+  Paint's whole value for band 3-5 is the toddler-specific UI (giant buttons, sound, stamps), which
+  `kolourpaint`/`mtpaint`/`pinta` (general-purpose paint tools) don't replicate; Sonic Pi's role is
+  "teach coding through live-coded music," which `lmms`/`musescore`/`rosegarden` (production/
+  notation tools) don't replicate either. `aur:` is the honest label (R-APPS-1 already skips and
+  names these on `install`'s stderr).
+- **`thonny` was swapped for `pyzo`**, unlike the two above, because `extra/pyzo` genuinely is the
+  same kind of thing `thonny` was standing in for — an interactive, beginner-friendly Python IDE —
+  and is in the official repos today, so a band-13+ kid gets a working starter pack instead of one
+  more `aur:` skip.
+
 ## `$RUN/allowlist.json` (R-DESK-4, issue #24)
 
 At Levels 2 and 3, `bin/omarchy-kids-session-start` writes the kid's effective allowlist (the same
@@ -136,6 +190,17 @@ that file's header comment for exactly how.
 
 ## Judgment calls made in this implementation
 
+- **Resolution uses `pacman -Si` per package, not one `pacman -Sp` dry-run.** The issue names both
+  as options. A per-package `-Si` call is O(n) processes instead of one O(1) call, but it means one
+  unresolved target never has to be diffed back out of a combined `-Sp` transaction's output/exit
+  code, and the per-package result is exactly what already drives the `aur:`/missing branches right
+  next to it — same shape, one clear reason each package was skipped.
+- **An unresolved (non-`aur:`) package is reported and dropped, not retried forever.** Same
+  reasoning as an `aur:` package: something `pacman -Si` can't find today won't resolve on the next
+  run either without a data or mirror change, so `install-queued` empties it out of the queue along
+  with everything it did install, rather than leaving a permanently-stuck entry that reruns forever
+  with the same stderr line. A real transaction failure (`pacman -S` itself failing on the
+  resolvable set) is the one case still left for a retry — see the next bullet.
 - **`install-queued` always runs for real, no `DRY_RUN` gate**, unlike every other write in this
   file. Same reasoning `docs/assert.md` gives for `omarchy-kids-assert`: it exists precisely so its
   one caller (`systemd/omarchy-kids-apps-install.service`, started with no other flags) never needs
@@ -183,10 +248,14 @@ everything below is open until it has:
    running) `install-queued`; `journalctl -u omarchy-kids-apps-install.service` shows the pacman
    output.
 3. `omarchy-kids-apps list 6-8` again: confirm the newly-installed apps now show `installed`.
-4. Provision a kid, `omarchy-kids-apps hide kid-ada supertux`, then start (or restart) that kid's
+4. The issue #52 regression: on a box with a deliberately stale/partial mirror (or with one pack
+   `pkg` temporarily renamed to something bogus), run `omarchy-kids-apps install <band> --apply
+   --now`; confirm every *other* resolvable app in that band still installs, the bogus one is named
+   on stderr, and the command exits 0.
+5. Provision a kid, `omarchy-kids-apps hide kid-ada supertux`, then start (or restart) that kid's
    session and confirm the Level 1 launcher no longer has a SuperTux tile; `show` and confirm it
    reappears.
-5. `omarchy-kids-apps hide-from-mine --apply` as the parent: confirm the parent's own app
+6. `omarchy-kids-apps hide-from-mine --apply` as the parent: confirm the parent's own app
    grid/menu no longer lists the kids' apps, and that a kid can still open them from their own
    session. `show-in-mine --apply`: confirm they're back in the parent's menu, unchanged from
    before.

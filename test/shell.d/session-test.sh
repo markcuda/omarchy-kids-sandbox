@@ -126,7 +126,8 @@ fi
 } >> "$OMARCHY_KIDS_TEST_HYPRLAND_LOG"
 EOF
 
-chmod +x "$STUBS/findmnt" "$STUBS/systemctl" "$STUBS/Hyprland"
+cp "$STUBS/Hyprland" "$STUBS/start-hyprland" # the launcher takes the same argv
+chmod +x "$STUBS/findmnt" "$STUBS/systemctl" "$STUBS/Hyprland" "$STUBS/start-hyprland"
 
 # The command under test runs from a scratch tree: /usr/bin/Hyprland is
 # a constant now (a kid's own environment.d could otherwise point PATH's
@@ -135,6 +136,7 @@ chmod +x "$STUBS/findmnt" "$STUBS/systemctl" "$STUBS/Hyprland"
 kids_tree "$TMP/tree" "$ROOT_DIR"
 BIN="$TMP/tree/bin/omarchy-kids-session"
 kids_set_const "$BIN" HYPRLAND_BIN "$STUBS/Hyprland"
+kids_set_const "$BIN" HYPRLAND_START "$STUBS/start-hyprland"
 
 # `id -un` is how a command answers "which account am I?" now -- never
 # $OMARCHY_KIDS_ACCOUNT (review §3.7) -- so this test stubs `id` the way
@@ -268,7 +270,7 @@ out="$("$BIN" 2>&1)"
 st=$?
 check_eq "$st" 0 "all pass: exits 0 (exec of the Hyprland stub succeeded)"
 argv="$(cat "$HYPRLAND_LOG" 2>/dev/null)"
-check_contains "$argv" "HYPRLAND --config $LEVEL_CONF" "all pass: Hyprland stub got --config $LEVEL_CONF"
+check_contains "$argv" "HYPRLAND -- --config $LEVEL_CONF" "all pass: start-hyprland stub got -- --config $LEVEL_CONF"
 check_contains "$argv" "ACCOUNT=$ACCOUNT" "all pass: OMARCHY_KIDS_ACCOUNT exported"
 check_contains "$argv" "LEVEL=$LEVEL" "all pass: OMARCHY_KIDS_LEVEL exported"
 check_contains "$argv" "BAND=$BAND" "all pass: OMARCHY_KIDS_BAND exported"

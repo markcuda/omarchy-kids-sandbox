@@ -17,7 +17,8 @@ ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 RUN_DIR="${OMARCHY_KIDS_RUN_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-kids}"
-HYPRLAND_BIN=/usr/bin/Hyprland
+HYPRLAND_BIN=/usr/bin/Hyprland           # --verify-config
+HYPRLAND_START=/usr/bin/start-hyprland   # Hyprland's own watchdog launcher; args go after --
 
 HYPRLAND_DIR="$ETC/hyprland"
 KIDS_DIR="$ETC/kids"
@@ -314,8 +315,8 @@ do_start() {
   export OMARCHY_KIDS_HYPRLAND_DIR="$HYPRLAND_DIR"
 
   local level_conf="$HYPRLAND_DIR/L$LEVEL.lua"
-  log "all checks passed; exec $HYPRLAND_BIN --config $level_conf"
-  exec "$HYPRLAND_BIN" --config "$level_conf"
+  log "all checks passed; exec $HYPRLAND_START -- --config $level_conf"
+  exec "$HYPRLAND_START" -- --config "$level_conf" # everything after -- reaches Hyprland
 }
 
 # --- --install-configs ------------------------------------------------

@@ -304,7 +304,7 @@ the root-owned profile, so a 13+ kid on Level 1 could run
 and launcher inside their own session (review §3.4). Both now come from
 `omarchy-kids-conf get <account> <key>` unconditionally, and the account comes from `id -un`.
 
-`bin/omarchy-kids-session` execs `/usr/bin/Hyprland` (a constant, not `$OMARCHY_KIDS_HYPRLAND_BIN`
+`bin/omarchy-kids-session` execs `/usr/bin/start-hyprland --config …` (Hyprland's own launcher since 0.5x; starting `/usr/bin/Hyprland` directly earns a red "started without start-hyprland" banner on every login, seen live 2026-09-03) after verifying the config with `/usr/bin/Hyprland --verify-config` (both constants, not `$OMARCHY_KIDS_HYPRLAND_BIN`
 and not a bare name resolved through the kid's own `PATH`, which a kid can set through
 `~/.config/environment.d/`). And `share/hyprland/L{1,2,3}.lua` set a fixed `package.path` instead
 of `(os.getenv("OMARCHY_PATH") or …) .. package.path`, and `dofile` the band overlay from a fixed

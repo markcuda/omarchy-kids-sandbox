@@ -56,6 +56,10 @@ Idempotent: an empty queue, or a queue where everything is already installed, is
 `install`, or a manual `install-queued` — tries again; this is the "retry from the panel" R-APPS-3
 mentions, not a timer (no timer is built by this issue).
 
+`bin/omarchy-kids-session-start` also reads this same queue file (issue #42, docs/levels.md's "The
+launcher's tile list") — never writes it — to tell a launcher tile whose app is merely missing
+apart from one whose package is already on its way in: `"installing..."` vs. `"not installed yet"`.
+
 ### `allowlist <kid>`
 
 Prints the kid's *effective* launcher allowlist, comma-separated, same format as the raw

@@ -153,6 +153,14 @@ Window {
         if (root.currentIndex < 0 || root.currentIndex >= root.tiles.length) return
         var tile = root.tiles[root.currentIndex]
         if (!tile || !tile.exec) return
+        // issue #42, I-6: a tile bin/omarchy-kids-session-start kept
+        // only because apps.show_missing=yes (installed === false,
+        // explicitly, not just falsy/undefined -- every other tile
+        // this launcher has ever rendered has no `installed` key at
+        // all and must keep working) is shown greyed with a caption
+        // below, never launched -- Enter on it is a no-op, same as
+        // Escape everywhere else in this file.
+        if (tile.installed === false) return
         logProcess.command = ["omarchy-kids-launcher-ctl", "log", tile.id || ""]
         logProcess.running = true
         launcherProcess.command = ["sh", "-c", tile.exec]
@@ -213,13 +221,26 @@ Window {
             interactive: false
 
             delegate: Rectangle {
+                // issue #42, I-6: a tile whose app isn't installed yet
+                // (bin/omarchy-kids-session-start only ever emits one
+                // when apps.show_missing=yes; otherwise it's omitted
+                // entirely and never reaches this file) is greyed and
+                // captioned instead of looking like every other tile --
+                // it can be highlighted for consistent arrow-key
+                // navigation, but launchCurrent() above refuses to run
+                // it. `=== false`, not falsy: every other tile here
+                // carries no `installed` key at all and must render
+                // exactly as before.
+                readonly property bool missing: modelData.installed === false
+
                 width: 140
                 height: 140
                 radius: 16
                 // >= 96px target per the issue's tap-target floor, well
                 // clear of it at 140px so this also works as a touch
                 // target if the machine has a touchscreen.
-                color: GridView.isCurrentItem ? "#3a4266" : "#232838"
+                color: missing ? "#1a1c26" : (GridView.isCurrentItem ? "#3a4266" : "#232838")
+                opacity: missing ? 0.55 : 1.0
                 border.width: GridView.isCurrentItem ? 4 : 0
                 border.color: "#8fb8ff"
 
@@ -250,6 +271,22 @@ Window {
                         text: modelData.label || modelData.id || ""
                         color: "white"
                         font.pixelSize: 18
+                        wrapMode: Text.WordWrap
+                        width: 120
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    // "installing..." while omarchy-kids-apps' queue for
+                    // this app is pending, else "not installed yet" --
+                    // set by bin/omarchy-kids-session-start, never
+                    // computed here (this file has no way to read the
+                    // queue itself, and shouldn't need one).
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        visible: missing && modelData.caption && modelData.caption.length > 0
+                        text: modelData.caption || ""
+                        color: "#a8adc0"
+                        font.pixelSize: 12
                         wrapMode: Text.WordWrap
                         width: 120
                         horizontalAlignment: Text.AlignHCenter

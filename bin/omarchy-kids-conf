@@ -52,7 +52,14 @@ VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 #                raw file)
 #   apps.hidden  comma-separated launcher ids removed from this kid's
 #                allowlist, pack or apps.extra alike
-EXT_KEYS=(apps.extra apps.hidden)
+#   apps.show_missing  yes/no (issue #42, docs/apps.md): whether
+#                bin/omarchy-kids-session-start keeps a tile for a
+#                pack/apps.extra app whose package isn't installed yet,
+#                greyed with a "not installed yet"/"installing..."
+#                caption, instead of the default of omitting it
+#                entirely (I-6: no tile that Enter silently does
+#                nothing on)
+EXT_KEYS=(apps.extra apps.hidden apps.show_missing)
 
 # global_default KEY — prints the Appendix B global default for a key the
 # band table doesn't carry (dns, history_visible, password, onboarded)
@@ -67,6 +74,7 @@ global_default() {
         onboarded) echo no ;;
         apps.extra) echo "" ;;
         apps.hidden) echo "" ;;
+        apps.show_missing) echo no ;;
         *) return 1 ;;
     esac
 }
@@ -162,6 +170,9 @@ validate_value() {
             ;;
         apps.extra|apps.hidden)
             [[ "$value" =~ ^[a-z0-9_-]+(,[a-z0-9_-]+)*$ || -z "$value" ]] || die "invalid value for '$key': comma-separated launcher ids"
+            ;;
+        apps.show_missing)
+            is_in "$value" yes no || die "invalid value for '$key': must be yes or no"
             ;;
         *)
             die "no validator for '$key' (this is a bug)"

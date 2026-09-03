@@ -13,7 +13,7 @@ PanelWindow {
     // Theme colors/font (docs/theming.md) — see share/qml/KidsTheme.qml.
     KidsTheme { id: theme }
 
-    // --- Layer-shell specifics (see the UNTESTED header above) -----------
+    // --- Layer-shell specifics (docs/exit.md) ----------------------------
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusiveZone: -1
     // Verified live 2026-09-02: without this the overlay draws but keys go to the window
@@ -29,38 +29,14 @@ PanelWindow {
     color: "transparent"
     visible: true
 
-    // --- Who this is for (bin/omarchy-kids-exit sets these three before
-    //     exec'ing quickshell; the launcher-JSON fallback below is
-    //     best-effort for standalone testing and is, honestly, likely
-    //     inert today -- see its own comment) ------------------------
+    // --- Who this is for: bin/omarchy-kids-exit sets these three before
+    //     exec'ing quickshell (docs/exit.md) --------------------------
     property string kidAccount: Quickshell.env("OMARCHY_KIDS_ACCOUNT") || ""
     property string kidName: Quickshell.env("OMARCHY_KIDS_NAME") || ""
     property string kidAvatar: Quickshell.env("OMARCHY_KIDS_AVATAR") || ""
 
-    // Fallback source for name/avatar if the env vars above are somehow
-    // unset (e.g. this file launched directly for testing, not through
-    // bin/omarchy-kids-exit): the same launcher-tiles JSON
-    // share/launcher/shell.qml reads. UNVERIFIED and likely a no-op in
-    // practice today -- docs/levels.md's documented schema for that
-    // file (account/band/level/tiles) does not currently carry a
-    // "name" or "avatar" field at all, so this only starts doing
-    // anything once/if a later issue adds them.
-    FileView {
-        id: launcherJson
-        path: Quickshell.env("OMARCHY_KIDS_LAUNCHER_JSON")
-            || (Quickshell.env("XDG_RUNTIME_DIR") + "/omarchy-kids/launcher-" + (Quickshell.env("UID") || "0") + ".json")
-        watchChanges: false
-    }
-    function fallbackField(key) {
-        try {
-            var data = JSON.parse(launcherJson.text())
-            return (data && data[key]) || ""
-        } catch (e) {
-            return ""
-        }
-    }
-    property string displayName: kidName.length > 0 ? kidName : (fallbackField("name") || kidAccount)
-    property string avatarSource: kidAvatar.length > 0 ? kidAvatar : fallbackField("avatar")
+    property string displayName: kidName.length > 0 ? kidName : kidAccount
+    property string avatarSource: kidAvatar
 
     // Possessive form for the sublines (R-EXIT-1): "Ada's", "Chris'".
     function possessive(name) {
@@ -112,11 +88,9 @@ PanelWindow {
             if (running) {
                 write(candidate + "\n")
                 candidate = ""
-                // UNVERIFIED: however Quickshell.Io.Process actually
-                // signals "no more stdin" to the child -- closeStdin()
-                // is a guess. Without it, bin/omarchy-kids-parent-auth's
-                // `cat -` never sees EOF and this hangs forever.
-                // Quickshell 0.3.1: flipping stdinEnabled off closes the child's stdin.
+                // Quickshell 0.3.1: flipping stdinEnabled off closes the child's
+                // stdin. Without it, omarchy-kids-parent-auth's `cat -` never
+                // sees EOF and this hangs forever.
                 stdinEnabled = false
             }
         }

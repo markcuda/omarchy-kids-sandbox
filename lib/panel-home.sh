@@ -6,17 +6,26 @@
 # --- P1: Home ----------------------------------------------------------------
 
 show_remove_kids_mode() {
-    # Hands off to bin/omarchy-kids-remove (docs/remove.md), which prints its own plan and
-    # asks its own confirmation; the panel's dry-run default is passed through.
-    local remove_bin="$REMOVE_BIN"
-    echo
-    echo "Remove Kids Mode reverses every lock, removes every kid account (their files are kept"
-    echo "under your home in \"Kids Mode/<Name>\"), and offers a snapshot first. It asks again"
-    echo "before touching anything."
+    # What it does belongs on the card, not echoed above a screen that clears
+    # (review §3.1). Then it hands off to bin/omarchy-kids-remove
+    # (docs/remove.md), which prints its own plan and asks its own
+    # confirmation; the panel's dry-run default is passed through.
+    # shellcheck disable=SC2034 # read by tui_screen_confirm via nameref-by-name
+    local -a facts=(
+        "This reverses every lock and removes every kid account. Their files are kept"
+        "under your home in \"Kids Mode/<Name>\", and you're offered a snapshot first."
+        ""
+        "It prints the whole plan and asks again before touching anything."
+    )
+    tui_screen_confirm "Remove Kids Mode?" 1 1 0 "" facts "Continue" "Not now"
+    local rc=$?
+    ((rc == 130)) && return 130
+    ((rc == 0)) || return 0
+
     if [[ "$DRY_RUN" == 1 ]]; then
-        sudo "$remove_bin" --dry-run
+        sudo "$REMOVE_BIN" --dry-run
     else
-        sudo "$remove_bin"
+        sudo "$REMOVE_BIN"
     fi
 }
 
@@ -58,7 +67,10 @@ screen_home() {
                 screen_requests
                 rc=$?; ((rc == 130)) && return 130
                 ;;
-            remove_kids_mode) show_remove_kids_mode ;;
+            remove_kids_mode)
+                show_remove_kids_mode
+                rc=$?; ((rc == 130)) && return 130
+                ;;
             quit) return 1 ;;
             kid:*)
                 screen_kid "${TUI_REPLY#kid:}"

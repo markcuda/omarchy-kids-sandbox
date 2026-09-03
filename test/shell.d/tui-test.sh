@@ -169,6 +169,35 @@ check_contains "$out" "A short list you can grow." "tui_screen_choose: choice re
 check_contains "$out" "Filtered open web" "tui_screen_choose: second choice renders"
 check_contains "$out" "rc=0 reply=garden" "tui_screen_choose: the matching answer resolves to its value"
 
+# --- a choose screen's own facts render as body, under the title -----------
+# (review §3.1: the panel's screens pass their facts here instead of
+# echoing them above a screen that, in card mode, clears first.)
+
+f="$(answers_file garden)"
+out="$(
+    OMARCHY_KIDS_TUI_ANSWERS="$f"
+    export OMARCHY_KIDS_TUI_ANSWERS
+    # shellcheck source=/dev/null
+    source "$TUI_LIB"
+    tui_init
+    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+    web_choices=("garden|Only sites you choose|A short list you can grow.")
+    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+    web_facts=("17m used / 0m left today" "Open requests: 2")
+    tui_screen_choose "Ada" 1 1 0 "" web_choices "garden" "" web_facts
+    echo "rc=$? reply=$TUI_REPLY"
+)" </dev/null
+check_contains "$out" "17m used / 0m left today" "tui_screen_choose: a body line renders in plain mode"
+check_contains "$out" "Open requests: 2" "tui_screen_choose: every body line renders in plain mode"
+check_contains "$out" "rc=0 reply=garden" "tui_screen_choose: a body changes nothing about the answer"
+title_line="$(grep -n '^Ada$' <<<"$out" | head -1 | cut -d: -f1)"
+body_line="$(grep -n '^17m used' <<<"$out" | head -1 | cut -d: -f1)"
+if [[ -n "$title_line" && -n "$body_line" ]] && ((title_line < body_line)); then
+    pass "tui_screen_choose: plain mode prints the body under the title, not above it"
+else
+    fail "tui_screen_choose: body/title are out of order (title=$title_line body=$body_line)"
+fi
+
 # a bare 1-based number also resolves
 f="$(answers_file 2)"
 out="$(
@@ -400,6 +429,28 @@ if [[ -n "$style_line" && -n "$choose_line" && "$style_line" -lt "$choose_line" 
 else
     fail "tui_screen_choose: card/choose are out of order (card=$style_line choose=$choose_line)"
 fi
+
+# ...and a choose screen's body is drawn *inside* that one card (review
+# §3.1), not printed beside it where the next clear would take it.
+: >"$GUM_LOG"
+: >"$CLEAR_LOG"
+out="$(
+    unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+    # shellcheck source=/dev/null
+    source "$TUI_LIB"
+    tui_init 2>/dev/null
+    TUI_MODE="interactive"
+    # shellcheck disable=SC2034 # read by tui_screen_choose in lib/tui.sh (gates gum vs the read fallback)
+    TUI_HAVE_GUM=1
+    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+    kid_choices=("time|Screen time|")
+    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+    kid_facts=("Ada — band 6-8" "17m used / 0m left today")
+    tui_screen_choose "Ada" 1 1 0 "" kid_choices "time" "" kid_facts 2>/dev/null
+)" </dev/null
+card_call="$(grep -- '--border rounded' "$GUM_LOG" | head -1)"
+check_contains "$card_call" "Ada — band 6-8" "tui_screen_choose: card mode puts the body inside the card"
+check_contains "$card_call" "17m used / 0m left today" "tui_screen_choose: every body line is in that same card"
 
 # _tui_measure pads the chooser to line up under the card's own text
 # (one column of border, one of padding), not flush with the terminal

@@ -111,14 +111,19 @@ run_priv() {
 }
 
 # read_priv CMD... — root-only read (issue #27's Data screen); always
-# runs for real, no DRY_RUN preview. docs/panel.md.
+# runs for real, no DRY_RUN preview. docs/panel.md. warm_sudo_read is
+# split out so a screen that captures a read's output can spend the one
+# prompt in its own shell first, the way the Web screen warms warm_sudo.
 SUDO_READ_WARMED=0
+warm_sudo_read() {
+    ((SUDO_READ_WARMED)) && return 0
+    SUDO_READ_WARMED=1
+    echo "Kids Mode needs your password once, to read this."
+    sudo -v
+}
+
 read_priv() {
-    if ((! SUDO_READ_WARMED)); then
-        SUDO_READ_WARMED=1
-        echo "Kids Mode needs your password once, to read this."
-        sudo -v || return 1
-    fi
+    warm_sudo_read || return 1
     sudo "$@"
 }
 

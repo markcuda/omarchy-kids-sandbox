@@ -5,12 +5,15 @@
 
 # --- P3: Requests -----------------------------------------------------------
 
+# One line the Requests list shows on its next draw, same reason as
+# lib/panel-kid.sh's KID_NOTICE: the card clears anything echoed.
+REQ_NOTICE=""
+
 screen_request_detail() { # ID
     local id="$1"
     local path="$QUEUE_DIR/$id.json"
     if [[ ! -f "$path" ]]; then
-        echo
-        echo "That request isn't there anymore."
+        REQ_NOTICE="That request isn't there anymore."
         return 0
     fi
     local kid kind what minutes desc
@@ -20,13 +23,11 @@ screen_request_detail() { # ID
     minutes="$(ask_field "$path" minutes)"
     if [[ "$kind" == time ]]; then desc="$minutes more minute(s) of screen time"; else desc="$what"; fi
 
-    # shellcheck disable=SC2034 # read by tui_screen_summary via nameref-by-name
-    local rows=("Kid|$kid" "Kind|$kind" "Asked for|$desc")
-    tui_screen_summary "Request from $kid" 1 1 0 "" rows
-
+    # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+    local -a facts=("Kid: $kid" "Kind: $kind" "Asked for: $desc")
     # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
     local choices=("approve|Approve|" "decline|Decline|" "back|Back|")
-    tui_screen_choose "Approve or decline?" 1 1 0 "" choices "approve"
+    tui_screen_choose "Request from $kid" 1 1 0 "" choices "approve" "" facts
     local rc=$?
     ((rc == 130)) && return 130
     ((rc == 0)) || return 0
@@ -40,12 +41,14 @@ screen_request_detail() { # ID
 screen_requests() {
     while true; do
         local rows; rows="$("$PY" "$ASK_PY" list-open "$QUEUE_DIR" 2>/dev/null)"
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local -a facts=()
+        [[ -n "$REQ_NOTICE" ]] && { facts+=("$REQ_NOTICE"); REQ_NOTICE=""; }
         if [[ -z "$rows" ]]; then
-            echo
-            echo "No open requests right now."
+            facts+=("No open requests right now.")
             # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
             local choices=("back|Back|")
-            tui_screen_choose "Requests" 1 1 0 "" choices "back"
+            tui_screen_choose "Requests" 1 1 0 "" choices "back" "" facts
             local rc=$?
             ((rc == 130)) && return 130
             return 0
@@ -62,7 +65,7 @@ screen_requests() {
         done <<<"$rows"
         choices+=("back|Back|")
 
-        tui_screen_choose "Requests" 1 1 0 "" choices ""
+        tui_screen_choose "Requests" 1 1 0 "" choices "" "" facts
         local rc=$?
         ((rc == 130)) && return 130
         ((rc == 0)) || return 0

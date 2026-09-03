@@ -355,6 +355,7 @@ some other reason) never aborts the caller either way — see
 _theme_kids_tool_ready below — it just falls back to this file's own
 palette, with one log line, not silently and not by crashing.
 ```
+
 After #53, same VM: `omarchy-kids-conf set kid-cy theme catppuccin-latte` rewrote the kid's
 current theme the way omarchy-theme-set does, and at the next login the launcher and the exit
 modal rendered in that theme's light palette with its blue accent; setting it back to

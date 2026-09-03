@@ -132,10 +132,17 @@ check "$(echo "$tp" | jq -r '.installed')" "true" \
   "default: tuxpaint (matched .desktop) is installed:true"
 check "$(echo "$tp" | jq -r '.exec')" "gtk-launch tuxpaint" \
   "default: tuxpaint's exec still resolves through the matched .desktop file"
+# issue #54: the launcher (share/launcher/shell.qml) resolves this name
+# through the icon theme itself (Quickshell.iconPath()) -- this script's
+# job is only to hand it the desktop entry's raw Icon= value verbatim.
+check "$(echo "$tp" | jq -r '.icon')" "tuxpaint-icon" \
+  "default: tuxpaint's icon field carries the desktop entry's Icon= value"
 
 gc="$(tile gcompris)"
 check "$(echo "$gc" | jq -r '.installed')" "true" \
   "default: gcompris (bare exec on PATH) is installed:true"
+check "$(echo "$gc" | jq -r '.icon')" "" \
+  "default: gcompris (bare exec fallback, no matched .desktop) has an empty icon field"
 
 check "$(tile ktuberling)" "" "default: ktuberling (missing, unqueued) tile is omitted"
 check "$(tile blinken)" "" "default: blinken (missing, queued) tile is also omitted -- show_missing is off"

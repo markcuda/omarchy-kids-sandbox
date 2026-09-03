@@ -122,9 +122,40 @@ below carry neither key — this is specifically about pack/`apps.extra` app til
 
 `share/launcher/shell.qml` polls that file, plus a small control file
 (`/run/omarchy-kids/launcher-control`) that `bin/omarchy-kids-launcher-ctl` writes to on
-`Super+Return`, and renders the tiles as a grid (140px cells, comfortably over the 96px floor)
-with keyboard-only navigation (arrows move the highlight, Return/Enter launches, Escape is
-swallowed and does nothing).
+`Super+Return`, and renders the tiles as a grid with keyboard-only navigation (arrows move the
+highlight, Return/Enter launches, Escape is swallowed and does nothing).
+
+**The grid's layout (issue #54).** Live at 1280x800 the grid used to be anchored top-left,
+full-width, with a hardcoded 160px cell: two tiles sat in a loose row with the rest of the screen
+empty, and ten tiles only filled the top third, with names but no icons. Now:
+
+- The grid is centred horizontally and anchored to the top with a shared `margin` (56px) —
+  exactly as many columns wide as it has cells to show (never wider than there are tiles), so two
+  tiles sit in a small centred block instead of hugging the left edge of a full-width row.
+- Tile (cell) size is derived from the screen width, not hardcoded: whatever width fits
+  `targetColumns` (5) tiles in the space left after `margin` on each side, floored at
+  `minTileWidth` (160px) — five per row at 1280 wide, bigger tiles (not more columns) on a wider
+  screen, and fewer than five per row if the screen is narrower than that floor allows.
+- Each tile shows the app's real icon above its label: `Icon=` from the matched `.desktop` file
+  (written into the tile JSON's `icon` field by this script, verbatim, no resolution done here)
+  is resolved through the active icon theme by `share/launcher/shell.qml`'s `iconSource()`, using
+  `Quickshell.iconPath(name, true)` — the same call the real Omarchy shell's own launcher makes
+  (`shell/services/AppLibrary.qml`'s `iconSource()`, `omacom/omarchy@v4.0.2`, commit
+  `346e69e1cec6c4e8924531874af6ba010a1bc99e`). When nothing resolves (no `Icon=`, a name the icon
+  theme doesn't have, `apps.extra`/`more-apps`/`kids-data` tiles that carry no icon at all), the
+  tile shows a rounded initial in the theme accent colour instead of a broken-image glyph or
+  empty space (I-6: still an honest, intentional-looking tile).
+- Labels are set in the theme font (`theme.fontFamily`, `docs/theming.md`) rather than the Qt
+  platform default; the highlight ring on the current tile is the theme accent colour
+  (`theme.accent`); the greyed, captioned look for an `installed: false` tile (issue #42) is
+  unchanged.
+- The clock stays top-right, its own top/right inset now the same shared `margin` the grid's top
+  edge uses, so the two align.
+
+`test/shell.d/launcher-grid-test.sh` statically checks all of the above against `shell.qml`'s
+source (the grid's anchors, the derived cell-size math, the `Quickshell.iconPath()` call and its
+rounded-initial fallback, `font.family: theme.fontFamily` on every label, no literal hex colour) —
+see that file's own header for exactly what it can and can't check without a real Quickshell.
 
 **Issue #43: key navigation must use the layout's own column count.** Seen live in the VM with
 ten tiles rendered five per row: Down from row1/col4 highlighted row2/col3 instead of row2/col4,

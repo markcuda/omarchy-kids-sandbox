@@ -54,6 +54,49 @@ check_contains "$qml_content" 'root.launchCurrent()' "Enter/Return calls launchC
 check "$(grep -c 'property int columns: 4' "$QML" || true)" "0" \
   "shell.qml no longer hardcodes columns: 4"
 
+# --- issue #54: centred grid, derived tile size, icon lookup + fallback ---
+
+check_contains "$qml_content" 'anchors.horizontalCenter: parent.horizontalCenter' \
+  "grid is horizontally centred, not left-anchored"
+check_contains "$qml_content" 'anchors.top: parent.top' \
+  "grid is top-anchored (not anchors.fill, so it sits in the upper part of the screen)"
+check "$(grep -c 'anchors.topMargin: root.margin' "$QML" || true)" "2" \
+  "both the grid and the clock use the same shared root.margin for their top inset (so they align)"
+check_contains "$qml_content" 'readonly property int minTileWidth: 160' \
+  "tile width has a 160px floor"
+check_contains "$qml_content" 'readonly property int targetColumns: 5' \
+  "tile size is derived to fit five per row at the reference width"
+check_contains "$qml_content" 'Math.max(minTileWidth, Math.floor(availableWidth / targetColumns))' \
+  "cell size is derived from the available screen width, not hardcoded"
+
+# Icon lookup: resolved through Quickshell's own icon-theme API (the same
+# one omacom/omarchy's shell/services/AppLibrary.qml iconSource() uses),
+# with a rounded-initial fallback when nothing resolves -- never a bare
+# icon *name* handed to Image.source as a literal path (the old, broken
+# behavior this issue replaces).
+check_contains "$qml_content" 'Quickshell.iconPath(value, true)' \
+  "icon lookup goes through Quickshell.iconPath(), not a literal icon name"
+check_contains "$qml_content" 'visible: status === Image.Ready' \
+  "the icon Image is hidden whenever nothing actually resolved"
+check_contains "$qml_content" 'visible: !iconImg.visible' \
+  "the rounded-initial fallback shows exactly when the icon Image did not"
+check_contains "$qml_content" 'radius: width / 2' \
+  "the icon fallback is a rounded (circular) initial badge"
+check_contains "$qml_content" 'color: theme.accent' \
+  "the icon fallback badge uses the theme accent colour"
+
+# Labels in the theme font (docs/theming.md) -- every Text element in the
+# tile delegate and the clock must set font.family, not rely on Qt's
+# platform default.
+check "$(grep -c 'font.family: theme.fontFamily' "$QML" || true)" "4" \
+  "every label (icon-fallback initial, tile label, caption, clock) sets font.family: theme.fontFamily"
+
+# No literal colour hex crept into this file (qml-theme-static-test.sh
+# checks every share/**/*.qml file; this re-checks just this one inline
+# so a regression here fails the test file most directly relevant to it).
+check "$(grep -coE '#[0-9A-Fa-f]{6,8}' "$QML" || true)" "0" \
+  "shell.qml still has no literal hex colours"
+
 if command -v node >/dev/null 2>&1; then
   out="$(node -e "
     var module = { exports: {} };

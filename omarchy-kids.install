@@ -29,7 +29,6 @@ post_install() {
 post_upgrade() {
 	_omarchy_kids_ensure_groups
 	_omarchy_kids_daemon_reload
-	echo "Kids Mode is installed. Run: omarchy-kids"
 }
 
 post_remove() {

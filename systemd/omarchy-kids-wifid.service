@@ -6,7 +6,6 @@ After=omarchy-kids-wifid.socket
 
 [Service]
 Type=simple
-User=root
 ExecStart=/usr/bin/omarchy-kids-wifid
 # Reads /etc/omarchy-kids (via omarchy-kids-conf) and talks to
 # NetworkManager over its D-Bus/nmcli surface; never touches anything

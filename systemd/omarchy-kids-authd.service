@@ -9,7 +9,6 @@ After=omarchy-kids-authd.socket
 # overrides under /etc/omarchy-kids must stay writable behind ProtectSystem=strict.
 ReadWritePaths=/var/lib/omarchy-kids /etc/omarchy-kids
 Type=simple
-User=root
 ExecStart=/usr/bin/omarchy-kids-authd
 # Reads /etc/shadow and (optionally) /etc/omarchy-kids/machine.conf; never
 # writes anything, so lock the rest of the filesystem down.

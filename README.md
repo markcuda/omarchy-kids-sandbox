@@ -18,8 +18,7 @@ The two share the parent command and its feature commands.
 
 The spec is **[SPEC.md](SPEC.md)**; the work is
 [issues in six milestones](https://github.com/markcuda/omarchy-kids-sandbox/milestones), in build
-order. Results of the Phase 1 checks live in [`docs/phase1/`](docs/phase1/): as of the evening of
-2026-09-02, **V2, V4, V5 and V7 pass** (real hardware and the QEMU test VM described in
+order. Results of the Phase 1 checks live in [`docs/phase1/`](docs/phase1/): **V2, V4, V5 and V7 pass** (real hardware and the QEMU test VM described in
 [`docs/vm.md`](docs/vm.md)); V1, V3 and the rest of V6 are in progress.
 
 ### What works today

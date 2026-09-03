@@ -4,7 +4,6 @@ Documentation=https://github.com/markcuda/omarchy-kids-sandbox/blob/main/docs/ti
 
 [Service]
 Type=oneshot
-User=root
 ExecStart=/usr/bin/omarchy-kids-time-ledger tick
 # Talks to systemd-logind over D-Bus (loginctl) and writes the ledger
 # under /var/lib/omarchy-kids and the status file under

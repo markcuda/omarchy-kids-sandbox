@@ -9,7 +9,9 @@
 screen_welcome() {
     # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
     local choices=("begin|Begin|")
-    local omy=$'Hi, I\'m Omy. Kids Mode turns this computer into one your kids can use on their own.\n\nEach kid gets their own desktop, at their own level.\nYou stay in charge with one password, yours.\nEverything can be undone.'
+    local omy=$'Hi, I\'m Omy. Each kid gets their own desktop.
+
+You stay in charge with your own password, and everything can be undone.'
     tui_screen_choose "Welcome" 1 "$TOTAL_STEPS" 1 "$omy" choices "begin" "$TUI_FOOTER_FIRST"
 }
 

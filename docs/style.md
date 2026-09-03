@@ -61,7 +61,7 @@ the documented `set -euo pipefail`. The 18: `omarchy-kids`, `omarchy-kids-ask`,
 `omarchy-kids-blocked`, `omarchy-kids-assert`, `omarchy-kids-bar`, `omarchy-kids-check`,
 `omarchy-kids-data`, `omarchy-kids-exit`, `omarchy-kids-panel`, `omarchy-kids-parent-auth`,
 `omarchy-kids-remove`, `omarchy-kids-session`, `omarchy-kids-super-tap`, `omarchy-kids-time`,
-`omarchy-kids-time-ledger`, `omarchy-kids-tui-demo`, `omarchy-kids-wifi`, `omarchy-kids-wizard`.
+`omarchy-kids-time-ledger`, `omarchy-kids-wifi`, `omarchy-kids-wizard`.
 Unlike upstream's cases, this isn't a deliberate "short script, no `set` at all" choice — it's a
 half-adopted `-e` that's silently missing from most of the fleet while `AGENTS.md` claims
 otherwise.
@@ -79,7 +79,7 @@ stating a blanket rule the code doesn't follow.
 statement on their path, so `-e` never gets a chance to fire after them. Three files needed a
 narrower, in-line exception instead of a blanket one: `bin/omarchy-kids-wizard`'s step-dispatch
 loop, all of `bin/omarchy-kids-panel`'s screen tree (from `tui_init` on), and all of
-`bin/omarchy-kids-tui-demo` after its own `tui_init` — each `set +e`/`set -e` around exactly the
+`scripts/omarchy-kids-tui-demo` after its own `tui_init` — each `set +e`/`set -e` around exactly the
 region where a screen function's return code (1=Esc, 130=Ctrl+C) is data for the caller's own
 `case`, not an error, per a one-line comment at each site. Two more genuine bugs `-e` surfaced in
 the process, both now fixed regardless of `-e`: `bin/omarchy-kids-wizard`'s `stop_prefetch` used
@@ -156,7 +156,7 @@ line 12), `lower_snake_case` for locals (`local shim_dir status ufw_docker_bin`,
 in exactly one authoritative table has no counterpart here. This repo's 26 second-level command
 names (`apps`, `ask`, `assert`, `authd`, `bar`, `boot-login`, `check`, `conf`, `data`, `exit`,
 `launcher-ctl`, `panel`, `parent-auth`, `plugins`, `provision`, `remove`, `session`,
-`session-start`, `super-tap`, `time`, `time-ledger`, `tui-demo`, `web`, `wifi`, `wifid`, `wizard`)
+`session-start`, `super-tap`, `time`, `time-ledger`, `web`, `wifi`, `wifid`, `wizard`)
 don't share any purpose-prefix grouping the way upstream's `refresh-`/`toggle-`/`launch-` do, so
 there's nothing yet for a future `omarchy-kids <group>` help listing to group by.
 

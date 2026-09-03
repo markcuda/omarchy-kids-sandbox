@@ -16,6 +16,9 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
   six console gettys; exact supplementary groups and root-only ask review commands are enforced.
 - Session manifests snapshot the validated profile and launcher tiles as root-owned JSON, with
   atomic rebuilds that preserve the last valid document on failure.
+- `omarchy-kids-session --manifest` now exposes only the caller's validated, current,
+  root-owned 0644 session manifest; missing, linked, mutable, malformed, stale, and mismatched
+  documents are refused without stdout.
 
 ### Added
 

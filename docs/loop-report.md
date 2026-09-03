@@ -148,6 +148,11 @@ from screenshots. Done since:
   tree" variables), the launcher runs a kid-writable exec string through a shell, screen time
   is enforced from the kid's own process, and the group assert accepts a kid who is also in
   wheel. Filed as #59 to #63; Codex is drafting #59 and #60 now, #61 rides with #59, #62 next.
+- Architecture review (`docs/reviews/2026-09-03-architecture.md`): keep the stack, rebuild three
+  shapes (a root-written session manifest, root-enforced screen time, one config schema), then one
+  kid shell for the speed you can feel, and two deepenings in place. Per your direction the
+  pipeline from here is: gpt-5.6-sol writes a spec per candidate in `docs/specs/` with a ticket
+  breakdown, the tickets are filed, gpt-5.6-luna drafts each one, I gate and merge.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

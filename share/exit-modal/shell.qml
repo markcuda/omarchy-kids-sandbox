@@ -151,7 +151,7 @@ PanelWindow {
     Process {
         id: authProcess
         property string candidate: ""
-        command: ["omarchy-kids-parent-auth"]
+        command: ["/usr/bin/omarchy-kids-parent-auth"]
         stdinEnabled: true
         onRunningChanged: {
             if (running) {
@@ -188,8 +188,8 @@ PanelWindow {
         // killed it before it ran (seen live 2026-09-02: the modal closed, the
         // session stayed). --finish ends this compositor anyway.
         Quickshell.execDetached(root.pendingAction === "finish"
-            ? ["omarchy-kids-exit", "--finish"]
-            : ["omarchy-kids-exit", "--pause"])
+            ? ["/usr/bin/omarchy-kids-exit", "--finish"]
+            : ["/usr/bin/omarchy-kids-exit", "--pause"])
         Qt.quit()
     }
 

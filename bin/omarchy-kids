@@ -49,7 +49,10 @@ Opens Kids Mode. With no kid provisioned yet, this is the parent wizard
   remove-kids-mode  Remove Kids Mode (R-TRUST-4); see
                     omarchy-kids-remove --help for its own flags.
   --dry-run         Passed through to the wizard's or panel's own --dry-run.
-  --apply           Passed through to the panel's own --apply (see its --help).
+  --apply           Passed through to the wizard's or panel's own --apply.
+
+Opened by a human -- from a terminal, or from the Kids Mode app entry --
+the wizard and the panel are real; --dry-run is there for review.
   -h, --help        Show this help and exit.
 EOF
 }

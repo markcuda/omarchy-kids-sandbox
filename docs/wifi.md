@@ -215,3 +215,15 @@ With `wifi = helper`, `status` lists the connections through the root helper, `l
 empty OK, and `join TestNet` fails with NetworkManager's "No Wi-Fi device found", which is the
 VM telling the truth. The picker overlay, a real join with `ignore-auto-dns`, `forget`, and the
 captive-portal window need the laptop's wireless card.
+## The daemon no longer echoes the Wi-Fi password (2026-09-03)
+
+`run_nmcli` raised `Failed(f"nmcli {' '.join(args)}: {exc}")` on an `OSError` or a timeout, and
+that text goes straight back to the client. On the JOIN path `args` contains
+`password <secret>`, so a parent who typed a network password into the kid's picker got it back
+over the socket and into whatever the client logged (review S8). The message now names only the
+nmcli subcommand, which is all a caller needs to diagnose it. `test/shell.d/wifi-test.sh` calls
+`run_nmcli` directly with a nonexistent binary and a password in the argv and asserts the
+password is absent from the raised text and the subcommand present -- a unit-level check, so it
+runs on every platform, unlike section B, which needs `SO_PEERCRED`. `bin/omarchy-kids-wifi`'s
+socket client is now `lib/sock.sh`'s shared `kids_sock_request`, and the wifi picker's QML names
+`/usr/bin/omarchy-kids-wifi` absolutely.

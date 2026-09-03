@@ -76,7 +76,10 @@ answers_file() { # writes $@ (one per line) to a fresh file, prints its path
     printf '%s' "$f"
 }
 
-run_panel() { # ANSWERS_FILE [--apply] -> stdout+stderr in $out, exit in $PANEL_STATUS
+# run_panel ANSWERS_FILE [FLAGS...] -> stdout+stderr in $out, exit in
+# $PANEL_STATUS. The answers-file harness has no terminal, so the panel's
+# own default here is a preview; every call below says which it wants.
+run_panel() {
     local answers="$1"
     shift
     out="$(OMARCHY_KIDS_TUI_ANSWERS="$answers" "$BIN" "$@" 2>&1)"
@@ -90,7 +93,7 @@ run_panel() { # ANSWERS_FILE [--apply] -> stdout+stderr in $out, exit in $PANEL_
 export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" OMARCHY_KIDS_ROOT="$ROOT"
 
 answers="$(answers_file "kid:kid-ada" time grant 15 back back quit)"
-run_panel "$answers"
+run_panel "$answers" --dry-run
 check_status "$PANEL_STATUS" 0 "dry-run grant exits 0"
 check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-time grant kid-ada 15" \
     "dry-run: 'give more minutes' prints the exact grant command"
@@ -238,7 +241,7 @@ check_contains "$(cat "$ETC/kids/kid-ada.conf")" "apps.hidden=gcompris" \
 
 : >"$ARGV_LOG"
 req_id="$(python3 "$ROOT_DIR/lib/ask.py" write "$QUEUE_DIR" --kid kid-ada --kind time \
-    --what "15 more minutes of screen time" --minutes 15 --state open)"
+    --what 15 --minutes 15)"
 req_id="${req_id%.json}"
 answers="$(answers_file requests "$req_id" approve back quit)"
 run_panel "$answers" --apply
@@ -274,6 +277,43 @@ help_out="$("$BIN" --help 2>&1)"
 help_status=$?
 check_status "$help_status" 0 "--help exits 0"
 check_contains "$help_out" "Usage: omarchy-kids-panel" "--help prints usage"
+
+# =====================================================================
+# review §1.5: opened by a human, the panel is real
+# =====================================================================
+#
+# The shipped app entry runs `env OMARCHY_KIDS_LAUNCHED_BY=desktop
+# omarchy-kids`, which reaches the panel with no terminal at all. Before
+# this fix a parent opened Kids Mode from the drawer, changed something,
+# watched "[dry-run] sudo ..." scroll past and had no change. There is no
+# flag the drawer can pass to fix that, so the default has to be right.
+
+: >"$ARGV_LOG"
+answers="$(answers_file "kid:kid-ada" time budget 55 back back quit)"
+out="$(OMARCHY_KIDS_TUI_ANSWERS="$answers" OMARCHY_KIDS_LAUNCHED_BY=desktop "$BIN" 2>&1)"
+check_status $? 0 "launched from the app entry: exits 0"
+check_not_contains "$out" "[dry-run]" "launched from the app entry: no preview, this is a real run"
+check_contains "$(cat "$ETC/kids/kid-ada.conf")" "budget_min=55" \
+    "launched from the app entry: the change is really on disk (review §1.5)"
+
+# ...and --dry-run still wins, even from the app entry.
+: >"$ARGV_LOG"
+answers="$(answers_file "kid:kid-ada" time budget 60 back back quit)"
+out="$(OMARCHY_KIDS_TUI_ANSWERS="$answers" OMARCHY_KIDS_LAUNCHED_BY=desktop "$BIN" --dry-run 2>&1)"
+check_contains "$out" "[dry-run]" "--dry-run wins over the app entry"
+check_contains "$(cat "$ETC/kids/kid-ada.conf")" "budget_min=55" "--dry-run wrote nothing"
+
+# ...and with no terminal and no app entry (a script, a test, CI) the
+# safe default still holds -- AGENTS.md rule 8.
+answers="$(answers_file "kid:kid-ada" time budget 70 back back quit)"
+out="$(OMARCHY_KIDS_TUI_ANSWERS="$answers" "$BIN" 2>&1)"
+check_contains "$out" "[dry-run]" "no tty and no app entry: still previews by default"
+check_contains "$(cat "$ETC/kids/kid-ada.conf")" "budget_min=55" "no tty: wrote nothing"
+
+# The desktop entry really does set the marker the panel keys on.
+DESKTOP="$ROOT_DIR/desktop/omarchy-kids.desktop"
+check_contains "$(cat "$DESKTOP")" "OMARCHY_KIDS_LAUNCHED_BY=desktop" \
+    "desktop/omarchy-kids.desktop marks itself as a human launch"
 
 echo "panel-test.sh: done"
 exit $rc

@@ -57,6 +57,16 @@ mkdir -p "$STUBS" "$SHARE/ask" "$ETC/kids" "$RUN_USER_ROOT/1000/omarchy-kids/ask
     "$RUN_USER_ROOT/1001/omarchy-kids/ask-outbox"
 touch "$LOG" "$SHARE/ask/shell.qml" "$CONF_STORE"
 
+# `collect` resolves who owned an outbox from the uid in its path, not from
+# the record's own `kid` field (review S2). OMARCHY_KIDS_UID_MAP stands in
+# for `getent passwd` here; it is read from root's environment, never a
+# kid's. The kid registry is the second gate: an outbox whose owner has no
+# profile is skipped entirely.
+UID_MAP="$TMP/uid-map"
+printf '1000:kid-ada\n1001:kid-bo\n1002:not-a-kid\n' > "$UID_MAP"
+printf 'band=6-8\n' > "$ETC/kids/kid-ada.conf"
+printf 'band=6-8\n' > "$ETC/kids/kid-bo.conf"
+
 # stub NAME EXTRA -- see test/shell.d/exit-test.sh for the full rationale.
 stub() {
     local name="$1" extra="${2:-}" f="$STUBS/$1"
@@ -98,6 +108,7 @@ export OMARCHY_KIDS_ROOT="$VARLIB_ROOT"
 export OMARCHY_KIDS_RUN_USER_ROOT="$RUN_USER_ROOT"
 export OMARCHY_KIDS_CONF_BIN="$STUBS/omarchy-kids-conf"
 export OMARCHY_KIDS_WEB_BIN="$STUBS/omarchy-kids-web"
+export OMARCHY_KIDS_UID_MAP="$UID_MAP"
 
 argv_since() { tail -n "+$(( $1 + 1 ))" "$LOG"; }
 argv_lines() { wc -l < "$LOG" | tr -d ' '; }
@@ -170,17 +181,29 @@ stub quickshell  # restore the plain argv-logging stub
 
 # --- already open: never execs quickshell again -----------------------
 
-stub pgrep 'exit 0'  # "found" -- a modal is already up
+# A modal is tracked by a pidfile now, not by `pgrep -f "quickshell -p
+# <path>"` -- which matched any process a kid could start with that string
+# in its argv (review §1.9). A stale pid never blocks it.
+MODAL_RUN="$TMP/kid-runtime"
+mkdir -p "$MODAL_RUN"
+printf '999999\n' > "$MODAL_RUN/ask-modal.pid"
 before="$(argv_lines)"
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
-    "$BIN" time 5 >/dev/null 2>&1; st=$?
-check_eq "$st" 0 "time: a modal already up still exits 0"
+OMARCHY_KIDS_RUN="$MODAL_RUN" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+    "$BIN" time 5 >/dev/null 2>&1
 if grep -qE '^quickshell ' < <(argv_since "$before"); then
-    fail "time: never execs quickshell when one is already up (it did)"
+    pass "time: a stale modal pidfile never blocks the modal"
 else
-    pass "time: never execs quickshell when one is already up"
+    fail "time: a stale modal pidfile blocked the modal"
 fi
-stub pgrep 'exit 1'
+rm -f "$MODAL_RUN/ask-modal.pid"
+
+before="$(argv_lines)"
+OMARCHY_KIDS_RUN="$MODAL_RUN" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+    "$BIN" time 5 >/dev/null 2>&1; st=$?
+check_eq "$st" 0 "time: opening the modal exits 0"
+[[ -s "$MODAL_RUN/ask-modal.pid" ]] && pass "time: the modal records its own pid" \
+    || fail "time: the modal pidfile was not written"
+rm -rf "$MODAL_RUN"
 
 # =====================================================================
 # submit: writes one Appendix D record into the kid's OWN outbox
@@ -189,7 +212,7 @@ stub pgrep 'exit 1'
 OUTBOX_ADA="$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox"
 
 OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
-    "$BIN" submit time 20 --state open --minutes 20 >/dev/null
+    "$BIN" submit time 20 --minutes 20 >/dev/null
 files=("$OUTBOX_ADA"/*-kid-ada-time.json)
 check_eq "${#files[@]}" 1 "submit (open): writes exactly one record"
 rec="${files[0]}"
@@ -199,17 +222,28 @@ check_contains "$(cat "$rec")" '"minutes": 20' "submit (open): minutes=20"
 check_not_contains "$(cat "$rec")" '"by"' "submit (open): no 'by' yet -- undecided"
 rm -f "$rec"
 
+# --- review S1: `submit` has no way to write a decision at all -----------
+
 OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
-    "$BIN" submit app firefox --state approved --by keyboard >/dev/null
+    "$BIN" submit app firefox >/dev/null
 files=("$OUTBOX_ADA"/*-kid-ada-app.json)
-check_eq "${#files[@]}" 1 "submit (approved): writes exactly one record"
+check_eq "${#files[@]}" 1 "submit: writes exactly one record"
 rec="${files[0]}"
-check_contains "$(cat "$rec")" '"state": "approved"' "submit (approved): state=approved"
-check_contains "$(cat "$rec")" '"by": "keyboard"' "submit (approved): by=keyboard (the modal verified it)"
-check_contains "$(cat "$rec")" '"what": "firefox"' "submit (approved): what=firefox"
+check_contains "$(cat "$rec")" '"state": "open"' "submit: every record is open, never a decision"
+check_not_contains "$(cat "$rec")" '"by"' "submit: no 'by' -- nobody in this session decided anything"
+check_contains "$(cat "$rec")" '"what": "firefox"' "submit: what=firefox"
 rm -f "$rec"
 
-"$BIN" submit bogus-kind something --state open >/dev/null 2>&1
+for bad in --state --by; do
+    OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+        "$BIN" submit app firefox "$bad" approved >/dev/null 2>&1
+    check_eq "$?" 2 "submit: $bad is not an argument this command has (review S1)"
+done
+# ...and lib/ask.py itself refuses to write one, whatever calls it.
+python3 "$ROOT_DIR/lib/ask.py" write "$OUTBOX_ADA" --kid kid-ada --kind app --what evil --state approved >/dev/null 2>&1
+check_eq "$?" 2 "ask.py write: --state is gone from the writer entirely"
+
+"$BIN" submit bogus-kind something >/dev/null 2>&1
 check_eq "$?" 2 "submit: an unknown kind is refused"
 
 # =====================================================================
@@ -230,8 +264,12 @@ check_contains "$out" "dry-run" "collect (default): previews only"
     || pass "collect (default): queue stays empty"
 
 # =====================================================================
-# collect --apply: moves outbox -> queue, applies pre-approved records
+# collect --apply: promotes outbox records to OPEN, and nothing else
 # =====================================================================
+#
+# Review S1/S2/S3, all three at once. collect is a mover, not a decider:
+# whatever a kid writes into their own outbox becomes an open, undecided
+# request attributed to the account that actually owned the outbox.
 
 rm -f "$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox/1000000000-kid-ada-time.json"  # the dry-run fixture above
 
@@ -239,24 +277,32 @@ rm -f "$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox/1000000000-kid-ada-time.json"
 printf 'kid-ada\tband\t6-8\n' >> "$CONF_STORE"
 printf 'kid-bo\tband\t6-8\n' >> "$CONF_STORE"
 
-# open (time): collected, but left alone -- no time/conf/web call
+# An honest open request.
 cat > "$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox/1000000001-kid-ada-time.json" <<'EOF'
 {"kid": "kid-ada", "kind": "time", "what": "10", "minutes": 10, "asked_at": 1000000001, "state": "open"}
 EOF
-# approved (app): from kid-ada's outbox, on the spot via keyboard
+# S1: the whole attack. A kid writes state=approved into their own outbox
+# and waits <=60s for the collect timer. Root used to grant it on sight.
 cat > "$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox/1000000002-kid-ada-app.json" <<'EOF'
 {"kid": "kid-ada", "kind": "app", "what": "minecraft", "asked_at": 1000000002, "state": "approved", "decided_at": 1000000002, "by": "keyboard"}
 EOF
-# approved (site): from kid-bo's outbox (a different uid), on the spot
+# S2: kid-bo's outbox, claiming to be kid-ada, pre-approved.
 cat > "$RUN_USER_ROOT/1001/omarchy-kids/ask-outbox/1000000003-kid-bo-site.json" <<'EOF'
-{"kid": "kid-bo", "kind": "site", "what": "roblox.com", "asked_at": 1000000003, "state": "approved", "decided_at": 1000000003, "by": "keyboard"}
+{"kid": "kid-ada", "kind": "site", "what": "roblox.com", "asked_at": 1000000003, "state": "approved", "decided_at": 1000000003, "by": "keyboard"}
+EOF
+# S3: root path traversal through the same field.
+cat > "$RUN_USER_ROOT/1001/omarchy-kids/ask-outbox/1000000006-evil-site.json" <<'EOF'
+{"kid": "../../../../etc/sudoers.d", "kind": "site", "what": "kid-ada ALL=(ALL) NOPASSWD: ALL", "asked_at": 1000000006, "state": "approved", "by": "keyboard"}
 EOF
 
-stub omarchy-kids-time ''  # present on PATH: time grants can actually apply
+stub omarchy-kids-time ''  # present on PATH: a time grant COULD apply here
 before="$(argv_lines)"
 out="$("$BIN" collect --apply)"
-check_contains "$out" "3 request(s) collected" "collect --apply: collects all three records across both kids"
-check_contains "$out" "2 applied" "collect --apply: applies the two pre-approved records"
+after_argv="$(argv_since "$before")"
+
+check_contains "$out" "3 request(s) collected" "collect --apply: collects the three well-formed records"
+check_contains "$out" "1 dropped" "collect --apply: drops the one that fails the allowlist"
+check_not_contains "$out" "applied" "collect --apply: never reports applying anything (review S1)"
 
 [[ -e "$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox/1000000001-kid-ada-time.json" ]] \
     && fail "collect --apply: must empty kid-ada's outbox" \
@@ -265,44 +311,128 @@ check_contains "$out" "2 applied" "collect --apply: applies the two pre-approved
     && fail "collect --apply: must empty kid-bo's outbox" \
     || pass "collect --apply: kid-bo's outbox is empty afterward"
 
-[[ -f "$QUEUE_DIR/1000000001-kid-ada-time.json" ]] && pass "collect --apply: open record landed in the queue" \
-    || fail "collect --apply: open record missing from the queue"
+# S1: not one of the pre-approved records was acted on, and none is approved.
+check_not_contains "$after_argv" "time grant" "S1: collect never grants time"
+check_not_contains "$after_argv" "apps.extra" "S1: collect never writes apps.extra"
+check_not_contains "$after_argv" "omarchy-kids-web install" "S1: collect never re-installs a web policy"
+for f in "$QUEUE_DIR"/*.json; do
+    [[ -e "$f" ]] || continue
+    check_not_contains "$(cat "$f")" '"approved"' "S1: $(basename "$f") landed open, not approved"
+done
+
 check_contains "$(cat "$QUEUE_DIR/1000000001-kid-ada-time.json")" '"state": "open"' \
-    "collect --apply: an open record is left open (not auto-decided)"
+    "collect --apply: an open record stays open"
 
-after_argv="$(argv_since "$before")"
-check_not_contains "$after_argv" "time grant kid-ada 10" \
-    "collect --apply: does NOT grant time for the still-open record"
+# S2: the record kid-bo wrote claiming to be kid-ada is now kid-bo's.
+check_contains "$(cat "$QUEUE_DIR/1000000003-kid-bo-site.json")" '"kid": "kid-bo"' \
+    "S2: the kid field is re-derived from the outbox owner, not read from the file"
 
-check_contains "$after_argv" "omarchy-kids-conf set kid-ada apps.extra minecraft" \
-    "collect --apply: applies the approved app grant via apps.extra"
-check_contains "$after_argv" "omarchy-kids-web install 6-8 --allow" \
-    "collect --apply: applies the approved site grant via omarchy-kids-web install"
-check_contains "$after_argv" "--apply" "collect --apply: re-installs the web policy for real"
+# S3: the path-like kid never reached the queue, and root created nothing.
+[[ -e "$QUEUE_DIR/1000000006-evil-site.json" ]] \
+    && fail "S3: a record with a path-like kid must never be queued" \
+    || pass "S3: a record with a path-like kid is dropped, not queued"
+[[ -e "$TMP/etc/sudoers.d" ]] \
+    && fail "S3: root created a directory outside the kid tree" \
+    || pass "S3: no directory was created outside the kid tree"
 
-allow_file="$ETC/kids/kid-bo/allow.txt"
-[[ -f "$allow_file" ]] && check_contains "$(cat "$allow_file")" "roblox.com" \
-    "collect --apply: records the per-kid site grant in allow.txt" \
-    || fail "collect --apply: kid-bo/allow.txt was not written"
+[[ -f "$ETC/kids/kid-bo/allow.txt" ]] && fail "S1: collect wrote allow.txt without a parent deciding" \
+    || pass "S1: collect wrote no allow.txt"
+
+# An outbox owned by an account with no profile is skipped entirely.
+mkdir -p "$RUN_USER_ROOT/1002/omarchy-kids/ask-outbox"
+cat > "$RUN_USER_ROOT/1002/omarchy-kids/ask-outbox/1000000007-x-app.json" <<'EOF'
+{"kid": "kid-ada", "kind": "app", "what": "minecraft", "asked_at": 1000000007, "state": "open"}
+EOF
+err="$("$BIN" collect --apply 2>&1 >/dev/null)"
+check_contains "$err" "is not a provisioned kid" "collect: an outbox owned by a non-kid is skipped"
+[[ -e "$QUEUE_DIR/1000000007-x-app.json" ]] \
+    && fail "collect: a non-kid's outbox must not reach the queue" \
+    || pass "collect: a non-kid's outbox never reaches the queue"
+rm -rf "$RUN_USER_ROOT/1002"
 
 # a second collect on an empty set of outboxes is a harmless no-op
 out2="$("$BIN" collect --apply)"
 check_contains "$out2" "0 request(s) collected" "collect --apply: idempotent once outboxes are empty"
 
 # =====================================================================
-# collect --apply: omarchy-kids-time missing -- degrades, never fails
+# apply-grant: omarchy-kids-authd's root callback (review S1)
 # =====================================================================
 
+rm -f "$QUEUE_DIR"/*.json          # a clean queue for the sections below
+rm -rf "$ETC/kids/kid-bo"
+
+before="$(argv_lines)"
+"$BIN" apply-grant --kid kid-ada --kind app --what minecraft --apply >/dev/null
+after_argv="$(argv_since "$before")"
+check_contains "$after_argv" "omarchy-kids-conf set kid-ada apps.extra minecraft" \
+    "apply-grant: performs the action through the same apply path collect used to"
+granted="$(grep -l '"what": "minecraft"' "$QUEUE_DIR"/*.json | tail -1)"
+check_contains "$(cat "$granted")" '"state": "approved"' "apply-grant: records the decision in the queue"
+check_contains "$(cat "$granted")" '"by": "keyboard"' "apply-grant: by=keyboard (the on-the-spot path)"
+
+before="$(argv_lines)"
+"$BIN" apply-grant --kid kid-bo --kind site --what roblox.com --apply >/dev/null
+after_argv="$(argv_since "$before")"
+check_contains "$after_argv" "omarchy-kids-web install 6-8 --allow" "apply-grant: applies a site grant"
+check_contains "$after_argv" "--apply" "apply-grant: re-installs the web policy for real"
+check_contains "$(cat "$ETC/kids/kid-bo/allow.txt")" "roblox.com" "apply-grant: records the site in allow.txt"
+
+# Everything the allowlist refuses, refused again at the root entry point.
+for args in \
+    "--kid ../../../../etc/sudoers.d --kind site --what evil.com" \
+    "--kid kid-ada --kind site --what ../../etc/passwd" \
+    "--kid kid-ada --kind app --what .hidden" \
+    "--kid kid-ada --kind time --what 99999 --minutes 99999" \
+    "--kid kid-nobody --kind app --what minecraft"; do
+    # shellcheck disable=SC2086
+    "$BIN" apply-grant $args --apply >/dev/null 2>&1
+    check_eq "$?" 2 "apply-grant refuses: $args"
+done
+
+# --- omarchy-kids-time missing: degrades, never fails ---------------------
+
 rm -f "$STUBS/omarchy-kids-time"
-cat > "$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox/1000000004-kid-ada-time.json" <<'EOF'
-{"kid": "kid-ada", "kind": "time", "what": "5", "minutes": 5, "asked_at": 1000000004, "state": "approved", "decided_at": 1000000004, "by": "keyboard"}
-EOF
-err="$("$BIN" collect --apply 2>&1 >/dev/null)"
+err="$("$BIN" apply-grant --kid kid-ada --kind time --what 5 --minutes 5 --apply 2>&1 >/dev/null)"
 check_contains "$err" "omarchy-kids-time isn't installed yet" \
-    "collect --apply: names the missing command and degrades gracefully"
-[[ -f "$QUEUE_DIR/1000000004-kid-ada-time.json" ]] \
-    && pass "collect --apply: the record still lands in the queue even though time couldn't apply" \
-    || fail "collect --apply: record missing from the queue"
+    "apply-grant: names the missing command and degrades gracefully"
+
+# =====================================================================
+# grant: the kid-side client refuses a bad request before it is sent
+# =====================================================================
+#
+# There is no verifier socket in this suite, so a well-formed grant fails
+# at the connect. A malformed one must fail earlier, without ever putting
+# the typed password on a socket.
+
+out="$(printf 'hunter2\n' | OMARCHY_KIDS_ACCOUNT="kid-ada" OMARCHY_KIDS_AUTH_SOCK="$TMP/no.sock" \
+    "$BIN" grant site "../../etc/passwd" 2>&1)"; st=$?
+check_eq "$st" 2 "grant: a path-like host is refused before anything is sent"
+check_contains "$out" "rejected before it was sent" "grant: says the request never left the session"
+
+out="$(printf 'hunter2\n' | OMARCHY_KIDS_ACCOUNT="kid-ada" OMARCHY_KIDS_AUTH_SOCK="$TMP/no.sock" \
+    "$BIN" grant app minecraft 2>&1)"; st=$?
+check_eq "$st" 1 "grant: no verifier reachable means no grant"
+check_not_contains "$out" "hunter2" "grant: the typed password is never echoed"
+
+# =====================================================================
+# the modal cannot approve anything on its own
+# =====================================================================
+
+ASK_QML="$ROOT_DIR/share/ask/shell.qml"
+check_not_contains "$(cat "$ASK_QML")" '"--state"' \
+    "share/ask/shell.qml never passes --state (review S1)"
+check_not_contains "$(cat "$ASK_QML")" '"approved"' \
+    "share/ask/shell.qml never writes the word approved"
+check_contains "$(cat "$ASK_QML")" '"grant"' \
+    "share/ask/shell.qml goes through the root grant path instead"
+
+# An honest open request, for the `list`/approve sections below.
+stub omarchy-kids-time ''
+cat > "$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox/1000000009-kid-ada-time.json" <<'EOF'
+{"kid": "kid-ada", "kind": "time", "what": "10", "minutes": 10, "asked_at": 1000000009, "state": "open"}
+EOF
+"$BIN" collect --apply >/dev/null
+rm -f "$STUBS/omarchy-kids-time"
 
 # =====================================================================
 # list: only open (undecided) requests, all kids or one
@@ -323,7 +453,7 @@ check_contains "$out_bo" "no open requests" "list kid-bo: nothing open for kid-b
 # approve / decline: one keystroke, act on an id from `list`
 # =====================================================================
 
-id="1000000001-kid-ada-time"  # the still-open time request from above
+id="1000000009-kid-ada-time"  # the still-open time request from above
 
 before="$(argv_lines)"
 "$BIN" approve "$id" >/dev/null

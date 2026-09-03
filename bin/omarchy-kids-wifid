@@ -124,7 +124,10 @@ def run_nmcli(nmcli: str, args: "list[str]") -> str:
             [nmcli, *args], capture_output=True, text=True, timeout=CLIENT_TIMEOUT, check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise Failed(f"nmcli {' '.join(args)}: {exc}") from exc
+        # Only the subcommand, never the argument list: JOIN's args carry
+        # "password <secret>", and this text is sent straight back to the
+        # client and into whatever it logs (review S8).
+        raise Failed(f"nmcli {args[0] if args else ''}: {exc}") from exc
     if result.returncode != 0:
         reason = result.stderr.strip() or f"nmcli exited {result.returncode}"
         raise Failed(reason)
@@ -222,7 +225,7 @@ def handle_client(conn: socket.socket, conf_bin: str, nmcli: str):
     conn.settimeout(CLIENT_TIMEOUT)
     try:
         try:
-            account = authorize(conn, conf_bin)
+            authorize(conn, conf_bin)  # the account name is only the decision
         except Refused as exc:
             reply = f"REFUSED {exc}\n"
             conn.sendall(reply.encode("utf-8", errors="replace"))
@@ -251,7 +254,6 @@ def handle_client(conn: socket.socket, conf_bin: str, nmcli: str):
 
         reply = "OK\n" + payload
         conn.sendall(reply.encode("utf-8", errors="replace"))
-        _ = account  # only ever used for the authorization decision above
     except Exception:  # noqa: BLE001 -- never let a bad client kill the daemon
         pass
 

@@ -49,6 +49,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
 MODAL_QML="$SHARE/exit-modal/shell.qml"
+RUN="${OMARCHY_KIDS_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
+MODAL_PIDFILE="$RUN/exit-modal.pid"
 
 die() { echo "omarchy-kids-exit: $1" >&2; exit "${2:-2}"; }
 
@@ -94,14 +96,22 @@ Env:
 EOF
 }
 
-# modal_already_open — best-effort check for a live exit-modal process,
-# so a second Super+Shift+K (or a triple-tap landing while the modal is
-# already showing) doesn't stack a second one on top. UNVERIFIED: no
-# Quickshell was available to confirm `quickshell -p PATH` is what shows
-# up in `pgrep -f`'s process list under that exact invocation.
+# modal_already_open — a pidfile this command writes itself, so a second
+# Super+Shift+K (or a triple-tap while the modal is showing) doesn't stack
+# a second one on top. It used to be `pgrep -f "quickshell -p $MODAL_QML"`,
+# which matched *any* process with that string in its argv — a kid could
+# start one and wedge the parent's exit modal shut forever (review §1.9).
+# The pidfile lives in the kid's own mode-0700 runtime dir, so a kid can
+# still write it, but only a live process whose /proc comm is quickshell
+# counts, which is the modal itself.
 modal_already_open() {
-  command -v pgrep >/dev/null 2>&1 || return 1
-  pgrep -f "quickshell -p ${MODAL_QML}" >/dev/null 2>&1
+  local pid comm=""
+  [[ -r "$MODAL_PIDFILE" ]] || return 1
+  IFS= read -r pid < "$MODAL_PIDFILE" || return 1
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  [[ -r "/proc/$pid/comm" ]] && IFS= read -r comm < "/proc/$pid/comm"
+  [[ -z "$comm" || "$comm" == quickshell* ]]
 }
 
 cmd_open() {
@@ -124,6 +134,9 @@ cmd_open() {
   export OMARCHY_KIDS_NAME="$name"
   export OMARCHY_KIDS_AVATAR="$SHARE/avatars/$avatar_id.svg"
 
+  # exec keeps this pid, so $$ is the modal's own pid.
+  install -d -m 0700 "$RUN"
+  printf '%s\n' "$$" > "$MODAL_PIDFILE"
   exec quickshell -p "$MODAL_QML"
 }
 
@@ -235,6 +248,12 @@ fi
 
 case "$action" in
   --open) cmd_open ;;
-  --finish) [[ -n "$kid" ]] && cmd_finish_kid "$kid" || cmd_finish ;;
+  --finish)
+    # An `if`, not `a && b || c`: under --finish --kid this runs as root,
+    # so a cmd_finish_kid that returned non-zero instead of exec'ing (no
+    # loginctl, a future early return) would fall through to cmd_finish
+    # and terminate root's own session (review §1.9).
+    if [[ -n "$kid" ]]; then cmd_finish_kid "$kid"; else cmd_finish; fi
+    ;;
   --pause) cmd_pause ;;
 esac

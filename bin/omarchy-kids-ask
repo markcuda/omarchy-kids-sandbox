@@ -18,14 +18,18 @@
 #     (share/ask/shell.qml), exporting what's being asked in kid words.
 #     The modal itself calls back into this command's `submit`:
 #
-#   submit <kind> <what> --state open|approved --by keyboard [--minutes N]
-#     Writes one Appendix D record into the *kid's own* outbox --
-#     $OMARCHY_KIDS_RUN/ask-outbox/<unix-ts>-<account>-<kind>.json --
-#     never anywhere root-owned. This is the trust boundary (see
-#     docs/ask.md): a kid can only ever write a *claim* about themself,
-#     into a directory only they can read or write ($XDG_RUNTIME_DIR is
-#     systemd-logind's own per-user, mode-0700 directory -- nothing new
-#     had to be made writable for this). Nothing here enforces anything.
+#   submit <kind> <what> [--minutes N]
+#     Writes one Appendix D record, always state=open, into the *kid's
+#     own* outbox -- $OMARCHY_KIDS_RUN/ask-outbox/<ts>-<account>-<kind>.json.
+#     A kid can only ever write a *claim*, never a decision (review S1):
+#     there is deliberately no --state and no --by here.
+#
+#   grant <kind> <what> [--minutes N]     (parent password on stdin)
+#     The "A grown-up is here" path. Sends GRANT plus the typed password
+#     to root's omarchy-kids-authd socket and exits 0 only if *root*
+#     verified the password, matched the peer uid to this account, and
+#     applied the request itself. Nothing in the kid's session decides
+#     anything; this command's own exit code grants nothing.
 #
 # Root-side (run by the parent, from the panel, or by
 # systemd/omarchy-kids-ask-collect.timer):
@@ -33,21 +37,20 @@
 #   collect [--apply]          For every kid account, moves whatever is
 #                               sitting in that kid's outbox into the
 #                               real queue (/var/lib/omarchy-kids/queue/,
-#                               Appendix D) -- root can read every kid's
-#                               $XDG_RUNTIME_DIR, so this is the one and
-#                               only place a claim becomes a queue
-#                               record. Any record that already arrived
-#                               pre-approved (the modal's "A grown-up is
-#                               here" path, state=approved, by=keyboard)
-#                               is applied on the spot, right here. This
-#                               is what actually makes R-ASK-1's "granted
-#                               on the spot" true: not instantly in the
-#                               kid's session (nothing there can reach
-#                               root), but as soon as collect next runs
-#                               -- the panel runs it directly when a
-#                               parent is looking, and the timer is the
-#                               every-minute backstop otherwise. See
-#                               docs/ask.md's "Judgment calls".
+#                               Appendix D). It promotes records to
+#                               `open` and NOTHING ELSE: it never applies
+#                               anything, never honours a state a kid
+#                               wrote, and re-attributes every record to
+#                               the account that actually owned the
+#                               outbox (review S1/S2/S3). On-the-spot
+#                               approval is `grant` above, decided by
+#                               root in omarchy-kids-authd.
+#   apply-grant --kid K --kind KIND --what W [--minutes N] --apply
+#                               Root only, invoked by omarchy-kids-authd
+#                               once it has verified the parent password
+#                               and the peer uid. Records the decision in
+#                               the queue and performs it, through the
+#                               same apply_record every other path uses.
 #   list [<kid>]                Every open (undecided) request, all kids
 #                               or one.
 #   approve <id> [--apply]      Performs the action, then marks the
@@ -71,6 +74,16 @@
 #   OMARCHY_KIDS_CONF_BIN   path to omarchy-kids-conf (default: resolved
 #                           beside this script, else /usr/bin/omarchy-kids-conf)
 #   OMARCHY_KIDS_WEB_BIN    path to omarchy-kids-web (same resolution)
+#   OMARCHY_KIDS_AUTH_SOCK  `grant`'s root socket, default
+#                           /run/omarchy-kids/auth.sock. Pointing this
+#                           somewhere else grants nothing -- the socket
+#                           on the other end is what decides -- so unlike
+#                           bin/omarchy-kids-parent-auth this one is not
+#                           root-gated.
+#   OMARCHY_KIDS_UID_MAP    test-only: a file of "uid:account" lines used
+#                           instead of `getent passwd` when `collect`
+#                           resolves who owned an outbox. Read from
+#                           root's own environment, never a kid's.
 #   DRY_RUN                 default 1 for collect/approve/decline
 #                           (AGENTS.md rule 8); --apply or DRY_RUN=0 does
 #                           it for real. submit/time/app/plugin/site only
@@ -96,6 +109,12 @@ KIDS_DIR="$ETC/kids"
 QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
 OUTBOX_DIR="$RUN/ask-outbox"
 MODAL_QML="$SHARE/ask/shell.qml"
+MODAL_PIDFILE="$RUN/ask-modal.pid"
+AUTH_SOCK="${OMARCHY_KIDS_AUTH_SOCK:-/run/omarchy-kids/auth.sock}"
+UID_MAP="${OMARCHY_KIDS_UID_MAP:-}"
+
+# shellcheck source=lib/sock.sh
+source "$LIB/sock.sh"
 
 DRY_RUN="${DRY_RUN:-1}"
 
@@ -109,7 +128,9 @@ Usage: omarchy-kids-ask time <minutes>
        omarchy-kids-ask app <package-or-desktop-id>
        omarchy-kids-ask plugin <plugin-id>
        omarchy-kids-ask site <host>
-       omarchy-kids-ask submit <kind> <what> --state open|approved --by keyboard [--minutes N]
+       omarchy-kids-ask submit <kind> <what> [--minutes N]
+       omarchy-kids-ask grant <kind> <what> [--minutes N]   (password on stdin)
+       omarchy-kids-ask apply-grant --kid K --kind KIND --what W [--minutes N] --apply
        omarchy-kids-ask collect [--apply]
        omarchy-kids-ask list [<kid>]
        omarchy-kids-ask approve <id> [--apply]
@@ -119,13 +140,20 @@ Usage: omarchy-kids-ask time <minutes>
 time/app/plugin/site   Kid-side: opens share/ask/shell.qml, the "Ask a
               grown-up" modal, describing the request in kid words.
 
-submit        Internal: what the modal calls after Esc/"Ask later"/"A
-              grown-up is here". Writes one Appendix D record into the
-              kid's own outbox. Not meant to be run by a kid directly.
+submit        Internal: what the modal calls for "Ask later". Writes one
+              Appendix D record, always state=open, into the kid's own
+              outbox. It cannot write a decision.
+
+grant         Internal: what the modal calls for "A grown-up is here".
+              Reads the typed parent password from stdin and asks root's
+              verifier to decide and apply. Exit 0 means root granted it.
+
+apply-grant   Root only: the verifier's own callback. Refuses unless it
+              is running as root.
 
 collect       Root: moves every kid's outbox into the real queue
-              (/var/lib/omarchy-kids/queue/) and applies any record that
-              arrived pre-approved. Run by the panel, or by
+              (/var/lib/omarchy-kids/queue/) as open, undecided requests.
+              It never applies anything. Run by the panel, or by
               systemd/omarchy-kids-ask-collect.timer every minute.
 
 list          Root: every undecided (open) request, all kids or one.
@@ -161,9 +189,21 @@ is_valid_kind() { is_in "$1" "${VALID_KINDS[@]}"; }
 
 # --- kid-side: open the modal ---------------------------------------------
 
+# modal_already_open -- a pidfile this command writes itself, not a
+# substring of somebody's argv. `pgrep -f "quickshell -p $MODAL_QML"`
+# matched any process a kid could start with that string in its command
+# line, which let a kid wedge the modal shut forever (review §1.9).
+# The pidfile lives in the kid's own mode-0700 runtime dir, so a kid
+# could still write it -- but only a live process whose /proc comm is
+# quickshell counts, which is the modal itself.
 modal_already_open() {
-    command -v pgrep >/dev/null 2>&1 || return 1
-    pgrep -f "quickshell -p ${MODAL_QML}" >/dev/null 2>&1
+    local pid comm=""
+    [[ -r "$MODAL_PIDFILE" ]] || return 1
+    IFS= read -r pid < "$MODAL_PIDFILE" || return 1
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    [[ -r "/proc/$pid/comm" ]] && IFS= read -r comm < "/proc/$pid/comm"
+    [[ -z "$comm" || "$comm" == quickshell* ]]
 }
 
 # open_modal KIND WHAT DESC [MINUTES] -- exports what the QML needs and
@@ -182,6 +222,9 @@ open_modal() {
     export OMARCHY_KIDS_ASK_MINUTES="$minutes"
     export OMARCHY_KIDS_ASK_BIN="$SELF"
 
+    # exec keeps this pid, so $$ is the modal's own pid.
+    install -d -m 0700 "$RUN"
+    printf '%s\n' "$$" > "$MODAL_PIDFILE"
     exec quickshell -p "$MODAL_QML"
 }
 
@@ -209,29 +252,65 @@ cmd_site() {
 
 # --- submit: kid-side, writes into the kid's own outbox --------------------
 
-cmd_submit() {
-    local kind="" what="" state="open" by="" minutes=""
-    if (($# >= 1)); then kind="$1"; shift; fi
-    if (($# >= 1)); then what="$1"; shift; fi
+# parse_request_args -- the <kind> <what> [--minutes N] shape `submit`,
+# `grant` and `apply-grant` all take. Sets KIND/WHAT/MINUTES.
+parse_request_args() {
+    local verb="$1"; shift
+    KIND=""; WHAT=""; MINUTES=""
+    if (($# >= 1)) && [[ "$1" != -* ]]; then KIND="$1"; shift; fi
+    if (($# >= 1)) && [[ "$1" != -* ]]; then WHAT="$1"; shift; fi
     while (($#)); do
         case "$1" in
-            --state) state="${2:?--state needs a value}"; shift 2 ;;
-            --by) by="${2:?--by needs a value}"; shift 2 ;;
-            --minutes) minutes="${2:?--minutes needs a value}"; shift 2 ;;
+            --minutes) MINUTES="${2:?--minutes needs a value}"; shift 2 ;;
             -h|--help) usage; exit 0 ;;
-            *) die "submit: unknown argument '$1'" ;;
+            *) die "$verb: unknown argument '$1'" ;;
         esac
     done
-    [[ -n "$kind" && -n "$what" ]] || die "submit: needs <kind> <what>"
-    is_valid_kind "$kind" || die "submit: unknown kind '$kind' (must be one of ${VALID_KINDS[*]})"
+    [[ -n "$KIND" && -n "$WHAT" ]] || die "$verb: needs <kind> <what>"
+    is_valid_kind "$KIND" || die "$verb: unknown kind '$KIND' (must be one of ${VALID_KINDS[*]})"
+}
+
+cmd_submit() {
+    local KIND WHAT MINUTES
+    parse_request_args submit "$@"
 
     local account; account="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
     install -d -m 0700 "$OUTBOX_DIR"
 
-    local -a args=("write" "$OUTBOX_DIR" --kid "$account" --kind "$kind" --what "$what" --state "$state")
-    [[ -n "$minutes" ]] && args+=(--minutes "$minutes")
-    [[ -n "$by" ]] && args+=(--by "$by")
+    local -a args=("write" "$OUTBOX_DIR" --kid "$account" --kind "$KIND" --what "$WHAT")
+    [[ -n "$MINUTES" ]] && args+=(--minutes "$MINUTES")
     "$PY" "$ASKPY" "${args[@]}"
+}
+
+# --- kid-side: grant, the on-the-spot path (review S1) ---------------------
+
+# cmd_grant -- reads the parent's typed password from stdin (one line,
+# never argv, never logged) and hands it, with the request, to root's
+# verifier. Exit 0 only when root says it verified AND applied. Nothing
+# here is trusted by anything: a kid faking this command's exit code
+# fakes only the "Got it!" message their own modal shows them.
+cmd_grant() {
+    local KIND WHAT MINUTES
+    parse_request_args grant "$@"
+
+    local account; account="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    local password; IFS= read -r password || true
+
+    local json
+    json="$("$PY" "$ASKPY" request-json --kid "$account" --kind "$KIND" --what "$WHAT" \
+        ${MINUTES:+--minutes "$MINUTES"})" || die "grant: $KIND request rejected before it was sent"
+
+    local reply
+    reply="$(kids_sock_request "$AUTH_SOCK" "GRANT $json"$'\n'"$password"$'\n')" || {
+        echo "omarchy-kids-ask: no way to reach the verifier (install socat or python3)" >&2
+        return 1
+    }
+    password=""
+    if [[ "$reply" == ok* ]]; then
+        return 0
+    fi
+    echo "omarchy-kids-ask: ${reply:-no reply from the verifier}" >&2
+    return 1
 }
 
 # --- root: collect --------------------------------------------------------
@@ -325,6 +404,32 @@ apply_site() {
     run "$WEB_BIN" install "$band" --allow "$allow_file" --apply
 }
 
+# outbox_owner DIR -- the account that owns the outbox at
+# <RUN_USER_ROOT>/<uid>/omarchy-kids/ask-outbox, from the uid in the path
+# (systemd-logind's own guarantee: /run/user/<uid> is that uid's mode-0700
+# runtime dir), never from anything inside the file. Prints nothing when
+# the uid maps to no account.
+outbox_owner() {
+    local dir="$1" uid rest
+    rest="${dir#"$RUN_USER_ROOT"/}"
+    uid="${rest%%/*}"
+    [[ "$uid" =~ ^[0-9]+$ ]] || return 1
+    if [[ -n "$UID_MAP" && -r "$UID_MAP" ]]; then
+        local line
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            [[ "${line%%:*}" == "$uid" ]] || continue
+            printf '%s\n' "${line#*:}"
+            return 0
+        done < "$UID_MAP"
+        return 1
+    fi
+    local entry; entry="$(getent passwd "$uid" 2>/dev/null | head -1)"
+    [[ -n "$entry" ]] || return 1
+    printf '%s\n' "${entry%%:*}"
+}
+
+is_known_kid() { [[ -f "$KIDS_DIR/$1.conf" ]]; }
+
 cmd_collect() {
     while (($#)); do
         case "$1" in
@@ -336,11 +441,23 @@ cmd_collect() {
 
     install -d -m 0755 "$QUEUE_DIR"
 
-    local collected=0 applied=0
+    local collected=0 skipped=0
     local -a outbox_dirs=("$RUN_USER_ROOT"/*/omarchy-kids/ask-outbox)
-    local dir file base dest state n
+    local dir file base dest owner n
     for dir in "${outbox_dirs[@]}"; do
         [[ -d "$dir" ]] || continue
+
+        # Who owned this outbox decides who the request is from -- not the
+        # `kid` field, which the kid wrote (review S2/S3).
+        owner="$(outbox_owner "$dir")" || {
+            echo "omarchy-kids-ask: collect: no account owns $dir; skipped" >&2
+            continue
+        }
+        if ! is_known_kid "$owner"; then
+            echo "omarchy-kids-ask: collect: '$owner' is not a provisioned kid; $dir skipped" >&2
+            continue
+        fi
+
         for file in "$dir"/*.json; do
             [[ -e "$file" ]] || continue
             base="$(basename "$file")"
@@ -353,23 +470,75 @@ cmd_collect() {
 
             if [[ "$DRY_RUN" == "0" ]]; then
                 mv -n "$file" "$dest" || continue
-                collected=$((collected + 1))
-                state="$("$PY" "$ASKPY" show "$dest" --field state 2>/dev/null || true)"
-                if [[ "$state" == "approved" ]]; then
-                    apply_record "$dest" && applied=$((applied + 1))
+                # The one and only thing collect does to a record: make it
+                # an open request from the outbox's real owner. Never a
+                # decision, never an action (review S1). A record that
+                # cannot survive the allowlist is dropped, not queued.
+                if "$PY" "$ASKPY" reopen "$dest" --kid "$owner" 2>/dev/null; then
+                    collected=$((collected + 1))
+                else
+                    rm -f "$dest"
+                    skipped=$((skipped + 1))
+                    echo "omarchy-kids-ask: collect: $base failed validation; dropped" >&2
                 fi
             else
-                echo "  [dry-run] would collect $file -> $dest"
+                echo "  [dry-run] would collect $file -> $dest as an open request from $owner"
                 collected=$((collected + 1))
             fi
         done
     done
 
     if [[ "$DRY_RUN" == "0" ]]; then
-        echo "omarchy-kids-ask: collect: $collected request(s) collected, $applied applied on the spot"
+        echo "omarchy-kids-ask: collect: $collected request(s) collected, $skipped dropped"
     else
         echo "omarchy-kids-ask: collect: $collected request(s) would be collected (dry-run; pass --apply for real)"
     fi
+}
+
+# --- root: apply-grant, omarchy-kids-authd's callback ----------------------
+
+# cmd_apply_grant -- called by bin/omarchy-kids-authd, as root, only after
+# it verified the parent password and matched the peer uid to --kid. It
+# revalidates everything anyway (the allowlist is cheap and this is a root
+# entry point), records the decision in the queue so the panel's history
+# shows it, and performs it through the same apply_record every other
+# path uses.
+cmd_apply_grant() {
+    local kid="" kind="" what="" minutes="" apply_flag=0
+    while (($#)); do
+        case "$1" in
+            --kid) kid="${2:?--kid needs a value}"; shift 2 ;;
+            --kind) kind="${2:?--kind needs a value}"; shift 2 ;;
+            --what) what="${2:?--what needs a value}"; shift 2 ;;
+            --minutes) minutes="${2:?--minutes needs a value}"; shift 2 ;;
+            --apply) apply_flag=1; shift ;;
+            -h|--help) usage; exit 0 ;;
+            *) die "apply-grant: unknown argument '$1'" ;;
+        esac
+    done
+    # Root, or pointed at a scratch tree (OMARCHY_KIDS_ROOT, the same
+    # override every other path here takes). Not a bypass: with a scratch
+    # root nothing real is written, and the grant decision was never this
+    # command's to make -- omarchy-kids-authd made it before calling.
+    [[ "${EUID:-$(id -u)}" == "0" || -n "$SYSROOT" ]] \
+        || die "apply-grant: root only (it is omarchy-kids-authd's callback, not a user command)"
+    [[ "$apply_flag" == 1 ]] && DRY_RUN=0
+
+    "$PY" "$ASKPY" validate --kid "$kid" --kind "$kind" --what "$what" \
+        ${minutes:+--minutes "$minutes"} || die "apply-grant: refused"
+    is_known_kid "$kid" || die "apply-grant: '$kid' is not a provisioned kid account"
+
+    install -d -m 0755 "$QUEUE_DIR"
+    local name
+    name="$("$PY" "$ASKPY" write "$QUEUE_DIR" --kid "$kid" --kind "$kind" --what "$what" \
+        ${minutes:+--minutes "$minutes"})" || die "apply-grant: could not record the request"
+    local path="$QUEUE_DIR/$name"
+
+    apply_record "$path" || die "apply-grant: could not apply the request"
+    if [[ "$DRY_RUN" == "0" ]]; then
+        "$PY" "$ASKPY" decide "$path" --state approved --by keyboard
+    fi
+    echo "omarchy-kids-ask: granted $kind '$what' to $kid"
 }
 
 # --- root: list / approve / decline ---------------------------------------
@@ -463,6 +632,8 @@ main() {
         plugin) cmd_plugin "$@" ;;
         site) cmd_site "$@" ;;
         submit) cmd_submit "$@" ;;
+        grant) cmd_grant "$@" ;;
+        apply-grant) cmd_apply_grant "$@" ;;
         collect) cmd_collect "$@" ;;
         list) cmd_list "$@" ;;
         approve) cmd_approve "$@" ;;

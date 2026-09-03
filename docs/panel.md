@@ -129,3 +129,17 @@ more minutes today" → 10 printed the exact command in dry-run and, with `--app
 "9 min left today (budget 1 + 25 granted)". Kid rows answer to their number (or the full
 line), not the account name. Requests, Web, Apps, Password and Remove rows share the same
 code path and are not yet exercised live.
+## The panel runs for real when a human opens it (2026-09-03)
+
+`DRY_RUN=1` used to be the unconditional default here, on the reading that AGENTS.md rule 8
+applies to everything. Rule 8 is a rule for *developer machines*; applied to the shipped app
+entry it made the product a no-op. A parent opened Kids Mode from the drawer, changed a
+setting, pressed the button, watched `[dry-run] sudo ...` scroll past and had no change -- and
+there was no argument the drawer could pass to fix it (review §1.5). The panel is interactive:
+the screen a parent confirms *is* the confirmation. So the default is now a real run when a
+human is driving -- a tty on stdin and stdout, or `OMARCHY_KIDS_LAUNCHED_BY` set, which
+`desktop/omarchy-kids.desktop` does via `Exec=env OMARCHY_KIDS_LAUNCHED_BY=desktop
+omarchy-kids` -- and `DRY_RUN=1` otherwise, so a test, a script or CI still gets a preview.
+`--dry-run` and `--apply` both still win outright. The same rule is in `bin/omarchy-kids-wizard`
+and documented in AGENTS.md rule 8 itself; `provision`, `assert`, `web`, `apps` and `remove` are
+unchanged and still default to a preview.

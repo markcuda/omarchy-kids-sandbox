@@ -169,10 +169,16 @@ add_result() {
 # each lock proves and what its fix does — repeating that here per lock
 # would just be a second copy to keep in sync.
 lock_check() {
-    local id="$1" fn="$2"
+    local id="$1" fn="$2" rc
     shift 2
-    if "$fn" "$@"; then
+    "$fn" "$@" && rc=0 || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
         add_result Locks "lock:$id" pass "matches what omarchy-kids-assert expects"
+    elif [[ "$rc" -eq 2 ]]; then
+        # Exit 2 from a *_ok is omarchy-kids-assert's "I could not look"
+        # (review S11). A check that cannot see is not a passing check, so
+        # this machine is reported as not fully verified rather than green.
+        add_result Locks "lock:$id" warn "could not be verified on this machine — see 'omarchy-kids-assert' output for '$id'"
     else
         add_result Locks "lock:$id" fail "does not match what omarchy-kids-assert expects — run 'omarchy-kids-assert' to restore it (docs/assert.md's lock table has what '$id' proves)"
     fi

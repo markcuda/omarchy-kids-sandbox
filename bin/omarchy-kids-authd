@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
 """omarchy-kids-authd -- the parent-password verifier (R-SEC-1, R-SEC-2).
 
-A root, socket-activated oracle: it accepts one candidate password per
-connection and answers "ok" or "no" depending on whether it matches the
-parent's own login password. Nothing else. See docs/authd.md.
+A root, socket-activated oracle. Two request shapes, one per connection:
+
+    <password>\n                     -> "ok" / "no"   (verify, R-SEC-2)
+    GRANT <json-request>\n<password>\n -> "ok" / "no <reason>"
+
+The second is the *only* way an "Ask a grown-up" request is ever granted
+on the spot (review S1): root verifies the parent's password here, checks
+the connecting peer's uid against the request's own `kid` field
+(SO_PEERCRED -- never what the client claims to be), runs it through
+lib/ask.py's strict allowlist, and only then applies it as root. Nothing
+a kid writes into a file is ever applied by anything. See docs/authd.md.
 
 Stdlib only. Python 3.13+ dropped the `crypt` module, so this calls
 libxcrypt directly through ctypes, which also gets us yescrypt support
@@ -15,20 +23,32 @@ from __future__ import annotations
 import argparse
 import ctypes
 import hmac
+import importlib.util
+import json
 import os
+import pwd
 import signal
 import socket
+import struct
+import subprocess
 import sys
+import threading
 import time
 
 MAX_LINE = 512  # bytes; anything longer (or missing a newline) is "no"
 CLIENT_TIMEOUT = 5.0  # seconds, per connection
 LOCK_AFTER_3 = 30  # seconds
 LOCK_AFTER_10 = 300  # seconds
+DECAY_AFTER = 300  # seconds of quiet before a peer's miss count is forgiven
 
 DEFAULT_SOCKET = "/run/omarchy-kids/auth.sock"
 DEFAULT_SHADOW = "/etc/shadow"
 DEFAULT_MACHINE_CONF = "/etc/omarchy-kids/machine.conf"
+DEFAULT_ETC = "/etc/omarchy-kids"
+DEFAULT_LIB = "/usr/lib/omarchy-kids"
+DEFAULT_ASK_BIN = "/usr/bin/omarchy-kids-ask"
+
+GRANT_PREFIX = "GRANT "
 
 _LIBCRYPT = None
 
@@ -113,36 +133,172 @@ def check_password(candidate: bytes, parent: "str | None", shadow_path: str) -> 
 
 
 class RateLimiter:
-    """In-memory, process-wide: three misses -> 30s, ten -> 5min (R-SEC-1)."""
+    """Three misses -> 30s, ten -> 5min (R-SEC-1), counted *per peer uid*
+    and decayed, not globally and forever.
+
+    Global-and-permanent was review S7: the socket is world-connectable,
+    so a kid looping wrong guesses locked the parent out of their own exit
+    modal indefinitely. A kid can now only lock out their own uid, and the
+    count decays once a lock window has passed with no further misses."""
 
     def __init__(self):
-        self.wrong_count = 0
-        self.locked_until = 0.0
+        self._by_uid = {}
+        self._lock = threading.Lock()
 
-    def locked(self) -> bool:
-        return time.monotonic() < self.locked_until
+    def _entry(self, uid: int):
+        return self._by_uid.setdefault(uid, {"wrong": 0, "until": 0.0, "last": 0.0})
 
-    def record_wrong(self):
-        self.wrong_count += 1
-        if self.wrong_count >= 10:
-            self.locked_until = time.monotonic() + LOCK_AFTER_10
-        elif self.wrong_count >= 3:
-            self.locked_until = time.monotonic() + LOCK_AFTER_3
+    def locked(self, uid: int) -> bool:
+        with self._lock:
+            return time.monotonic() < self._entry(uid)["until"]
 
-    def record_correct(self):
-        self.wrong_count = 0
-        self.locked_until = 0.0
+    def record_wrong(self, uid: int):
+        with self._lock:
+            e = self._entry(uid)
+            now = time.monotonic()
+            # Decay: a quiet DECAY_AFTER window forgives the earlier misses,
+            # so a lockout is always temporary even under a sustained attempt.
+            if e["last"] and now - e["last"] > DECAY_AFTER:
+                e["wrong"] = 0
+            e["last"] = now
+            e["wrong"] += 1
+            if e["wrong"] >= 10:
+                e["until"] = now + LOCK_AFTER_10
+            elif e["wrong"] >= 3:
+                e["until"] = now + LOCK_AFTER_3
+
+    def record_correct(self, uid: int):
+        with self._lock:
+            self._by_uid.pop(uid, None)
 
 
-def verify(candidate: bytes, parent: "str | None", shadow_path: str, limiter: RateLimiter) -> bool:
-    if limiter.locked():
+def verify(candidate: bytes, parent: "str | None", shadow_path: str, limiter: RateLimiter, uid: int = -1) -> bool:
+    if limiter.locked(uid):
         return False  # refuse outright; do not even look at the password
     ok = check_password(candidate, parent, shadow_path)
     if ok:
-        limiter.record_correct()
+        limiter.record_correct(uid)
     else:
-        limiter.record_wrong()
+        limiter.record_wrong(uid)
     return ok
+
+
+# --- who is asking (SO_PEERCRED), same shape as bin/omarchy-kids-wifid ------
+
+
+def peer_uid(conn: socket.socket) -> int:
+    """The connecting process's real uid, from the kernel -- never
+    anything the client claims about itself. -1 where SO_PEERCRED does
+    not exist (macOS dev boxes); a GRANT is refused outright there."""
+    if not hasattr(socket, "SO_PEERCRED"):
+        return -1
+    try:
+        creds = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+    except OSError:
+        return -1
+    _pid, uid, _gid = struct.unpack("3i", creds)
+    return uid
+
+
+def account_for_uid(uid: int) -> "str | None":
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return None
+
+
+# --- GRANT: the only on-the-spot approval path (review S1) ------------------
+
+
+def load_ask_module(lib_dir: str):
+    """lib/ask.py, by path -- the one home for the request allowlist."""
+    spec = importlib.util.spec_from_file_location(
+        "omarchy_kids_ask_lib", os.path.join(lib_dir, "ask.py")
+    )
+    if spec is None or spec.loader is None:
+        raise OSError(f"no ask.py under {lib_dir}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def check_grant(request: dict, uid: int, etc_dir: str, lib_dir: str):
+    """None if root may apply this request, else a one-line reason.
+
+    Order matters: everything that does not need the password is checked
+    first, so a malformed or unauthorized request is refused without ever
+    consulting the shadow file or spending a crypt(3)."""
+    kid = request.get("kid")
+    kind = request.get("kind")
+    what = request.get("what")
+    minutes = request.get("minutes")
+
+    try:
+        ask = load_ask_module(lib_dir)
+    except OSError as exc:
+        return f"cannot load the request allowlist: {exc}"
+
+    reason = ask.validate_grant(kid, kind, what, minutes)
+    if reason is not None:
+        return reason
+
+    if uid < 0:
+        return "no peer credentials on this platform"
+    account = account_for_uid(uid)
+    if account is None:
+        return f"no account for uid {uid}"
+    if account != kid:
+        # The whole of review S2: a kid may only ever grant themselves.
+        return f"uid {uid} is '{account}', not '{kid}'"
+
+    profile = os.path.join(etc_dir, "kids", f"{kid}.conf")
+    if not os.path.isfile(profile):
+        return f"'{kid}' is not a provisioned kid account"
+    return None
+
+
+def apply_grant(request: dict, ask_bin: str) -> "str | None":
+    """Hand the validated request to omarchy-kids-ask's own root-side
+    apply path -- the same apply_record `collect` and the panel use, so
+    there is exactly one implementation of "do the thing"."""
+    argv = [
+        ask_bin, "apply-grant",
+        "--kid", request["kid"],
+        "--kind", request["kind"],
+        "--what", request["what"],
+    ]
+    if request["kind"] == "time":
+        argv += ["--minutes", str(int(request["minutes"]))]
+    argv.append("--apply")
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"could not run {os.path.basename(ask_bin)}: {exc}"
+    if result.returncode != 0:
+        return (result.stderr.strip().splitlines() or ["apply failed"])[-1]
+    return None
+
+
+def handle_grant(header: str, password: bytes, conn: socket.socket, cfg, limiter: RateLimiter) -> bytes:
+    uid = peer_uid(conn)
+    try:
+        request = json.loads(header[len(GRANT_PREFIX):])
+    except ValueError:
+        return b"no malformed request\n"
+    if not isinstance(request, dict):
+        return b"no malformed request\n"
+
+    reason = check_grant(request, uid, cfg.etc, cfg.lib)
+    if reason is not None:
+        return f"no {reason}\n".encode("utf-8", errors="replace")
+
+    if not verify(password, cfg.parent, cfg.shadow, limiter, uid):
+        return b"no wrong password\n"
+
+    reason = apply_grant(request, cfg.ask_bin)
+    if reason is not None:
+        return f"no {reason}\n".encode("utf-8", errors="replace")
+    return b"ok\n"
 
 
 def read_candidate_line(conn: socket.socket) -> "bytes | None":
@@ -167,20 +323,37 @@ def read_candidate_line(conn: socket.socket) -> "bytes | None":
     return line
 
 
-def handle_client(conn: socket.socket, parent: "str | None", shadow_path: str, limiter: RateLimiter):
+def handle_client(conn: socket.socket, cfg, limiter: RateLimiter):
     conn.settimeout(CLIENT_TIMEOUT)
     try:
-        candidate = read_candidate_line(conn)
-        if candidate is None:
+        first = read_candidate_line(conn)
+        if first is None:
             reply = b"no\n"
         else:
-            reply = b"ok\n" if verify(candidate, parent, shadow_path, limiter) else b"no\n"
+            header = first.decode("utf-8", errors="replace")
+            if header.startswith(GRANT_PREFIX):
+                # Two-line form: the request, then the parent's password.
+                # Only read a second line for a GRANT, so the plain verify
+                # path still answers the instant its one line arrives.
+                password = read_candidate_line(conn)
+                if password is None:
+                    reply = b"no missing password\n"
+                else:
+                    reply = handle_grant(header, password, conn, cfg, limiter)
+            else:
+                ok = verify(first, cfg.parent, cfg.shadow, limiter, peer_uid(conn))
+                reply = b"ok\n" if ok else b"no\n"
         try:
             conn.sendall(reply)
         except OSError:
             pass
     except Exception:  # noqa: BLE001 -- never let a bad client kill the daemon
         pass
+    finally:
+        try:
+            conn.close()
+        except OSError:
+            pass
 
 
 def get_systemd_socket() -> "socket.socket | None":
@@ -226,12 +399,26 @@ def parse_args(argv):
         default=DEFAULT_MACHINE_CONF,
         help="Path to machine.conf (key=value; reads 'parent=')",
     )
+    parser.add_argument("--etc", default=DEFAULT_ETC, help="Path to /etc/omarchy-kids (GRANT: the kid registry)")
+    parser.add_argument("--lib", default=DEFAULT_LIB, help="Directory holding ask.py (GRANT: the request allowlist)")
+    parser.add_argument("--ask-bin", default=DEFAULT_ASK_BIN, help="Path to omarchy-kids-ask (GRANT: applies the request)")
     return parser.parse_args(argv)
+
+
+class Config:
+    """Everything a client handler needs, resolved once at startup."""
+
+    def __init__(self, args):
+        self.parent = resolve_parent(args)
+        self.shadow = args.shadow
+        self.etc = args.etc
+        self.lib = args.lib
+        self.ask_bin = args.ask_bin
 
 
 def main(argv=None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
-    parent = resolve_parent(args)
+    cfg = Config(args)
     limiter = RateLimiter()
 
     sock = get_systemd_socket()
@@ -254,10 +441,13 @@ def main(argv=None) -> int:
                 conn, _addr = sock.accept()
             except OSError:
                 break
-            try:
-                handle_client(conn, parent, args.shadow, limiter)
-            finally:
-                conn.close()
+            # One thread per client (review S7): a peer that holds a
+            # connection open no longer serializes everyone else's
+            # verification behind it. The limiter is the only shared
+            # state and takes its own lock.
+            threading.Thread(
+                target=handle_client, args=(conn, cfg, limiter), daemon=True
+            ).start()
     finally:
         sock.close()
         if owns_socket_file:

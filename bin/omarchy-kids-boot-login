@@ -11,11 +11,13 @@
 #   OMARCHY_KIDS_RUN_DIR     default /run/omarchy-kids   (boot-slot lives here)
 #   OMARCHY_KIDS_SLOTS_FILE  default /etc/omarchy-kids/luks-slots
 #   OMARCHY_KIDS_SDDM_DIR    default /etc/sddm.conf.d
+#   OMARCHY_KIDS_ETC         default /etc/omarchy-kids (the profile registry)
 set -euo pipefail
 
 RUN_DIR="${OMARCHY_KIDS_RUN_DIR:-/run/omarchy-kids}"
 SLOTS_FILE="${OMARCHY_KIDS_SLOTS_FILE:-/etc/omarchy-kids/luks-slots}"
 SDDM_DIR="${OMARCHY_KIDS_SDDM_DIR:-/etc/sddm.conf.d}"
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 DROPIN="$SDDM_DIR/zz-omarchy-kids-autologin.conf"
 
 usage() {
@@ -34,11 +36,17 @@ EOF
 }
 
 # session_for ACCOUNT — default session when luks-slots doesn't name one.
+# The profile registry decides, never the username: V1's live VM run found
+# the `kid-*` prefix heuristic misclassifying an owner named "kid-vm" as a
+# kid (lib/posture.sh's own note; review §1.6), which here would autologin
+# the machine's owner into a root-owned kiosk. Same source of truth
+# omarchy-kids-assert, -ask and -time-ledger already use.
 session_for() {
-    case "$1" in
-        kid-*) echo "omarchy-kids.desktop" ;;
-        *) echo "omarchy.desktop" ;;
-    esac
+    if [[ -f "$ETC/kids/$1.conf" ]]; then
+        echo "omarchy-kids.desktop"
+    else
+        echo "omarchy.desktop"
+    fi
 }
 
 # lookup_slot SLOT — prints "account session" on a match, nothing on no

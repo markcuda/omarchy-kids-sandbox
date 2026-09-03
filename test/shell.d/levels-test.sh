@@ -240,7 +240,7 @@ EOF
     OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
     bash "$SESSION_START"
   )"
-  check "$out2" "omarchy-launch-shell" "session-start prints the Level 2/3 exec line"
+  check "$out2" "/usr/bin/omarchy-launch-shell" "session-start prints the Level 2/3 exec line"
 
   # issue #28: band 3-5 gets no "More apps" tile at all -- not a shelf
   # that would always show empty (I-6).

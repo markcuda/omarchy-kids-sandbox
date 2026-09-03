@@ -109,7 +109,11 @@ answers_file() { # writes $@ (one per line) to a fresh file, prints its path
     printf '%s' "$f"
 }
 
-run_wizard() { # ANSWERS_FILE -> stdout+stderr in $out, exit status in $WIZ_STATUS
+# run_wizard ANSWERS_FILE -> stdout+stderr in $out, exit status in
+# $WIZ_STATUS. --dry-run is passed explicitly: walked by a human the
+# wizard's own default is a real Apply now (review §1.5), and every
+# preview assertion in this file wants the preview on purpose.
+run_wizard() {
     local answers="$1"
     out="$(OMARCHY_KIDS_TUI_ANSWERS="$answers" "$BIN" --dry-run 2>&1)"
     WIZ_STATUS=$?
@@ -378,6 +382,8 @@ check_contains "$rm_out" 'Setup stopped at "Setting up Ada'"'"'s account"' "Done
 check_contains "$(cat "$RM_LOG" 2>/dev/null)" "FAKE-PROVISION: refusing on purpose" \
     "a real run actually writes the technical log at OMARCHY_KIDS_SETUP_LOG"
 
+RM_STUBS_SUDO="$(mktemp)"          # reused by the default-mode section below
+cp "$RM_STUBS/sudo" "$RM_STUBS_SUDO"
 rm -rf "$RM_TMP"
 
 # --- real mode: A2's sudo fallback when omarchy-kids-authd's socket isn't
@@ -649,6 +655,70 @@ help_out="$("$BIN" --help 2>&1)"
 help_status=$?
 check_status "$help_status" 0 "--help exits 0"
 check_contains "$help_out" "Usage: omarchy-kids-wizard" "--help prints usage"
+
+# =====================================================================
+# review §1.5: walked by a human, Apply is real
+# =====================================================================
+
+DEF_TMP="$(mktemp -d)"
+DEF_STUBS="$DEF_TMP/stubs"; mkdir -p "$DEF_STUBS"
+DEF_ETC="$DEF_TMP/etc"; mkdir -p "$DEF_ETC/kids"
+printf 'parent=%s\n' "$(id -un)" > "$DEF_ETC/machine.conf"
+DEF_MARK="$DEF_TMP/provision-ran"
+cat > "$DEF_STUBS/omarchy-kids-provision" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$DEF_MARK"
+EOF
+cp "$RM_STUBS_SUDO" "$DEF_STUBS/sudo"   # the real-mode sudo fake from above
+for n in omarchy-kids-web omarchy-kids-apps omarchy-kids-session omarchy-kids-assert \
+         pacman systemctl runuser id chpasswd usermod; do
+  printf '#!/bin/bash\nexit 0\n' > "$DEF_STUBS/$n"
+done
+chmod +x "$DEF_STUBS"/*
+
+wizard_launched_by_desktop() { # -> the run's output
+    OMARCHY_KIDS_TUI_ANSWERS="$1" \
+    PATH="$DEF_STUBS:$PATH" \
+    OMARCHY_KIDS_ETC="$DEF_ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_PROVISION_BIN="$DEF_STUBS/omarchy-kids-provision" \
+    OMARCHY_KIDS_WEB_BIN="$DEF_STUBS/omarchy-kids-web" \
+    OMARCHY_KIDS_APPS_BIN="$DEF_STUBS/omarchy-kids-apps" \
+    OMARCHY_KIDS_SESSION_BIN="$DEF_STUBS/omarchy-kids-session" \
+    OMARCHY_KIDS_ASSERT_BIN="$DEF_STUBS/omarchy-kids-assert" \
+    OMARCHY_KIDS_SETUP_LOG="$DEF_TMP/setup.log" \
+    OMARCHY_KIDS_LAUNCHED_BY=desktop \
+    DRY_RUN='' \
+    "$BIN" "${@:2}" 2>&1
+}
+
+ans="$(answers_file begin parentpw123 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)"
+
+: > "$DEF_MARK"
+def_out="$(wizard_launched_by_desktop "$ans")"
+check_not_contains "$def_out" "[dry-run]" "opened from the app entry: Apply is real, not a preview (review §1.5)"
+if [[ -s "$DEF_MARK" ]]; then
+    pass "opened from the app entry: omarchy-kids-provision actually ran"
+else
+    fail "opened from the app entry: nothing ran -- Apply was still a preview"
+fi
+
+: > "$DEF_MARK"
+def_out="$(wizard_launched_by_desktop "$ans" --dry-run)"
+check_contains "$def_out" "[dry-run]" "--dry-run still wins over the app entry"
+if [[ -s "$DEF_MARK" ]]; then
+    fail "--dry-run ran a real command"
+else
+    pass "--dry-run ran nothing"
+fi
+
+# No terminal and no app entry (a script, CI): the safe default holds.
+: > "$DEF_MARK"
+def_out="$(OMARCHY_KIDS_TUI_ANSWERS="$ans" OMARCHY_KIDS_ETC="$DEF_ETC" OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_PROVISION_BIN="$DEF_STUBS/omarchy-kids-provision" DRY_RUN='' "$BIN" 2>&1)"
+check_contains "$def_out" "[dry-run]" "no tty and no app entry: still previews by default (AGENTS.md rule 8)"
+
+rm -rf "$DEF_TMP" "$RM_STUBS_SUDO"
 
 echo "wizard-test.sh: done"
 exit $rc

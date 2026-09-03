@@ -347,6 +347,11 @@ chmod 0640 "$CHROMIUM_FILE"
 # lsinitcpio's fixture already reporting the hook is in it
 mkdir -p "$SCRATCH_ROOT/usr/lib/initcpio/hooks" "$SCRATCH_ROOT/boot/EFI/Linux"
 touch "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock"
+# The bootloader locks are machine-level and report `warn` where the file
+# they assert does not exist (review S11), so the baseline tree has both.
+mkdir -p "$SCRATCH_ROOT/boot" "$SCRATCH_ROOT/etc/default"
+printf 'editor_enabled: no\ndefault_entry: 2\n' > "$SCRATCH_ROOT/boot/limine.conf"
+printf 'MAX_SNAPSHOT_ENTRIES=0\n' > "$SCRATCH_ROOT/etc/default/limine"
 touch "$SCRATCH_ROOT/boot/EFI/Linux/arch-linux.efi"
 echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" > "$LOG/lsinitcpio-output"
 
@@ -364,7 +369,8 @@ for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
     "sddm-theme" "portal-conf" \
     "pam:sddm" "pam:systemd-user" "pam:sddm-autologin" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
     "getty:tty2" "getty:tty3" "getty:tty4" \
-    "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook"; do
+    "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook" \
+    "limine-editor" "limine-snapshots"; do
     check_status "$out" "$lock" "ok" "first run: $lock is ok"
 done
 
@@ -601,7 +607,7 @@ check_status "$out4" "units" "ok" "no profiles: units is idempotent after being 
 # --- Limine editor lock (V6) -------------------------------------------------
 mkdir -p "$SCRATCH_ROOT/boot" "$ETC/kids"
 printf 'name=Ada\navatar=fox\nband=6-8\npassword=set\nonboarded=no\n' > "$ETC/kids/kid-ada.conf"  # a provisioned kid again, so machine locks run
-printf 'default_entry: 2\ninterface_branding: Omarchy Bootloader\n' > "$SCRATCH_ROOT/boot/limine.conf"
+printf 'default_entry: 2\ninterface_branding: Omarchy Bootloader\n' > "$SCRATCH_ROOT/boot/limine.conf"  # no editor_enabled line
 out="$("$BIN" 2>&1)"
 if grep -q "fixed *limine-editor" <<<"$out" && head -1 "$SCRATCH_ROOT/boot/limine.conf" | grep -qx 'editor_enabled: no'; then echo "PASS  limine-editor: editor_enabled: no inserted at the top"; else echo "FAIL  limine-editor fix ($out)"; exit 1; fi
 out="$("$BIN" 2>&1)"
@@ -660,7 +666,41 @@ check_eq "$(grep -c 'MAX_SNAPSHOT_ENTRIES' "$LIMINE_DEFAULT")" "0" \
 rm -f "$LIMINE_DEFAULT"
 conf_del "$ETC/machine.conf" boot.snapshot_entries
 out="$("$BIN")"
-check_status "$out" "limine-snapshots" "ok" "limine-snapshots: no /etc/default/limine means nothing to assert"
+check_status "$out" "limine-snapshots" "warn" \
+    "limine-snapshots: no /etc/default/limine reports warn, never a silent ok (review S11)"
+
+# --- review S5: limine-editor is machine-level, NOT nested under the hook ---
+#
+# It used to sit inside `if [[ -f "$HOOK_FILE" ]]`, mis-indented so it read
+# as though it were outside. A box with no unlock hook -- never ran
+# mkinitcpio -P, hook removed, not Limine-plus-hook -- is exactly the box
+# where an unlocked Limine editor hands a kid init=/bin/bash.
+
+printf 'MAX_SNAPSHOT_ENTRIES=0\n' > "$LIMINE_DEFAULT"
+printf 'default_entry: 2\n' > "$SCRATCH_ROOT/boot/limine.conf"   # editor NOT disabled
+mv "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock" "$SCRATCH_ROOT/hook.bak"
+
+out="$("$BIN" 2>&1)"
+if grep -qE '^(ok|fixed|warn|FAIL|would-fix) +boot-hook' <<<"$out"; then
+    fail "no hook file: boot-hook should not be reported at all"
+else
+    pass "no hook file: boot-hook is correctly skipped"
+fi
+check_status "$out" "limine-editor" "fixed" \
+    "no hook file: limine-editor is STILL asserted and fixed (review S5)"
+check_eq "$(head -1 "$SCRATCH_ROOT/boot/limine.conf")" "editor_enabled: no" \
+    "no hook file: editor_enabled: no was actually written"
+
+out="$("$BIN" 2>&1)"
+check_status "$out" "limine-editor" "ok" "no hook file: limine-editor stays ok on the next run"
+
+# ...and with no limine.conf either, it warns rather than reading green.
+rm -f "$SCRATCH_ROOT/boot/limine.conf"
+out="$("$BIN" 2>&1)"
+check_status "$out" "limine-editor" "warn" \
+    "no limine.conf: limine-editor reports warn, never a silent ok (review S11)"
+
+mv "$SCRATCH_ROOT/hook.bak" "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock"
 
 echo "assert-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

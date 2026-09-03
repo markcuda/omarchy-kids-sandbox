@@ -174,8 +174,38 @@ else
   fail "$session missing or not executable"
 fi
 
+# The app entry point has no dash suffix; the glob alone would skip it
+# (found in the VM). This used to sit after `exit $rc` and never ran.
+if grep -qE 'install -m755 bin/omarchy-kids bin/omarchy-kids-\*' "$ROOT/PKGBUILD"; then
+    pass "PKGBUILD installs bin/omarchy-kids itself"
+else
+    fail "PKGBUILD must install bin/omarchy-kids (no dash suffix)"
+fi
+
+# --- review S4: the shipped verifier has no build-time test escape hatch ---
+#
+# bin/omarchy-kids-parent-auth honours --socket for a non-root caller only
+# when the path lies under a build-time TEST_SOCKET_ROOT. That must be
+# empty in every copy this package installs.
+if grep -qx 'TEST_SOCKET_ROOT=""' "$ROOT/bin/omarchy-kids-parent-auth"; then
+    pass "parent-auth ships with an empty build-time test socket root"
+else
+    fail "parent-auth's TEST_SOCKET_ROOT is not empty in the committed file (review S4)"
+fi
+
+# --- review §1.5: the app entry marks itself as a human launch ------------
+if grep -q 'Exec=env OMARCHY_KIDS_LAUNCHED_BY=desktop omarchy-kids' "$ROOT/desktop/omarchy-kids.desktop"; then
+    pass "desktop entry marks itself so the panel and wizard run for real"
+else
+    fail "desktop/omarchy-kids.desktop must set OMARCHY_KIDS_LAUNCHED_BY (review §1.5)"
+fi
+
+# --- lib/sock.sh ships: three commands source it now ----------------------
+if grep -qE 'install -m644 lib/\*\.sh' "$ROOT/PKGBUILD"; then
+    pass "PKGBUILD installs lib/*.sh (covers the new lib/sock.sh)"
+else
+    fail "PKGBUILD does not install lib/*.sh -- lib/sock.sh would be missing"
+fi
+
 echo "pkgbuild-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc
-
-# The app entry point has no dash suffix; the glob alone would skip it (found in the VM).
-if grep -qE 'install -m755 bin/omarchy-kids bin/omarchy-kids-\*' PKGBUILD; then echo "PASS  PKGBUILD installs bin/omarchy-kids itself"; else echo "FAIL  PKGBUILD must install bin/omarchy-kids (no dash suffix)"; exit 1; fi

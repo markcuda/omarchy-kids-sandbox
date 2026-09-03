@@ -41,8 +41,8 @@
 # write something, `warm_sudo` explains why on screen and spends one
 # `sudo -v` prompt; every write after that in the same run reuses sudo's
 # cached credential. `run_priv` is the one place a real system change is
-# either printed (DRY_RUN=1, the default -- AGENTS.md rule 8) or run for
-# real under sudo, so `--dry-run` always shows the exact command line.
+# either run for real under sudo or printed, so `--dry-run` always shows
+# the exact command line. See "what no flag at all means here" below.
 #
 #   omarchy-kids-panel [--dry-run] [--apply] [--help]
 #
@@ -70,7 +70,8 @@
 #   OMARCHY_KIDS_WIZARD_BIN     path to omarchy-kids-wizard (default: sibling, else PATH)
 #   OMARCHY_KIDS_DATA_BIN       path to omarchy-kids-data (default: sibling, else PATH)
 #   OMARCHY_KIDS_TUI_ANSWERS    one answer per line; see lib/tui.sh / docs/tui.md
-#   DRY_RUN                     default 1; 0 (or --apply) makes writes real
+#   DRY_RUN                     default 0 for a human on a tty or the app
+#                               entry, 1 otherwise; --apply/--dry-run wins
 #
 # Reading the queue: R-ASK-3 says the queue format is "stable and
 # documented for a future home-network approver" -- this panel is the
@@ -101,7 +102,25 @@ ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
 
-DRY_RUN="${DRY_RUN:-1}"
+# --- what "no flag at all" means here -------------------------------------
+#
+# This command is interactive: a human walks its screens and presses the
+# button. That press *is* the confirmation, so the default is a real run
+# (review §1.5 -- the shipped app entry point used to open the whole
+# product in preview mode and quietly do nothing). AGENTS.md rule 8's
+# DRY_RUN=1 default still holds for every non-interactive command
+# (provision, assert, web, apps, remove) and for every non-interactive
+# caller of this one: a test, a script or CI has no tty and gets a preview
+# unless it asks otherwise. `--dry-run` is always available for review.
+launched_by_a_human() {
+    [[ -n "${OMARCHY_KIDS_LAUNCHED_BY:-}" ]] && return 0   # the .desktop entry
+    [[ -t 0 && -t 1 ]]                                     # a terminal
+}
+if launched_by_a_human; then
+    DRY_RUN="${DRY_RUN:-0}"
+else
+    DRY_RUN="${DRY_RUN:-1}"
+fi
 
 die() { echo "omarchy-kids-panel: $1" >&2; exit "${2:-2}"; }
 
@@ -119,11 +138,14 @@ whole panel with nothing further changed.
 
 This panel runs as the parent, never itself elevated. Every write goes
 through sudo, warmed once (one password prompt, explained on screen) the
-first time something is actually written. DRY_RUN=1 is the default
-(AGENTS.md rule 8): every command a write would run is printed instead of
-run.
+first time something is actually written.
 
-  --dry-run   Print every command instead of running it (the default).
+Run by a human -- from a terminal, or from the Kids Mode app entry -- this
+panel is real: the screen you confirm is the confirmation. Run without a
+terminal (a test, a script, CI) it previews instead. --dry-run always
+previews; --apply always writes.
+
+  --dry-run   Print every command instead of running it.
   --apply     Make writes real (same as DRY_RUN=0).
   -h, --help  Show this help and exit.
 EOF

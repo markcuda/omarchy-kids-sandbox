@@ -21,7 +21,7 @@ set -uo pipefail
 RUN="${OMARCHY_KIDS_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
 FILE="$RUN/super-taps"
 WINDOW_MS="${OMARCHY_KIDS_SUPER_TAP_WINDOW_MS:-1500}"
-EXIT_BIN="${OMARCHY_KIDS_EXIT_BIN:-omarchy-kids-exit}"
+EXIT_BIN="${OMARCHY_KIDS_EXIT_BIN:-/usr/bin/omarchy-kids-exit}"
 
 usage() {
   cat <<EOF
@@ -30,7 +30,7 @@ Usage: omarchy-kids-super-tap
 Run once per Super key release (a Hyprland \`bindr\` bind -- see this
 file's header for why that bind isn't wired into share/hyprland/*.lua
 yet). Three releases within \${OMARCHY_KIDS_SUPER_TAP_WINDOW_MS:-1500}ms
-run \$OMARCHY_KIDS_EXIT_BIN (default: omarchy-kids-exit).
+run \$OMARCHY_KIDS_EXIT_BIN (default: /usr/bin/omarchy-kids-exit).
 
 Env:
   OMARCHY_KIDS_RUNTIME_DIR       default \$XDG_RUNTIME_DIR/omarchy-kids, else /tmp/omarchy-kids

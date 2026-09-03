@@ -23,12 +23,11 @@
 #
 #   omarchy-kids-wizard [--dry-run] [--help]
 #
-# DRY_RUN=1 is the default everywhere Apply would write something (AGENTS.md
-# rule 8): every command Apply would run is printed, `pacman`/`sudo`/
-# `omarchy-kids-*` included, nothing runs. --apply is not offered here on
-# purpose — spec's summary screen (A13) is itself the confirmation; passing
-# DRY_RUN=0 (or --apply) is how a real run happens, same convention as
-# every other command in bin/.
+# Walked by a human, Apply is real: the summary screen (A13) is itself the
+# confirmation (review §1.5). Run with no terminal — a test, a script, CI —
+# every command Apply would run is printed instead, `pacman`/`sudo`/
+# `omarchy-kids-*` included, and nothing runs. `--dry-run` forces the
+# preview, `--apply` forces the real run.
 #
 # Every path is overridable for tests, same convention as the rest of
 # bin/ (test/shell.d/wizard-test.sh runs entirely against scratch trees
@@ -71,11 +70,14 @@
 #                                  can't append to a root-owned file); a
 #                                  --dry-run never writes it.
 #   OMARCHY_KIDS_TUI_ANSWERS       one answer per line; see lib/tui.sh / docs/tui.md
-#   DRY_RUN                        default 1; 0 (or --apply) makes Apply real
+#   DRY_RUN                        default 0 for a human on a tty or the
+#                                  app entry, 1 otherwise; --apply/--dry-run wins
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/sock.sh
+source "$LIB/sock.sh"
 # shellcheck source=lib/conf.sh
 source "$LIB/conf.sh"
 # shellcheck source=lib/tui.sh
@@ -109,7 +111,25 @@ MACHINE_CONF="$ETC/machine.conf"
 # work on a machine where nothing has set it yet.
 INVOKING_USER="${OMARCHY_KIDS_INVOKING_USER:-$(id -un 2>/dev/null || echo "${USER:-}")}"
 
-DRY_RUN="${DRY_RUN:-1}"
+# --- what "no flag at all" means here -------------------------------------
+#
+# This command is interactive: a human walks its screens and presses the
+# button. That press *is* the confirmation, so the default is a real run
+# (review §1.5 -- the shipped app entry point used to open the whole
+# product in preview mode and quietly do nothing). AGENTS.md rule 8's
+# DRY_RUN=1 default still holds for every non-interactive command
+# (provision, assert, web, apps, remove) and for every non-interactive
+# caller of this one: a test, a script or CI has no tty and gets a preview
+# unless it asks otherwise. `--dry-run` is always available for review.
+launched_by_a_human() {
+    [[ -n "${OMARCHY_KIDS_LAUNCHED_BY:-}" ]] && return 0   # the .desktop entry
+    [[ -t 0 && -t 1 ]]                                     # a terminal
+}
+if launched_by_a_human; then
+    DRY_RUN="${DRY_RUN:-0}"
+else
+    DRY_RUN="${DRY_RUN:-1}"
+fi
 
 VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 TOTAL_STEPS=15
@@ -126,9 +146,11 @@ web, screen time, apps, Wi-Fi, desktop level, the kid's password, a
 plain-words summary, then Apply with a progress dashboard and a safety
 check. Run it directly, or as 'omarchy-kids wizard'. See docs/wizard.md.
 
-  --dry-run   Print every command Apply would run instead of running it
-              (also the default with no DRY_RUN set at all — AGENTS.md
-              rule 8). Set DRY_RUN=0 to make Apply real.
+  --dry-run   Print every command Apply would run instead of running it.
+              Walked by a human (a terminal, or the Kids Mode app entry)
+              Apply is real -- pressing Apply is the confirmation. Without
+              a terminal (a test, a script, CI) the default is a preview.
+  --apply     Make Apply real (same as DRY_RUN=0).
   -h, --help  Show this help and exit.
 EOF
 }
@@ -356,36 +378,12 @@ validate_lights_out() {
 
 # verify_parent_password_authd CANDIDATE — the same protocol
 # bin/omarchy-kids-parent-auth speaks to omarchy-kids-authd (docs/authd.md):
-# one line in, "ok"/"no" back. Only called once verify_parent_password
-# below has already confirmed the socket is there; a missing socat *and*
-# python3 both fails closed (no way to speak the protocol at all), rather
-# than silently accepting.
+# one line in, "ok"/"no" back, through lib/sock.sh's one client. A missing
+# socat *and* python3 fails closed (no way to speak the protocol at all),
+# rather than silently accepting.
 verify_parent_password_authd() {
     local candidate="$1" reply
-    if command -v socat >/dev/null 2>&1; then
-        reply="$(printf '%s\n' "$candidate" | socat -T5 - "UNIX-CONNECT:$AUTH_SOCK" 2>/dev/null)"
-    elif command -v python3 >/dev/null 2>&1; then
-        reply="$(printf '%s\n' "$candidate" | python3 -c '
-import socket, sys
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(5)
-try:
-    s.connect(sys.argv[1])
-    s.sendall(sys.stdin.buffer.read())
-    s.shutdown(socket.SHUT_WR)
-    data = b""
-    while True:
-        chunk = s.recv(4096)
-        if not chunk:
-            break
-        data += chunk
-    sys.stdout.buffer.write(data)
-except OSError:
-    pass
-' "$AUTH_SOCK" 2>/dev/null)"
-    else
-        return 1
-    fi
+    reply="$(kids_sock_request "$AUTH_SOCK" "$candidate"$'\n')" || return 1
     [[ "$reply" == ok* ]]
 }
 

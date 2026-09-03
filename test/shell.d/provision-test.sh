@@ -138,13 +138,20 @@ stub gpasswd
 # shellcheck disable=SC2016
 stub chpasswd 'cat >> "__LOG__/chpasswd.stdin"'
 # shellcheck disable=SC2016
+# cryptsetup: luksDump reports the occupied slots (add_luks_slot diffs
+# before/after rather than parsing "Key slot N unlocked", review §1.10);
+# `open --test-passphrase` fails unless __LOG__/luks-open-ok exists, which
+# is the "this password already unlocks the disk" case.
 stub cryptsetup '
 case "$1" in
-    open)
-        n=$(( $(cat "__LOG__/luks-slot-counter" 2>/dev/null || echo 2) + 1 ))
-        echo "$n" > "__LOG__/luks-slot-counter"
-        echo "Key slot $n unlocked."
+    luksDump)
+        echo "Keyslots:"
+        echo "  0: luks2"
+        echo "  1: luks2"
+        [[ -e "__LOG__/luks-added" ]] && echo "  3: luks2"
         ;;
+    luksAddKey) : > "__LOG__/luks-added" ;;
+    open) [[ -e "__LOG__/luks-open-ok" ]] || exit 1 ;;
 esac
 '
 stub omarchy-provision-user
@@ -254,8 +261,20 @@ check_contains "$out" "warning: could not add the parent-unlock line to pam.d/om
 
 check_contains "$argv" "cryptsetup luksAddKey --batch-mode --key-file=" "add: cryptsetup luksAddKey called"
 check_contains "$argv" "/dev/fake0" "add: cryptsetup ran against the given --luks-device"
-check_contains "$argv" "cryptsetup open --test-passphrase --verbose --key-file=" "add: cryptsetup open --test-passphrase called"
+check_contains "$argv" "cryptsetup luksDump /dev/fake0" "add: the new slot is found by diffing luksDump, not by --test-passphrase"
+check_contains "$argv" "cryptsetup open --test-passphrase" "add: the kid password is tested against the disk before it is added"
 check_contains "$out" "LUKS slot 3 added for $SLUG" "add: the discovered slot (3) is reported"
+
+# Review S6: neither secret may appear anywhere in the command's own output,
+# and the dry-run preview shows placeholders instead.
+case "$out" in
+    *kidpass1*) fail "add: the kid's password appeared in the output" ;;
+    *) pass "add: the kid's password never appears in the output" ;;
+esac
+case "$out" in
+    *parentpass1*) fail "add: the parent's LUKS passphrase appeared in the output" ;;
+    *) pass "add: the parent's LUKS passphrase never appears in the output" ;;
+esac
 check_eq "$(grep -c "^3=$SLUG\$" "$ETC/luks-slots")" "1" "luks-slots: slot 3 mapped to $SLUG"
 check_eq "$(grep -c '^0=mark:omarchy.desktop$' "$ETC/luks-slots")" "1" "luks-slots: the parent's slot 0 line survives the rewrite"
 
@@ -411,6 +430,57 @@ check_contains "$(cat "$ARGV_LOG")" "userdel $SLUG-2" "remove --keep-home still 
 out8="$("$BIN" remove kid-nosuchkid 2>&1)"; st=$?
 check_eq "$st" 2 "remove of an unknown account exits 2"
 check_contains "$out8" "no such kid account" "remove: unknown-account message names the problem"
+
+# --- review S6: the DEFAULT dry run must never print either secret --------
+#
+# This is the documented preview run from the review: DRY_RUN=1, both
+# passwords on stdin. add_luks_slot is deliberately not called through
+# `run`, whose `printf ' %q'` preview used to shell-quote both onto stdout.
+
+: > "$ARGV_LOG"
+dry="$(printf 'S3cretKidPw\nS3cretParentPw\n' | DRY_RUN=1 "$BIN" add "Dry Luks" --band 6-8 --avatar fox \
+    --password-stdin --parent-password-stdin --luks-device /dev/fake0 2>&1)"
+check_contains "$dry" "[dry-run]" "dry run: still previews the plan"
+check_contains "$dry" "add_luks_slot" "dry run: still names add_luks_slot in the preview"
+check_contains "$dry" "<secret>" "dry run: the LUKS passphrases show as <secret> placeholders"
+case "$dry" in
+    *S3cretKidPw*) fail "dry run leaked the kid's password (review S6)" ;;
+    *) pass "dry run never prints the kid's password" ;;
+esac
+case "$dry" in
+    *S3cretParentPw*) fail "dry run leaked the parent's LUKS passphrase (review S6)" ;;
+    *) pass "dry run never prints the parent's LUKS passphrase" ;;
+esac
+# The same, on every dry-run line at once: no `printf ' %q'` preview
+# anywhere in this run may contain either password.
+if printf '%s\n' "$dry" | grep -F "[dry-run]" | grep -qE 'S3cretKidPw|S3cretParentPw'; then
+    fail "a [dry-run] preview line contained one of the passwords"
+else
+    pass "no [dry-run] preview line contains either password"
+fi
+
+# --- review §1.10: a kid password that already unlocks the disk ------------
+
+: > "$ARGV_LOG"
+: > "$LOG/luks-open-ok"    # cryptsetup open --test-passphrase now succeeds
+out9="$(printf 'sameaspar3nt\nsameaspar3nt\n' | "$BIN" add "Same Pass" --band 6-8 --avatar fox \
+    --password-stdin --parent-password-stdin --luks-device /dev/fake0 2>&1)"; st=$?
+rm -f "$LOG/luks-open-ok"
+check_eq "$st" 2 "add: a kid password that already unlocks the disk is refused"
+check_contains "$out9" "already unlocks" "add: the refusal names the reason"
+if grep -q "luksAddKey" "$ARGV_LOG"; then
+    fail "add: luksAddKey must not run for a password that already unlocks the disk"
+else
+    pass "add: luksAddKey never ran for a password that already unlocks the disk"
+fi
+
+# --- review S10: a display name carrying a field separator is refused ------
+
+for bad in $'Ada\tLovelace' 'Ada:Lovelace' 'Ada,Lovelace'; do
+    outb="$(printf 'somepassword\n' | "$BIN" add "$bad" --band 6-8 --avatar fox --password-stdin 2>&1)"; st=$?
+    check_eq "$st" 2 "add: a display name containing a portal/GECOS separator is refused"
+    check_contains "$outb" "may not contain" "add: the refusal explains which characters are out"
+done
 
 echo "provision-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

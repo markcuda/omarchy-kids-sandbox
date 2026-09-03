@@ -18,6 +18,12 @@ PKGBUILD="$ROOT/PKGBUILD"
 
 pass() { echo "PASS  $*"; }
 fail() { echo "FAIL  $*"; rc=1; }
+check_contains() { # haystack needle label
+    if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2' in '$1')"; fi
+}
+check_not_contains() { # haystack needle label
+    if [[ "$1" != *"$2"* ]]; then pass "$3"; else fail "$3 (did not want '$2')"; fi
+}
 rc=0
 
 # --- metadata.desktop -----------------------------------------------------
@@ -418,6 +424,44 @@ if posture_write_face_icon "$TMP/no-such-avatar.svg" kid-ada 2>/dev/null; then
 else
     pass "posture_write_face_icon fails on a missing source file"
 fi
+# =====================================================================
+# review S9/S10: names that would corrupt the files root writes
+# =====================================================================
+#
+# S9: `posture_polkit_admin_rule_text` interpolates the parent's name into
+# JavaScript through an UNQUOTED heredoc. A `parent=` value carrying a
+# quote or a ']' either breaks the admin rule outright -- polkit then asks
+# for *root*'s password instead of the parent's -- or injects code.
+# S10: a display name carrying ':' or ',' shifts every later tile in the
+# greeter's `kids=` field onto the wrong account.
+
+for bad_parent in 'mark"; polkit.addAdminRule(function(){return ["unix-user:root"]}); //' \
+                  'mark]' "mark'" 'Mark Smith' '../mark' ''; do
+    if posture_polkit_admin_rule_text "$bad_parent" >/dev/null 2>&1; then
+        fail "S9: a polkit admin rule was written for an unusable parent name: $bad_parent"
+    else
+        pass "S9: refused to write a polkit rule for '$bad_parent'"
+    fi
+    if posture_portal_conf_text "$bad_parent" >/dev/null 2>&1; then
+        fail "S9: theme.conf.user was written for an unusable parent name: $bad_parent"
+    else
+        pass "S9: refused to write theme.conf.user for '$bad_parent'"
+    fi
+done
+
+rule="$(posture_polkit_admin_rule_text mark)"
+check_contains "$rule" 'return ["unix-user:mark"];' "S9: an ordinary parent name still writes the rule"
+
+# S10: a kid whose display name carries a separator is left off the
+# greeter rather than shifting somebody else's tile.
+conf="$(posture_portal_conf_text mark \
+    "$(printf 'kid-ada\tAda\tfox')" \
+    "$(printf 'kid-bo\tBo:Evil,kid-cy\towl')" \
+    "$(printf 'kid-cy\tCy\tbear')" 2>/dev/null)"
+check_contains "$conf" "kids=kid-ada:Ada:fox,kid-cy:Cy:bear" \
+    "S10: a name containing ':' or ',' is dropped, and the other tiles keep their own avatars"
+check_not_contains "$conf" "Evil" "S10: the separator-carrying name never reaches theme.conf.user"
+
 unset OMARCHY_KIDS_ROOT
 
 echo "portal-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"

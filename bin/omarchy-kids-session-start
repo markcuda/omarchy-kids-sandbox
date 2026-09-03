@@ -385,7 +385,7 @@ case "$LEVEL" in
     mv "$RUN/allowlist.json.tmp" "$RUN/allowlist.json"
     chmod 0644 "$RUN/allowlist.json"
     # The exact command Omarchy's own default.hypr.autostart uses.
-    EXEC_LINE=(omarchy-launch-shell)
+    EXEC_LINE=(/usr/bin/omarchy-launch-shell)
     ;;
   *)
     echo "omarchy-kids-session-start: unknown level '$LEVEL' for '$ACCOUNT'" >&2

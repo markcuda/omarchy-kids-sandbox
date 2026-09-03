@@ -247,3 +247,20 @@ the next check).
 Root-side finish, 2026-09-03: `omarchy-kids-exit --finish --kid kid-cy` run as root ended Cy's
 session through the compositor's Lua exit and SDDM started a fresh greeter, which is the path
 the bar widget's "end" action and the panel use.
+## Two fixes from the 2026-09-03 review (§1.9)
+
+`--finish` dispatched as `[[ -n "$kid" ]] && cmd_finish_kid "$kid" || cmd_finish`. Under
+`--finish --kid` this command runs as root, so a `cmd_finish_kid` that ever returned non-zero
+instead of exec'ing -- a `loginctl` that is not installed, some future early return -- would
+fall through to `cmd_finish` and terminate root's own session. It is an `if` now.
+
+`modal_already_open` matched `pgrep -f "quickshell -p $MODAL_QML"`, which any process whose argv
+contained that string satisfied. A kid could start one and wedge the exit modal shut forever:
+Super x3 and Super+Shift+K would both silently return 0, and the parent could not end the
+session from the modal at all. The modal is tracked by a pidfile in the kid's own mode-0700
+runtime dir now, and a pidfile only counts when the pid is live *and* `/proc/<pid>/comm` says
+quickshell. The residual is honest and documented: a kid owns that directory and could write a
+plausible pidfile, but so can they kill the modal outright -- what is gone is the ability to
+block it with an arbitrary process's command line. `bin/omarchy-kids-super-tap` and the
+exit-modal QML also name `/usr/bin/omarchy-kids-exit` absolutely rather than by bare name, since
+the kid owns their session's `PATH` (review S12).

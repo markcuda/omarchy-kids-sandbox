@@ -1,42 +1,83 @@
 #!/bin/bash
+# omarchy:summary=Verify a candidate parent password against omarchy-kids-authd
 # Thin pam_exec client for omarchy-kids-authd (R-SEC-2). See docs/authd.md.
 # Reads the candidate password from stdin (pam_exec expose_authtok), sends
 # it to the verifier socket, exits 0 on "ok" and 1 on anything else.
+#
+# This runs inside the kid's session (hyprlock's PAM stack, the exit modal),
+# so it trusts nothing from its own environment: the socket path is a
+# compiled-in constant unless the caller is already root (review S4).
 set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/sock.sh
+source "$LIB/sock.sh"
+
+DEFAULT_SOCK="/run/omarchy-kids/auth.sock"
+
+# Build-time only. Every shipped copy leaves this empty (asserted by
+# test/shell.d/pkgbuild-test.sh); test/shell.d/parent-unlock-test.sh runs a
+# copy with its own scratch root substituted in, which is the only way a
+# non-root caller may point --socket anywhere but DEFAULT_SOCK.
+TEST_SOCKET_ROOT=""
 
 if [[ -n "${PAM_TYPE:-}" && "$PAM_TYPE" != "auth" ]]; then
   exit 1
 fi
 
-SOCK="${OMARCHY_KIDS_AUTH_SOCK:-/run/omarchy-kids/auth.sock}"
+is_root() { [[ "${EUID:-$(id -u)}" == "0" ]]; }
+
+# socket_allowed PATH -- may this caller point us at PATH? Root may point
+# anywhere (it is already the trust boundary). Nobody else may, except at a
+# path under the build-time test root, which is empty in every real install.
+socket_allowed() {
+  is_root && return 0
+  [[ -n "$TEST_SOCKET_ROOT" && "$1" == "$TEST_SOCKET_ROOT"/* ]]
+}
+
+SOCK="$DEFAULT_SOCK"
+# The kid owns this environment, so the env var is honoured for root only.
+if is_root && [[ -n "${OMARCHY_KIDS_AUTH_SOCK:-}" ]]; then
+  SOCK="$OMARCHY_KIDS_AUTH_SOCK"
+fi
+
+while (($#)); do
+  case "$1" in
+    --socket)
+      shift
+      [[ $# -gt 0 ]] || { echo "omarchy-kids-parent-auth: --socket needs a path" >&2; exit 1; }
+      socket_allowed "$1" || {
+        echo "omarchy-kids-parent-auth: --socket is root-only" >&2
+        exit 1
+      }
+      SOCK="$1"
+      ;;
+    -h|--help)
+      cat <<EOF
+Usage: omarchy-kids-parent-auth [--socket PATH]
+
+Reads one candidate password from stdin and asks omarchy-kids-authd
+whether it is the parent's. Exit 0 means yes.
+
+--socket, and \$OMARCHY_KIDS_AUTH_SOCK, are honoured for root only: this
+command runs inside a session whose environment and PATH the kid owns.
+EOF
+      exit 0
+      ;;
+    *) echo "omarchy-kids-parent-auth: unknown argument '$1'" >&2; exit 1 ;;
+  esac
+  shift
+done
+
 # One line, not "until EOF": pam_exec closes its pipe, but a caller that keeps
 # stdin open (the exit modal's Quickshell Process did, seen live) would hang
 # `cat` forever. `read` returns non-zero on a final line without a newline;
 # the value is still filled in, so keep it.
 IFS= read -r candidate || true
 
-if command -v socat >/dev/null 2>&1; then
-  reply="$(printf '%s\n' "$candidate" | socat -T5 - "UNIX-CONNECT:$SOCK" 2>/dev/null)"
-else
-  reply="$(printf '%s\n' "$candidate" | python3 -c '
-import socket, sys
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(5)
-try:
-    s.connect(sys.argv[1])
-    s.sendall(sys.stdin.buffer.read())
-    s.shutdown(socket.SHUT_WR)
-    data = b""
-    while True:
-        chunk = s.recv(4096)
-        if not chunk:
-            break
-        data += chunk
-    sys.stdout.buffer.write(data)
-except OSError:
-    pass
-' "$SOCK" 2>/dev/null)"
-fi
+reply="$(kids_sock_request "$SOCK" "$candidate"$'\n')" || exit 1
+candidate=""
 
 [[ "$reply" == ok* ]] && exit 0
 exit 1

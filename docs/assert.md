@@ -187,3 +187,24 @@ per-kid, and runs either way. `--dry-run` reports what *would* change (`would-fi
   as tmpfs with `noexec`).
 - `parent-group`: the owner must be in `omarchy-parents` to read `/run/omarchy-kids/status.json`.
 - `units`: enabled is not running; sockets and timers are started on a live system.
+## Two fixes from the 2026-09-03 review
+
+`limine-editor` was nested inside the `if [[ -f "$HOOK_FILE" ]]` guard -- indented as though it
+were outside it, which is how it survived review -- so `editor_enabled: no` was asserted only on
+machines that already had the early-boot unlock hook. The box without the hook is exactly the
+box where an unlocked Limine editor lets a kid append `init=/bin/bash` and get a root shell
+(review S5), so the assertion is machine-level now, run whether or not the hook exists.
+`test/shell.d/assert-test.sh` moves the hook file away and expects `limine-editor` to still be
+reported. The same section's writers (`limine_editor_fix`, `limine_snapshots_fix`) also stopped
+doing `cat "$tmp" > "$f"` on the bootloader config: a truncate-then-write there leaves an
+unbootable machine if the power goes at the wrong moment, so both now write a temp file in the
+same directory and rename over the target, like every other writer in this repo.
+
+A `*_ok` function's exit status is a three-way answer now, not a boolean: 0 is "this lock
+holds", 2 is "I could not look" -- the tool is missing, or the file the lock lives in does not
+exist on this box -- and anything else is "it does not hold". A can't-look reports `warn` and
+attempts no fix, and `bin/omarchy-kids-check` turns the same signal into its own non-zero "not
+fully verified" verdict. Review S11's complaint was that seven checks returned *ok* when they
+could not see anything (`gecos` with no `getent`, `parent-unlock` with no PAM stack file,
+`parent-group` with no `parent=`, `hyprland-configs`, `boot-hook`, `limine-editor`,
+`limine-snapshots`), which is the opposite of AGENTS.md rule 4.

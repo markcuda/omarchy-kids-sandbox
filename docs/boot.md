@@ -133,3 +133,15 @@ exists to rule out. Naming it `omarchy_kids.conf` sorts it immediately after
 `omarchy_hooks.conf`, which is what R-BOOT-2 actually needs to work. `test/shell.d/mkinitcpio-conf-test.sh`
 and this file are the record of why; SPEC.md should be corrected to match on the next pass over
 R-BOOT.
+## `boot-login` decides by the registry, not the username (2026-09-03)
+
+`session_for` used to be `case "$1" in kid-*)`. `lib/posture.sh` already documents that exact
+heuristic failing live -- a VM whose owner was named `kid-vm` had the owner's own portal tile
+misclassified as a kid -- and the portal was fixed to read the profile registry while this path
+was not (review §1.6). Here the consequence is worse than a wrong avatar: an owner account whose
+name happens to start with `kid-` unlocks with their own passphrase and is autologged straight
+into a root-owned kiosk session. `session_for` now asks whether
+`/etc/omarchy-kids/kids/<account>.conf` exists, the same source of truth `omarchy-kids-assert`,
+`-ask` and `-time-ledger` already use, with `OMARCHY_KIDS_ETC` overridable for tests.
+`test/shell.d/boot-login-test.sh` covers both directions: an unprovisioned `kid-vm` gets the
+stock session, and a provisioned account with no `kid-` prefix gets the kid session.

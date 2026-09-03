@@ -17,6 +17,12 @@ trap 'rm -rf "$SCRATCH"' EXIT
 export OMARCHY_KIDS_RUN_DIR="$SCRATCH/run"
 export OMARCHY_KIDS_SLOTS_FILE="$SCRATCH/luks-slots"
 export OMARCHY_KIDS_SDDM_DIR="$SCRATCH/sddm.conf.d"
+export OMARCHY_KIDS_ETC="$SCRATCH/etc"
+
+# The profile registry decides kid vs owner, never the account name
+# (review §1.6). kid-ada is provisioned; kid-vm deliberately is not.
+mkdir -p "$OMARCHY_KIDS_ETC/kids"
+printf 'band=6-8\n' > "$OMARCHY_KIDS_ETC/kids/kid-ada.conf"
 DROPIN="$OMARCHY_KIDS_SDDM_DIR/zz-omarchy-kids-autologin.conf"
 
 mkdir -p "$OMARCHY_KIDS_RUN_DIR"
@@ -26,10 +32,11 @@ cat > "$OMARCHY_KIDS_SLOTS_FILE" <<'EOF'
 0=mark
 2=kid-ada
 3=kid-ben:omarchy
+4=kid-vm
 EOF
 chmod 600 "$OMARCHY_KIDS_SLOTS_FILE"
 
-# --- mapped kid slot: User + a kid Session, defaulted by 'kid-' prefix ---
+# --- mapped kid slot: a provisioned kid gets the kid session ---
 echo 2 > "$OMARCHY_KIDS_RUN_DIR/boot-slot"
 "$BIN"
 if [[ -f "$DROPIN" ]]; then
@@ -42,7 +49,31 @@ else
     fail "mapped kid slot did not write a drop-in"
 fi
 
-# --- mapped parent slot: session not in file, default by non-'kid-' name ---
+# --- review §1.6: an OWNER whose name starts with kid- is not a kid -------
+#
+# lib/posture.sh already documents this failing live on a VM whose owner
+# was named "kid-vm". Here it would autologin the machine's owner into a
+# root-owned kiosk session. There is no kid-vm.conf, so it must not.
+echo 4 > "$OMARCHY_KIDS_RUN_DIR/boot-slot"
+"$BIN"
+if grep -qx 'User=kid-vm' "$DROPIN" 2>/dev/null && grep -qx 'Session=omarchy.desktop' "$DROPIN" 2>/dev/null; then
+    pass "an unprovisioned kid-* owner gets the stock session, not the kid session"
+else
+    fail "unprovisioned kid-vm was misclassified: $(tr '\n' ' ' < "$DROPIN" 2>/dev/null)"
+fi
+
+# ...and the mirror image: a kid whose name has no kid- prefix at all.
+printf 'band=6-8\n' > "$OMARCHY_KIDS_ETC/kids/mark.conf"
+echo 0 > "$OMARCHY_KIDS_RUN_DIR/boot-slot"
+"$BIN"
+if grep -qx 'Session=omarchy-kids.desktop' "$DROPIN" 2>/dev/null; then
+    pass "a provisioned account with no kid- prefix still gets the kid session"
+else
+    fail "prefix-free kid account was misclassified: $(tr '\n' ' ' < "$DROPIN" 2>/dev/null)"
+fi
+rm -f "$OMARCHY_KIDS_ETC/kids/mark.conf"
+
+# --- mapped parent slot: session not in file, decided by the registry -----
 echo 0 > "$OMARCHY_KIDS_RUN_DIR/boot-slot"
 "$BIN"
 if grep -qx 'User=mark' "$DROPIN" 2>/dev/null && grep -qx 'Session=omarchy.desktop' "$DROPIN" 2>/dev/null; then

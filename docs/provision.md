@@ -243,3 +243,25 @@ format here if it does.
   already root-owned by virtue of the process; setting an explicit `chown` would only add a
   privileged operation that fails outright in the scratch trees this had to be built and tested
   against on a non-root Mac (AGENTS.md rule 8).
+## Secrets and LUKS slots (2026-09-03 review, S6 and §1.10)
+
+`add_luks_slot` used to be called through `run`, whose dry-run preview is `printf ' %q' "$@"`.
+Since `DRY_RUN=1` is this command's documented default, the documented preview run printed both
+the kid's password and the parent's LUKS passphrase onto stdout -- into SSH scrollback, into
+captured reports, into any CI log -- in direct contradiction of AGENTS.md's "passwords only ever
+on stdin, never argv, never logged". The function now takes the kid's passphrase on fd 3 and the
+parent's on fd 4, is never handed to `run` at all, and prints its own preview with `<secret>`
+placeholders in the two positions. `test/shell.d/provision-test.sh` greps the whole default
+dry-run output, and every `[dry-run]` line in it, for either password.
+
+The slot number is found by diffing `cryptsetup luksDump`'s occupied slots before and after
+`luksAddKey`, not by running `cryptsetup open --test-passphrase` afterwards and parsing "Key
+slot N unlocked". `--test-passphrase` reports the *first* slot that matches, so a kid who typed
+the parent's own passphrase -- a six-year-old copying what they watched -- got slot 0 reported
+and a second `0=` line landed in `luks-slots` under the parent's, after which `boot-login`'s
+behaviour depended on line order in a regenerated file. That passphrase is now rejected up
+front, before `luksAddKey` runs at all, and the `|| true` that used to swallow a failed test is
+gone. Separately, `add` refuses a display name containing a tab, newline, `:` or `,` (review
+S10): those are the separators of the GECOS field, the portal's tab-delimited entry, and
+`lib/posture.sh`'s `kids=` field, and a name carrying one shifts another kid's avatar or account
+onto the wrong greeter tile.

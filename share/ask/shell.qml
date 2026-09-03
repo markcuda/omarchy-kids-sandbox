@@ -95,20 +95,24 @@ PanelWindow {
 
     // Shown after either path submits, so the kid actually sees it
     // before the modal closes (R-ASK-1's own wording for "Ask later";
-    // see submitApproved()/submitLater() for the on-the-spot wording).
+    // see onGranted()/submitLater() for the on-the-spot wording).
     Timer {
         id: closeTimer
         interval: 1600
         onTriggered: Qt.quit()
     }
 
-    // omarchy-kids-parent-auth (docs/authd.md): one line of candidate
-    // password on stdin, then EOF, then its exit code is the answer.
+    // "omarchy-kids-ask grant" (docs/ask.md): one line of typed password
+    // on stdin, then EOF. It forwards the request and the password to
+    // root's verifier socket; exit 0 means *root* verified the password
+    // and applied the grant itself. Nothing in this session decides
+    // anything -- this exit code only chooses which message to show.
     // Never logs the password anywhere.
     Process {
-        id: authProcess
+        id: grantProcess
         property string candidate: ""
-        command: ["omarchy-kids-parent-auth"]
+        command: [root.askBin, "grant", root.kind, root.what].concat(
+            root.kind === "time" && root.minutes.length > 0 ? ["--minutes", root.minutes] : [])
         stdinEnabled: true
         onRunningChanged: {
             if (running) {
@@ -120,34 +124,28 @@ PanelWindow {
         onExited: (exitCode) => {
             root.verifying = false
             if (exitCode === 0) {
-                root.onVerified()
+                root.onGranted()
             } else {
                 root.onWrongPassword()
             }
         }
     }
 
-    // submitApproved -- "A grown-up is here" verified. Writes the
-    // request pre-decided (state=approved, by=keyboard) into this kid's
-    // own outbox; omarchy-kids-ask collect is what actually performs
-    // it, next time it runs (the panel, or the timer within a minute --
-    // see this file's header). Detached, not a child Process, matching
-    // the verified-live reason in the header.
-    function submitApproved() {
-        var args = ["submit", root.kind, root.what, "--state", "approved", "--by", "keyboard"]
-        if (root.kind === "time" && root.minutes.length > 0) {
-            args = args.concat(["--minutes", root.minutes])
-        }
-        Quickshell.execDetached([root.askBin].concat(args))
-        root.doneMessage = "Got it! " + root.desc + " will be ready very soon."
+    // onGranted -- root already did it, by the time grantProcess exits.
+    // There is deliberately nothing to write here: this session cannot
+    // approve anything, so it does not try (review S1).
+    function onGranted() {
+        root.wrongCount = 0
+        root.doneMessage = "Got it! " + root.desc + " is ready now."
         root.done = true
         closeTimer.restart()
     }
 
     // submitLater -- "Ask later": no password needed, R-ASK-1's exact
-    // wording ("Asked. Your grown-up will see it.").
+    // wording ("Asked. Your grown-up will see it."). Always an open
+    // claim; `submit` has no way to write anything else.
     function submitLater() {
-        var args = ["submit", root.kind, root.what, "--state", "open"]
+        var args = ["submit", root.kind, root.what]
         if (root.kind === "time" && root.minutes.length > 0) {
             args = args.concat(["--minutes", root.minutes])
         }
@@ -155,11 +153,6 @@ PanelWindow {
         root.doneMessage = "Asked. Your grown-up will see it."
         root.done = true
         closeTimer.restart()
-    }
-
-    function onVerified() {
-        root.wrongCount = 0
-        root.submitApproved()
     }
 
     function onWrongPassword() {
@@ -187,8 +180,8 @@ PanelWindow {
             return
         }
         root.verifying = true
-        authProcess.candidate = passwordInput.text
-        authProcess.running = true
+        grantProcess.candidate = passwordInput.text
+        grantProcess.running = true
     }
 
     function closeModal() {

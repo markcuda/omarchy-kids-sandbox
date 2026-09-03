@@ -54,6 +54,7 @@ MACHINE_CONF="$ETC/machine.conf"
 QUIET=0
 DRY_RUN=0
 ANY_FAIL=0
+ANY_WARN=0
 
 usage() {
     cat <<'EOF'
@@ -112,11 +113,25 @@ report() {
 # under --dry-run, "would-fix" and stop; else run FIX_FN "$@" and report
 # "fixed" on success, "FAIL" (and keep going -- one bad lock never stops
 # the rest from being asserted) on failure.
+# assert_one LOCK CHECK FIX [ARGS...] — a *_ok function's exit status is a
+# three-way answer, not a boolean (review S11): 0 is "this lock holds",
+# 2 is "I could not look" (the tool is missing, the file this lock lives
+# in does not exist on this box), anything else is "it does not hold".
+# A lock that cannot be verified reports `warn` and is never silently
+# green — AGENTS.md rule 4 is fail closed, and a check that cannot see is
+# not a passing check. Nothing is fixed on a warn: there is nothing to
+# fix, and guessing at one is how the boot config gets damaged.
 assert_one() {
-    local lock="$1" check="$2" fix="$3"
+    local lock="$1" check="$2" fix="$3" rc
     shift 3
-    if "$check" "$@"; then
+    "$check" "$@" && rc=0 || rc=$?
+    if [[ "$rc" -eq 0 ]]; then
         report ok "$lock"
+        return 0
+    fi
+    if [[ "$rc" -eq 2 ]]; then
+        report warn "$lock"
+        ANY_WARN=1
         return 0
     fi
     if [[ "$DRY_RUN" -eq 1 ]]; then
@@ -218,7 +233,7 @@ accountsservice_fix() { posture_write_accountsservice "$1" "$2"; }
 # at a fix it can't verify.
 gecos_ok() {
     local account="$1" name="$2" current
-    command -v getent >/dev/null 2>&1 || return 0
+    command -v getent >/dev/null 2>&1 || return 2  # no way to read the field back
     current="$(getent passwd "$account" 2>/dev/null | cut -d: -f5)"
     [[ "$current" == "$name" ]]
 }
@@ -357,7 +372,7 @@ pam_fix() { posture_ensure_pam_namespace "$1"; }
 parent_unlock_ok() {
     local file
     file="$(posture_pam_dir)/$1"
-    [[ -f "$file" ]] || return 0
+    [[ -f "$file" ]] || return 2  # no such PAM stack here: nothing to look at
     grep -qxF "$(posture_parent_unlock_marker)" "$file"
 }
 parent_unlock_fix() { posture_ensure_parent_unlock_line "$1"; }
@@ -410,7 +425,7 @@ units_fix() {
 # nothing otherwise (seen live). Membership applies to new sessions only.
 parent_group_ok() {
     local parent; parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
-    [[ -n "$parent" ]] || return 0
+    [[ -n "$parent" ]] || return 2  # machine.conf names no parent yet
     has_group "$(current_groups "$parent")" omarchy-parents
 }
 parent_group_fix() {
@@ -428,7 +443,7 @@ parent_group_fix() {
 HYPR_SHARE="$SHARE/hyprland"
 HYPR_ETC="$ETC/hyprland"
 hyprland_ok() {
-    [[ -d "$HYPR_SHARE" ]] || return 0
+    [[ -d "$HYPR_SHARE" ]] || return 2  # the package's own configs are missing
     local f base
     for f in "$HYPR_SHARE"/*.lua; do
         [[ -e "$f" ]] || continue
@@ -488,7 +503,7 @@ find_uki() {
 }
 boot_hook_ok() {
     local uki tmp rc
-    uki="$(find_uki)" || return 0  # no image found to check -- nothing to disprove
+    uki="$(find_uki)" || return 2  # no image found to check
     tmp="$(mktemp "${TMPDIR:-/tmp}/omarchy-kids-assert-initrd.XXXXXX")"
     if objcopy -O binary --only-section=.initrd "$uki" "$tmp" 2>/dev/null \
         && lsinitcpio "$tmp" 2>/dev/null | grep -q omarchy-kids-unlock; then
@@ -516,16 +531,21 @@ list_kids() {
 limine_conf() { printf '%s/boot/limine.conf' "$(posture_root)"; }
 limine_editor_ok() {
     local f; f="$(limine_conf)"
-    [[ -f "$f" ]] || return 0   # no Limine config here (a VM without it, a test tree): nothing to assert
+    [[ -f "$f" ]] || return 2   # no Limine config here (not a Limine box, or /boot is not mounted)
     grep -qE '^editor_enabled:[[:space:]]*no[[:space:]]*$' "$f"
 }
 limine_editor_fix() {
     local f tmp; f="$(limine_conf)"
     [[ -f "$f" ]] || return 0
-    tmp="$(mktemp)"
+    # Same directory, then rename: a truncate-then-write on the bootloader
+    # config leaves an unbootable machine if the power goes at the wrong
+    # moment (review S5), and every other writer in this repo already does
+    # temp-file-then-rename.
+    tmp="$(mktemp "$(dirname "$f")/.limine.conf.XXXXXX")" || return 1
     # Drop any existing editor_enabled line, then put ours first so a regenerated file gets it back.
-    { printf 'editor_enabled: no\n'; grep -vE '^editor_enabled:' "$f"; } > "$tmp" && cat "$tmp" > "$f"
-    rm -f "$tmp"
+    { printf 'editor_enabled: no\n'; grep -vE '^editor_enabled:' "$f"; } > "$tmp" || { rm -f "$tmp"; return 1; }
+    chmod --reference="$f" "$tmp" 2>/dev/null || chmod 0644 "$tmp"
+    mv -f "$tmp" "$f"
 }
 
 # --- Limine snapshot entries (V6, issue #38): a Snapper snapshot from
@@ -558,7 +578,7 @@ limine_snapshots_marker_value() {
 
 limine_snapshots_ok() {
     local f; f="$(limine_default)"
-    [[ -f "$f" ]] || return 0   # no /etc/default/limine here (no Limine, or a test tree): nothing to assert
+    [[ -f "$f" ]] || return 2   # no /etc/default/limine here (not a Limine box)
     case "$(boot_snapshot_entries_mode)" in
         hide) grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$f" ;;
         show) ! grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$f" ;;
@@ -569,7 +589,8 @@ limine_snapshots_fix() {
     local f tmp mode; f="$(limine_default)"
     [[ -f "$f" ]] || return 0
     mode="$(boot_snapshot_entries_mode)"
-    tmp="$(mktemp)" || return 1
+    # Same directory, then rename (review S5) -- see limine_editor_fix.
+    tmp="$(mktemp "$(dirname "$f")/.limine.default.XXXXXX")" || return 1
     case "$mode" in
         hide)
             local old="" have_marker=0
@@ -597,8 +618,8 @@ limine_snapshots_fix() {
             } > "$tmp" || { rm -f "$tmp"; return 1; }
             ;;
     esac
-    cat "$tmp" > "$f" || { rm -f "$tmp"; return 1; }
-    rm -f "$tmp"
+    chmod --reference="$f" "$tmp" 2>/dev/null || chmod 0644 "$tmp"
+    mv -f "$tmp" "$f" || { rm -f "$tmp"; return 1; }
     # Only a real run (never this dev checkout's tests, per AGENTS.md rule 8)
     # has an empty posture_root; limine-snapper-sync also may not be
     # installed at all (no Limine, no Snapper) -- either way, nothing to do.
@@ -679,12 +700,25 @@ main() {
 
     if [[ -f "$HOOK_FILE" ]]; then
         assert_one "boot-hook" boot_hook_ok boot_hook_fix
-    assert_one "limine-editor" limine_editor_ok limine_editor_fix
     fi
+
+    # Machine-level, never nested under the boot hook: a box with no
+    # unlock hook (never ran mkinitcpio -P, hook removed, not Limine-plus-
+    # hook) is exactly the box where an unlocked Limine editor hands a kid
+    # init=/bin/bash (review S5). The check itself no-ops where there is no
+    # limine.conf at all.
+    assert_one "limine-editor" limine_editor_ok limine_editor_fix
 
     assert_one "limine-snapshots" limine_snapshots_ok limine_snapshots_fix
 
+    if [[ "$ANY_WARN" -eq 1 ]]; then
+        echo "omarchy-kids-assert: one or more locks could not be verified on this machine (warn above)" >&2
+    fi
     [[ "$ANY_FAIL" -eq 0 ]] || exit 1
+    # A warn is not a failure for the pacman hook or the boot unit (they
+    # must not fail a transaction over a lock that does not apply here),
+    # but it is printed, and omarchy-kids-check turns the same signal into
+    # its own non-zero "could not verify this machine" verdict.
     exit 0
 }
 

@@ -119,6 +119,15 @@ is_valid_band() {
     return 1
 }
 
+# valid_display_name NAME — see cmd_add's own note (review S10).
+valid_display_name() {
+    local name="$1"
+    [[ ${#name} -ge 1 && ${#name} -le 64 ]] || return 1
+    [[ "$name" != *:* && "$name" != *,* ]] || return 1
+    [[ "$name" != *$'\t'* && "$name" != *$'\n'* ]] || return 1
+    return 0
+}
+
 group_for_band() {
     case "$1" in
         3-5) echo omarchy-kids-3-5 ;;
@@ -354,6 +363,12 @@ cmd_add() {
     done
 
     [[ -n "$display" ]] || die "add: needs a display name"
+    # R-LOGIN / review S10: the display name reaches `usermod -c` (GECOS,
+    # ':'-delimited), the portal's tab-delimited entry, and lib/posture.sh's
+    # ':'/','-delimited kids= field. A name carrying any of those separators
+    # -- or a newline -- silently shifts another kid's avatar or account onto
+    # the wrong greeter tile. Refuse it here, once, at the only entry point.
+    valid_display_name "$display" || die "add: display name may not contain a tab, newline, ':' or ',' and must be 1-64 characters"
     [[ -n "$band" ]] || die "add: needs --band"
     is_valid_band "$band" || die "add: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
     if (( want_password && no_password )); then
@@ -463,7 +478,17 @@ cmd_add() {
         local device=""
         if device="$(detect_luks_device "$luks_device")"; then
             [[ -n "$parent_password" ]] || die "add: found a LUKS device ($device) but no parent password; pass --parent-password-stdin or --parent-password-fd"
-            run add_luks_slot "$account" "$device" "$kid_password" "$parent_password"
+            # Never through `run`: its `printf ' %q'` preview would print
+            # both secrets (review S6). Same DRY_RUN contract, own preview.
+            if [[ "$DRY_RUN" == "0" ]]; then
+                add_luks_slot "$account" "$device" \
+                    3< <(printf '%s\n' "$kid_password") \
+                    4< <(printf '%s\n' "$parent_password")
+            else
+                printf '  [dry-run]'
+                printf ' %q' add_luks_slot "$account" "$device"
+                printf ' <secret> <secret>\n'
+            fi
         fi
     fi
 
@@ -529,21 +554,51 @@ cmd_add() {
     echo "Done: $account"
 }
 
-# add_luks_slot ACCOUNT DEVICE KID_PASSWORD PARENT_PASSWORD — adds
-# KID_PASSWORD as a new key slot on DEVICE (authorized by PARENT_PASSWORD,
-# the only passphrase already known to unlock it), finds which slot number
-# it landed on by testing it back (cryptsetup's own "Key slot N unlocked."
-# message -- LUKS2 reuses freed numbers, so this is the only reliable way to
-# know), and rewrites luks-slots from scratch with that slot added.
-add_luks_slot() {
-    local account="$1" device="$2" kid_password="$3" parent_password="$4"
-    cryptsetup luksAddKey --batch-mode --key-file=<(printf '%s' "$parent_password") \
-        "$device" <(printf '%s' "$kid_password")
+# luks_occupied_slots DEVICE — every key slot in use, one number per
+# line, sorted. Handles both dump spellings: LUKS2's "  N: luks2" under
+# Keyslots:, and LUKS1's "Key Slot N: ENABLED".
+luks_occupied_slots() {
+    cryptsetup luksDump "$1" 2>/dev/null | sed -n \
+        -e 's/^[[:space:]]*\([0-9][0-9]*\):[[:space:]]*luks2[[:space:]]*$/\1/p' \
+        -e 's/^Key Slot \([0-9][0-9]*\): ENABLED[[:space:]]*$/\1/p' \
+        | sort -n -u
+}
 
-    local out slot
-    out="$(cryptsetup open --test-passphrase --verbose --key-file=<(printf '%s' "$kid_password") "$device" 2>&1)" || true
-    slot="$(printf '%s\n' "$out" | sed -n 's/.*[Kk]ey slot \([0-9][0-9]*\) unlocked.*/\1/p' | head -1)"
-    [[ -n "$slot" ]] || die "add: cryptsetup did not report a slot number for $account ('Key slot N unlocked.' not seen)"
+# add_luks_slot ACCOUNT DEVICE — adds the kid's passphrase (read from fd 3)
+# as a new key slot on DEVICE, authorized by the parent's (fd 4), and
+# rewrites luks-slots with that slot added.
+#
+# Secrets arrive on file descriptors, never argv (AGENTS.md: "passwords
+# only ever on stdin, never argv, never logged") — this function is
+# therefore never called through `run`, whose %q preview would have
+# printed both of them on the documented dry run (review S6).
+#
+# The new slot is found by diffing luksDump before and after, not by
+# testing the kid's passphrase back: --test-passphrase reports the FIRST
+# slot that matches, so a kid who typed the parent's own passphrase got
+# slot 0 reported and a second "0=" line landed in luks-slots (review
+# §1.10). That passphrase is now rejected up front instead.
+add_luks_slot() {
+    local account="$1" device="$2"
+    local kid_password parent_password
+    IFS= read -r kid_password <&3 || true
+    IFS= read -r parent_password <&4 || true
+    [[ -n "$kid_password" && -n "$parent_password" ]] || die "add: add_luks_slot needs both passphrases on fds 3 and 4"
+
+    if cryptsetup open --test-passphrase --key-file=<(printf '%s' "$kid_password") "$device" >/dev/null 2>&1; then
+        die "add: that password already unlocks $device; pick a different one for $account"
+    fi
+
+    local before after
+    before="$(luks_occupied_slots "$device")"
+    cryptsetup luksAddKey --batch-mode --key-file=<(printf '%s' "$parent_password") \
+        "$device" <(printf '%s' "$kid_password") \
+        || die "add: cryptsetup luksAddKey failed for $account (is the parent passphrase right?)"
+    after="$(luks_occupied_slots "$device")"
+
+    local slot
+    slot="$(comm -13 <(printf '%s\n' "$before") <(printf '%s\n' "$after") | head -1)"
+    [[ -n "$slot" ]] || die "add: luksAddKey reported success but no new key slot appeared on $device"
 
     local parent_line entries=()
     parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"

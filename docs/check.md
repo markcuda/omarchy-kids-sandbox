@@ -304,3 +304,11 @@ laptop, not here.
 After #41, same VM: `live:kid-cy:tmp-noexec` and `shm-noexec` PASS from the session leader's
 mount table, kids without a session get a WARN naming the commands, and the firmware card is the
 only FAIL until a parent marks it done.
+## "Could not verify" is not a pass (2026-09-03)
+
+`bin/omarchy-kids-assert`'s `*_ok` functions now return 2 for "I could not look" -- see
+`docs/assert.md` for the full list and the reasoning (review S11). `lock_check` here honours
+that third status: exit 2 becomes a `warn` result rather than a `pass`, so a machine this
+command could not actually verify no longer reports green, and `omarchy-kids-check`'s existing
+warn handling gives it exit code 1. A lock that genuinely does not hold is still a `fail` and
+exit 2, unchanged.

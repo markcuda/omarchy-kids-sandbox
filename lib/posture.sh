@@ -57,8 +57,22 @@ posture_install_if_changed() {
 # posture_polkit_admin_rule_text PARENT — 40-omarchy-kids.rules: members of
 # omarchy-kids get PARENT as their polkit admin identity, so the native
 # dialog asks for (and checks against) the parent's own account, never root.
+# posture_valid_account NAME — the account names this file is willing to
+# interpolate into a polkit rule or an SDDM config. Anchored, bounded, and
+# refuses everything that could close a JavaScript string or a config
+# field (review S9): a `parent=` value in machine.conf carrying a quote or
+# a ']' either breaks the admin rule outright -- polkit then falls back to
+# asking for *root*'s password, not the parent's -- or injects JavaScript.
+posture_valid_account() {
+    [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
+}
+
 posture_polkit_admin_rule_text() {
     local parent="$1"
+    posture_valid_account "$parent" || {
+        echo "lib/posture.sh: refusing to write a polkit admin rule for an unusable parent name '$parent'" >&2
+        return 1
+    }
     cat <<RULES
 // Omarchy Kids Mode: members of omarchy-kids get the parent account as
 // their polkit admin identity (SPEC.md R-FND-3), so the native dialog
@@ -596,8 +610,20 @@ posture_theme_conf_lines() {
 posture_portal_conf_text() {
     local parent="$1" kids_field="" sep="" entry account name avatar
     shift
+    posture_valid_account "$parent" || {
+        echo "lib/posture.sh: refusing to write theme.conf.user for an unusable parent name '$parent'" >&2
+        return 1
+    }
     for entry in "$@"; do
         IFS=$'\t' read -r account name avatar <<<"$entry"
+        # A name carrying one of this field's own separators would shift
+        # every later tile by one (review S10). omarchy-kids-provision
+        # rejects such a name at `add`; a profile written before that check
+        # existed is skipped here rather than corrupting the whole greeter.
+        if [[ "$name" == *:* || "$name" == *,* ]]; then
+            echo "lib/posture.sh: '$account' has a display name containing ':' or ','; left off the greeter" >&2
+            continue
+        fi
         kids_field="${kids_field}${sep}${account}:${name}:${avatar}"
         sep=","
     done

@@ -121,3 +121,29 @@ bash test/shell.d/authd-test.sh
 ```text
 
 or as part of the full suite with `test/all`.
+## The GRANT request type (2026-09-03)
+
+The daemon now answers two request shapes, one per connection. The old one is unchanged: a
+single line of candidate password, `ok` or `no` back. The new one is
+`GRANT <json-request-line>\n<password>\n`, and it exists because an "Ask a grown-up" approval
+cannot be an exit code from a process the kid owns (review S1). Root does all of it here: it
+parses the request, runs it through `lib/ask.py`'s `validate_grant` (loaded by path from
+`--lib`), reads the connecting peer's real uid from `SO_PEERCRED` and refuses unless it matches
+the request's `kid`, confirms that kid has a profile under `--etc`, and only then spends a
+`crypt(3)` on the password. Everything that can be refused without the password is refused
+first. On success it runs `<--ask-bin> apply-grant --kid ... --apply` with a fixed argv list, so
+the "do the thing" code has exactly one home. Two other changes came from the same review: the
+rate limiter is keyed per peer uid and decays after a quiet window, so a kid looping wrong
+guesses at the world-connectable socket can no longer lock the parent out of their own exit
+modal (S7); and each connection is handled on its own thread, so a peer holding a connection
+open no longer serializes everyone else's verification behind it. The limiter is the only shared
+state and takes its own lock.
+
+`bin/omarchy-kids-parent-auth`, the pam_exec client, no longer trusts its environment. It runs
+inside the kid's session -- hyprlock's PAM stack, the exit modal -- so `OMARCHY_KIDS_AUTH_SOCK`
+is honoured only when the caller is already root, and `--socket` likewise, with one build-time
+exception (`TEST_SOCKET_ROOT`, empty in every shipped copy and asserted so by
+`test/shell.d/pkgbuild-test.sh`) so the tests can still point it at a scratch socket. The PAM
+line in `lib/posture.sh` names the helper as `/usr/bin/omarchy-kids-parent-auth`: pam_exec execs
+that path directly and never consults `PATH`, so neither the binary nor the socket can be
+redirected by anything the kid sets.

@@ -424,3 +424,16 @@ every band default, "Minutes a day (weekdays)" 90 → 45 and "Lights out (weekda
 21:00 were marked `(changed)`, Done customizing went straight to the password screen, and Apply
 printed provision followed by exactly two `omarchy-kids-conf set` lines for the changed cells,
 then the web and apps installs.
+## Apply is real when a parent walks the wizard (2026-09-03)
+
+Same change as the panel, same reason (review §1.5): a parent who reached A13, read the summary
+and pressed Apply used to watch every command print with a `[dry-run]` prefix and end up with no
+kid account. Walked by a human -- a tty, or the Kids Mode app entry, which sets
+`OMARCHY_KIDS_LAUNCHED_BY` -- Apply now runs for real; with no terminal and no app entry (a
+test, a script, CI) the default is still the preview AGENTS.md rule 8 asks for. `--dry-run`
+forces the preview and `--apply` forces the real run, from either starting point.
+`test/shell.d/wizard-test.sh`'s answers-file harness passes `--dry-run` explicitly wherever it
+wants the preview, and has its own section proving that a run reaching Apply from the app entry
+really executes `omarchy-kids-provision`. The wizard's `authd` socket client is now
+`lib/sock.sh`'s single `kids_sock_request`, shared with `omarchy-kids-parent-auth` and
+`omarchy-kids-wifi`, which had drifted into three copies with different fallbacks and timeouts.

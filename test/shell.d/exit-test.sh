@@ -120,21 +120,59 @@ check_contains "$env_out" "OMARCHY_KIDS_NAME=Ada Lovelace" "--open exports OMARC
 check_contains "$env_out" "OMARCHY_KIDS_AVATAR=$SHARE/avatars/fox.svg" "--open exports OMARCHY_KIDS_AVATAR as a path under \$SHARE/avatars"
 stub quickshell  # restore the plain argv-logging stub for the rest of the suite
 
-# --- --open: a no-op if a modal already looks open ------------------------
+# --- --open: a no-op if a modal already looks open (review §1.9) ---------
+#
+# It is a pidfile now, not `pgrep -f "quickshell -p <path>"`: that matched
+# any process a kid could start with that string in its argv, which let a
+# kid wedge the parent's exit modal shut forever.
 
-stub pgrep 'exit 0'  # "found" -- a modal is already up
+MODAL_RUN="$TMP/exit-runtime"
+export OMARCHY_KIDS_RUNTIME_DIR="$MODAL_RUN"
+mkdir -p "$MODAL_RUN"
+
+# A live pid whose /proc comm is not quickshell (or which has no /proc at
+# all, as on macOS) is exactly the kid's decoy: it must NOT block the modal.
+sleep 30 &
+decoy=$!
+printf '%s\n' "$decoy" > "$MODAL_RUN/exit-modal.pid"
 : > "$LOG"
-"$EXIT_BIN" --open >/dev/null 2>&1; st=$?
-check_eq "$st" 0 "--open with a modal already up still exits 0"
-# (pgrep's own argv still mentions "quickshell" -- it's the search
-# pattern -- so check for a line the quickshell *stub itself* would
-# have logged, not just the substring anywhere in the log.)
+"$EXIT_BIN" --open >/dev/null 2>&1
+kill "$decoy" 2>/dev/null; wait "$decoy" 2>/dev/null
 if grep -qE '^quickshell ' "$LOG"; then
-    fail "--open never execs quickshell when one is already up (it did)"
+    pass "a live decoy process cannot block the exit modal"
 else
-    pass "--open never execs quickshell when one is already up"
+    # On Linux the decoy's comm is "sleep", so the modal opens. Where
+    # /proc is absent the pidfile is trusted, which is the documented
+    # residual: report it honestly rather than pretending it passed.
+    if [[ -d /proc ]]; then
+        fail "a decoy process blocked the exit modal (review §1.9)"
+    else
+        pass "no /proc here: pidfile owner check is Linux-only (documented residual)"
+    fi
 fi
-stub pgrep 'exit 1'  # restore "not found" for the rest of the suite
+
+# A stale pidfile (dead pid) never blocks the modal either.
+rm -f "$MODAL_RUN/exit-modal.pid"
+printf '%s\n' "999999" > "$MODAL_RUN/exit-modal.pid"
+: > "$LOG"
+"$EXIT_BIN" --open >/dev/null 2>&1
+if grep -qE '^quickshell ' "$LOG"; then
+    pass "a stale pidfile never blocks the exit modal"
+else
+    fail "a stale pidfile blocked the exit modal"
+fi
+
+# --open records its own pid, so a second --open can see it.
+rm -f "$MODAL_RUN/exit-modal.pid"
+: > "$LOG"
+"$EXIT_BIN" --open >/dev/null 2>&1
+if [[ -s "$MODAL_RUN/exit-modal.pid" ]]; then
+    pass "--open writes the modal pidfile"
+else
+    fail "--open did not write the modal pidfile"
+fi
+rm -rf "$MODAL_RUN"
+unset OMARCHY_KIDS_RUNTIME_DIR
 
 # --- --finish: hyprctl dispatch exit, then loginctl terminate-session -----
 
@@ -277,6 +315,10 @@ cat > "$STUBS/omarchy-kids-exit" <<EOF
 echo "called with: \$*" >> "$EXIT_LOG"
 EOF
 chmod +x "$STUBS/omarchy-kids-exit"
+# EXIT_BIN's default is /usr/bin/omarchy-kids-exit now (review S12: nothing
+# a kid's session runs may be PATH-resolved), so point the override at the
+# stub rather than relying on $STUBS being first on PATH.
+export OMARCHY_KIDS_EXIT_BIN="$STUBS/omarchy-kids-exit"
 
 # --help
 "$TAP_BIN" --help >/dev/null 2>&1; check_eq "$?" 0 "super-tap --help exits 0"

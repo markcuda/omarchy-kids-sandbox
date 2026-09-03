@@ -295,3 +295,17 @@ above settles it directly.
 Later the same night (#15): the parent's password typed on Cy's tile opened Cy's session
 (journal: "Authentication for user kid-cy successful" through the `sddm` stack's parent-unlock
 line), so a parent can open any kid's desktop from the portal without knowing the kid's password.
+## Names that root interpolates are validated now (2026-09-03)
+
+`posture_polkit_admin_rule_text` builds `40-omarchy-kids.rules` with an *unquoted* heredoc and
+interpolates `return ["unix-user:$parent"];`. A `parent=` value in `machine.conf` containing a
+quote or a `]` either breaks the admin rule outright -- polkit then falls back to asking for
+**root's** password rather than the parent's, which is the opposite of R-FND-3 -- or injects
+JavaScript into the highest-value file on the box (review S9). `lib/posture.sh` now has one
+`posture_valid_account` predicate, and both that writer and `posture_portal_conf_text` refuse to
+produce anything for a name that fails it. Separately, a kid display name containing `:` or `,`
+would shift every later tile in `theme.conf.user`'s `kids=` field onto the wrong account and
+avatar (review S10); `omarchy-kids-provision add` rejects such a name at the one entry point
+that accepts it, and `posture_portal_conf_text` leaves an already-written profile with such a
+name off the greeter rather than corrupting the whole field. `test/shell.d/portal-test.sh`
+covers both.

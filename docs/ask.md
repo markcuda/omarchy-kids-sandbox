@@ -204,3 +204,25 @@ and "Ask later". The parent password and Enter wrote the request to the outbox a
 `state: approved`, and within the minute `omarchy-kids-time status` showed "budget 3 + 15
 granted" with the grant file in the kid's usage directory. Not yet exercised live: "Ask later"
 followed by the parent approving from the panel, and the app and site kinds.
+## Security fix, 2026-09-03: root decides, the kid's session only asks
+
+The antagonistic review (`docs/reviews/2026-09-03-antagonistic.md`, S1-S3) found that a kid
+could grant themselves anything. `submit` wrote `--state approved` into the kid's own outbox, a
+directory the kid owns, and `collect` -- running as root from `omarchy-kids-ask-collect.timer`
+every minute -- applied any record it found already approved. No password gated the chain, and
+the `kid` field was trusted verbatim, so one hand-written JSON file granted screen time, an app,
+a plugin or a site, to any account, at any path. That is fixed here by moving the decision, not
+by adding a check: `submit` has no `--state` and no `--by` (`lib/ask.py`'s writer refuses them
+too), and `collect` is now a mover only -- it promotes every record it finds to `open`, drops
+anything that fails `lib/ask.py`'s `validate_grant` allowlist (no slashes, no leading dot,
+bounded lengths, minutes in 1..1440), re-derives the `kid` field from the uid that owns the
+outbox rather than reading it out of the file, and skips outboxes whose owner has no profile in
+`/etc/omarchy-kids/kids/`. On-the-spot approval is the new `grant` subcommand: it reads the
+typed parent password from stdin and sends `GRANT <json>\n<password>\n` to root's
+`omarchy-kids-authd` socket, which verifies the password, checks the connecting peer's uid
+(SO_PEERCRED) against the request's `kid`, runs the same allowlist, and calls back into
+`omarchy-kids-ask apply-grant` -- as root -- which performs the request through the same
+`apply_record` the panel's approve path uses. `grant`'s own exit code grants nothing; a kid who
+fakes it fakes only the message their own modal shows them. The modal's `--open` guard is a
+pidfile under the kid's runtime dir now, not a `pgrep -f` substring match that any process could
+satisfy (review §1.9).

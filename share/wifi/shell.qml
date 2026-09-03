@@ -80,7 +80,7 @@ PanelWindow {
     // over the socket is the one thing that may run nmcli at all.
     Process {
         id: listProcess
-        command: ["omarchy-kids-wifi", "list"]
+        command: ["/usr/bin/omarchy-kids-wifi", "list"]
         property string collected: ""
         onRunningChanged: if (running) collected = ""
         stdout: SplitParser {

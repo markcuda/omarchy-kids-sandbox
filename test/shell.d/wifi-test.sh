@@ -406,6 +406,40 @@ check_contains "$out" "chromium --new-window http://neverssl.com" "portal: filte
 out="$(run_portal_d kid-nobrowser)"; st=$?
 check_status "$st" 3 "portal: web=none band refuses (exit 3) -- there is no browser to open (I-6)"
 
+# =====================================================================
+# review S8: the Wi-Fi password is never echoed back to the caller
+# =====================================================================
+#
+# `raise Failed(f"nmcli {' '.join(args)}: {exc}")` put the whole argv --
+# including "password <secret>" on the JOIN path -- into a message the
+# daemon sends straight back to the client. Unit-level, so it runs on
+# every platform, including where SO_PEERCRED does not exist.
+
+leak_out="$(python3 - "$DIR/bin/omarchy-kids-wifid" <<'PYEOF'
+import importlib.machinery, importlib.util, sys
+spec = importlib.util.spec_from_loader(
+    "wifid", importlib.machinery.SourceFileLoader("wifid", sys.argv[1]))
+wifid = importlib.util.module_from_spec(spec); spec.loader.exec_module(wifid)
+args = ["device", "wifi", "connect", "HomeNet", "password", "S3cretWifiPw"]
+try:
+    wifid.run_nmcli("/nonexistent/nmcli", args)
+except wifid.Failed as exc:
+    print(str(exc))
+except Exception as exc:  # noqa: BLE001
+    print("UNEXPECTED " + type(exc).__name__ + ": " + str(exc))
+PYEOF
+)"
+case "$leak_out" in
+  *S3cretWifiPw*) echo "FAIL S8: the Wi-Fi password came back in the daemon's error text"; fail=1 ;;
+  UNEXPECTED*)    echo "FAIL S8: run_nmcli raised the wrong thing ($leak_out)"; fail=1 ;;
+  "")             echo "FAIL S8: run_nmcli did not fail on a missing nmcli"; fail=1 ;;
+  *)              echo "ok   S8: a failed nmcli call never echoes the Wi-Fi password back" ;;
+esac
+case "$leak_out" in
+  *device*) echo "ok   S8: the error still names the nmcli subcommand, so it is diagnosable" ;;
+  *) echo "FAIL S8: the error names nothing useful ($leak_out)"; fail=1 ;;
+esac
+
 trap - EXIT
 cleanup_d
 

@@ -78,6 +78,9 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
 WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=/usr/bin/omarchy-kids-web
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/sock.sh
+source "$LIB/sock.sh"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 WIFI_QML="$SHARE/wifi/shell.qml"
 TOAST_QML="$SHARE/time/toast.qml"
@@ -176,28 +179,7 @@ wifid_request() {
     else
         payload="$header"$'\n'
     fi
-    if command -v socat >/dev/null 2>&1; then
-        printf '%s' "$payload" | socat -T"$TIMEOUT" - "UNIX-CONNECT:$SOCK" 2>/dev/null
-    else
-        printf '%s' "$payload" | python3 -c '
-import socket, sys
-s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-s.settimeout(float(sys.argv[2]))
-try:
-    s.connect(sys.argv[1])
-    s.sendall(sys.stdin.buffer.read())
-    s.shutdown(socket.SHUT_WR)
-    data = b""
-    while True:
-        chunk = s.recv(4096)
-        if not chunk:
-            break
-        data += chunk
-    sys.stdout.buffer.write(data)
-except OSError:
-    pass
-' "$SOCK" "$TIMEOUT" 2>/dev/null
-    fi
+    kids_sock_request "$SOCK" "$payload" "$TIMEOUT"
 }
 
 # call_wifid HEADER [BODY] — prints the payload on success (OK) and

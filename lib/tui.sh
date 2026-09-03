@@ -343,7 +343,7 @@ tui_screen_choose() {
         gflags+=(--header "$title")
       fi
       local h=${#display[@]}
-      ((h > 10)) && h=10
+      ((h > 16)) && h=16 # the avatar list is 13 rows; a paged list shows gum's dots
       ((h < 1)) && h=1
       gflags+=(--height "$h")
       [[ -n "$default_display" ]] && gflags+=(--selected "$default_display")
@@ -425,7 +425,8 @@ tui_screen_input() {
       _tui_next_answer || return 2
       ans="$TUI_NEXT_ANSWER"
     elif ((TUI_HAVE_GUM)); then
-      local -a gflags=(--placeholder "$placeholder" --prompt.foreground "$TUI_C_ACCENT")
+      # The hint is on the card (or printed above) already; repeating it inside the box read twice.
+      local -a gflags=(--placeholder "" --prompt.foreground "$TUI_C_ACCENT")
       [[ "$kind" == password ]] && gflags+=(--password)
       ans="$(gum input "${gflags[@]}")"
       case $? in

@@ -1,16 +1,21 @@
 #!/bin/bash
 # Tests bin/omarchy-kids-apps (SPEC.md R-APPS-2..6, Appendix C; I-1, I-6):
 # list state, the allowlist math (pack + apps.extra - apps.hidden),
-# hide/show, the background-install queue file, and the opt-in
-# hide-from-mine/show-in-mine override files.
+# hide/show, the sync-db resolution and mixed (some-resolve/some-don't)
+# case both install and install-queued now do first (issue #52), the
+# background-install queue file, and the opt-in hide-from-mine/
+# show-in-mine override files.
 #
 # Fully self-contained, per AGENTS.md rule 8: pacman and systemctl are
 # fakes on a stub PATH that only log their argv and fake just enough
-# state (an "installed packages" file) to react to -- same shape as
+# state (an "installed packages" file, and an "unavailable packages" file
+# for `pacman -Si` -- empty by default, so everything resolves until a
+# test opts one out) to react to -- same shape as
 # test/shell.d/assert-test.sh's stub() helper, reused here almost
 # verbatim. share/ is copied from the repo (real bands.toml and packs/),
-# not faked, per that same file's own reasoning. One provisioned kid
-# throughout: kid-ada, band 6-8, per AGENTS.md rule 9's fixture
+# not faked, per that same file's own reasoning -- so the AUR audit in
+# those files (issue #52) is exercised as real data, not a fixture. One
+# provisioned kid throughout: kid-ada, band 6-8, per AGENTS.md rule 9's fixture
 # convention.
 set -uo pipefail
 
@@ -55,7 +60,7 @@ ARGV_LOG="$LOG/argv.log"
 mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$HOME_DIR" "$APPDIR" "$STUBS" "$LOG"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
-touch "$ARGV_LOG" "$LOG/installed"
+touch "$ARGV_LOG" "$LOG/installed" "$LOG/unavailable"
 
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada Lovelace
@@ -79,12 +84,18 @@ EOF
 }
 
 # pacman -Q PKG: exit 0 (installed) if PKG is a line in $LOG/installed.
+# pacman -Si PKG: exit 0 (resolves in the sync db) unless PKG is a line in
+# $LOG/unavailable (empty by default -- everything resolves until a test
+# opts a package out, simulating issue #52's "target not found" mirror gap).
 # pacman -S --needed --noconfirm PKG...: appends every non-flag arg to
 # $LOG/installed (deduplicated), so a later -Q on it succeeds.
 # shellcheck disable=SC2016
 stub pacman '
 if [[ "$1" == "-Q" ]]; then
     grep -qxF "$2" "__LOG__/installed" 2>/dev/null && exit 0 || exit 1
+fi
+if [[ "$1" == "-Si" ]]; then
+    grep -qxF "$2" "__LOG__/unavailable" 2>/dev/null && exit 1 || exit 0
 fi
 if [[ "$1" == "-S" ]]; then
     shift
@@ -164,9 +175,30 @@ check_contains "$("$APPS" allowlist kid-ada)" "tuxpaint" "show: tuxpaint is back
 "$APPS" show kid-ada never-was-hidden >/dev/null
 check_status "$?" 0 "show: an app that was never hidden is a harmless no-op"
 
+# --- install: resolves against the sync db first (issue #52's regression) -
+# klettres is a real, non-AUR pack entry; stubbing it "not found" in the
+# sync db simulates the live bug (a mirror/pack gap pacman -Si would also
+# catch) without needing a fake pack. Only gcompris-qt is "installed" at
+# this point, so this exercises the exact mixed transaction that used to
+# fail whole: some targets resolve, one doesn't.
+
+echo "klettres" >>"$LOG/unavailable"
+before="$(argv_lines)"
+err="$("$APPS" install 6-8 --apply 2>&1 >/dev/null)"
+check_contains "$err" "klettres" "install --apply (mixed): names the unresolved package on stderr"
+check_status "$?" 0 "install --apply (mixed): still exits 0"
+queued_mixed="$(sort "$QUEUE_FILE" 2>/dev/null | tr '\n' ',')"
+check_not_contains "$queued_mixed" "klettres" "install --apply (mixed): unresolved package is never queued"
+check_contains "$queued_mixed" "ktuberling" "install --apply (mixed): every other resolvable package is still queued"
+after_argv="$(argv_since "$before")"
+check_contains "$after_argv" "systemctl start --no-block omarchy-kids-apps-install.service" \
+  "install --apply (mixed): still starts the unit for the resolvable rest"
+rm -f "$QUEUE_FILE"  # not `: >`, the very next test asserts the file doesn't exist yet
+: >"$LOG/unavailable"
+
 # --- install: default only previews; never queues or starts the unit ------
-# (it still runs `pacman -Q` to work out what the plan even is -- that's
-# a read, not a write, so DRY_RUN doesn't gate it.)
+# (it still runs `pacman -Q`/`pacman -Si` to work out what the plan even
+# is -- that's a read, not a write, so DRY_RUN doesn't gate it.)
 
 before="$(argv_lines)"
 out="$("$APPS" install 6-8)"
@@ -175,8 +207,11 @@ check_status "$?" 0 "install (default) exits 0"
 [[ -f "$QUEUE_FILE" ]] && fail_ "install (default, no --apply): must not create the queue file" \
   || pass "install (default, no --apply): queue file not created"
 after_argv="$(argv_since "$before")"
-check_not_contains "$after_argv" "pacman -S" "install (default, no --apply): never calls pacman -S"
+check_not_contains "$after_argv" "pacman -S " "install (default, no --apply): never calls pacman -S"
 check_not_contains "$after_argv" "systemctl" "install (default, no --apply): never starts the unit"
+
+err="$("$APPS" install 6-8 2>&1 >/dev/null)"
+check_contains "$err" "tuxpaint" "install 6-8: names the AUR-only tuxpaint on stderr (issue #52 audit)"
 
 # --- install --apply: queues the missing (non-AUR) packages, starts the unit
 
@@ -184,14 +219,15 @@ before="$(argv_lines)"
 "$APPS" install 6-8 --apply >/dev/null
 [[ -f "$QUEUE_FILE" ]] && pass "install --apply: queue file created" || fail_ "install --apply: queue file missing"
 queued="$(sort "$QUEUE_FILE" 2>/dev/null | tr '\n' ',' )"
-# gcompris-qt was already "installed" above; tuxpaint/ktuberling/blinken/
-# supertux/supertuxkart/klettres/kanagram were not.
-want_queued="$(printf '%s\n' tuxpaint ktuberling blinken supertux supertuxkart klettres kanagram | sort | tr '\n' ',')"
-check "$queued" "$want_queued" "install --apply: queues exactly the missing packages"
+# gcompris-qt was already "installed" above; tuxpaint is aur:-marked (issue
+# #52 audit) so it's skipped, not queued; ktuberling/blinken/supertux/
+# supertuxkart/klettres/kanagram were not installed.
+want_queued="$(printf '%s\n' ktuberling blinken supertux supertuxkart klettres kanagram | sort | tr '\n' ',')"
+check "$queued" "$want_queued" "install --apply: queues exactly the missing, resolvable, non-AUR packages"
 after_argv="$(argv_since "$before")"
 check_contains "$after_argv" "systemctl start --no-block omarchy-kids-apps-install.service" \
   "install --apply: starts the background unit"
-check_not_contains "$after_argv" "pacman -S" "install --apply (no --now): never calls pacman -S itself"
+check_not_contains "$after_argv" "pacman -S " "install --apply (no --now): never calls pacman -S itself"
 
 # a second --apply is idempotent (queue doesn't grow duplicate entries)
 "$APPS" install 6-8 --apply >/dev/null
@@ -241,6 +277,22 @@ check "$(cat "$QUEUE_FILE" 2>/dev/null || true)" "" "install-queued: empties the
 # idempotent: running again on an empty queue is a no-op
 out="$("$APPS" install-queued)"
 check_contains "$out" "queue is empty" "install-queued: an empty queue is a no-op"
+
+# --- install-queued: the mixed case (issue #52) -- resolves before pacman -S
+
+echo "kiwix-desktop" >>"$LOG/unavailable"
+printf 'ktouch\nkiwix-desktop\n' >"$QUEUE_FILE"
+before="$(argv_lines)"
+err="$("$APPS" install-queued 2>&1 >/dev/null)"
+after_argv="$(argv_since "$before")"
+check_contains "$err" "kiwix-desktop" "install-queued (mixed): names the unresolved package on stderr"
+check_contains "$after_argv" "pacman -S --needed --noconfirm ktouch" \
+  "install-queued (mixed): still installs the resolvable package"
+check_not_contains "$after_argv" "-S --needed --noconfirm ktouch kiwix-desktop" \
+  "install-queued (mixed): never hands pacman the unresolved target"
+check "$(cat "$QUEUE_FILE" 2>/dev/null || true)" "" \
+  "install-queued (mixed): still empties the queue (an unresolved entry won't resolve on retry either)"
+: >"$LOG/unavailable"
 
 # --- hide-from-mine / show-in-mine ------------------------------------------
 

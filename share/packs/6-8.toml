@@ -3,16 +3,19 @@
 # with. `id` is the launcher entry id `omarchy-kids-conf get <kid>
 # allowlist` falls back to when a kid has no override (the full pack, in
 # file order).
+# `source` (extra/aur) is issue #52's audit against archlinux.org's package search API; see docs/apps.md.
 
 [[app]]
 pkg = "gcompris-qt"
+source = "extra"
 id = "gcompris"
 label = "GCompris"
 category = "education"
 age = "3-5"
 
 [[app]]
-pkg = "tuxpaint"
+pkg = "aur:tuxpaint"
+source = "aur"
 id = "tuxpaint"
 label = "Tux Paint"
 category = "creativity"
@@ -20,6 +23,7 @@ age = "3-5"
 
 [[app]]
 pkg = "ktuberling"
+source = "extra"
 id = "ktuberling"
 label = "KTuberling"
 category = "play"
@@ -27,6 +31,7 @@ age = "3-5"
 
 [[app]]
 pkg = "blinken"
+source = "extra"
 id = "blinken"
 label = "Blinken"
 category = "games"
@@ -34,6 +39,7 @@ age = "3-5"
 
 [[app]]
 pkg = "supertux"
+source = "extra"
 id = "supertux"
 label = "SuperTux"
 category = "games"
@@ -41,6 +47,7 @@ age = "6-8"
 
 [[app]]
 pkg = "supertuxkart"
+source = "extra"
 id = "supertuxkart"
 label = "SuperTuxKart"
 category = "games"
@@ -48,6 +55,7 @@ age = "6-8"
 
 [[app]]
 pkg = "klettres"
+source = "extra"
 id = "klettres"
 label = "KLettres"
 category = "education"
@@ -55,6 +63,7 @@ age = "6-8"
 
 [[app]]
 pkg = "kanagram"
+source = "extra"
 id = "kanagram"
 label = "Kanagram"
 category = "education"

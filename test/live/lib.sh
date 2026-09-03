@@ -221,7 +221,7 @@ portal_reset() {
 # root, with the instance signature read off /run/user/<uid>/hypr/ (docs/exit.md).
 portal_clean_exit() {
     local acct="$1"
-    vmroot "uid=\$(id -u '$acct'); sig=\$(ls /run/user/\$uid/hypr/ 2>/dev/null | head -1); [ -n \"\$sig\" ] && runuser -u '$acct' -- env XDG_RUNTIME_DIR=/run/user/\$uid HYPRLAND_INSTANCE_SIGNATURE=\$sig hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1; true"
+    vmroot "uid=\$(id -u '$acct'); sig=\$(ls -t /run/user/\$uid/hypr/ 2>/dev/null | head -1); [ -n \"\$sig\" ] && runuser -u '$acct' -- env XDG_RUNTIME_DIR=/run/user/\$uid HYPRLAND_INSTANCE_SIGNATURE=\$sig hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1; true"
 }
 
 # --- build / install ---------------------------------------------------------------------

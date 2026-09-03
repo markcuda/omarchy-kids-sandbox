@@ -259,3 +259,10 @@ everything below is open until it has:
    grid/menu no longer lists the kids' apps, and that a kid can still open them from their own
    session. `show-in-mine --apply`: confirm they're back in the parent's menu, unchanged from
    before.
+
+## Verified live (2026-09-03, QEMU test VM)
+
+With synced mirrors, `omarchy-kids-apps install 6-8 --now --apply` resolved the pack, skipped
+the AUR-only Tux Paint with a line, and installed the other seven in one transaction in about
+ninety seconds; `list` showed them installed and the launcher drew nine real tiles at the next
+login.

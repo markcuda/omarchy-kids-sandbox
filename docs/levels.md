@@ -11,6 +11,7 @@ Quickshell, so treat everything under "Verify in the VM" as open until it has.
 | `share/hyprland/L1.lua`, `L2.lua`, `L3.lua` | Root-owned Hyprland configs, one per level (R-DESK-1, R-DESK-3) |
 | `share/hyprland/band-3-5.lua`, `band-6-8.lua` | Cursor/gap/scale overlays, loaded by whichever level file is active when `OMARCHY_KIDS_BAND` matches |
 | `share/launcher/shell.qml` | The Level 1/2 big-tile launcher (Quickshell/QtQuick), R-DESK-5 |
+| `share/launcher/gridnav.js` | Pure column/index math shared by `shell.qml`'s key navigation and its GridView layout (issue #43) |
 | `bin/omarchy-kids-session-start` | Runs once per session from each level file's `exec-once`; writes the launcher's tile JSON and starts the right thing for the level |
 | `bin/omarchy-kids-launcher-ctl` | What the Hyprland binds call to show/activate the launcher, so the Lua files don't need Quickshell IPC details |
 | `bin/omarchy-kids-exit`, `bin/omarchy-kids-super-tap`, `share/exit-modal/shell.qml` | The exit modal for Super+Shift+K and the triple-tap (R-EXIT-1); see `docs/exit.md` |
@@ -109,6 +110,23 @@ yet, so today this is always false — the correct fail-closed behavior, not a b
 with keyboard-only navigation (arrows move the highlight, Return/Enter launches, Escape is
 swallowed and does nothing).
 
+**Issue #43: key navigation must use the layout's own column count.** Seen live in the VM with
+ten tiles rendered five per row: Down from row1/col4 highlighted row2/col3 instead of row2/col4,
+and Right from row2/col3 didn't move at all — the key navigation had its own hardcoded
+`columns: 4` instead of reading whatever GridView actually laid out. Fixed by moving the index
+math into `share/launcher/gridnav.js`, a small pure-JS module `shell.qml` imports
+(`import "gridnav.js" as GridNav`), and binding `columns` to
+`GridNav.columnsFor(grid.width, grid.cellWidth)` — the same `width`/`cellWidth` GridView itself
+lays tiles out from, so the two can't drift apart again. Left/Right move the highlight by ±1 and
+wrap to the previous/next row on their own (tiles are laid out row-major, so index±1 already
+crosses a row boundary correctly), clamping only at the very first/last tile rather than wrapping
+all the way around the grid. Up/Down move by the column count and clamp at the top/bottom edge,
+including a ragged last row. `test/shell.d/launcher-grid-test.sh` checks `gridnav.js`'s index math
+directly with `node` (skipped if `node` isn't available) and greps `shell.qml` for the wiring
+(the import, the `columns` binding, and each `Keys.on*Pressed` calling into `GridNav`) — see that
+file's own header for exactly what it can and can't check without a real Quickshell/QtQuick to
+run the file against.
+
 ## Open questions / what could not be verified without Hyprland or Quickshell
 
 This repo had two of Omarchy's real `default.hypr.bindings.*` files to check syntax against
@@ -155,6 +173,13 @@ below needs a real Omarchy 4.0.2 box or the VM to close out:
 7. **Volume/brightness keys** use `wpctl`/`brightnessctl` directly rather than an
    Omarchy-specific wrapper, since none was in the reference material. If Omarchy ships its own
    (e.g. for on-screen-display feedback), swap them in.
+8. **GridView's real column layout (issue #43).** `share/launcher/gridnav.js`'s `columnsFor()`
+   assumes GridView lays tiles out at exactly `Math.floor(grid.width / grid.cellWidth)` per row —
+   standard QtQuick GridView behavior in general, but not confirmed against this Quickshell 0.3.1
+   build specifically, and `grid.width`/`grid.cellWidth`'s real values at the VM's 1280x800
+   weren't rechecked after this fix. If the real layout disagrees, `columnsFor()` is the one place
+   to correct — both the GridView and the key navigation read that same value, so a fix there
+   fixes both at once instead of two places drifting apart again.
 
 ## Verify in the VM
 
@@ -164,7 +189,12 @@ scripts copied to their spec-required paths and made root-owned):
 1. From a spare tty (or the omarchy-kids session entry, once `omarchy-kids-session` is built):
    `Hyprland --config /etc/omarchy-kids/hyprland/L1.lua`.
 2. Confirm the launcher appears fullscreen with tiles from `/run/omarchy-kids/launcher-<uid>.json`,
-   that arrows move the highlight, Return launches, Escape does nothing.
+   that arrows move the highlight, Return launches, Escape does nothing. With a full row of tiles,
+   confirm Right/Left/Up/Down move to the visually adjacent tile (issue #43) — in particular,
+   Right/Left at a row's end wrap to the next/previous row rather than holding still, except at
+   the very first/last tile, which clamp; Up/Down clamp at the top/bottom edge. Confirm Enter
+   launches whatever tile is highlighted after each of those moves, checkable via
+   `$XDG_RUNTIME_DIR/omarchy-kids/launches.log`.
 3. `Super+Home` and `Super+Space` (Level 2) bring the launcher back after opening an app;
    `Super+Enter` opens whatever tile is highlighted without needing the launcher already focused.
 4. `Super+Q` closes the focused app; `Super+Shift+K` opens the exit modal (`docs/exit.md`).
@@ -175,5 +205,8 @@ scripts copied to their spec-required paths and made root-owned):
 
 Everything above is run from `bash test/shell.d/levels-test.sh` first where it can be
 (grep-based binding checks, `luac -p` if available, `bin/omarchy-kids-session-start`'s JSON
-output against a scratch profile) — the VM is only for what a test file on a laptop with no
-Hyprland or Quickshell cannot check.
+output against a scratch profile), plus `bash test/shell.d/launcher-grid-test.sh` for
+`gridnav.js`'s index math (`node`, if available) and its wiring into `shell.qml` — the VM is only
+for what a test file on a laptop with no Hyprland or Quickshell cannot check, chiefly step 2's
+actual on-screen tile adjacency and issue #43's GridView column-count assumption (open question 8
+above).

@@ -39,11 +39,26 @@ Each command's doc has a "Verified live" section with the exact evidence. In one
 ## Round two (after Mark's note)
 
 Mark asked for DHH-grade code, Omarchy's own conventions and per-theme styling, and UX work
-from screenshots. In progress: `docs/style.md` and the Conventions section in `AGENTS.md`
-(merged), the antagonistic review in `docs/reviews/` with its security fixes (#51), theme
-plumbing for every surface (#47, merged and screenshot-verified), the starter packs audited and
-installed for real (#52), the structural refactor (#49), the wizard's look (#50), the launcher
-layout with icons (#54) and kids inheriting the parent's theme (#53).
+from screenshots. Done since:
+
+- `docs/style.md` and a Conventions section in `AGENTS.md`, derived from omacom/omarchy v4.0.2.
+- An antagonistic review (`docs/reviews/2026-09-03-antagonistic.md`) and its security fixes
+  (#51): approvals are root's decision, verifier paths are absolute and ignore the kid's
+  environment, the Limine editor lock no longer hides behind the boot hook, secrets never reach
+  a preview, the interactive commands run for real, boot-login uses the profile registry. A
+  live attack pass confirmed the forged-approval and socket-redirect paths are closed; the real
+  on-the-spot grant needed two more fixes found live (a minutes field and the verifier's line
+  reader) plus writable state paths in the service unit.
+- Theme plumbing (#47): the portal and the wizard follow the owner's theme, verified under
+  tokyo-night and catppuccin-latte; kid surfaces use the kid's own theme (#53 inherits the
+  parent's at provision time).
+- Starter packs audited against the official repos (#52) and installed for real; GCompris
+  launched from the launcher.
+- Launcher with real app icons and a centred grid (#54); the wizard as one rounded card per
+  step in the theme's colours (#50); uninstalled tiles hidden (#42); grid navigation fixed (#43).
+- The live harness ran all seven scenarios green in one run after these merges.
+- In progress: the structural refactor (#49: shared helpers, summary headers, comment density,
+  file sizes).
 
 ## What is open
 

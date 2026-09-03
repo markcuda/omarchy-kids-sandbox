@@ -144,7 +144,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: "Your screen time for today is done."
-                        color: theme.muted
+                        color: theme.caption
                         font.pixelSize: 15
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
@@ -186,7 +186,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "for more time"
-                                    color: theme.muted
+                                    color: theme.caption
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap
@@ -227,7 +227,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Closes " + root.displayName + "'s apps"
-                                    color: theme.muted
+                                    color: theme.caption
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap

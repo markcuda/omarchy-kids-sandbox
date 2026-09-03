@@ -207,7 +207,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: root.desc
-                        color: theme.muted
+                        color: theme.caption
                         font.pixelSize: 15
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
@@ -292,7 +292,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Type their password"
-                                    color: theme.muted
+                                    color: theme.caption
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap
@@ -333,7 +333,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Your grown-up will see it"
-                                    color: theme.muted
+                                    color: theme.caption
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap

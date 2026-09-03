@@ -46,6 +46,10 @@ QtObject {
     // errorFill -- the locked-out password field; the old per-file formula, kept here so no file needs its own.
     property color errorFill: Qt.darker(error, 4)
 
+    // caption -- secondary text: the foreground at 70%, because a theme's own `muted` is a border
+    // shade (tokyo-night's #414868 vanished on its background).
+    property color caption: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.7)
+
     // dim -- the scrim behind every modal card: black at 45% on dark, the background at 55% on light (issue #57).
     property color dim: isLight ? Qt.rgba(background.r, background.g, background.b, 0.55)
                                  : Qt.rgba(0, 0, 0, 0.45)

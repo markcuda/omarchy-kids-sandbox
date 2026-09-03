@@ -278,7 +278,7 @@ PanelWindow {
                                     text: root.pauseAvailable
                                         ? (root.possessive(root.displayName) + " apps stay open. You switch to your desktop.")
                                         : "Coming soon"
-                                    color: theme.muted
+                                    color: theme.caption
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap
@@ -319,7 +319,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Closes " + root.possessive(root.displayName) + " apps. You switch to your desktop."
-                                    color: theme.muted
+                                    color: theme.caption
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap

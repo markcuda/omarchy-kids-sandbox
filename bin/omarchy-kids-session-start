@@ -233,6 +233,7 @@ if [[ "$LEVEL" == "1" && "$BAND" != "3-5" ]]; then
     '{id: "more-apps", label: "More apps", icon: "",
       exec: ("OMARCHY_KIDS_BAND=" + ($band | @sh) + " quickshell -p " + ($qml | @sh))}' \
     >>"$TILES_FILE"
+fi
 
 # R-DATA-3 (issue #27): K5, "What my grown-ups can see", run as the kid
 # via `omarchy-kids-data mine`. Gated on BAND (9-12/13+), not LEVEL:

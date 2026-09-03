@@ -177,7 +177,7 @@ As a 6-8 kid, the Web tile started Chromium (the launch was logged) and `https:/
 rendered Chromium's own "This page is blocked. Your organization doesn't allow you to view this
 site", so the managed policy at `/etc/chromium/policies/managed/omarchy-kids-6-8.json` (0640
 root:omarchy-kids-6-8) is loaded and the walled garden holds. Two warts found and tracked in
-#44: Omarchy's wrapper adds `--load-extension` for its bundled extensions, which the policy
+issue #44: Omarchy's wrapper adds `--load-extension` for its bundled extensions, which the policy
 rightly refuses with a modal error every launch, and a "Chromium didn't shut down correctly"
 bubble appears after a Finish. DoH and the 9-12/13+ filtered mode are not yet checked live.
 Same night, after #44: the Web tile launched `/usr/lib/chromium/chromium` with the kids flags

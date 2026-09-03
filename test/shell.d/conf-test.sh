@@ -290,4 +290,10 @@ check "$?" "2" "an unknown machine subcommand exits 2"
 "$CONF" machine set bogus mark >/dev/null 2>&1
 check "$?" "2" "an unknown machine key exits 2"
 
+# sudo strips OMARCHY_PATH; the theme validation must not die on it (seen live 2026-09-03).
+err="$(env -u OMARCHY_PATH "$CONF" set kid-ada theme tokyo-night 2>&1 >/dev/null)"
+check "$?" "0" "set theme with OMARCHY_PATH unset exits 0"
+[[ "$err" != *"unbound variable"* ]]
+check "$?" "0" "set theme with OMARCHY_PATH unset prints no unbound-variable error"
+
 exit $fail

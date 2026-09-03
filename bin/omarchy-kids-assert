@@ -389,7 +389,7 @@ KIDS_SOCKETS=(omarchy-kids-authd.socket)
 # every other unit here, not a one-off in omarchy-kids.install, so a
 # fresh `omarchy-kids-assert` run (by hand, the wizard, or the pacman
 # hook) is enough to pick it up too.
-KIDS_TIMERS=(omarchy-kids-ask-collect.timer)
+KIDS_TIMERS=(omarchy-kids-time.timer omarchy-kids-ask-collect.timer)
 unit_link() { printf '%s/etc/systemd/system/%s.wants/%s' "$(posture_root)" "$1" "$2"; }
 units_ok() {
     local u

@@ -3,6 +3,7 @@ Description=Omarchy Kids Mode screen-time ledger tick (R-TIME-1)
 Documentation=https://github.com/markcuda/omarchy-kids-sandbox/blob/main/docs/time.md
 
 [Timer]
+Unit=omarchy-kids-time-ledger.service
 OnCalendar=*-*-* *:*:00
 AccuracySec=1s
 Persistent=false

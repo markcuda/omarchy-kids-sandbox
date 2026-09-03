@@ -178,3 +178,10 @@ highlight. Fixes that came out of the run: the polkit check goes through `pkchec
 directory is 0750 root:polkitd), `Hyprland --verify-config` is a fail-closed check because
 emergency mode binds a terminal, the level configs set their own Lua path, and all launcher state
 lives under the kid's `XDG_RUNTIME_DIR`.
+
+Confirmed again later the same night on a clean package install and a cold boot with no manual
+step: slot recorded, `omarchy-kids-boot-login` wrote the drop-in, kid-cy on seat0, `Hyprland`
+and `quickshell` running as the kid, the control file present. The owner's disk password on the
+same machine lands on the owner's own desktop (R-BOOT fail-safe), not the portal. Two package
+gaps found by this run are now assert locks: `units` (the package's units must be enabled) and
+the earlier `limine-editor`.

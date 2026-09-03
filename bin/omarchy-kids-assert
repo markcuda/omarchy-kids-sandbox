@@ -1,32 +1,412 @@
 #!/bin/bash
-# omarchy-kids-assert: re-asserts every Kids Mode lock idempotently and
-# rebuilds the initramfs if the boot hook is missing (R-TRUST-5). Called by
+# omarchy-kids-assert — re-asserts every Kids Mode lock idempotently
+# (SPEC.md I-4, R-TRUST-5, R-BOOT-5, R-WEB-1, R-FND-2..6, §5.1). Called by
 # /usr/share/libalpm/hooks/omarchy-kids.hook after every pacman transaction,
-# and by Omarchy's own post-update hook. Stub: no locks exist yet, so this
-# just reports that and exits 0 -- a package transaction is never blocked
-# by a lock that doesn't exist yet.
+# by systemd/omarchy-kids-assert.service at boot, and (per docs/assert.md)
+# by Omarchy's own post-update hook -- see that doc for the full lock list,
+# when each caller runs it, and the exit codes.
+#
+# Unlike most other omarchy-kids-* commands, this one applies fixes for
+# real *by default*: it exists precisely so an automatic caller (the
+# pacman hook, the boot unit) never has to pass --apply for a lock to
+# actually be restored. `--dry-run` opts into preview-only mode instead
+# (see "Judgment calls" in docs/assert.md for why this is the one command
+# that inverts AGENTS.md rule 8's usual DRY_RUN=1 default). Every real
+# path is still overridable so tests -- and a --dry-run reviewed before
+# trusting it -- can point the whole run at a scratch tree, and nothing
+# under this dev checkout's real /etc, /var, or /home is ever touched by
+# test/shell.d/assert-test.sh:
+#   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (kid profiles, machine.conf)
+#   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids  (hyprland/*.lua source)
+#   OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
+#   OMARCHY_KIDS_ROOT       scratch prefix for every real machine path this
+#                           touches: /etc/polkit-1, /etc/security, /etc/pam.d,
+#                           /etc/fstab, /var/lib/AccountsService (lib/posture.sh),
+#                           plus /etc/systemd/system (getty masks),
+#                           /etc/chromium/policies/managed (kids policy files),
+#                           /usr/lib/initcpio/hooks and /boot (the boot hook)
+#   OMARCHY_KIDS_HOME_ROOT  scratch prefix for /home/<account> itself, for the
+#                           findmnt/mount calls this makes (matches
+#                           omarchy-kids-provision's own env var of the same name)
+#   OMARCHY_KIDS_UKI        overrides which UKI/initramfs image R-BOOT-5 checks,
+#                           instead of the first /boot/EFI/Linux/*.efi found
+# shellcheck disable=SC2329 # every *_ok/*_fix below is invoked indirectly through assert_one's "$check" "$@" / "$fix" "$@"
 set -uo pipefail
 
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/conf.sh
+source "$LIB/conf.sh"
+# shellcheck source=lib/posture.sh
+source "$LIB/posture.sh"
+
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
+SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+HOME_ROOT="${OMARCHY_KIDS_HOME_ROOT:-}"
+KIDS_DIR="$ETC/kids"
+MACHINE_CONF="$ETC/machine.conf"
+
 QUIET=0
-for arg in "$@"; do
-  case "$arg" in
-    --quiet)
-      QUIET=1
-      ;;
-    -h|--help)
-      cat <<'EOF'
-Usage: omarchy-kids-assert [--quiet]
+DRY_RUN=0
+ANY_FAIL=0
 
-Re-asserts every Kids Mode lock (polkit rules, groups, the boot hook, ...)
-so a package transaction can never silently drop one (R-TRUST-5).
+usage() {
+    cat <<'EOF'
+Usage: omarchy-kids-assert [--quiet] [--dry-run]
 
-  --quiet     Suppress the "nothing to assert yet" notice.
+Re-asserts every Kids Mode lock for every provisioned kid, and every
+machine-level lock, idempotently (SPEC.md I-4, R-TRUST-5): fstab bind
+lines and noexec mounts, pam_namespace lines, the AccountsService pin,
+group membership, the polkit admin/deny rules, pam_namespace on sddm and
+systemd-user, masked getty@tty2..6, the /etc/omarchy-kids/hyprland/*.lua
+copies, per-band Chromium policy file permissions, and the boot hook
+(R-BOOT-5). See docs/assert.md for the full lock list and exit codes.
+
+Applies fixes for real by default -- this is the command the pacman hook
+and the boot unit call with no other flags, so it must self-heal without
+needing --apply.
+
+  --quiet     Print only "fixed"/"FAIL" lines (no "ok" lines, no notice
+              when nothing is provisioned).
+  --dry-run   Report what would change; write nothing.
   -h, --help  Show this help and exit.
+
+Exit codes: 0 everything is (or now is) fine; 1 at least one lock could
+not be fixed.
 EOF
-      exit 0
-      ;;
-  esac
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --quiet) QUIET=1 ;;
+        --dry-run) DRY_RUN=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *)
+            echo "omarchy-kids-assert: unknown argument '$arg'" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
 done
 
-[[ "$QUIET" -eq 1 ]] || echo "omarchy-kids-assert: nothing to assert yet (stub)"
-exit 0
+# report STATUS LOCK — one line per lock. "ok" is suppressed under
+# --quiet; "fixed"/"FAIL" always print. Sets ANY_FAIL on any "FAIL".
+report() {
+    local status="$1" lock="$2"
+    [[ "$status" == "FAIL" ]] && ANY_FAIL=1
+    [[ "$QUIET" -eq 1 && "$status" == "ok" ]] && return 0
+    printf '%-8s %s\n' "$status" "$lock"
+    return 0
+}
+
+# assert_one LOCK CHECK_FN FIX_FN [ARGS...] — the one control-flow shape
+# every lock below uses: if CHECK_FN "$@" is already true, "ok"; else,
+# under --dry-run, "would-fix" and stop; else run FIX_FN "$@" and report
+# "fixed" on success, "FAIL" (and keep going -- one bad lock never stops
+# the rest from being asserted) on failure.
+assert_one() {
+    local lock="$1" check="$2" fix="$3"
+    shift 3
+    if "$check" "$@"; then
+        report ok "$lock"
+        return 0
+    fi
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        report would-fix "$lock"
+        return 0
+    fi
+    if "$fix" "$@"; then
+        report fixed "$lock"
+    else
+        report FAIL "$lock"
+    fi
+    return 0
+}
+
+# --- small helpers not worth a shared lib entry ----------------------------
+
+# group_for_band BAND — the same fixed, documented mapping
+# bin/omarchy-kids-provision's group_for_band uses (docs/packaging.md);
+# duplicated rather than sourced because omarchy-kids-provision is a
+# script (its own `main "$@"` would run if sourced), not a library, and
+# this mapping is four stable lines unlikely to ever change independent
+# of that file. Accepts both "13+" (Appendix B's spelling) and "13plus"
+# (a Chromium policy filename's spelling, since '+' is an awkward
+# characters to key on there) for the oldest band.
+group_for_band() {
+    case "$1" in
+        3-5) echo omarchy-kids-3-5 ;;
+        6-8) echo omarchy-kids-6-8 ;;
+        9-12) echo omarchy-kids-9-12 ;;
+        13+|13plus) echo omarchy-kids-13plus ;;
+        *) return 1 ;;
+    esac
+}
+
+profile_field() { conf_get "$KIDS_DIR/$1.conf" "$2" 2>/dev/null || true; }
+
+home_dir_for() { printf '%s/home/%s' "$HOME_ROOT" "$1"; }
+
+file_mode() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null || true; }
+
+# --- per-kid locks ----------------------------------------------------------
+
+# fstab: R-FND-2's bind-mount line. Reuses lib/posture.sh's own writer,
+# which is already idempotent (append-if-missing).
+fstab_ok() { grep -qxF "$(posture_fstab_line "$1")" "$(posture_fstab)" 2>/dev/null; }
+fstab_fix() { posture_add_fstab_line "$1"; }
+
+# mount: the home is actually mounted noexec,nosuid,nodev right now (not
+# just that fstab says it should be) -- "mount if not", per the issue.
+mount_opts_ok() { [[ "$1" == *noexec* && "$1" == *nosuid* && "$1" == *nodev* ]]; }
+mount_ok() {
+    local opts
+    opts="$(findmnt -no OPTIONS "$(home_dir_for "$1")" 2>/dev/null || true)"
+    [[ -n "$opts" ]] && mount_opts_ok "$opts"
+}
+mount_fix() {
+    local account="$1" home opts
+    home="$(home_dir_for "$account")"
+    opts="$(findmnt -no OPTIONS "$home" 2>/dev/null || true)"
+    if [[ -z "$opts" ]]; then
+        mount --bind "$home" "$home" || return 1
+    fi
+    mount -o remount,bind,nosuid,nodev,noexec "$home"
+}
+
+# namespace: R-FND-2a's two pam_namespace.conf lines for this account.
+namespace_ok() {
+    local file
+    file="$(posture_namespace_conf)"
+    [[ -f "$file" ]] || return 1
+    grep -qxF "$(posture_namespace_line_tmp "$1")" "$file" \
+        && grep -qxF "$(posture_namespace_line_shm "$1")" "$file"
+}
+namespace_fix() { posture_add_namespace_lines "$1"; }
+
+# accountsservice: R-LOGIN-3's session pin, exact content match (same
+# idempotence check posture_write_accountsservice itself uses).
+accountsservice_ok() {
+    local account="$1" avatar="$2" file
+    file="$(posture_accountsservice_dir)/$account"
+    [[ -f "$file" ]] && [[ "$(cat "$file")" == "$(posture_accountsservice_text "$avatar")" ]]
+}
+accountsservice_fix() { posture_write_accountsservice "$1" "$2"; }
+
+# groups: member of omarchy-kids and the band group. No writer for this
+# in lib/posture.sh (omarchy-kids-provision sets it once via `useradd -G`
+# at creation time, not through a posture_* function), so this is the one
+# lock re-implemented here rather than reused, per the issue's own
+# `usermod -aG` instruction.
+current_groups() { id -nG "$1" 2>/dev/null || true; }
+has_group() { [[ " $1 " == *" $2 "* ]]; }
+groups_ok() {
+    local account="$1" band="$2" group current
+    group="$(group_for_band "$band")" || return 1
+    current="$(current_groups "$account")"
+    has_group "$current" omarchy-kids && has_group "$current" "$group"
+}
+groups_fix() {
+    local account="$1" band="$2" group current missing=()
+    group="$(group_for_band "$band")" || return 1
+    current="$(current_groups "$account")"
+    has_group "$current" omarchy-kids || missing+=(omarchy-kids)
+    has_group "$current" "$group" || missing+=("$group")
+    [[ ${#missing[@]} -eq 0 ]] && return 0
+    local IFS=,
+    usermod -aG "${missing[*]}" "$account"
+}
+
+# --- machine-level locks ----------------------------------------------------
+
+polkit_admin_ok() {
+    local parent file
+    parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    file="$(posture_polkit_dir)/40-omarchy-kids.rules"
+    [[ -f "$file" ]] && [[ "$(cat "$file")" == "$(posture_polkit_admin_rule_text "$parent")" ]]
+}
+polkit_admin_fix() {
+    local parent
+    parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    posture_write_polkit_admin_rule "$parent"
+}
+
+polkit_deny_ok() {
+    local file
+    file="$(posture_polkit_dir)/41-omarchy-kids-deny.rules"
+    [[ -f "$file" ]] && [[ "$(cat "$file")" == "$(posture_polkit_deny_rule_text)" ]]
+}
+polkit_deny_fix() { posture_write_polkit_deny_rule; }
+
+pam_ok() {
+    local file
+    file="$(posture_pam_dir)/$1"
+    [[ -f "$file" ]] && grep -qxF "$(posture_pam_namespace_marker)" "$file"
+}
+pam_fix() { posture_ensure_pam_namespace "$1"; }
+
+# getty@tty2..6 masked (R-FND-5): masking is nothing more than a symlink
+# to /dev/null at the unit's path -- the same thing `systemctl mask`
+# itself does, --root or not, without needing a live systemd -- so the
+# check reads that symlink directly and only the fix shells out, matching
+# how omarchy-kids-provision already masks these (docs/provision.md).
+getty_unit_path() { printf '%s/etc/systemd/system/getty@tty%s.service' "$(posture_root)" "$1"; }
+getty_ok() {
+    local link
+    link="$(getty_unit_path "$1")"
+    [[ -L "$link" ]] && [[ "$(readlink "$link")" == "/dev/null" ]]
+}
+getty_fix() {
+    local root_args=()
+    [[ -n "$(posture_root)" ]] && root_args=(--root="$(posture_root)")
+    systemctl "${root_args[@]}" mask "getty@tty$1.service"
+}
+
+# hyprland configs: every *.lua in $SHARE/hyprland copied verbatim to
+# $ETC/hyprland (R-DESK-1). Prefers omarchy-kids-session --install-configs
+# if that ever exists (it doesn't yet -- verified against this checkout),
+# so this starts using the real thing automatically once it lands,
+# without needing to change here.
+HYPR_SHARE="$SHARE/hyprland"
+HYPR_ETC="$ETC/hyprland"
+hyprland_ok() {
+    [[ -d "$HYPR_SHARE" ]] || return 0
+    local f base
+    for f in "$HYPR_SHARE"/*.lua; do
+        [[ -e "$f" ]] || continue
+        base="$(basename "$f")"
+        [[ -f "$HYPR_ETC/$base" ]] || return 1
+        cmp -s "$f" "$HYPR_ETC/$base" || return 1
+    done
+    return 0
+}
+hyprland_fix() {
+    [[ -d "$HYPR_SHARE" ]] || return 0
+    if command -v omarchy-kids-session >/dev/null 2>&1 \
+        && OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" omarchy-kids-session --install-configs >/dev/null 2>&1; then
+        return 0
+    fi
+    install -d -m 0755 "$HYPR_ETC" || return 1
+    local f base
+    for f in "$HYPR_SHARE"/*.lua; do
+        [[ -e "$f" ]] || continue
+        base="$(basename "$f")"
+        install -m 0644 "$f" "$HYPR_ETC/$base" || return 1
+    done
+}
+
+# Chromium policy files (R-WEB-1): mode/owner only, and only for files
+# that already exist -- this command never creates one (no writer for
+# them exists yet; see docs/assert.md's judgment calls). Ownership is
+# attempted best-effort and never decides ok/fixed/FAIL, matching
+# docs/provision.md's own stated reasoning: real runs are always root, at
+# which point every file this creates is already root-owned anyway.
+chromium_dir() { printf '%s/etc/chromium/policies/managed' "$(posture_root)"; }
+chromium_ok() { [[ "$(file_mode "$1")" == "640" ]]; }
+chromium_fix() {
+    local file="$1" band="$2" group
+    chmod 0640 "$file" || return 1
+    group="$(group_for_band "$band" 2>/dev/null || true)"
+    [[ -n "$group" ]] && chown "root:$group" "$file" >/dev/null 2>&1
+    return 0
+}
+
+# Boot hook (R-BOOT-5): only checked if the hook file the package installs
+# is actually present on this box; nothing to assert otherwise.
+HOOK_FILE="$(posture_root)/usr/lib/initcpio/hooks/omarchy-kids-unlock"
+find_uki() {
+    if [[ -n "${OMARCHY_KIDS_UKI:-}" ]]; then
+        printf '%s\n' "$OMARCHY_KIDS_UKI"
+        return 0
+    fi
+    local f
+    for f in "$(posture_root)"/boot/EFI/Linux/*.efi; do
+        [[ -e "$f" ]] || continue
+        printf '%s\n' "$f"
+        return 0
+    done
+    return 1
+}
+boot_hook_ok() {
+    local uki tmp rc
+    uki="$(find_uki)" || return 0  # no image found to check -- nothing to disprove
+    tmp="$(mktemp "${TMPDIR:-/tmp}/omarchy-kids-assert-initrd.XXXXXX")"
+    if objcopy -O binary --only-section=.initrd "$uki" "$tmp" 2>/dev/null \
+        && lsinitcpio "$tmp" 2>/dev/null | grep -q omarchy-kids-unlock; then
+        rc=0
+    else
+        rc=1
+    fi
+    rm -f "$tmp"
+    return "$rc"
+}
+boot_hook_fix() { mkinitcpio -P; }
+
+# --- main --------------------------------------------------------------
+
+list_kids() {
+    [[ -d "$KIDS_DIR" ]] || return 0
+    local f
+    for f in "$KIDS_DIR"/*.conf; do
+        [[ -e "$f" ]] || continue
+        basename "$f" .conf
+    done
+}
+
+main() {
+    local kids=() k
+    while IFS= read -r k; do
+        [[ -n "$k" ]] && kids+=("$k")
+    done < <(list_kids)
+
+    if [[ ${#kids[@]} -eq 0 ]]; then
+        [[ "$QUIET" -eq 1 ]] || echo "omarchy-kids-assert: no kids provisioned; nothing to assert"
+        exit 0
+    fi
+
+    local account band avatar
+    for account in "${kids[@]}"; do
+        band="$(profile_field "$account" band)"
+        avatar="$(profile_field "$account" avatar)"
+        assert_one "fstab:$account" fstab_ok fstab_fix "$account"
+        assert_one "mount:$account" mount_ok mount_fix "$account"
+        assert_one "namespace:$account" namespace_ok namespace_fix "$account"
+        assert_one "accountsservice:$account" accountsservice_ok accountsservice_fix "$account" "$avatar"
+        assert_one "groups:$account" groups_ok groups_fix "$account" "$band"
+    done
+
+    assert_one "polkit-admin" polkit_admin_ok polkit_admin_fix
+    assert_one "polkit-deny" polkit_deny_ok polkit_deny_fix
+    assert_one "pam:sddm" pam_ok pam_fix sddm
+    assert_one "pam:systemd-user" pam_ok pam_fix systemd-user
+
+    local n
+    for n in 2 3 4 5 6; do
+        assert_one "getty:tty$n" getty_ok getty_fix "$n"
+    done
+
+    assert_one "hyprland-configs" hyprland_ok hyprland_fix
+
+    local dir f band_token
+    dir="$(chromium_dir)"
+    if [[ -d "$dir" ]]; then
+        for f in "$dir"/omarchy-kids-*.json; do
+            [[ -e "$f" ]] || continue
+            band_token="$(basename "$f")"
+            band_token="${band_token#omarchy-kids-}"
+            band_token="${band_token%.json}"
+            assert_one "chromium-policy:$band_token" chromium_ok chromium_fix "$f" "$band_token"
+        done
+    fi
+
+    if [[ -f "$HOOK_FILE" ]]; then
+        assert_one "boot-hook" boot_hook_ok boot_hook_fix
+    fi
+
+    [[ "$ANY_FAIL" -eq 0 ]] || exit 1
+    exit 0
+}
+
+main

@@ -9,12 +9,21 @@
 # One more subcommand lives beside the panel: `remove-kids-mode`, a thin,
 # no-argv-surprises dispatch to bin/omarchy-kids-remove (R-TRUST-4) -- see
 # docs/remove.md.
+#
+# --requests (issue #37, the bar widget's "Open requests" menu row, R-ASK-2:
+# "the panel lists requests") -- omarchy-kids-panel (issue #21) has a real
+# Requests screen (P3) now, but no CLI flag to open straight to it, and a
+# bar-widget click wants something faster than launching the full
+# interactive panel. So this stays a quick, honest summary instead of a
+# deep link: omarchy-kids-ask list's own output, the same source of truth
+# the panel's Requests screen reads.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WIZARD_BIN="${OMARCHY_KIDS_WIZARD_BIN:-$DIR/bin/omarchy-kids-wizard}"; [[ -x "$WIZARD_BIN" ]] || WIZARD_BIN=omarchy-kids-wizard
 REMOVE_BIN="${OMARCHY_KIDS_REMOVE_BIN:-$DIR/bin/omarchy-kids-remove}"; [[ -x "$REMOVE_BIN" ]] || REMOVE_BIN=omarchy-kids-remove
 PANEL_BIN="${OMARCHY_KIDS_PANEL_BIN:-$DIR/bin/omarchy-kids-panel}"; [[ -x "$PANEL_BIN" ]] || PANEL_BIN=omarchy-kids-panel
+ASK_BIN="${OMARCHY_KIDS_ASK_BIN:-$DIR/bin/omarchy-kids-ask}"; [[ -x "$ASK_BIN" ]] || ASK_BIN=omarchy-kids-ask
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
@@ -26,7 +35,7 @@ fi
 
 usage() {
   cat <<EOF
-Usage: omarchy-kids [wizard] [--dry-run] [--apply] [--help]
+Usage: omarchy-kids [wizard] [--requests] [--dry-run] [--apply] [--help]
        omarchy-kids remove-kids-mode [--yes] [--dry-run] [--delete-homes]
 
 Opens Kids Mode. With no kid provisioned yet, this is the parent wizard
@@ -34,6 +43,9 @@ Opens Kids Mode. With no kid provisioned yet, this is the parent wizard
 'omarchy-kids wizard' always opens the wizard, to add another kid.
 
   wizard            Always open the parent wizard, even if kids already exist.
+  --requests        Print open "ask a parent" requests (R-ASK-2) via
+                     omarchy-kids-ask list, instead of opening the panel --
+                     a quick look without the full interactive screen.
   remove-kids-mode  Remove Kids Mode (R-TRUST-4); see
                     omarchy-kids-remove --help for its own flags.
   --dry-run         Passed through to the wizard's or panel's own --dry-run.
@@ -52,9 +64,11 @@ any_kid_provisioned() {
 
 args=()
 open_wizard=0
+show_requests=0
 for arg in "$@"; do
   case "$arg" in
     wizard) open_wizard=1 ;;
+    --requests) show_requests=1 ;;
     -h | --help)
       usage
       exit 0
@@ -69,6 +83,11 @@ fi
 
 if ! any_kid_provisioned; then
   exec "$WIZARD_BIN" "${args[@]+"${args[@]}"}"
+fi
+
+if ((show_requests)); then
+  "$ASK_BIN" list
+  exit 0
 fi
 
 exec "$PANEL_BIN" "${args[@]+"${args[@]}"}"

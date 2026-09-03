@@ -16,7 +16,7 @@ before trusting any of it in front of a kid.
 | File | What it is |
 | --- | --- |
 | `share/exit-modal/shell.qml` | The modal itself: avatar, name, password field, Pause/Finish buttons |
-| `bin/omarchy-kids-exit` | `--open` shows the modal; `--finish` and `--pause` are what the modal runs after the parent's password verifies |
+| `bin/omarchy-kids-exit` | `--open` shows the modal; `--finish` and `--pause` are what the modal runs after the parent's password verifies; `--finish --kid <account>` (root) is the same idea from outside the session, added for issue #37's bar widget |
 | `bin/omarchy-kids-super-tap` | Counts Super-key releases; three within the window calls `omarchy-kids-exit` |
 | `bin/omarchy-kids-parent-auth` / `omarchy-kids-authd` | The verifier the modal calls (R-SEC-2; already built, `docs/authd.md`) — this issue is a *caller* of it, not a reimplementation |
 
@@ -56,10 +56,11 @@ longer than the one verification call needs it for.
 ## `bin/omarchy-kids-exit`
 
 ```text
-omarchy-kids-exit            # same as --open
-omarchy-kids-exit --open     # show the modal (a no-op if one looks already up)
-omarchy-kids-exit --finish   # end the kid's session (R-EXIT-3) -- run by the modal, not a kid
-omarchy-kids-exit --pause    # not implemented; prints why and exits 2
+omarchy-kids-exit                        # same as --open
+omarchy-kids-exit --open                 # show the modal (a no-op if one looks already up)
+omarchy-kids-exit --finish               # end the kid's session (R-EXIT-3) -- run by the modal, not a kid
+omarchy-kids-exit --finish --kid <acct>  # root: end <acct>'s session from outside it
+omarchy-kids-exit --pause                # not implemented; prints why and exits 2
 ```text
 
 `--open` execs `quickshell -p $OMARCHY_KIDS_SHARE/exit-modal/shell.qml`, first exporting
@@ -71,10 +72,40 @@ omarchy-kids-exit --pause    # not implemented; prints why and exits 2
 into Quickshell and so can never itself stay alive to track "still running" the way a
 non-exec'd command could.
 
-`--finish` (R-EXIT-3) is `hyprctl dispatch exit` (best-effort — only if `hyprctl` is on `PATH`,
-and its failure doesn't stop anything else) then
-`loginctl terminate-session "$XDG_SESSION_ID"`, so SDDM returns to the greeter the same way a
-normal logout would.
+`--finish` (R-EXIT-3) asks Hyprland to exit cleanly first — `hyprctl dispatch 'hl.dsp.exit()'`
+(Hyprland 0.56's Lua-config engine rejects the classic `dispatch exit`), best-effort, only if
+`hyprctl` is on `PATH` — then polls (`pgrep -u "$(id -u)" -x Hyprland`, once a second, up to
+`OMARCHY_KIDS_EXIT_WAIT` seconds, default 8) until it's actually gone, and only *then*
+`loginctl terminate-session "$XDG_SESSION_ID"` as the last resort. **This order matters and is not
+optional:** a hard `loginctl terminate-session`/`terminate-user` on a still-live session makes
+`sddm-helper` exit 1, SDDM logs "Process crashed", and starts no greeter at all — a black screen
+until `systemctl restart sddm` (found live 2026-09-02, "Verified live" below). Only a clean
+Hyprland exit reliably brings the greeter back; loginctl is the fallback for a compositor that
+ignored the request, not the normal path.
+
+`--finish --kid <account>` (root only) is the same idea run from outside the session — the
+parent's bar widget's "end session" action (issue #37, `bin/omarchy-kids-bar end`) and any future
+panel end-session action call `sudo omarchy-kids-exit --finish --kid <account>`, never `loginctl`
+directly, for exactly the crash risk above. This process has no session id, `XDG_RUNTIME_DIR`, or
+`HYPRLAND_INSTANCE_SIGNATURE` for `<account>`'s session — those live in that session's own
+environment, not this one's — so it finds them on disk instead: every directory under
+`${OMARCHY_KIDS_RUN_USER_ROOT:-/run/user}/<uid>/hypr/` is one running Hyprland instance's
+signature (normally just one, for a kid). For each one found, it runs the exit dispatch as the
+account itself (`hyprctl` only works against its own compositor's socket in that instance's
+runtime dir, so root can't call it directly):
+
+```sh
+runuser -u <account> -- env XDG_RUNTIME_DIR=/run/user/<uid> \
+  HYPRLAND_INSTANCE_SIGNATURE=<signature> hyprctl dispatch 'hl.dsp.exit()'
+```
+
+then the same `OMARCHY_KIDS_EXIT_WAIT`-second wait, checked via `pgrep -u <uid> -x Hyprland` (the
+target account's uid, not the caller's). If nothing is found under `hypr/` at all, it skips
+straight to the fallback and says why on stderr. The fallback here is `loginctl terminate-user
+<account>`, not `terminate-session <id>` — with no session id in hand, there is nothing else to
+target, so this ends every session that account has rather than one specific scope. That
+trade-off, and the exact `runuser`/`hyprctl` sequence, were never themselves run against a live
+`systemd-logind`/multi-session box — see "What's unverified" below.
 
 ## `bin/omarchy-kids-super-tap`
 
@@ -140,6 +171,15 @@ this (per the environment this was built in):
   a real Hyprland 0.56.2 — not run here.
 - **`pgrep -f "quickshell -p <path>"` as "is the modal already open".** Untested against a real
   `quickshell -p ...` invocation's actual process listing.
+- **`--finish --kid <account>`, end to end (issue #37).** Never run against a real
+  `systemd-logind`/multi-session box: whether `/run/user/<uid>/hypr/<signature>/` is really where
+  a kid's Hyprland instance shows up (and whether there's ever more than one at a time), whether
+  `runuser -u <account> -- env ... hyprctl dispatch 'hl.dsp.exit()'` actually reaches that
+  instance's compositor socket from a root shell, and whether `loginctl terminate-user <account>`
+  is meaningfully safer than `terminate-session` given the same "sddm-helper crashes on a hard
+  terminate" finding above applies to *any* forced termination, not just `terminate-session`
+  specifically — confirm this doesn't also crash sddm-helper before relying on it as "the safe
+  fallback".
 
 ## Testing in the VM
 

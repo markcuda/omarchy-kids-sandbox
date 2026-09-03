@@ -13,3 +13,18 @@ it from the boot menu. Recommendation: hide snapshot entries while any kid profi
 boot menu, not the parent's account: rollback stays available with `snapper rollback` and the
 toggle. Your call: default hide, default show with a warning in the wizard, or something else.
 Evidence: docs/phase1/V6.md.
+
+## 4. Publish to the AUR, and the package name
+
+Everything for a first AUR upload is in the tree (`PKGBUILD`, `.SRCINFO` to regenerate with
+`makepkg --printsrcinfo`, `CHANGELOG.md`, `docs/install.md`, `PRIVACY.md`). Publishing is
+outward-facing and yours: the package name (`omarchy-kids` today), the maintainer line, and
+whether to wait for the laptop round (Wi-Fi on real hardware, the lock screen's parent unlock)
+before the first upload.
+
+## 5. Upstream notes for Pete's PR (#33)
+
+The findings worth sending upstream are written up (the `ignore-auto-dns` Wi-Fi helper,
+`success=done` parent-unlock PAM line placement, SDDM's no-greeter-after-hard-terminate
+behaviour, the Limine snapshot-entry bypass). Posting on omacom/omarchy#9750 is yours.
+

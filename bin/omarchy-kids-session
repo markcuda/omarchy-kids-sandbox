@@ -17,8 +17,8 @@ ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 RUN_DIR="${OMARCHY_KIDS_RUN_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-kids}"
-HYPRLAND_BIN=/usr/bin/Hyprland           # --verify-config
-HYPRLAND_START=/usr/bin/start-hyprland   # Hyprland's own watchdog launcher; args go after --
+HYPRLAND_BIN=/usr/bin/Hyprland         # --verify-config
+HYPRLAND_START=/usr/bin/start-hyprland # Hyprland's own watchdog launcher; args go after --
 
 HYPRLAND_DIR="$ETC/hyprland"
 KIDS_DIR="$ETC/kids"

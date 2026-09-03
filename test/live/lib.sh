@@ -297,7 +297,10 @@ assert_session() {
 wait_kid_ready() {
   local kid="$1" deadline="${2:-60}" waited=0
   while :; do
-    vmroot "pgrep -u '$kid' -f 'omarchy-kids/launcher/shell.qml' >/dev/null" 2>/dev/null && { sleep 3; return 0; }
+    vmroot "pgrep -u '$kid' -f 'omarchy-kids/launcher/shell.qml' >/dev/null" 2>/dev/null && {
+      sleep 3
+      return 0
+    }
     ((waited >= deadline)) && return 1
     sleep 5
     waited=$((waited + 5))

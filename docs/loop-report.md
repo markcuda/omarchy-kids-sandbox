@@ -63,7 +63,22 @@ from screenshots. Done since:
   loads, even for the PAM-wired verifier), plus an arithmetic injection and a root read that
   follows a kid's symlink. Its verdict: not mergeable upstream until one trust boundary is
   stated and enforced by a test, the authorization tests run on Linux instead of skipping, and
-  no unenforced control ships. All of that is #58, in progress.
+  no unenforced control ships. All of that landed as #58: one trust boundary stated in
+  `AGENTS.md`, every environment override gone (including the one the PAM verifier read), a
+  static test that walks `bin/` and `lib/` and fails on a new one, root reads with
+  `O_NOFOLLOW`, and the Wi-Fi portal window removed rather than shipped unenforced.
+- Light themes fixed in every standalone Quickshell surface (#57); the style follow-ups (#56)
+  cut comments in `bin/` and `lib/` from 18% to 12% of lines, renamed `ask-grownup` to
+  `omarchy-kids-blocked`, and moved the TUI demo out of the package.
+- The live harness gained scenario 05, which copies the checkout to the VM and runs the unit
+  suite there. Run 5: the seven behaviour scenarios green, and scenario 05 found the real gap of
+  the night: 61 checks in 16 test files fail on Arch. The suite had only ever run on the Mac and
+  assumed a host with no Omarchy tools on PATH, no package installed, and BSD `stat`. Nothing in
+  the product broke; the tests did. Fixing that on branch `vmtests`, with a new rule in
+  `AGENTS.md`: the suite must be green on an Omarchy box with the package installed, and
+  scenario 05 is the gate.
+- A third review is reading the repo with a maintainer's eye (taste and conventions, not
+  security); its notes will be `docs/reviews/2026-09-03-maintainer-eye.md`.
 
 ## What is open
 
@@ -71,9 +86,8 @@ from screenshots. Done since:
 - `#4` V3: the captive-portal window needs a real captive portal to test.
 - `#26` `#28` `#32` `#33`: real Wi-Fi hardware, a populated plugins catalog, the AUR upload and
   the upstream notes need the laptop or you.
-- `#27` and `#55`: recorded data works except the launch fold (agent in flight).
-- `#45`: leftovers of the real Remove run; `#53`: kids inherit the parent's theme.
-- `#49`: the structural refactor (agent in flight).
+- The unit suite on Arch (branch `vmtests`, agent in flight) and the maintainer-eye review
+  (branch `review3`). Both merge only when the suite is green on the Mac and on the VM.
 
 Decisions waiting for you: `docs/phase1/DECISIONS-NEEDED.md` (Pause, snapshot entries, AUR
 publish, upstream notes). Blocked items: `docs/phase1/BLOCKED.md`.

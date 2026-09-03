@@ -167,3 +167,14 @@ open until it has:
    parent's session with sufficient access) and confirm every check's result is there.
 6. `omarchy-kids-session --check` from a terminal in the kid's own session (or `su`'d to that
    account) and confirm the table matches what actually happened at login.
+
+## Verified live (2026-09-02, QEMU test VM)
+
+Cold boot with a kid's password → LUKS slot recorded → per-boot autologin into the `omarchy-kids`
+session → every R-DESK-2 check passed (private `/tmp` a warning) → `Hyprland --config
+/etc/omarchy-kids/hyprland/L1.lua` → `omarchy-kids-session-start` wrote the tile file and started
+the Level 1 launcher (Quickshell): nine tiles for the 6-8 pack plus the web app, a clock, keyboard
+highlight. Fixes that came out of the run: the polkit check goes through `pkcheck` (the rules
+directory is 0750 root:polkitd), `Hyprland --verify-config` is a fail-closed check because
+emergency mode binds a terminal, the level configs set their own Lua path, and all launcher state
+lives under the kid's `XDG_RUNTIME_DIR`.

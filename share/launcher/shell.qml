@@ -59,7 +59,7 @@ Window {
 
     FileView {
         id: tilesFile
-        path: (Quickshell.env("OMARCHY_KIDS_LAUNCHER_JSON") || "/run/omarchy-kids/launcher.json")
+        path: (Quickshell.env("OMARCHY_KIDS_LAUNCHER_JSON") || (Quickshell.env("XDG_RUNTIME_DIR") + "/omarchy-kids/launcher.json"))
         watchChanges: true
         onLoaded: root.reloadTiles()
         onTextChanged: root.reloadTiles()
@@ -95,7 +95,7 @@ Window {
 
     FileView {
         id: controlFile
-        path: (Quickshell.env("OMARCHY_KIDS_LAUNCHER_CONTROL") || "/run/omarchy-kids/launcher-control")
+        path: (Quickshell.env("OMARCHY_KIDS_LAUNCHER_CONTROL") || (Quickshell.env("XDG_RUNTIME_DIR") + "/omarchy-kids/launcher-control"))
     }
 
     Timer {

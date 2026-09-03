@@ -54,13 +54,15 @@ trap 'rm -rf "$TMP"' EXIT
 # --- scratch tree --------------------------------------------------------
 
 ETC="$TMP/etc/omarchy-kids"
+SHARE="$TMP/share/omarchy-kids"    # fixture-seeding only; omarchy-kids-remove never reads OMARCHY_KIDS_SHARE
 SCRATCH_ROOT="$TMP/root"       # OMARCHY_KIDS_ROOT
 HOMEROOT="$TMP/homeroot"       # OMARCHY_KIDS_HOME_ROOT
 STUBS="$TMP/stubs"
 LOG="$TMP/log"
 ARGV_LOG="$LOG/argv.log"
 
-mkdir -p "$ETC/kids" "$SCRATCH_ROOT/usr/lib/pam.d" "$HOMEROOT" "$STUBS" "$LOG"
+mkdir -p "$ETC/kids" "$SHARE/avatars" "$SCRATCH_ROOT/usr/lib/pam.d" "$HOMEROOT" "$STUBS" "$LOG"
+cp "$ROOT_DIR"/share/avatars/fox.svg "$SHARE/avatars/"
 touch "$ARGV_LOG"
 
 cat > "$ETC/machine.conf" <<'EOF'
@@ -172,6 +174,7 @@ case "${1:-}" in
         for u in "$@"; do
             rm -f "$root/etc/systemd/system/multi-user.target.wants/$u"
             rm -f "$root/etc/systemd/system/sockets.target.wants/$u"
+            rm -f "$root/etc/systemd/system/timers.target.wants/$u"
         done
         ;;
 esac
@@ -180,6 +183,11 @@ esac
 stub mkinitcpio ''
 # snapper -c root create -d "...": just logged.
 stub snapper ''
+# chown -R <parent> <dest>: just logged -- a real chown to another
+# account fails outright unprivileged (this test never runs as root, per
+# AGENTS.md rule 8), same reasoning docs/assert.md already gives for the
+# Chromium policy lock's own best-effort chown.
+stub chown ''
 # tar: a spy, not a stub -- argv is logged like every other fake here, but
 # the archive itself is real (delegates to the real /usr/bin/tar), so this
 # file can inspect luks-slots' content as it stood the moment it was
@@ -212,6 +220,8 @@ posture_write_polkit_admin_rule mark
 posture_write_polkit_deny_rule
 posture_write_sddm_theme_dropin
 posture_write_accountsservice kid-ada fox
+posture_write_face_icon "$SHARE/avatars/fox.svg" kid-ada
+posture_write_portal_conf mark "$(printf 'kid-ada\tAda Lovelace\tfox')"
 
 # Verbatim real /etc/pam.d/sddm and /etc/pam.d/omarchy-lock-password (see
 # test/shell.d/assert-test.sh for the full provenance note).
@@ -247,16 +257,27 @@ echo "a drawing" > "$HOMEROOT/home/kid-ada/drawing.txt"
 touch "$LOG/mounted-kid-ada"
 touch "$LOG/account-kid-ada"
 
+# the parent's own home -- no real `getent` in a plain bash script (even
+# on this macOS dev box: confirmed it's a zsh-only shell function, not on
+# PATH for a script run with `bash`), so parent_home_dir() falls back to
+# this same $HOMEROOT prefix every other path in this file already uses.
+mkdir -p "$HOMEROOT/home/mark"
+
 # getty@tty2..6 masked
 mkdir -p "$SCRATCH_ROOT/etc/systemd/system"
 for n in 2 3 4 5 6; do ln -sf /dev/null "$SCRATCH_ROOT/etc/systemd/system/getty@tty$n.service"; done
 
-# package units enabled
-mkdir -p "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants" "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants"
+# package units enabled (issue #23's screen-time timer included, even
+# though omarchy-kids-assert doesn't check it as of this checkout --
+# omarchy-kids-remove tears down every unit the package ships regardless)
+mkdir -p "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants" \
+    "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants" \
+    "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants"
 for u in omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service; do
     ln -sf "/usr/lib/systemd/system/$u" "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/$u"
 done
 ln -sf /usr/lib/systemd/system/omarchy-kids-authd.socket "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants/omarchy-kids-authd.socket"
+ln -sf /usr/lib/systemd/system/omarchy-kids-time.timer "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants/omarchy-kids-time.timer"
 
 # chromium policy: one band's file
 mkdir -p "$SCRATCH_ROOT/etc/chromium/policies/managed"
@@ -289,18 +310,26 @@ out="$("$BIN" --dry-run 2>&1)"; st=$?
 check_eq "$st" 0 "--dry-run exits 0"
 check_contains "$out" "Plan:" "--dry-run prints a plan"
 for desc in "mount:kid-ada" "fstab:kid-ada" "luks:kid-ada" "namespace:kid-ada" \
-    "accountsservice:kid-ada" "account:kid-ada" "profile:kid-ada" "home:kid-ada" \
+    "accountsservice:kid-ada" "face:kid-ada" "account:kid-ada" "profile:kid-ada" "home:kid-ada" \
     "polkit-admin" "polkit-deny" "getty:tty2" "sddm-theme" \
     "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
     "chromium-policy:6-8" "limine-snapshots" "mkinitcpio-hook" "sddm-autologin" \
     "units" "etc-and-varlib"; do
     check_status "$out" "$desc" "would-remove" "--dry-run: $desc would be removed"
 done
+# portal-conf's own check is content-based (does theme.conf.user match
+# what it should hold for whatever's *actually* still under $KIDS_DIR),
+# not presence-based like every lock above -- a --dry-run pass never
+# removes kid-ada's profile first, so at the moment this check runs the
+# file is still correctly in sync with a kid-ada that (in this preview
+# pass) hasn't gone anywhere yet. It only shows would-remove/removed once
+# the profile itself is actually gone -- exercised below, in the real run.
+check_status "$out" "portal-conf" "skipped" "--dry-run: portal-conf has nothing to resync yet (kid-ada's profile is still on disk during the plan pass)"
 # Read-only check functions (findmnt, id) do run for real even under
 # --dry-run, same as every check function in bin/omarchy-kids-assert --
 # only the destructive fix side is skipped. Assert those never ran.
 dryrun_argv="$(cat "$ARGV_LOG")"
-for cmd in userdel cryptsetup mkinitcpio snapper tar systemctl umount; do
+for cmd in userdel cryptsetup mkinitcpio snapper tar systemctl umount chown; do
     check_not_contains "$dryrun_argv" "$cmd " "--dry-run: $cmd was never invoked"
 done
 [[ -e "$ETC/kids/kid-ada.conf" ]] && pass "--dry-run left the profile in place" || fail "--dry-run must not remove the profile"
@@ -344,6 +373,10 @@ check_status "$out" "accountsservice:kid-ada" "removed" "accountsservice:kid-ada
 [[ -e "$SCRATCH_ROOT/var/lib/AccountsService/users/kid-ada" ]] && fail "AccountsService file should be removed" \
     || pass "AccountsService file removed"
 
+check_status "$out" "face:kid-ada" "removed" "face:kid-ada removed"
+[[ -e "$SCRATCH_ROOT/usr/share/sddm/faces/kid-ada.face.icon" ]] && fail "face icon should be removed" \
+    || pass "face icon removed"
+
 check_status "$out" "account:kid-ada" "removed" "account:kid-ada removed"
 check_contains "$argv" "userdel kid-ada" "account: userdel called, no -r"
 check_not_contains "$argv" "userdel -r kid-ada" "account: userdel never got -r without --delete-homes"
@@ -351,12 +384,18 @@ check_not_contains "$argv" "userdel -r kid-ada" "account: userdel never got -r w
 check_status "$out" "profile:kid-ada" "removed" "profile:kid-ada removed"
 [[ -e "$ETC/kids/kid-ada.conf" ]] && fail "profile should be removed" || pass "profile removed"
 
+# R-FND-6 / omarchy-kids-provision remove's own convention: kept under
+# the parent's home, not as a /home sibling of the (now-gone) account.
+KIDS_MODE_DIR="$HOMEROOT/home/mark/Kids Mode"
 check_status "$out" "home:kid-ada" "removed" "home:kid-ada removed"
-[[ -d "$HOMEROOT/home/kid-ada.kept" ]] && pass "home kept, renamed to <account>.kept" \
-    || fail "home should have been renamed to kid-ada.kept"
-check_eq "$(cat "$HOMEROOT/home/kid-ada.kept/drawing.txt" 2>/dev/null)" "a drawing" \
+[[ -d "$KIDS_MODE_DIR/Ada Lovelace" ]] && pass "home kept, moved to <parent home>/Kids Mode/<name>" \
+    || fail "home should have been moved to $KIDS_MODE_DIR/Ada Lovelace"
+check_eq "$(cat "$KIDS_MODE_DIR/Ada Lovelace/drawing.txt" 2>/dev/null)" "a drawing" \
     "home: the kid's own file survived the move"
 [[ -d "$HOMEROOT/home/kid-ada" ]] && fail "the old home path should be gone" || pass "old home path gone"
+mode="$(stat -f '%Lp' "$KIDS_MODE_DIR" 2>/dev/null || stat -c '%a' "$KIDS_MODE_DIR" 2>/dev/null)"
+check_eq "$mode" "700" "home: the parent's Kids Mode folder is 0700"
+check_contains "$argv" "chown -R mark $KIDS_MODE_DIR/Ada Lovelace" "home: chowned to the parent"
 
 check_status "$out" "polkit-admin" "removed" "polkit-admin removed"
 [[ -e "$SCRATCH_ROOT/etc/polkit-1/rules.d/40-omarchy-kids.rules" ]] && fail "polkit admin rule should be removed" \
@@ -375,6 +414,12 @@ done
 check_status "$out" "sddm-theme" "removed" "sddm-theme removed"
 [[ -e "$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-theme.conf" ]] && fail "sddm theme drop-in should be removed" \
     || pass "sddm theme drop-in removed"
+
+check_status "$out" "portal-conf" "removed" "portal-conf removed"
+check_not_contains "$(cat "$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user" 2>/dev/null)" "kid-ada" \
+    "portal-conf: theme.conf.user no longer names kid-ada"
+check_contains "$(cat "$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user" 2>/dev/null)" "parent=mark" \
+    "portal-conf: theme.conf.user still names the parent"
 
 check_status "$out" "parent-unlock:sddm" "removed" "parent-unlock:sddm removed"
 check_eq "$(grep -c 'parent-unlock verifier' "$SCRATCH_ROOT/etc/pam.d/sddm")" "0" "pam.d/sddm: parent-unlock marker gone"
@@ -406,12 +451,14 @@ check_status "$out" "units" "removed" "units removed"
 # --now is only passed when there's a live systemd to signal (posture_root
 # empty, i.e. a real run); a scratch OMARCHY_KIDS_ROOT means --root= is
 # used instead, which systemctl refuses to combine with --now.
-check_contains "$argv" "systemctl --root=$SCRATCH_ROOT disable omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-authd.service" \
-    "units: disable called (via --root, since this is a scratch tree) with the full unit list"
+check_contains "$argv" "systemctl --root=$SCRATCH_ROOT disable omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-time.timer omarchy-kids-authd.service omarchy-kids-time-ledger.service" \
+    "units: disable called (via --root, since this is a scratch tree) with the full unit list, including issue #23's timer"
 for u in omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service; do
     [[ -e "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/$u" ]] && fail "$u should be disabled" \
         || pass "$u disabled"
 done
+[[ -e "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants/omarchy-kids-time.timer" ]] && fail "the time timer should be disabled" \
+    || pass "the time timer disabled"
 [[ -e "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants/omarchy-kids-authd.socket" ]] && fail "authd.socket should be disabled" \
     || pass "authd.socket disabled"
 
@@ -480,8 +527,8 @@ argv4="$(cat "$ARGV_LOG")"
 check_eq "$st4" 0 "--delete-homes run exits 0"
 check_contains "$argv4" "userdel -r kid-ben" "--delete-homes: userdel -r called"
 [[ -d "$HOMEROOT/home/kid-ben" ]] && fail "--delete-homes should have removed the home" || pass "--delete-homes: home is gone"
-[[ -d "$HOMEROOT/home/kid-ben.kept" ]] && fail "--delete-homes must not also create a .kept copy" \
-    || pass "--delete-homes: no .kept copy left behind"
+[[ -d "$HOMEROOT/home/mark/Kids Mode/Ben" ]] && fail "--delete-homes must not also copy it into Kids Mode" \
+    || pass "--delete-homes: no Kids Mode copy left behind"
 check_status "$out4" "home:kid-ben" "skipped" "--delete-homes: the home step itself has nothing left to do (userdel -r already did it)"
 
 # --- remove-kids-mode dispatch through bin/omarchy-kids -------------------

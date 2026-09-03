@@ -105,7 +105,7 @@ show_timesup() {
     local kid name avatar_id
     kid="$(id -un)"
     name="$("$CONF_BIN" get "$kid" name 2>/dev/null || echo "$kid")"
-    avatar_id="$("$CONF_BIN" get "$kid" avatar 2>/dev/null || echo "")"
+    avatar_id="$("$CONF_BIN" get "$kid" avatar 2>/dev/null || echo owl)"  # the owl when a kid has none (docs/parent-card.md)
     install -d -m 0700 "$RUN"
     OMARCHY_KIDS_ACCOUNT="$kid" OMARCHY_KIDS_NAME="$name" \
         OMARCHY_KIDS_AVATAR="$SHARE/avatars/$avatar_id.svg" \

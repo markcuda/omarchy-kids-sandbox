@@ -41,6 +41,10 @@
 #                                   below for the R-TIME screen-time engine
 #                                   (default: resolved beside this script,
 #                                   else /usr/bin)
+#   OMARCHY_KIDS_DATA_BIN  path to omarchy-kids-data, run from the
+#                                   kids-data tile below (R-DATA-3, issue
+#                                   #27; default: resolved beside this
+#                                   script, else /usr/bin)
 #   OMARCHY_KIDS_SESSION_START_NO_EXEC=1  write the JSON, print the exec
 #                                   line that would run, and return 0
 #                                   instead of exec'ing it (test hook --
@@ -229,6 +233,42 @@ if [[ "$LEVEL" == "1" && "$BAND" != "3-5" ]]; then
     '{id: "more-apps", label: "More apps", icon: "",
       exec: ("OMARCHY_KIDS_BAND=" + ($band | @sh) + " quickshell -p " + ($qml | @sh))}' \
     >>"$TILES_FILE"
+
+# R-DATA-3 (issue #27): K5, "What my grown-ups can see", run as the kid
+# via `omarchy-kids-data mine`. Gated on BAND (9-12/13+), not LEVEL:
+# those are the bands old enough to read the screen themselves (the
+# starter-pack terminal column already draws that same line -- R-BAND's
+# table gives 9-12/13+ a terminal and 3-5/6-8 none). 3-5/6-8 kids aren't
+# denied this data -- I-6 is about not showing a control that doesn't
+# work, not about withholding the data itself -- a grown-up can run the
+# same command with them; this issue just doesn't add a tile a
+# pre-reader/early-reader couldn't use unsupervised. Because this is
+# gated on BAND, a 9-12/13+ kid moved to Level 1 by a `level` override
+# still gets it in this grid; their normal Level 2/3 desktop has no
+# tile grid at all (see the allowlist.json branch below), so this
+# command is reachable there only by running it directly -- a real gap,
+# not an oversight (docs/data.md's "Not built here").
+if [[ "$BAND" == "9-12" || "$BAND" == "13+" ]]; then
+  DATA_BIN="${OMARCHY_KIDS_DATA_BIN:-$DIR/bin/omarchy-kids-data}"; [[ -x "$DATA_BIN" ]] || DATA_BIN=/usr/bin/omarchy-kids-data
+  # UNVERIFIED: no terminal-emulator convention exists anywhere in this
+  # repo yet (nothing under share/hyprland or docs names one) -- this is
+  # a best-effort guess at common terminals, first one found on PATH
+  # wins. If none is found, the tile is left out entirely (logged, not
+  # shown broken) rather than shown and silently doing nothing when
+  # pressed -- same "don't show a control that isn't enforced" pattern
+  # R-WEB-4's chromium-tile omission above already uses, applied to
+  # "doesn't work" instead of "isn't allowed".
+  DATA_TERM=""
+  for term in kitty alacritty foot wezterm xterm; do
+    if command -v "$term" >/dev/null 2>&1; then DATA_TERM="$term"; break; fi
+  done
+  if [[ -n "$DATA_TERM" ]]; then
+    DATA_EXEC="$DATA_TERM -e sh -c '\"$DATA_BIN\" mine; printf \"\\nPress Enter to close.\\n\"; read _'"
+    jq -n --arg exec "$DATA_EXEC" \
+      '{id: "kids-data", label: "What grown-ups see", icon: "", exec: $exec}' >>"$TILES_FILE"
+  else
+    log "kids-data tile omitted for '$ACCOUNT': no terminal emulator found on PATH (I-6; see docs/data.md)"
+  fi
 fi
 
 jq -s '{account: $account, band: $band, level: $level, tiles: .}' \

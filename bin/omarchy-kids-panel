@@ -13,7 +13,9 @@
 #                 Remove Kids Mode, Quit.
 #   P2 Kid        Screen time (budget/lights-out, "give more minutes"),
 #                 Web (mode, and the allow-list editor for a walled
-#                 garden), Apps (hide/show the band's pack), Desktop
+#                 garden), Apps (hide/show the band's pack), Data
+#                 (R-DATA-1..5: today's and this week's minutes,
+#                 launches, and sites — read-only, issue #27), Desktop
 #                 level, Password, Remove this kid, Back.
 #   P3 Requests   Every open "Ask a parent" request, oldest first; Enter
 #                 opens the reason and Approve/Decline.
@@ -66,6 +68,7 @@
 #   OMARCHY_KIDS_WEB_BIN        path to omarchy-kids-web (default: sibling, else PATH)
 #   OMARCHY_KIDS_PROVISION_BIN  path to omarchy-kids-provision (default: sibling, else PATH)
 #   OMARCHY_KIDS_WIZARD_BIN     path to omarchy-kids-wizard (default: sibling, else PATH)
+#   OMARCHY_KIDS_DATA_BIN       path to omarchy-kids-data (default: sibling, else PATH)
 #   OMARCHY_KIDS_TUI_ANSWERS    one answer per line; see lib/tui.sh / docs/tui.md
 #   DRY_RUN                     default 1; 0 (or --apply) makes writes real
 #
@@ -92,6 +95,7 @@ PLUGINS_BIN="${OMARCHY_KIDS_PLUGINS_BIN:-$DIR/bin/omarchy-kids-plugins}"; [[ -x 
 WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=omarchy-kids-web
 PROVISION_BIN="${OMARCHY_KIDS_PROVISION_BIN:-$DIR/bin/omarchy-kids-provision}"; [[ -x "$PROVISION_BIN" ]] || PROVISION_BIN=omarchy-kids-provision
 WIZARD_BIN="${OMARCHY_KIDS_WIZARD_BIN:-$DIR/bin/omarchy-kids-wizard}"; [[ -x "$WIZARD_BIN" ]] || WIZARD_BIN=omarchy-kids-wizard
+DATA_BIN="${OMARCHY_KIDS_DATA_BIN:-$DIR/bin/omarchy-kids-data}"; [[ -x "$DATA_BIN" ]] || DATA_BIN=omarchy-kids-data
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
@@ -163,6 +167,25 @@ run_priv() {
     else
         sudo "$@"
     fi
+}
+
+# read_priv CMD... — the one place a *read* that needs root (issue #27's
+# Data screen: a kid's own Chromium profile isn't reachable by the
+# parent account, only by root or the kid themselves — bin/omarchy-kids-
+# data's own require_root_or_self) actually runs, under sudo. Deliberately
+# separate from run_priv/DRY_RUN above: a read changes nothing, so there
+# is nothing useful for --dry-run to preview here — it always runs for
+# real, the same one-password-per-run promise as every write, just
+# tracked by its own SUDO_READ_WARMED flag so a run that never writes
+# anything still only asks once.
+SUDO_READ_WARMED=0
+read_priv() {
+    if ((! SUDO_READ_WARMED)); then
+        SUDO_READ_WARMED=1
+        echo "Kids Mode needs your password once, to read this."
+        sudo -v || return 1
+    fi
+    sudo "$@"
 }
 
 # write_root_file FILE — reads the new content from stdin and writes it
@@ -585,6 +608,41 @@ screen_kid_plugins() { # ACCOUNT NAME
     done
 }
 
+# screen_kid_data ACCOUNT NAME — SPEC.md R-DATA-1..5's transparency
+# screen for a parent: today's and this week's minutes/launches/sites,
+# read-only (issue #27). Minutes and launches are unprivileged reads,
+# same as everywhere else in this panel; sites needs root (a kid's
+# Chromium profile lives in a home the parent account can't otherwise
+# reach — bin/omarchy-kids-data's own require_root_or_self) unless
+# history_visible=no, in which case omarchy-kids-data already says so
+# in plain words without needing root at all (R-DATA-4), so this
+# doesn't ask for a password it wouldn't use.
+screen_kid_data() { # ACCOUNT NAME
+    local account="$1" name="$2" hv
+    hv="$(kid_conf_get "$account" history_visible)"
+    echo
+    echo "$name's data — today"
+    if [[ "$hv" == yes ]]; then
+        read_priv "$DATA_BIN" summary "$account"
+    else
+        "$DATA_BIN" summary "$account"
+    fi
+    echo
+    echo "$name's data — this week"
+    if [[ "$hv" == yes ]]; then
+        read_priv "$DATA_BIN" summary "$account" --week
+    else
+        "$DATA_BIN" summary "$account" --week
+    fi
+
+    # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+    local choices=("back|Back|")
+    tui_screen_choose "$name's data" 1 1 0 "" choices "back"
+    local rc=$?
+    ((rc == 130)) && return 130
+    return 0
+}
+
 screen_kid_level() { # ACCOUNT NAME
     local account="$1" name="$2" current
     current="$(kid_conf_get "$account" level)"
@@ -680,6 +738,7 @@ screen_kid() { # ACCOUNT
             "time|Screen time|"
             "web|Web|"
             "apps|Apps|"
+            "data|Data|"
             "level|Desktop level|"
             "password|Password|"
             "remove|Remove this kid|"
@@ -704,6 +763,10 @@ screen_kid() { # ACCOUNT
                 ;;
             apps)
                 screen_kid_apps "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            data)
+                screen_kid_data "$account" "$name"
                 rc=$?; ((rc == 130)) && return 130
                 ;;
             level)

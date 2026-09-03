@@ -1,0 +1,29 @@
+// omarchy-kids-trimmed.jsonc — root-owned omarchy-menu extension for
+// Levels 1 and 2 (SPEC.md R-DESK-4, Q23).
+//
+// UNVERIFIED SCHEMA. omarchy-menu's extension/plugin format was not
+// available in the reference material this repo was written against
+// (only two of Omarchy's default.hypr.bindings.* files were available,
+// no omarchy-menu source or docs), so the shape below -- a "hide" list
+// of entry ids -- is a guess at the simplest schema that could satisfy
+// R-DESK-4's wording ("through a root-owned menu extension"), not a
+// confirmed one. Confirm the real extension format on a running Omarchy
+// 4.0.2 box before wiring this in anywhere, and correct the entry ids
+// (install/update/setup below are also guesses at what omarchy-menu
+// calls those rows).
+//
+// This is also, deliberately, not the only thing enforcing R-DESK-4:
+// Level 1 has no bar/shell at all (share/hyprland/L1.lua's exec-once
+// starts only the big-tile launcher, never omarchy-launch-shell), so
+// there is nothing to trim there. Level 2 does run Omarchy's own shell
+// (bin/omarchy-kids-session-start starts it the way autostart does),
+// but share/hyprland/L2.lua never binds Super+Space (or any other key)
+// to "omarchy-menu toggle" -- Super+Space is rebound to the Level 1/2
+// launcher instead (Appendix E). So even if this file's hiding
+// mechanism turns out not to be supported at all, no Level 1 or 2
+// keybinding reaches the untrimmed menu. What this file's hiding (if
+// supported) would additionally cover is mouse/bar access to the menu,
+// which is why it's still worth getting right rather than dropping.
+{
+  "hide": ["install", "update", "setup"]
+}

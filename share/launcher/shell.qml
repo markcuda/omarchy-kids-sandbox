@@ -1,0 +1,241 @@
+// shell.qml — the Level 1/2 big-tile launcher (SPEC.md R-DESK-3,
+// R-DESK-5, Appendix E; I-5 keyboard-complete, I-6 honest UI).
+//
+// ============================== UNTESTED ================================
+// This file has never run against a real Quickshell or Hyprland session --
+// there is no Quickshell install, headless or otherwise, on the machine
+// this was written on, and no Quickshell documentation or source was
+// available to check API names against. Every Quickshell-specific type
+// and property below (as opposed to plain QtQuick ones) is a best-effort
+// guess from general knowledge of the project and MUST be checked against
+// the real thing in the VM before this ships. In particular:
+//
+//   - `Window` vs `PanelWindow`/`WlrLayershell`. The issue that asked for
+//     this file suggested a layer-shell panel. This file uses a plain
+//     QtQuick `Window` instead, fullscreened like every other Level 1/2
+//     app via share/hyprland/L1.lua's `o.window(".*", { fullscreen = true })`
+//     windowrule, and reachable by title with plain `hyprctl dispatch
+//     focuswindow` (see bin/omarchy-kids-launcher-ctl). That sidesteps
+//     needing Quickshell's IPC system (whose CLI syntax could not be
+//     confirmed at all) just to show/raise the launcher, at the cost of
+//     not being a "real" always-on-top overlay. If Quickshell requires
+//     PanelWindow for anything it loads, or if a real always-on-top
+//     overlay is wanted after all, this is the piece to redo.
+//   - `Quickshell.Io.FileView` — whether `reload()`/`text()` exist with
+//     those names and signatures, and how a missing file is reported
+//     (this assumes `text()` throws or returns empty rather than crashing
+//     the shell).
+//   - `Quickshell.Io.Process` — whether `command`/`running` are real
+//     properties and start-on-`running=true` is the right lifecycle.
+//
+// What this does NOT depend on the kid's home for (I-3): the tile list
+// comes from /run/omarchy-kids/launcher-<uid>.json (root-written, tmpfs),
+// and the control file is under /run too. Nothing here reads ~/.config.
+// ==========================================================================
+
+import QtQuick
+import Quickshell
+import Quickshell.Io
+
+Window {
+    id: root
+
+    // A stable, plain-QtQuick-`Window.title` is what
+    // bin/omarchy-kids-launcher-ctl matches on with `hyprctl dispatch
+    // focuswindow title:^(...)$` — keep this string in sync with that
+    // script if it ever changes.
+    title: "Omarchy Kids Launcher"
+    visible: true
+    visibility: Window.FullScreen
+    color: "#14161f"
+
+    // --- Tile data -----------------------------------------------------
+    // Written by bin/omarchy-kids-session-start from the kid's resolved
+    // allowlist. Read once at startup and again whenever the file
+    // changes underneath (a level change, a re-run of session-start).
+    property var tiles: []
+    property int columns: 4
+    property int currentIndex: 0
+
+    FileView {
+        id: tilesFile
+        path: (Quickshell.env("OMARCHY_KIDS_LAUNCHER_JSON") || "/run/omarchy-kids/launcher.json")
+        watchChanges: true
+        onLoaded: root.reloadTiles()
+        onTextChanged: root.reloadTiles()
+    }
+
+    function reloadTiles() {
+        var parsed = []
+        try {
+            var data = JSON.parse(tilesFile.text())
+            if (data && data.tiles) parsed = data.tiles
+        } catch (e) {
+            parsed = []
+        }
+        root.tiles = parsed
+        if (root.currentIndex >= root.tiles.length) {
+            root.currentIndex = Math.max(0, root.tiles.length - 1)
+        }
+    }
+
+    Component.onCompleted: root.reloadTiles()
+
+    // --- Reaching this window from Hyprland binds -----------------------
+    // Super+Home and Super+Space (share/hyprland/L1.lua, L2.lua) focus
+    // this window directly via `hyprctl dispatch focuswindow`, which
+    // needs no cooperation from this file. Super+Enter ("open selected")
+    // is different: it has to reach *this app's* idea of which tile is
+    // highlighted, which a window-focus dispatch alone can't do. Rather
+    // than guess Quickshell's IPC call syntax, bin/omarchy-kids-launcher-ctl
+    // writes a one-line command into a control file this polls. Polling
+    // (not a file-watch signal) is deliberate: it's the one mechanism
+    // here with no Quickshell-specific behavior to get wrong.
+    property string lastControlText: ""
+
+    FileView {
+        id: controlFile
+        path: (Quickshell.env("OMARCHY_KIDS_LAUNCHER_CONTROL") || "/run/omarchy-kids/launcher-control")
+    }
+
+    Timer {
+        interval: 150
+        running: true
+        repeat: true
+        onTriggered: {
+            controlFile.reload()
+            var text = (controlFile.text() || "").trim()
+            if (text.length > 0 && text !== root.lastControlText) {
+                root.lastControlText = text
+                // First word is the command; omarchy-kids-launcher-ctl
+                // appends a nonce so the same command can fire twice in
+                // a row without this file having to truncate the
+                // control file back to empty itself.
+                var command = text.split(/\s+/)[0]
+                if (command === "activate") root.launchCurrent()
+            }
+        }
+    }
+
+    // --- Launching a tile -------------------------------------------------
+    Process {
+        id: launcherProcess
+        onExited: running = false
+    }
+
+    function launchCurrent() {
+        if (root.currentIndex < 0 || root.currentIndex >= root.tiles.length) return
+        var tile = root.tiles[root.currentIndex]
+        if (!tile || !tile.exec) return
+        launcherProcess.command = ["sh", "-c", tile.exec]
+        launcherProcess.running = true
+    }
+
+    // --- Keyboard navigation (I-5: keyboard-complete) --------------------
+    // Plain arrows/Return/Escape, handled entirely inside this app while
+    // it has focus -- no Hyprland bind needed for these (Appendix E does
+    // not list plain arrow keys for Level 1; Super+arrows at Level 2 is a
+    // separate, window-focus feature in share/hyprland/L2.lua).
+    FocusScope {
+        id: keyScope
+        anchors.fill: parent
+        focus: true
+
+        Keys.onLeftPressed: (event) => {
+            if (root.currentIndex % root.columns > 0) root.currentIndex -= 1
+            event.accepted = true
+        }
+        Keys.onRightPressed: (event) => {
+            if (root.currentIndex % root.columns < root.columns - 1 && root.currentIndex + 1 < root.tiles.length)
+                root.currentIndex += 1
+            event.accepted = true
+        }
+        Keys.onUpPressed: (event) => {
+            if (root.currentIndex - root.columns >= 0) root.currentIndex -= root.columns
+            event.accepted = true
+        }
+        Keys.onDownPressed: (event) => {
+            if (root.currentIndex + root.columns < root.tiles.length) root.currentIndex += root.columns
+            event.accepted = true
+        }
+        Keys.onReturnPressed: (event) => { root.launchCurrent(); event.accepted = true }
+        Keys.onEnterPressed: (event) => { root.launchCurrent(); event.accepted = true }
+        // "Escape does nothing": explicitly swallowed so it can never
+        // close or hide the launcher -- there is no other screen behind
+        // it to fall back to (I-6: don't offer an exit this isn't).
+        Keys.onEscapePressed: (event) => { event.accepted = true }
+
+        GridView {
+            id: grid
+            anchors.fill: parent
+            anchors.margins: 48
+            cellWidth: 160
+            cellHeight: 160
+            model: root.tiles
+            currentIndex: root.currentIndex
+            interactive: false
+
+            delegate: Rectangle {
+                width: 140
+                height: 140
+                radius: 16
+                // >= 96px target per the issue's tap-target floor, well
+                // clear of it at 140px so this also works as a touch
+                // target if the machine has a touchscreen.
+                color: GridView.isCurrentItem ? "#3a4266" : "#232838"
+                border.width: GridView.isCurrentItem ? 4 : 0
+                border.color: "#8fb8ff"
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 8
+
+                    Image {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        // UNVERIFIED: modelData.icon is usually a
+                        // freedesktop icon *name* (from a .desktop
+                        // file's Icon= key), not a path. This tries it
+                        // as a literal source first; a themed-icon
+                        // provider (e.g. "image://icon/<name>", if
+                        // Quickshell exposes one) would be more correct
+                        // but wasn't confirmed. onStatusChanged below
+                        // hides a broken image rather than showing a
+                        // missing-image glyph.
+                        source: modelData.icon && modelData.icon.length > 0 ? modelData.icon : ""
+                        width: 64
+                        height: 64
+                        fillMode: Image.PreserveAspectFit
+                        visible: status === Image.Ready
+                    }
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: modelData.label || modelData.id || ""
+                        color: "white"
+                        font.pixelSize: 18
+                        wrapMode: Text.WordWrap
+                        width: 120
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Clock -------------------------------------------------------------
+    Text {
+        anchors.top: parent.top
+        anchors.right: parent.right
+        anchors.margins: 24
+        color: "white"
+        font.pixelSize: 28
+        text: Qt.formatTime(new Date(), "hh:mm")
+
+        Timer {
+            interval: 15000
+            running: true
+            repeat: true
+            onTriggered: parent.text = Qt.formatTime(new Date(), "hh:mm")
+        }
+    }
+}

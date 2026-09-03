@@ -15,6 +15,7 @@ Usage:
     conf.py band-get BANDS_TOML BAND KEY
     conf.py pack-ids PACK_TOML
     conf.py pack-sites PACK_TOML
+    conf.py pack-app PACK_TOML ID
 
 Exit 0 on success. Exit 2 with a one-line reason on stderr for a bad
 band, key, or missing file — never a Python traceback.
@@ -130,6 +131,26 @@ def cmd_pack_sites(argv):
     print(",".join(sites))
 
 
+def cmd_pack_app(argv):
+    # Used by bin/omarchy-kids-session-start to resolve one allowlisted
+    # launcher id to its pack metadata (label, pkg, and the optional
+    # `web` URL for a web app -- see AGENTS.md's packs/<band>.toml row)
+    # without hand-parsing TOML in bash. Tab-separated so a bash caller
+    # can `IFS=$'\t' read -r label pkg web`.
+    if len(argv) != 2:
+        die("pack-app: needs PACK_TOML ID")
+    data = load_toml(argv[0])
+    want = argv[1]
+    for app in data.get("app", []):
+        if app.get("id") == want:
+            label = app.get("label", "")
+            pkg = app.get("pkg", "")
+            web = app.get("web", "")
+            print(f"{label}\t{pkg}\t{web}")
+            return
+    die(f"no such app id in pack: {want}")
+
+
 COMMANDS = {
     "slug": cmd_slug,
     "band-list": cmd_band_list,
@@ -137,6 +158,7 @@ COMMANDS = {
     "band-get": cmd_band_get,
     "pack-ids": cmd_pack_ids,
     "pack-sites": cmd_pack_sites,
+    "pack-app": cmd_pack_app,
 }
 
 

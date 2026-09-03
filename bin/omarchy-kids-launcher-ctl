@@ -1,0 +1,64 @@
+#!/bin/bash
+# omarchy-kids-launcher-ctl: the one place the Level 1/2 Hyprland binds
+# (share/hyprland/L1.lua, L2.lua) go to reach the big-tile launcher
+# (share/launcher/shell.qml), so the Lua files don't have to guess
+# Quickshell's IPC details themselves (SPEC.md R-DESK-3, R-DESK-5,
+# Appendix E).
+#
+# UNVERIFIED, and the main thing to confirm in the VM before this ships:
+#
+#   `show` focuses the launcher window by its Qt/QML `title` ("Omarchy
+#   Kids Launcher") using plain `hyprctl dispatch focuswindow`, a stable
+#   core Hyprland dispatcher unrelated to Quickshell. This assumes the
+#   launcher is a normal top-level window (so it takes the same
+#   fullscreen windowrule as every other Level 1/2 app) rather than a
+#   wlr-layer-shell overlay; see shell.qml's header for why.
+#
+#   `activate` writes "activate" into a control file that shell.qml
+#   polls (see its header) instead of calling into Quickshell's IPC
+#   system directly -- deliberately, since this repo has no confirmed
+#   reference for Quickshell's IPC CLI syntax. If a real `quickshell ...
+#   ipc call ...` turns out to work, this is the one file to change.
+set -euo pipefail
+
+CONTROL="${OMARCHY_KIDS_LAUNCHER_CONTROL:-/run/omarchy-kids/launcher-control}"
+TITLE="Omarchy Kids Launcher"
+
+usage() {
+  cat <<EOF
+Usage: omarchy-kids-launcher-ctl <show|activate>
+
+  show      Focus the Level 1/2 launcher window (Super+Home, Super+Space).
+  activate  Tell the launcher to open its currently highlighted tile
+            (Super+Enter).
+
+Env:
+  OMARCHY_KIDS_LAUNCHER_CONTROL  control file path (default /run/omarchy-kids/launcher-control)
+
+  -h, --help  Show this help and exit.
+EOF
+}
+
+cmd_show() {
+  if command -v hyprctl >/dev/null 2>&1; then
+    hyprctl dispatch focuswindow "title:^(${TITLE})\$" >/dev/null 2>&1 || true
+  fi
+}
+
+cmd_activate() {
+  mkdir -p "$(dirname "$CONTROL")"
+  # shell.qml polls this file and compares its full text to the last
+  # value it saw (see its header), so the same word twice in a row
+  # needs to look different each time -- hence the nonce.
+  printf 'activate %s\n' "$(date +%s%N 2>/dev/null || date +%s)" >"$CONTROL"
+}
+
+case "${1:-}" in
+  show) cmd_show ;;
+  activate) cmd_activate ;;
+  -h|--help|"") usage; [[ "${1:-}" == "" ]] && exit 2; exit 0 ;;
+  *)
+    echo "omarchy-kids-launcher-ctl: unknown command: '$1' (see --help)" >&2
+    exit 2
+    ;;
+esac

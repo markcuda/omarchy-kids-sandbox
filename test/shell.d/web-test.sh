@@ -1,0 +1,217 @@
+#!/bin/bash
+# Tests bin/omarchy-kids-web (SPEC.md R-WEB-1..4) and the fail-closed web
+# tile bin/omarchy-kids-session-start builds from it.
+#
+# Self-contained: OMARCHY_KIDS_SHARE points at a scratch copy of this
+# repo's real share/bands/ and share/policy/ (same convention
+# test/shell.d/conf-test.sh already uses -- real data, scratch paths),
+# and OMARCHY_KIDS_ROOT points "install" at a scratch tree, never the
+# real /etc (AGENTS.md rule 8).
+# shellcheck disable=SC2015 # "A && B || C" below is always used with B, C that can't fail
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+BIN="$DIR/bin/omarchy-kids-web"
+SESSION_START="$DIR/bin/omarchy-kids-session-start"
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "SKIP web-test.sh: jq not found"
+  exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "SKIP web-test.sh: python3 not found (needed by omarchy-kids-conf)"
+  exit 0
+fi
+
+TMP="$(mktemp -d)"
+# shellcheck disable=SC2329 # invoked via `trap ... EXIT`, not called directly
+cleanup() { rm -rf "$TMP"; }
+trap cleanup EXIT
+
+SHARE="$TMP/share"
+mkdir -p "$SHARE/bands" "$SHARE/packs" "$SHARE/policy/lists"
+cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
+cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
+cp "$DIR"/share/policy/*.json "$SHARE/policy/"
+cp "$DIR"/share/policy/lists/*.txt "$SHARE/policy/lists/"
+
+export OMARCHY_KIDS_SHARE="$SHARE"
+
+fail=0
+check() { # got want label
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+}
+check_contains() { # haystack needle label
+  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (want to find '$2' in '$1')"; fail=1; fi
+}
+check_status() { # got_status want_status label
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want exit $2, got $1)"; fail=1; fi
+}
+
+# =====================================================================
+# render: baseline keys, every band (R-WEB-2)
+# =====================================================================
+
+for band in 3-5 6-8 9-12 13+; do
+  out="$("$BIN" render "$band")"; st=$?
+  check_status "$st" 0 "render $band: exits 0"
+  check "$(jq -r '.DnsOverHttpsMode' <<<"$out")" "secure" "render $band: DnsOverHttpsMode=secure"
+  check "$(jq -r '.DnsOverHttpsTemplates' <<<"$out")" "https://family.cloudflare-dns.com/dns-query" \
+    "render $band: DoH template is Cloudflare Family"
+  check "$(jq -r '.ForceGoogleSafeSearch' <<<"$out")" "true" "render $band: ForceGoogleSafeSearch"
+  check "$(jq -r '.ForceYouTubeRestrict' <<<"$out")" "2" "render $band: ForceYouTubeRestrict=2"
+  check "$(jq -r '.IncognitoModeAvailability' <<<"$out")" "1" "render $band: IncognitoModeAvailability=1"
+  check "$(jq -r '.DeveloperToolsAvailability' <<<"$out")" "2" "render $band: DeveloperToolsAvailability=2"
+  check "$(jq -c '.ExtensionInstallBlocklist' <<<"$out")" '["*"]' "render $band: ExtensionInstallBlocklist=[\"*\"]"
+  check "$(jq -r '.BrowserSignin' <<<"$out")" "0" "render $band: BrowserSignin=0"
+  check "$(jq -r '.DownloadRestrictions' <<<"$out")" "1" "render $band: DownloadRestrictions=1"
+  check "$(jq -r '.SavingBrowserHistoryDisabled' <<<"$out")" "false" "render $band: SavingBrowserHistoryDisabled=false"
+  check "$(jq -r '.AllowDeletingBrowserHistory' <<<"$out")" "false" "render $band: AllowDeletingBrowserHistory=false"
+done
+
+# =====================================================================
+# render: per-mode shape (R-WEB-3)
+# =====================================================================
+
+# --- 3-5 (none): blocked, no allowlist key, password manager off -------
+out="$("$BIN" render 3-5)"
+check "$(jq -c '.URLBlocklist' <<<"$out")" '["*"]' "render 3-5: URLBlocklist=[\"*\"]"
+check "$(jq -r 'has("URLAllowlist")' <<<"$out")" "false" "render 3-5: no URLAllowlist key at all"
+check "$(jq -r '.PasswordManagerEnabled' <<<"$out")" "false" "render 3-5: PasswordManagerEnabled=false"
+
+out="$("$BIN" render 3-5 --allow /dev/null 2>&1)"; st=$?
+check_status "$st" 2 "render 3-5 --allow: refuses (exit 2)"
+check_contains "$out" "takes no allowlist" "render 3-5 --allow: names the reason"
+
+# --- 6-8, 9-12 (garden): blocked plus a merged allowlist ---------------
+for band in 6-8 9-12; do
+  out="$("$BIN" render "$band")"
+  check "$(jq -c '.URLBlocklist' <<<"$out")" '["*"]' "render $band: URLBlocklist=[\"*\"]"
+  check_contains "$(jq -c '.URLAllowlist' <<<"$out")" "pbskids.org" "render $band: allowlist includes pbskids.org from the starter list"
+  n="$(jq -r '.URLAllowlist | length' <<<"$out")"
+  [[ "$n" -gt 0 ]] && echo "ok   render $band: allowlist is non-empty ($n hosts)" \
+    || { echo "FAIL render $band: allowlist is empty"; fail=1; }
+done
+check "$(jq -r '.PasswordManagerEnabled' <<<"$("$BIN" render 6-8)")" "false" "render 6-8: PasswordManagerEnabled=false (young band)"
+check "$(jq -r 'has("PasswordManagerEnabled")' <<<"$("$BIN" render 9-12)")" "false" "render 9-12: PasswordManagerEnabled left unset"
+
+# --allow merges an extra host and dedupes one already on the starter list
+ALLOW_FILE="$TMP/kid-sites.txt"
+cat >"$ALLOW_FILE" <<'EOF'
+# a kid's own approved sites
+example-approved.org
+pbskids.org
+EOF
+out="$("$BIN" render 6-8 --allow "$ALLOW_FILE")"
+check_contains "$(jq -c '.URLAllowlist' <<<"$out")" "example-approved.org" "render 6-8 --allow: merges the extra host"
+count="$(jq -r '[.URLAllowlist[] | select(. == "pbskids.org")] | length' <<<"$out")"
+check "$count" "1" "render 6-8 --allow: pbskids.org is not duplicated"
+
+# --- 13+ (filtered): neither key, --allow refused ----------------------
+out="$("$BIN" render 13+)"
+check "$(jq -r 'has("URLBlocklist")' <<<"$out")" "false" "render 13+: no URLBlocklist key (R-WEB-3: filtered adds neither)"
+check "$(jq -r 'has("URLAllowlist")' <<<"$out")" "false" "render 13+: no URLAllowlist key"
+
+out="$("$BIN" render 13+ --allow /dev/null 2>&1)"; st=$?
+check_status "$st" 2 "render 13+ --allow: refuses (exit 2)"
+check_contains "$out" "R-WEB-3" "render 13+ --allow: cites R-WEB-3"
+
+# =====================================================================
+# render: --out, unknown band
+# =====================================================================
+
+OUT_FILE="$TMP/out.json"
+"$BIN" render 6-8 --out "$OUT_FILE" >/dev/null
+if [[ -f "$OUT_FILE" ]] && jq -e '.' "$OUT_FILE" >/dev/null 2>&1; then
+  echo "ok   render --out: wrote valid JSON to the named file"
+else
+  echo "FAIL render --out: no valid JSON at $OUT_FILE"; fail=1
+fi
+
+out="$("$BIN" render nope 2>&1)"; st=$?
+check_status "$st" 2 "render with an unknown band: exits 2"
+check_contains "$out" "unknown band" "render with an unknown band: names the reason"
+
+# =====================================================================
+# install: dry-run by default, --apply writes at 0640 root:group
+# =====================================================================
+
+SYSROOT="$TMP/sysroot"
+mkdir -p "$SYSROOT"
+export OMARCHY_KIDS_ROOT="$SYSROOT"
+
+POLICY_FILE="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-6-8.json"
+
+out="$(DRY_RUN=1 "$BIN" install 6-8 2>&1)"; st=$?
+check_status "$st" 0 "install (dry-run): exits 0"
+check_contains "$out" "[dry-run]" "install (dry-run): prints a dry-run line"
+[[ -e "$POLICY_FILE" ]] && { echo "FAIL install (dry-run): must not write $POLICY_FILE"; fail=1; } \
+  || echo "ok   install (dry-run): wrote nothing"
+
+out="$("$BIN" install 6-8 --apply 2>&1)"; st=$?
+check_status "$st" 0 "install --apply: exits 0"
+if [[ -f "$POLICY_FILE" ]]; then
+  echo "ok   install --apply: wrote $POLICY_FILE"
+  mode="$(stat -f '%Lp' "$POLICY_FILE" 2>/dev/null || stat -c '%a' "$POLICY_FILE" 2>/dev/null)"
+  check "$mode" "640" "install --apply: mode is 0640 (R-WEB-1)"
+  check "$(jq -r '.DnsOverHttpsMode' "$POLICY_FILE")" "secure" "install --apply: content is the rendered policy"
+else
+  echo "FAIL install --apply: did not write $POLICY_FILE"; fail=1
+fi
+
+# 13+ installs cleanly too (no allowlist to merge).
+out="$("$BIN" install 13+ --apply 2>&1)"; st=$?
+check_status "$st" 0 "install 13+ --apply: exits 0"
+[[ -f "$SYSROOT/etc/chromium/policies/managed/omarchy-kids-13+.json" ]] \
+  && echo "ok   install 13+ --apply: wrote omarchy-kids-13+.json" \
+  || { echo "FAIL install 13+ --apply: file missing"; fail=1; }
+
+unset OMARCHY_KIDS_ROOT
+
+# =====================================================================
+# --help
+# =====================================================================
+
+out="$("$BIN" --help 2>&1)"; st=$?
+check_status "$st" 0 "--help exits 0"
+check_contains "$out" "Usage: omarchy-kids-web" "--help prints usage"
+
+# =====================================================================
+# Fail-closed: omarchy-kids-session-start omits the web tile (and logs
+# why) when the band's policy file is missing (R-WEB-4).
+# =====================================================================
+
+ETC="$TMP/etc-session"
+RUN="$TMP/run-session"
+mkdir -p "$ETC/kids"
+cat >"$ETC/kids/kid-ada.conf" <<'EOF'
+name=Ada
+avatar=fox
+band=6-8
+EOF
+
+out="$(
+  OMARCHY_KIDS_ETC="$ETC" \
+  OMARCHY_KIDS_SHARE="$SHARE" \
+  OMARCHY_KIDS_RUN="$RUN" \
+  OMARCHY_KIDS_ACCOUNT="kid-ada" \
+  OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
+  bash "$SESSION_START" 2>&1
+)"; st=$?
+check_status "$st" 0 "session-start with no policy file: still exits 0 (own preflight is bin/omarchy-kids-session's job)"
+
+json_path="$RUN/launcher-$(id -u).json"
+if [[ -f "$json_path" ]]; then
+  check "$(jq -r '.tiles | map(select(.id == "chromium")) | length' "$json_path")" "0" \
+    "session-start: no chromium tile when the policy file is missing"
+else
+  echo "FAIL session-start: no launcher JSON written at $json_path"; fail=1
+fi
+
+log_content="$(cat "$RUN/session-$(id -u).log" 2>/dev/null || true)"
+check_contains "$log_content" "web tile omitted" "session-start: logs why the web tile was omitted"
+check_contains "$log_content" "kid-ada" "session-start: log names the account"
+check_contains "$log_content" "R-WEB-4" "session-start: log cites R-WEB-4"
+
+echo "web-test RESULT: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"
+exit $fail

@@ -1,0 +1,22 @@
+# Starter list for band 13+ ("filtered open web", SPEC.md R-BAND, R-WEB-3).
+#
+# NOT wired into the live policy today. SPEC.md R-WEB-3 is explicit:
+# "Filtered open web adds neither" URLBlocklist nor URLAllowlist -- this
+# band's filtering is the R-WEB-2 baseline (SafeSearch, YouTube
+# Restricted Mode, and the family DNS-over-HTTPS resolver) plus
+# whatever the resolver's own categories cover, not a Chromium-side
+# site list. `omarchy-kids-web render 13+` refuses `--allow` for this
+# band on purpose (I-6: don't ship a control that isn't enforced).
+#
+# This file is parked here as reference data for a future Advanced
+# option that lets a parent add specific extra sites on top of the
+# family resolver (not yet built -- see docs/web.md). The entries below
+# are web proxies/anonymizers a teenager finds quickly and that a DNS
+# resolver alone cannot reliably categorize, since they proxy arbitrary
+# sites through their own domain.
+
+proxysite.com    # web proxy: fetches arbitrary sites through its own domain
+kproxy.com       # web proxy: same pattern as proxysite.com
+croxyproxy.com   # web proxy: same pattern
+hidemy.name      # proxy/VPN service, browser-usable without installing anything
+4everproxy.com   # web proxy: same pattern

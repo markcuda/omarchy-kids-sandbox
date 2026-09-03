@@ -46,6 +46,14 @@ RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
 mkdir -p "$RUN" 2>/dev/null || true
 APPLICATIONS_DIRS="${OMARCHY_KIDS_APPLICATIONS_DIRS:-/usr/share/applications:/usr/local/share/applications}"
 
+# log MESSAGE — appends to the same per-session log
+# bin/omarchy-kids-session already writes to ($RUN/session-<uid>.log),
+# so the R-DESK-2 preflight and this launcher's own tile-building show
+# up as one timeline. Never fatal: a log write that fails (a read-only
+# $RUN in some test harness) must not take the launcher down with it.
+LOG_FILE="$RUN/session-$(id -u).log"
+log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/dev/null || true; }
+
 usage() {
   cat <<EOF
 Usage: omarchy-kids-session-start
@@ -173,15 +181,21 @@ for id in "${ids[@]}"; do
 done
 
 # R-WEB-4: "The kid launcher refuses to start Chromium if the kid's
-# policy file is not readable." The policy file itself (R-WEB-2/R-WEB-3)
-# is a different issue's deliverable and doesn't exist in this repo yet,
-# so in practice this omits the web tile entirely today -- which is the
-# correct fail-closed behavior (I-6: don't show a control that isn't
-# enforced), not a bug.
+# policy file is not readable." bin/omarchy-kids-session's own R-DESK-2
+# check_policy already fails the *whole* session closed before this
+# script ever runs, for any band whose web mode isn't "none" (see its
+# check_policy). This is defense in depth for whatever calls this
+# script directly (tests, a future re-render of just the launcher tiles
+# without a full session restart): the web tile is simply left out of
+# the tile list when the policy file is missing or unreadable, with a
+# log line naming why -- never a tile that looks real but silently fails
+# to open (I-6: don't show a control that isn't enforced).
 if [[ "$WEB" != "none" ]]; then
   policy="/etc/chromium/policies/managed/omarchy-kids-$BAND.json"
   if [[ -r "$policy" ]]; then
     jq -n '{id: "chromium", label: "Web", icon: "chromium", exec: "chromium"}' >>"$TILES_FILE"
+  else
+    log "web tile omitted for '$ACCOUNT': $policy missing or not readable (R-WEB-4, fail closed)"
   fi
 fi
 

@@ -1,0 +1,19 @@
+# Starter walled-garden allowlist for band 6-8 (SPEC.md R-BAND, R-WEB-3).
+#
+# One host per line; a leading '#' starts a full-line comment. A bare
+# host (no leading '.') matches that host and its subdomains, the same
+# convention share/packs/6-8.toml's own [garden].sites already uses --
+# see docs/web.md for how these two lists relate and how a parent adds
+# a site. `omarchy-kids-web render 6-8` turns this into the final
+# policy's URLAllowlist, merged with any --allow FILE (a kid's own
+# approved sites).
+#
+# Every site below is a well-known, ad-light children's property picked
+# for this early-reader band; none needs a login or has open chat/DMs.
+
+pbskids.org             # PBS Kids: curriculum-tied games, no ads, no accounts
+starfall.com            # Starfall: phonics and early reading games
+kids.nationalgeographic.com  # Nat Geo Kids: articles, videos, no chat
+sesamestreet.org        # Sesame Street: games and videos for this age band
+highlightskids.org      # Highlights for Children: puzzles, stories, no ads
+storylineonline.net     # SAG-AFTRA Foundation: actors reading picture books aloud

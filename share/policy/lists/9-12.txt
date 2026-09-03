@@ -1,0 +1,19 @@
+# Starter walled-garden allowlist for band 9-12 (SPEC.md R-BAND, R-WEB-3).
+#
+# Same format as share/policy/lists/6-8.txt: one host per line, '#'
+# comments allowed. `omarchy-kids-web render 9-12` turns this into the
+# final policy's URLAllowlist, merged with any --allow FILE (a kid's own
+# approved sites). Kept in rough sync with share/packs/9-12.toml's own
+# [garden].sites (Appendix B's `sites` default for a new 9-12 kid) --
+# see docs/web.md for why the two lists exist side by side.
+#
+# Wider than 6-8's list: this band can research, code, and read longer
+# articles, but still has no open search or social features.
+
+pbskids.org                  # PBS Kids: still age-appropriate at the low end of this band
+kids.nationalgeographic.com  # Nat Geo Kids: articles, videos, no chat
+scratch.mit.edu              # MIT Scratch: the band's own starter pack (TurboWarp) is Scratch-compatible
+youtubekids.com              # YouTube Kids: a curated, restricted-mode surface, not open youtube.com
+wikipedia.org                # Wikipedia: reference for schoolwork, no accounts needed to read
+khanacademy.org              # Khan Academy: free courses, matches this band's education apps
+code.org                     # Code.org: intro coding lessons, pairs with the pack's TurboWarp

@@ -5,6 +5,9 @@ Requires=omarchy-kids-authd.socket
 After=omarchy-kids-authd.socket
 
 [Service]
+# A GRANT applies the request as root: the queue under /var/lib and the kid's allow list and
+# overrides under /etc/omarchy-kids must stay writable behind ProtectSystem=strict.
+ReadWritePaths=/var/lib/omarchy-kids /etc/omarchy-kids
 Type=simple
 User=root
 ExecStart=/usr/bin/omarchy-kids-authd

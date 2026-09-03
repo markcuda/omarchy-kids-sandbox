@@ -1,6 +1,6 @@
 #!/bin/bash
 # omarchy:summary=Remove Kids Mode: reverse every lock and account it created
-# omarchy:args=[--yes] [--dry-run] [--delete-homes] [--no-snapshot]
+# omarchy:args=[--yes] [--dry-run] [--delete-homes] [--no-snapshot] [--keep-parent-group]
 # "Remove Kids Mode": the parent's undo button -- reverses every lock, keeps every kid's files
 # (SPEC.md R-TRUST-1, R-TRUST-4, R-FND-6). See docs/remove.md for the exact order and what's deliberately left behind.
 set -euo pipefail
@@ -13,6 +13,8 @@ source "$LIB/conf.sh"
 source "$LIB/posture.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
+# shellcheck source=lib/units.sh
+source "$LIB/units.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 HOME_ROOT="${OMARCHY_KIDS_HOME_ROOT:-}"
@@ -25,8 +27,10 @@ DELETE_HOMES=0
 NO_SNAPSHOT=0
 PARENT_PW_STDIN=0
 PARENT_PASSWORD=""
+KEEP_PARENT_GROUP=0
 DRY_RUN=0
 ANY_FAIL=0
+FAILED_STEPS=()
 
 die() { echo "omarchy-kids-remove: $1" >&2; exit "${2:-2}"; }
 
@@ -34,6 +38,7 @@ usage() {
     cat <<'EOF'
 Usage: omarchy-kids-remove [--yes] [--dry-run] [--delete-homes]
                             [--parent-password-stdin] [--no-snapshot]
+                            [--keep-parent-group]
        omarchy-kids-remove --help
 
 Remove Kids Mode (SPEC.md R-TRUST-4): reverses every lock, removes every
@@ -58,6 +63,8 @@ the package itself -- this command never runs it.
                             same as omarchy-kids-provision remove -- see
                             docs/remove.md).
   --no-snapshot             Skip the Snapper snapshot offer outright.
+  --keep-parent-group       Leave the parent in omarchy-parents instead of
+                            removing them at the end of the run.
   -h, --help                Show this help and exit.
 EOF
 }
@@ -75,6 +82,7 @@ for arg in "$@"; do
         --delete-homes) DELETE_HOMES=1 ;;
         --parent-password-stdin) PARENT_PW_STDIN=1 ;;
         --no-snapshot) NO_SNAPSHOT=1 ;;
+        --keep-parent-group) KEEP_PARENT_GROUP=1 ;;
         *)
             echo "omarchy-kids-remove: unknown argument '$arg'" >&2
             usage >&2
@@ -93,7 +101,9 @@ report() { printf '%-12s %s\n' "$1" "$2"; }
 # "$@" says there's nothing left to undo, "skipped"; else, under the
 # forced plan pass (DRY_RUN=1), "would-remove" and stop; else run FIX_FN
 # "$@" and report "removed" or "FAILED" (never stops the rest -- see the
-# header comment).
+# header comment). A "FAILED" step is also appended to FAILED_STEPS, so
+# main's end-of-run summary can name it even if a parent skims past the
+# one bad line among many "removed"/"skipped" ones (issue #45 item 4).
 plan_one() {
     local desc="$1" check="$2" fix="$3"
     shift 3
@@ -110,6 +120,7 @@ plan_one() {
     else
         report FAILED "$desc"
         ANY_FAIL=1
+        FAILED_STEPS+=("$desc")
     fi
     return 0
 }
@@ -235,9 +246,10 @@ profile_remove() { rm -f "$KIDS_DIR/$1.conf"; }
 
 # home: only reached when --delete-homes was NOT given (userdel -r above
 # already took it otherwise). Moved to "<parent home>/Kids Mode/<name>/",
-# same as `omarchy-kids-provision remove`, 0700 and chowned to the
-# parent (best-effort chown: always succeeds as real root, harmlessly
-# fails under test). See docs/remove.md.
+# same as `omarchy-kids-provision remove`, 0700 and chowned `parent:parent`
+# -- group too, not just the owning user, so a kept home isn't left with
+# the old kid account's gid (issue #45 item 2; best-effort chown: always
+# succeeds as real root, harmlessly fails under test). See docs/remove.md.
 home_present() { [[ -e "$(home_dir_for "$1")" ]]; }
 home_remove() {
     local account="$1" display_name="$2" home parent_home dest parent
@@ -247,7 +259,7 @@ home_remove() {
     dest="$parent_home/Kids Mode/$display_name"
     install -d -m 0700 "$parent_home/Kids Mode" || return 1
     mv "$home" "$dest" || return 1
-    [[ -n "$parent" ]] && chown -R "$parent" "$dest" >/dev/null 2>&1
+    [[ -n "$parent" ]] && chown -R "$parent:$parent" "$dest" >/dev/null 2>&1
     return 0
 }
 
@@ -370,14 +382,15 @@ autologin_dropin() { printf '%s/zz-omarchy-kids-autologin.conf' "$(posture_sddm_
 autologin_present() { [[ -f "$(autologin_dropin)" ]]; }
 autologin_remove() { rm -f "$(autologin_dropin)"; }
 
-# KIDS_UNITS/KIDS_SOCKETS: every unit omarchy-kids-assert's own "units"
-# lock enables (docs/assert.md); KIDS_TIMERS adds the ledger's timer
-# (issue #23). KIDS_EXTRA_UNITS have no [Install] section of their own,
-# so they're only ever stopped, never checked for "is this enabled".
-KIDS_UNITS=(omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service)
-KIDS_SOCKETS=(omarchy-kids-authd.socket)
-KIDS_TIMERS=(omarchy-kids-time.timer)
-KIDS_EXTRA_UNITS=(omarchy-kids-authd.service omarchy-kids-time-ledger.service)
+# KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS come from lib/units.sh (issue #45's
+# item 5), the same list bin/omarchy-kids-assert's own "units" lock and
+# bin/omarchy-kids-wizard's Apply step use -- so a unit added there
+# (omarchy-kids-wifid.socket, omarchy-kids-ask-collect.timer) is disabled
+# and stopped here too, with nothing to keep in sync by hand. KIDS_EXTRA_UNITS
+# are activated-by-the-above units with no [Install] section of their own
+# (no .wants symlink to check), so they're only ever stopped, never
+# checked for "is this enabled".
+KIDS_EXTRA_UNITS=(omarchy-kids-authd.service omarchy-kids-wifid.service omarchy-kids-time-ledger.service omarchy-kids-ask-collect.service)
 unit_link() { printf '%s/etc/systemd/system/%s.wants/%s' "$(posture_root)" "$1" "$2"; }
 units_present() {
     local u
@@ -395,6 +408,29 @@ units_remove() {
     fi
     systemctl "${root_args[@]}" disable "${now_args[@]+"${now_args[@]}"}" \
         "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" "${KIDS_EXTRA_UNITS[@]}"
+}
+
+# parent-group (issue #45 item 3): the parent stays a member of
+# omarchy-parents by default once every kid-level lock is gone, unless
+# --keep-parent-group is given. current_groups/has_group are duplicated
+# from lib/assert-locks.sh's own parent-group lock (R-BAR-3, issue #37)
+# for the same reason docs/assert.md's "Judgment calls" already gives for
+# group_for_band: two files with their own main "$@"/dispatch, not a
+# shared library. Reads machine.conf's "parent=" the same way every other
+# machine-level step here does, so this has to run before "etc-and-varlib"
+# deletes $ETC.
+current_groups() { id -nG "$1" 2>/dev/null || true; }
+has_group() { [[ " $1 " == *" $2 "* ]]; }
+parent_group_present() {
+    (( KEEP_PARENT_GROUP )) && return 1
+    local parent; parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    has_group "$(current_groups "$parent")" omarchy-parents
+}
+parent_group_remove() {
+    local parent; parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    gpasswd -d "$parent" omarchy-parents >/dev/null 2>&1
 }
 
 varlib_dir() { printf '%s/var/lib/omarchy-kids' "$(posture_root)"; }
@@ -433,7 +469,16 @@ confirm_or_abort() {
 }
 
 snapshot_present() { [[ "$NO_SNAPSHOT" -eq 0 ]] && command -v snapper >/dev/null 2>&1; }
-snapshot_take() { snapper -c root create -d "before Remove Kids Mode"; }
+# --print-number (issue #45's "print the snapshot number it created"): the
+# number is the one thing a parent needs to find this snapshot again later
+# (`snapper -c root undochange <number>..0`, or the Snapper GUI); everything
+# else about the call is unchanged.
+snapshot_take() {
+    local num
+    num="$(snapper -c root create --print-number -d "before Remove Kids Mode")" || return 1
+    [[ -n "$num" ]] && echo "Snapper snapshot: #$num"
+    return 0
+}
 
 # --- one full pass, at whichever $DRY_RUN is currently set to -----------
 
@@ -480,6 +525,7 @@ run_body() {
     plan_one "mkinitcpio-hook" mkinitcpio_dropin_present mkinitcpio_dropin_remove
     plan_one "sddm-autologin" autologin_present autologin_remove
     plan_one "units" units_present units_remove
+    plan_one "parent-group" parent_group_present parent_group_remove
     plan_one "etc-and-varlib" purge_present purge_remove
 }
 
@@ -505,7 +551,15 @@ main() {
     echo "Removing:"
     DRY_RUN=0
     ANY_FAIL=0
+    FAILED_STEPS=()
     run_body
+
+    echo
+    if (( ANY_FAIL )); then
+        echo "Summary: ${#FAILED_STEPS[@]} step(s) FAILED: ${FAILED_STEPS[*]}"
+    else
+        echo "Summary: every step removed or skipped, nothing failed."
+    fi
 
     print_uninstall_hint
     (( ANY_FAIL == 0 )) || exit 1

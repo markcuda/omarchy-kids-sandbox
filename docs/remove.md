@@ -13,9 +13,10 @@ things, run first).
 
 ## What it does, in order
 
-1. **Offers a Snapper snapshot**, if `snapper` is on `PATH`: `snapper -c root create -d "before
-   Remove Kids Mode"` (R-TRUST-1). Skippable with `--no-snapshot`; silently does nothing if
-   `snapper` isn't installed.
+1. **Offers a Snapper snapshot**, if `snapper` is on `PATH`: `snapper -c root create --print-number
+   -d "before Remove Kids Mode"` (R-TRUST-1), printing the snapshot number it created (`Snapper
+   snapshot: #<n>`, issue #45) so a parent has it to hand if they ever need `snapper undochange` or
+   the GUI. Skippable with `--no-snapshot`; silently does nothing if `snapper` isn't installed.
 2. **For every kid** (every `$OMARCHY_KIDS_ETC/kids/<account>.conf`), in this order:
    1. Unmounts the home's noexec bind mount (`umount`), and best-effort stops whatever transient
       systemd mount unit fstab's own generator may have made for it (`systemd-escape --path
@@ -57,18 +58,30 @@ things, run first).
      boot's image no longer carries the `omarchy-kids-unlock` hook.
    - Removes the per-boot SDDM autologin drop-in (`zz-omarchy-kids-autologin.conf`) if this boot
      happened to still have one around.
-   - Disables and stops the package's units: `omarchy-kids-boot-login.service`, its cleanup unit,
-     `omarchy-kids-assert.service`, `omarchy-kids-authd.socket`, `omarchy-kids-time.timer`
-     (issue #23's screen-time ledger — not yet checked by `omarchy-kids-assert`'s own "units" lock
-     as of this checkout, but this command tears down every unit the package ships regardless),
-     `omarchy-kids-authd.service`, and `omarchy-kids-time-ledger.service`.
+   - Disables and stops every unit `lib/units.sh` lists — `KIDS_UNITS`/`KIDS_SOCKETS`/`KIDS_TIMERS`,
+     the same shared list `bin/omarchy-kids-assert`'s own "units" lock and `bin/omarchy-kids-wizard`'s
+     Apply step use (issue #46) — plus this command's own `KIDS_EXTRA_UNITS` (the socket/timer-activated
+     services with no `[Install]` section of their own: `omarchy-kids-authd.service`,
+     `omarchy-kids-wifid.service`, `omarchy-kids-time-ledger.service`, `omarchy-kids-ask-collect.service`).
+     Sourcing the shared list rather than keeping a second copy means a unit added there —
+     `omarchy-kids-wifid.socket`, `omarchy-kids-ask-collect.timer` — is disabled and stopped here too,
+     with nothing to keep in sync by hand (issue #45 item 5).
+   - Removes the parent from the `omarchy-parents` group (`gpasswd -d <parent> omarchy-parents`),
+     unless `--keep-parent-group` is given, in which case this step is left `skipped` on purpose
+     (issue #45 item 3). Runs before `etc-and-varlib` below, since it still needs `machine.conf`'s
+     `parent=` line.
    - Deletes `/etc/omarchy-kids` and `/var/lib/omarchy-kids` — which is also what takes every
      kid's recorded screen-time state (`/var/lib/omarchy-kids/<account>/usage/`) with it — after
      first taring both into `/root/omarchy-kids-removed-<YYYYmmdd-HHMMSS>.tar.gz`, so a parent (or
      a future issue's "undo the undo") has one place to look if something in there mattered after
      all.
    - Prints the `pacman -R omarchy-kids` command. Never runs it.
-4. **Idempotent**: every step above checks whether there's anything left to do before touching
+4. **A one-line summary** follows the real pass (issue #45 item 4): `Summary: every step removed or
+   skipped, nothing failed.`, or `Summary: N step(s) FAILED: <desc>, <desc>, ...` naming every step
+   that reported `FAILED`, so a bad step can't get lost among a long run of ordinary
+   `removed`/`skipped` lines. Exit is 0 unless at least one step actually reported `FAILED` — a run
+   that only ever skipped (nothing left to do) or removed cleanly always exits 0.
+5. **Idempotent**: every step above checks whether there's anything left to do before touching
    anything, and reports `skipped` if not — running the whole command again finds nothing left for
    every destructive step. The one deliberate exception is the snapshot offer itself (see
    "Judgment calls").
@@ -98,12 +111,12 @@ Every kid's own files are kept by default, exactly the way R-FND-6 and `omarchy-
 remove` already keep a single kid's home: `userdel` (no `-r`) leaves the home on disk, and it is
 then moved to `<parent home>/Kids Mode/<display name>/` — a parent's own home is the one place
 obviously theirs to browse, not a `/home` sibling next to accounts that no longer exist. The
-`Kids Mode` folder itself is created `0700` and the moved-in copy is `chown -R`'d to the parent
-(best-effort — see "Judgment calls"); the files inside are left exactly however the kid's own
+`Kids Mode` folder itself is created `0700` and the moved-in copy is `chown -R`'d `parent:parent`
+(group too, not just the owning user — issue #45 item 2, so a kept home isn't left with the old kid
+account's gid; best-effort — see "Judgment calls"); the files inside are left exactly however the kid's own
 account left them, since `mv` never touches file content or per-file ownership. `parent_home_dir`
-(which account is `mark`? which directory is that account's home?) is duplicated from
-`bin/omarchy-kids-provision`'s own function of the same name rather than shared — see "Judgment
-calls".
+(which account is `mark`? which directory is that account's home?) is `lib/kids.sh`'s shared
+helper (issue #49), the same one `omarchy-kids-provision remove` uses for its own single-kid move.
 
 `--delete-homes` instead runs `userdel -r <account>`, which removes the home as part of the same
 step — the "home" step later in the sequence then finds nothing left (`home_present` is false) and
@@ -111,11 +124,14 @@ reports `skipped`, with no separate `rm -rf` or move needed.
 
 ## Left behind on purpose
 
-- **The `omarchy-kids*` and `omarchy-parents` groups, and any group membership.** Nothing in this
-  package ever deletes a group — not `omarchy-kids-provision remove`, not `pacman -R`
-  (`docs/packaging.md`'s `post_remove` says so explicitly), and not this command either. A stray
-  empty group is harmless; deleting one that some other tool might still reference is not a risk
-  worth taking for a "Remove Kids Mode" button.
+- **The `omarchy-kids*` and `omarchy-parents` groups themselves.** Nothing in this package ever
+  deletes a group — not `omarchy-kids-provision remove`, not `pacman -R` (`docs/packaging.md`'s
+  `post_remove` says so explicitly), and not this command either. A stray empty group is harmless;
+  deleting one that some other tool might still reference is not a risk worth taking for a "Remove
+  Kids Mode" button. (The parent's own *membership* in `omarchy-parents` — as opposed to the group
+  itself — *is* removed by the `parent-group` step above, unless `--keep-parent-group`; issue #45
+  item 3. Every kid's `omarchy-kids`/`omarchy-kids-<band>` membership goes with the account itself
+  when `userdel` removes it.)
 - **`editor_enabled` in `/boot/limine.conf`.** `omarchy-kids-assert`'s `limine-editor` lock sets it
   to `no` as a fence, but that's the parent's own boot-menu setting to keep or change — Remove Kids
   Mode only reverses what it *owns* (`MAX_SNAPSHOT_ENTRIES` in `/etc/default/limine`, a different
@@ -165,14 +181,19 @@ reports `skipped`, with no separate `rm -rf` or move needed.
   real only on the test laptop; see "What needs the VM to verify" on the PR body / commit for the
   reminder.
 - **`group_for_band`-style duplication.** `luks_slots_parent_line`, `luks_slots_kid_entries`,
-  `luks_slot_for_account`, `detect_luks_device` (minus its `--luks-device` flag, which `remove`
-  commands never take), `parent_home_dir`, `portal_conf_entries`/`portal_conf_expected` (minus its
-  `EXCLUDE` argument — nothing to exclude, since the account it would have named is already gone
-  from `$KIDS_DIR` by the time this runs), and the `/etc/default/limine` restore logic are all
+  `luks_slot_for_account` (minus `detect_luks_device`'s own `--luks-device` flag, which `remove`
+  commands never take — `detect_luks_device`, `parent_home_dir`, and `portal_conf_entries` itself
+  moved into shared `lib/kids.sh` in issue #49, so those three are no longer duplicated here),
+  the `/etc/default/limine` restore logic, and `current_groups`/`has_group` (the `parent-group`
+  step, issue #45 item 3, duplicated from `lib/assert-locks.sh`'s own parent-group lock) are all
   duplicated from `bin/omarchy-kids-provision` / `bin/omarchy-kids-assert` rather than shared, for
-  the same reason `docs/assert.md`'s "Judgment calls" already gives for `group_for_band`: both
+  the same reason `docs/assert.md`'s "Judgment calls" already gives for `group_for_band`: those
   source files are scripts with their own `main "$@"`, not libraries, and each duplicated block is
-  small, stable, and already documented in full at its original home.
+  small, stable, and already documented in full at its original home. `KIDS_UNITS`/`KIDS_SOCKETS`/
+  `KIDS_TIMERS` are a different kind of exception: those *are* shared, from `lib/units.sh` (issue
+  #45 item 5), since a stale copy there would silently leave a real unit running after a real
+  teardown — the exact bug this item fixed — where a stale copy of the smaller helpers above only
+  ever costs a little duplication, not a leftover lock.
 - **`--dry-run` still runs every check function for real** (`findmnt`, `id`) even though it writes
   nothing — exactly how `omarchy-kids-assert`'s own check functions behave under `--dry-run`. Only
   the destructive fix side is ever skipped.

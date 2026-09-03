@@ -114,9 +114,17 @@ rm -f "__LOG__/mounted-$acct"
 '
 # id <acct>: succeeds while "$LOG/account-<acct>" exists (userdel below
 # removes it), fails otherwise -- exactly how a real "id" behaves once an
-# account is gone.
+# account is gone. id -nG <acct>: prints "staff omarchy-parents" while
+# "$LOG/parent-group-<acct>" exists (gpasswd -d below removes it), same
+# marker-file shape, so the new parent-group step (issue #45 item 3) has
+# something real to check and remove.
 # shellcheck disable=SC2016
 stub id '
+if [[ "${1:-}" == "-nG" ]]; then
+    acct="$2"
+    [[ -f "__LOG__/parent-group-$acct" ]] && echo "staff omarchy-parents"
+    exit 0
+fi
 acct="${@: -1}"
 [[ -f "__LOG__/account-$acct" ]] && exit 0
 exit 1
@@ -181,13 +189,26 @@ esac
 '
 # mkinitcpio -P: just logged (argv is asserted directly).
 stub mkinitcpio ''
-# snapper -c root create -d "...": just logged.
-stub snapper ''
-# chown -R <parent> <dest>: just logged -- a real chown to another
+# snapper -c root create --print-number -d "...": prints a fake snapshot
+# number on stdout when --print-number is given, same as a real snapper --
+# lets the test confirm omarchy-kids-remove prints it back out (issue #45).
+# shellcheck disable=SC2016
+stub snapper '
+for a in "$@"; do [[ "$a" == "--print-number" ]] && { echo "42"; break; }; done
+'
+# chown -R <parent:group> <dest>: just logged -- a real chown to another
 # account fails outright unprivileged (this test never runs as root, per
 # AGENTS.md rule 8), same reasoning docs/assert.md already gives for the
 # Chromium policy lock's own best-effort chown.
 stub chown ''
+# gpasswd -d <acct> <group>: drops the parent-group marker (issue #45 item
+# 3), the mirror image of the "id -nG" stub above.
+# shellcheck disable=SC2016
+stub gpasswd '
+if [[ "${1:-}" == "-d" ]]; then
+    rm -f "__LOG__/parent-group-$2"
+fi
+'
 # tar: a spy, not a stub -- argv is logged like every other fake here, but
 # the archive itself is real (delegates to the real /usr/bin/tar), so this
 # file can inspect luks-slots' content as it stood the moment it was
@@ -263,21 +284,29 @@ touch "$LOG/account-kid-ada"
 # this same $HOMEROOT prefix every other path in this file already uses.
 mkdir -p "$HOMEROOT/home/mark"
 
+# mark is a member of omarchy-parents already (issue #45 item 3's
+# parent-group step has something to remove).
+touch "$LOG/parent-group-mark"
+
 # getty@tty2..6 masked
 mkdir -p "$SCRATCH_ROOT/etc/systemd/system"
 for n in 2 3 4 5 6; do ln -sf /dev/null "$SCRATCH_ROOT/etc/systemd/system/getty@tty$n.service"; done
 
-# package units enabled (issue #23's screen-time timer included, even
-# though omarchy-kids-assert doesn't check it as of this checkout --
-# omarchy-kids-remove tears down every unit the package ships regardless)
+# package units enabled: the full lib/units.sh list (issue #45 item 5 --
+# omarchy-kids-wifid.socket and omarchy-kids-ask-collect.timer included,
+# so this test would catch either one being left out again).
 mkdir -p "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants" \
     "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants" \
     "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants"
 for u in omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service; do
     ln -sf "/usr/lib/systemd/system/$u" "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/$u"
 done
-ln -sf /usr/lib/systemd/system/omarchy-kids-authd.socket "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants/omarchy-kids-authd.socket"
-ln -sf /usr/lib/systemd/system/omarchy-kids-time.timer "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants/omarchy-kids-time.timer"
+for u in omarchy-kids-authd.socket omarchy-kids-wifid.socket; do
+    ln -sf "/usr/lib/systemd/system/$u" "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants/$u"
+done
+for u in omarchy-kids-time.timer omarchy-kids-ask-collect.timer; do
+    ln -sf "/usr/lib/systemd/system/$u" "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants/$u"
+done
 
 # chromium policy: one band's file
 mkdir -p "$SCRATCH_ROOT/etc/chromium/policies/managed"
@@ -314,7 +343,7 @@ for desc in "mount:kid-ada" "fstab:kid-ada" "luks:kid-ada" "namespace:kid-ada" \
     "polkit-admin" "polkit-deny" "getty:tty2" "sddm-theme" \
     "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
     "chromium-policy:6-8" "limine-snapshots" "mkinitcpio-hook" "sddm-autologin" \
-    "units" "etc-and-varlib"; do
+    "units" "parent-group" "etc-and-varlib"; do
     check_status "$out" "$desc" "would-remove" "--dry-run: $desc would be removed"
 done
 # portal-conf's own check is content-based (does theme.conf.user match
@@ -329,7 +358,7 @@ check_status "$out" "portal-conf" "skipped" "--dry-run: portal-conf has nothing 
 # --dry-run, same as every check function in bin/omarchy-kids-assert --
 # only the destructive fix side is skipped. Assert those never ran.
 dryrun_argv="$(cat "$ARGV_LOG")"
-for cmd in userdel cryptsetup mkinitcpio snapper tar systemctl umount chown; do
+for cmd in userdel cryptsetup mkinitcpio snapper tar systemctl umount chown gpasswd; do
     check_not_contains "$dryrun_argv" "$cmd " "--dry-run: $cmd was never invoked"
 done
 [[ -e "$ETC/kids/kid-ada.conf" ]] && pass "--dry-run left the profile in place" || fail "--dry-run must not remove the profile"
@@ -395,7 +424,7 @@ check_eq "$(cat "$KIDS_MODE_DIR/Ada Lovelace/drawing.txt" 2>/dev/null)" "a drawi
 [[ -d "$HOMEROOT/home/kid-ada" ]] && fail "the old home path should be gone" || pass "old home path gone"
 mode="$(stat -f '%Lp' "$KIDS_MODE_DIR" 2>/dev/null || stat -c '%a' "$KIDS_MODE_DIR" 2>/dev/null)"
 check_eq "$mode" "700" "home: the parent's Kids Mode folder is 0700"
-check_contains "$argv" "chown -R mark $KIDS_MODE_DIR/Ada Lovelace" "home: chowned to the parent"
+check_contains "$argv" "chown -R mark:mark $KIDS_MODE_DIR/Ada Lovelace" "home: chowned parent:parent recursively (issue #45 item 2)"
 
 check_status "$out" "polkit-admin" "removed" "polkit-admin removed"
 [[ -e "$SCRATCH_ROOT/etc/polkit-1/rules.d/40-omarchy-kids.rules" ]] && fail "polkit admin rule should be removed" \
@@ -450,17 +479,30 @@ check_status "$out" "sddm-autologin" "removed" "sddm-autologin removed"
 check_status "$out" "units" "removed" "units removed"
 # --now is only passed when there's a live systemd to signal (posture_root
 # empty, i.e. a real run); a scratch OMARCHY_KIDS_ROOT means --root= is
-# used instead, which systemctl refuses to combine with --now.
-check_contains "$argv" "systemctl --root=$SCRATCH_ROOT disable omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-time.timer omarchy-kids-authd.service omarchy-kids-time-ledger.service" \
-    "units: disable called (via --root, since this is a scratch tree) with the full unit list, including issue #23's timer"
+# used instead, which systemctl refuses to combine with --now. The unit
+# list itself comes from lib/units.sh (issue #45 item 5) plus this
+# command's own KIDS_EXTRA_UNITS, so a unit added there --
+# omarchy-kids-wifid.socket, omarchy-kids-ask-collect.timer -- is torn
+# down here too, with no separate list to fall out of sync.
+check_contains "$argv" "systemctl --root=$SCRATCH_ROOT disable omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-wifid.socket omarchy-kids-time.timer omarchy-kids-ask-collect.timer omarchy-kids-authd.service omarchy-kids-wifid.service omarchy-kids-time-ledger.service omarchy-kids-ask-collect.service" \
+    "units: disable called (via --root, since this is a scratch tree) with the full lib/units.sh list, including omarchy-kids-wifid.socket"
 for u in omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service; do
     [[ -e "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/$u" ]] && fail "$u should be disabled" \
         || pass "$u disabled"
 done
-[[ -e "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants/omarchy-kids-time.timer" ]] && fail "the time timer should be disabled" \
-    || pass "the time timer disabled"
-[[ -e "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants/omarchy-kids-authd.socket" ]] && fail "authd.socket should be disabled" \
-    || pass "authd.socket disabled"
+for u in omarchy-kids-time.timer omarchy-kids-ask-collect.timer; do
+    [[ -e "$SCRATCH_ROOT/etc/systemd/system/timers.target.wants/$u" ]] && fail "$u should be disabled" \
+        || pass "$u disabled"
+done
+for u in omarchy-kids-authd.socket omarchy-kids-wifid.socket; do
+    [[ -e "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants/$u" ]] && fail "$u should be disabled" \
+        || pass "$u disabled"
+done
+
+check_status "$out" "parent-group" "removed" "parent-group removed (issue #45 item 3)"
+check_contains "$argv" "gpasswd -d mark omarchy-parents" "parent-group: gpasswd -d mark omarchy-parents was called"
+[[ -e "$LOG/parent-group-mark" ]] && fail "mark should no longer be in omarchy-parents" \
+    || pass "parent-group: mark's omarchy-parents membership marker is gone"
 
 check_status "$out" "etc-and-varlib" "removed" "etc-and-varlib removed"
 [[ -d "$ETC" ]] && fail "/etc/omarchy-kids should be gone" || pass "/etc/omarchy-kids removed"
@@ -483,11 +525,18 @@ if [[ -n "$tarball" ]]; then
 fi
 
 check_status "$out" "snapshot" "removed" "snapshot taken (snapper is on PATH)"
-check_contains "$argv" "snapper -c root create -d" "snapshot: snapper was called"
+check_contains "$argv" "snapper -c root create --print-number -d" "snapshot: snapper was called with --print-number"
 check_contains "$argv" "Remove Kids Mode" "snapshot: the description names Remove Kids Mode"
+check_contains "$out" "Snapper snapshot: #42" "snapshot: the snapshot number it created is printed (issue #45)"
 
 check_contains "$out" "sudo pacman -R omarchy-kids" "real run prints the pacman uninstall hint, and does not run it"
 check_not_contains "$argv" "pacman" "the pacman command itself is never invoked"
+
+# --- summary: names any failed step, exit 0 when only skips happened ------
+# (issue #45 item 4 -- the real run above had no failures at all)
+
+check_contains "$out" "Summary: every step removed or skipped, nothing failed." \
+    "summary: a clean run says so explicitly"
 
 # --- idempotence: a second run (kids all gone) reports skipped -----------
 
@@ -495,7 +544,7 @@ check_not_contains "$argv" "pacman" "the pacman command itself is never invoked"
 : > "$LOG/luks-keyfile-used"
 out2="$("$BIN" --yes --no-snapshot 2>&1)"; st2=$?
 check_eq "$st2" 0 "second run exits 0"
-still_active="$(grep -Ev '^skipped ' <<<"$out2" | grep -v '^Plan:$' | grep -v '^Removing:$' | grep -v '^$' | grep -v 'sudo pacman' | grep -v 'not removed yet' || true)"
+still_active="$(grep -Ev '^skipped ' <<<"$out2" | grep -v '^Plan:$' | grep -v '^Removing:$' | grep -v '^$' | grep -v 'sudo pacman' | grep -v 'not removed yet' | grep -v '^Summary:' || true)"
 [[ -z "$still_active" ]] && pass "second run: every remaining lock reports skipped" \
     || fail "second run: unexpected non-skipped line(s):"$'\n'"$still_active"
 check_eq "$(cat "$ARGV_LOG")" "" "second run invoked no real destructive commands"
@@ -530,6 +579,48 @@ check_contains "$argv4" "userdel -r kid-ben" "--delete-homes: userdel -r called"
 [[ -d "$HOMEROOT/home/mark/Kids Mode/Ben" ]] && fail "--delete-homes must not also copy it into Kids Mode" \
     || pass "--delete-homes: no Kids Mode copy left behind"
 check_status "$out4" "home:kid-ben" "skipped" "--delete-homes: the home step itself has nothing left to do (userdel -r already did it)"
+
+# --- --keep-parent-group: parent stays in omarchy-parents (issue #45 item 3)
+# ($ETC itself was purged by the two real runs above -- rebuilt here)
+
+mkdir -p "$ETC"
+cat > "$ETC/machine.conf" <<'EOF'
+parent=mark
+EOF
+touch "$LOG/parent-group-mark"
+
+: > "$ARGV_LOG"
+out7="$("$BIN" --yes --no-snapshot --keep-parent-group 2>&1)"; st7=$?
+argv7="$(cat "$ARGV_LOG")"
+check_eq "$st7" 0 "--keep-parent-group run exits 0"
+check_status "$out7" "parent-group" "skipped" "--keep-parent-group: parent-group step is skipped"
+check_not_contains "$argv7" "gpasswd" "--keep-parent-group: gpasswd was never invoked"
+[[ -e "$LOG/parent-group-mark" ]] && pass "--keep-parent-group: mark is still in omarchy-parents" \
+    || fail "--keep-parent-group must not touch omarchy-parents membership"
+
+# --- summary names a FAILED step; exit 1 only for a real failure ----------
+# (issue #45 item 4 -- every run above only ever skipped or removed
+# cleanly; this exercises the one path that must actually fail. A fresh
+# mkinitcpio stub that exits 1, standing in for a real machine where
+# `mkinitcpio -P` itself errors out.)
+
+mkdir -p "$SCRATCH_ROOT/etc/mkinitcpio.conf.d"
+echo "# omarchy-kids hook insertion" > "$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+cat > "$STUBS/mkinitcpio" <<'EOF'
+#!/bin/bash
+{ printf '%s' "mkinitcpio"; printf ' %s' "$@"; printf '\n'; } >> "__ARGVLOG__"
+exit 1
+EOF
+sed -i.bak -e "s#__ARGVLOG__#$ARGV_LOG#g" "$STUBS/mkinitcpio"
+rm -f "$STUBS/mkinitcpio.bak"
+chmod +x "$STUBS/mkinitcpio"
+
+: > "$ARGV_LOG"
+out8="$("$BIN" --yes --no-snapshot 2>&1)"; st8=$?
+check_eq "$st8" 1 "a run with a real FAILED step exits 1"
+check_status "$out8" "mkinitcpio-hook" "FAILED" "a failing fix function reports FAILED, not removed/skipped"
+check_contains "$out8" "Summary: 1 step(s) FAILED: mkinitcpio-hook" \
+    "summary: names the failed step by its exact description (issue #45 item 4)"
 
 # --- remove-kids-mode dispatch through bin/omarchy-kids -------------------
 

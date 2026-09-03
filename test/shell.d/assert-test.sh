@@ -188,11 +188,49 @@ source "$ROOT_DIR/lib/posture.sh"
 
 posture_add_fstab_line kid-ada
 posture_add_namespace_lines kid-ada
+
+# Real PAM stacks ship with an auth chain already in them (issue #15,
+# R-SEC-2): posture_ensure_parent_unlock_line needs a pam_unix.so line to
+# anchor on. Seeded before posture_ensure_pam_namespace so the
+# pam_namespace session line lands after it, at the bottom, matching how
+# a real stack is laid out (auth block, then account/session). "sddm"
+# here uses the same general "[success=N ...]" shape
+# test/shell.d/provision-test.sh exercises; no omarchy-lock-password is
+# seeded, so posture_parent_unlock_lock_stack falls back to "hyprlock"
+# (scratchpad/pr9750.diff's *default-profile* branch shape, the special
+# "[success=1 default=bad]" case) -- covering the other stack shape than
+# provision-test.sh's, between the two suites.
+mkdir -p "$SCRATCH_ROOT/etc/pam.d"
+cat > "$SCRATCH_ROOT/etc/pam.d/sddm" <<'EOF'
+#%PAM-1.0
+auth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120
+-auth      [success=3 default=ignore]  pam_systemd_home.so
+auth       [success=2 default=ignore]  pam_unix.so try_first_pass nullok
+auth       [default=die]               pam_faillock.so authfail deny=10 unlock_time=120
+auth       optional                    pam_permit.so
+auth       required                    pam_env.so
+auth       required                    pam_faillock.so authsucc
+account    include                     system-login
+EOF
+cat > "$SCRATCH_ROOT/etc/pam.d/hyprlock" <<'EOF'
+#%PAM-1.0
+auth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120
+-auth      [success=2 default=ignore]  pam_systemd_home.so
+auth       [success=1 default=bad]     pam_unix.so try_first_pass nullok
+auth       [default=die]               pam_faillock.so authfail deny=10 unlock_time=120
+auth       optional                    pam_permit.so
+auth       required                    pam_env.so
+auth       required                    pam_faillock.so authsucc
+account    include system-login
+EOF
+
 posture_ensure_pam_namespace sddm
 posture_ensure_pam_namespace systemd-user
 posture_write_polkit_admin_rule mark
 posture_write_polkit_deny_rule
 posture_write_accountsservice kid-ada fox
+posture_ensure_parent_unlock_line sddm
+posture_ensure_parent_unlock_line hyprlock
 
 # mount: already mounted noexec (the findmnt stub's marker file)
 mkdir -p "$HOMEROOT/home/kid-ada"
@@ -236,7 +274,8 @@ out="$("$BIN")"; st=$?
 check_eq "$st" 0 "a fully-provisioned, untouched tree exits 0"
 for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
     "accountsservice:kid-ada" "groups:kid-ada" "polkit-admin" "polkit-deny" \
-    "pam:sddm" "pam:systemd-user" "getty:tty2" "getty:tty3" "getty:tty4" \
+    "pam:sddm" "pam:systemd-user" "parent-unlock:sddm" "parent-unlock:hyprlock" \
+    "getty:tty2" "getty:tty3" "getty:tty4" \
     "getty:tty5" "getty:tty6" "hyprland-configs" "chromium-policy:6-8" "boot-hook"; do
     check_status "$out" "$lock" "ok" "first run: $lock is ok"
 done
@@ -305,11 +344,50 @@ only_this_lock_changed "$out" "polkit-deny" "polkit-deny"
 check_contains "$(cat "$DENY_RULE" 2>/dev/null)" "polkit.Result.NO" "polkit-deny: the rule is back"
 
 # pam:sddm
+#
+# Wiping the whole file also takes the "auth ... pam_unix.so" line
+# parent-unlock anchors on with it, so this run reports two non-ok
+# lines, not one: "fixed pam:sddm" (pam_fix rebuilds the namespace
+# marker from nothing, same as always) and "FAIL parent-unlock:sddm"
+# (parent_unlock_fix has no anchor left to insert after -- see below for
+# the anchor's restoration and parent-unlock:sddm's own self-heal).
 PAMFILE_SDDM="$SCRATCH_ROOT/etc/pam.d/sddm"
 rm -f "$PAMFILE_SDDM"
 out="$("$BIN")"
-only_this_lock_changed "$out" "pam:sddm" "pam:sddm"
+check_status "$out" "pam:sddm" "fixed" "pam:sddm: reports fixed"
+check_status "$out" "parent-unlock:sddm" "FAIL" "pam:sddm: wiping the file also fails parent-unlock:sddm (no anchor left)"
+bad="$(grep -Ev '^ok |^fixed *pam:sddm$|^FAIL *parent-unlock:sddm$' <<<"$out" || true)"
+[[ -z "$bad" ]] && pass "pam:sddm: no other lock line changed" \
+    || fail "pam:sddm: unexpected non-ok line(s):"$'\n'"$bad"
 check_eq "$(grep -c '^session required pam_namespace.so$' "$PAMFILE_SDDM" 2>/dev/null)" "1" "pam:sddm: the line is back"
+
+# Wiping the whole file (above) also took the "auth ... pam_unix.so" line
+# parent-unlock anchors on with it -- pam_fix/posture_ensure_pam_namespace
+# only ever cares about the pam_namespace session line, not the rest of a
+# real vendor stack, so it doesn't restore one. That's a lock
+# omarchy-kids-assert cannot repair on its own in this scenario (there's
+# nothing to anchor on); simulate the vendor stack being restored the
+# way a real package reinstall would, and confirm parent-unlock:sddm
+# self-heals as soon as its anchor exists again.
+cat >>"$PAMFILE_SDDM" <<'EOF'
+auth       [success=2 default=ignore]  pam_unix.so try_first_pass nullok
+EOF
+out="$("$BIN")"
+only_this_lock_changed "$out" "parent-unlock:sddm" "parent-unlock:sddm (after its anchor line is restored)"
+check_eq "$(grep -c '# omarchy-kids: parent-unlock verifier (R-SEC-2, R-SEC-3)' "$PAMFILE_SDDM")" "1" \
+    "parent-unlock:sddm: the marker is back"
+
+# parent-unlock:hyprlock (exact resulting text, and idempotence)
+PAMFILE_HYPRLOCK="$SCRATCH_ROOT/etc/pam.d/hyprlock"
+posture_remove_parent_unlock_line hyprlock  # break it using the writer's own inverse, not hand-rolled sed
+out="$("$BIN")"
+only_this_lock_changed "$out" "parent-unlock:hyprlock" "parent-unlock:hyprlock"
+expected_hyprlock=$'#%PAM-1.0\nauth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120\n-auth      [success=2 default=ignore]  pam_systemd_home.so\nauth       [success=1 default=bad]     pam_unix.so try_first_pass nullok\n# omarchy-kids: parent-unlock verifier (R-SEC-2, R-SEC-3)\nauth       [success=1 default=ignore]  pam_exec.so quiet expose_authtok /usr/bin/omarchy-kids-parent-auth\nauth       [default=die]               pam_faillock.so authfail deny=10 unlock_time=120\nauth       optional                    pam_permit.so\nauth       required                    pam_env.so\nauth       required                    pam_faillock.so authsucc\naccount    include system-login'
+check_eq "$(cat "$PAMFILE_HYPRLOCK")" "$expected_hyprlock" \
+    "parent-unlock:hyprlock: exact resulting file content (the special [success=1 default=bad] case)"
+out="$("$BIN")"
+check_status "$out" "parent-unlock:hyprlock" "ok" "parent-unlock:hyprlock: idempotent (a second run reports ok, not fixed)"
+check_eq "$(cat "$PAMFILE_HYPRLOCK")" "$expected_hyprlock" "parent-unlock:hyprlock: unchanged by the idempotent run"
 
 # pam:systemd-user
 PAMFILE_SU="$SCRATCH_ROOT/etc/pam.d/systemd-user"

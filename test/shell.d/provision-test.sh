@@ -75,6 +75,31 @@ EOF
 mkdir -p "$HOMEROOT/home/mark"
 echo "0=mark:omarchy.desktop" > "$ETC/luks-slots"
 
+# Real SDDM stacks ship with a real auth chain already in it (issue #15,
+# R-SEC-2): "add" inserts the parent-unlock pam_exec line right after the
+# first "auth ... pam_unix.so" line. This shape -- pam_unix carrying
+# "[success=2 default=ignore]" -- is taken verbatim from the *child
+# profile* branch of bin/omarchy-apply-lock (scratchpad/pr9750.diff), one
+# line short of where our own pam_exec line goes, so the general N-1
+# formula applies (lib/posture.sh's posture_ensure_parent_unlock_line).
+# No omarchy-lock-password/hyprlock file is seeded here on purpose: that
+# stack legitimately might not exist yet at kid-provisioning time (the
+# lock screen hasn't been configured), which "add" must tolerate (a
+# warning, not a failure) -- see test/shell.d/parent-unlock-test.sh for
+# that stack's own shape and test/shell.d/assert-test.sh for the fallback.
+mkdir -p "$SCRATCH_ROOT/etc/pam.d"
+cat > "$SCRATCH_ROOT/etc/pam.d/sddm" <<'EOF'
+#%PAM-1.0
+auth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120
+-auth      [success=3 default=ignore]  pam_systemd_home.so
+auth       [success=2 default=ignore]  pam_unix.so try_first_pass nullok
+auth       [default=die]               pam_faillock.so authfail deny=10 unlock_time=120
+auth       optional                    pam_permit.so
+auth       required                    pam_env.so
+auth       required                    pam_faillock.so authsucc
+account    include                     system-login
+EOF
+
 # --- stub PATH -----------------------------------------------------------
 
 # stub NAME EXTRA — writes an executable $STUBS/NAME that appends its own
@@ -203,6 +228,24 @@ for stack in sddm systemd-user; do
     [[ $stack == systemd-user ]] && check_eq "$(grep -c 'include system-login' "$PAMFILE")" "2" "pam.d/systemd-user was seeded from the vendor file"
 done
 
+# --- add: R-SEC-2 parent-unlock line inserted into pam.d/sddm ------------
+#
+# The seeded pam.d/sddm fixture's pam_unix.so line carries
+# "[success=2 default=ignore]" (see the scratch-tree setup above), so
+# lib/posture.sh's N-1 formula puts "[success=1 default=ignore]" on our
+# own line, inserted directly after pam_unix's and before the marker
+# pam_namespace appended at the very end of the same file.
+SDDM_PAMFILE="$SCRATCH_ROOT/etc/pam.d/sddm"
+MARKER="# omarchy-kids: parent-unlock verifier (R-SEC-2, R-SEC-3)"
+PAM_EXEC_LINE="pam_exec.so quiet expose_authtok /usr/bin/omarchy-kids-parent-auth"
+check_eq "$(grep -c "^$MARKER\$" "$SDDM_PAMFILE")" "1" "pam.d/sddm: parent-unlock marker inserted exactly once"
+check_eq "$(grep -c "^auth       \[success=1 default=ignore\]  $PAM_EXEC_LINE\$" "$SDDM_PAMFILE")" "1" \
+    "pam.d/sddm: parent-unlock line uses success=1 (N-1, pam_unix had success=2)"
+expected_sddm=$'#%PAM-1.0\nauth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120\n-auth      [success=3 default=ignore]  pam_systemd_home.so\nauth       [success=2 default=ignore]  pam_unix.so try_first_pass nullok\n'"$MARKER"$'\nauth       [success=1 default=ignore]  '"$PAM_EXEC_LINE"$'\nauth       [default=die]               pam_faillock.so authfail deny=10 unlock_time=120\nauth       optional                    pam_permit.so\nauth       required                    pam_env.so\nauth       required                    pam_faillock.so authsucc\naccount    include                     system-login\n# omarchy-kids: pam_namespace for kid sessions (R-FND-2a)\nsession required pam_namespace.so'
+check_eq "$(cat "$SDDM_PAMFILE")" "$expected_sddm" "pam.d/sddm: exact resulting file content after add"
+check_contains "$out" "warning: could not add the parent-unlock line to pam.d/hyprlock" \
+    "add: warns (does not fail) when the lock-screen PAM stack doesn't exist yet"
+
 check_contains "$argv" "cryptsetup luksAddKey --batch-mode --key-file=" "add: cryptsetup luksAddKey called"
 check_contains "$argv" "/dev/fake0" "add: cryptsetup ran against the given --luks-device"
 check_contains "$argv" "cryptsetup open --test-passphrase --verbose --key-file=" "add: cryptsetup open --test-passphrase called"
@@ -231,6 +274,8 @@ check_eq "$(count_occurrences "$(cat "$ADMIN_RULE")" 'polkit.addAdminRule')" "1"
     "polkit admin rule still has exactly one rule block after a second add"
 check_eq "$(grep -c '^session required pam_namespace.so$' "$SCRATCH_ROOT/etc/pam.d/sddm")" "1" \
     "pam.d/sddm still has exactly one pam_namespace.so line after a second add"
+check_eq "$(grep -c "^$MARKER\$" "$SCRATCH_ROOT/etc/pam.d/sddm")" "1" \
+    "pam.d/sddm still has exactly one parent-unlock marker after a second add"
 check_eq "$(grep -c "$SLUG-2\$" "$NSCONF")" "2" "namespace.conf gained exactly 2 lines (not more) for the second kid"
 check_eq "$(grep -c "^0=mark:omarchy.desktop\$" "$ETC/luks-slots")" "1" \
     "luks-slots still has exactly one slot-0 line after a second add"

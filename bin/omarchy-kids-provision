@@ -97,6 +97,19 @@ run() {
     fi
 }
 
+# ensure_parent_unlock_soft STACK — posture_ensure_parent_unlock_line
+# through `run` (so DRY_RUN=1's default just prints the plan), but never
+# aborts the add: a target PAM stack this box hasn't written yet (no
+# omarchy-lock-password, no hyprlock configured) is a warning, not a
+# reason to fail provisioning the account. omarchy-kids-assert is what
+# re-asserts this lock going forward once the stack does exist.
+ensure_parent_unlock_soft() {
+    local stack="$1"
+    if ! run posture_ensure_parent_unlock_line "$stack"; then
+        echo "warning: could not add the parent-unlock line to pam.d/$stack (see stderr above)" >&2
+    fi
+}
+
 is_valid_band() {
     local b="$1" v
     for v in "${VALID_BANDS[@]}"; do [[ "$v" == "$b" ]] && return 0; done
@@ -362,6 +375,15 @@ cmd_add() {
     run posture_add_namespace_lines "$account"
     run posture_ensure_pam_namespace sddm
     run posture_ensure_pam_namespace systemd-user
+
+    # R-SEC-2: the parent-unlock verifier line (docs/authd.md), machine-level
+    # and idempotent -- every kid's "add" calls this, but lib/posture.sh's
+    # own marker check means only the first one that finds each stack ready
+    # actually changes anything. Soft-fails (a warning, not a die): the lock
+    # screen's PAM stack may not exist yet on this box (omarchy-apply-lock
+    # hasn't run), and provisioning a kid should not be blocked on that.
+    ensure_parent_unlock_soft sddm
+    ensure_parent_unlock_soft "$(posture_parent_unlock_lock_stack)"
 
     # R-SEC-4: a LUKS key slot, only when there's a password and a device.
     if (( want_password )); then

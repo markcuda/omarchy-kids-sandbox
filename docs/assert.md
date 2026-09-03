@@ -59,6 +59,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `polkit-admin` | `/etc/polkit-1/rules.d/40-omarchy-kids.rules` names the parent from `machine.conf` (R-FND-3) | `posture_write_polkit_admin_rule` |
 | `polkit-deny` | `/etc/polkit-1/rules.d/41-omarchy-kids-deny.rules` (R-FND-4) | `posture_write_polkit_deny_rule` |
 | `pam:sddm`, `pam:systemd-user` | The `pam_namespace` marker + line in `/etc/pam.d/sddm` and `/etc/pam.d/systemd-user` (R-FND-2a) | `posture_ensure_pam_namespace`, seeding from `/usr/lib/pam.d` when needed |
+| `parent-unlock:sddm`, `parent-unlock:<lock-stack>` | The parent-unlock marker + `pam_exec.so … omarchy-kids-parent-auth` line, right after the stack's `auth … pam_unix.so` line (R-SEC-2, R-SEC-3; `docs/authd.md`). `<lock-stack>` is `omarchy-lock-password` if it exists on this box, else `hyprlock` (`posture_parent_unlock_lock_stack`). "ok" if the stack file doesn't exist at all — nothing to disprove, same shape as `boot-hook` below | `posture_ensure_parent_unlock_line`; **fails** (reports `FAIL`, not `fixed`) if the stack exists but has lost its `pam_unix.so` anchor line — this command never reconstructs a vendor PAM stack from nothing, only the one line it owns |
 | `getty:tty2` .. `getty:tty6` | Each unit is masked — a symlink to `/dev/null` at `/etc/systemd/system/getty@ttyN.service` (R-FND-5), read directly rather than shelled out to `systemctl` | `systemctl mask getty@ttyN.service` |
 | `hyprland-configs` | Every `*.lua` under `$OMARCHY_KIDS_SHARE/hyprland` is byte-identical to its copy under `/etc/omarchy-kids/hyprland` (R-DESK-1) | `omarchy-kids-session --install-configs` if that ever exists (it does not yet in this checkout — verified by grep before writing this), else copies the files directly |
 | `chromium-policy:<band>` | *Only for policy files that already exist* — `/etc/chromium/policies/managed/omarchy-kids-<band>.json` is mode `0640` (R-WEB-1) | `chmod 0640`; group ownership (`root:omarchy-kids-<band>`) is attempted best-effort and never decides ok/fixed/FAIL (see "Judgment calls") |
@@ -112,6 +113,13 @@ nothing at all.
   would make the test suite red on a laptop that was never supposed to run this as root in the
   first place. `chmod`, which *does* work as the file's own owner, is what ok/fixed/FAIL is based
   on.
+- **`parent-unlock:*` can report `FAIL` forever if a PAM stack's own `pam_unix.so` anchor line
+  is gone**, e.g. someone deletes `/etc/pam.d/sddm` outright (`test/shell.d/assert-test.sh`
+  exercises exactly this). `posture_ensure_pam_namespace`'s own fix only ever restores the one
+  `pam_namespace` session line it owns, never a full vendor stack, so once the anchor is gone
+  there is nothing left for `posture_ensure_parent_unlock_line` to insert after either — that's a
+  human/package-reinstall problem, not one this command can self-heal, and it says so with `FAIL`
+  rather than silently reporting `ok` for a lock it can't actually verify.
 - **The Chromium policy and hyprland-config locks never create files that don't already exist.**
   No writer for `/etc/chromium/policies/managed/omarchy-kids-<band>.json`'s *content* exists in
   this repo yet (confirmed by grep before writing this: `bin/omarchy-kids-session-start` reads

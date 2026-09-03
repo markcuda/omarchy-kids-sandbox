@@ -247,6 +247,21 @@ pam_ok() {
 }
 pam_fix() { posture_ensure_pam_namespace "$1"; }
 
+# parent-unlock (R-SEC-2, R-SEC-3): the pam_exec line docs/authd.md
+# describes, on sddm and on whichever lock-screen stack this box actually
+# has (posture_parent_unlock_lock_stack). "ok" if the stack doesn't exist
+# at all on this box (nothing to disprove -- same shape as boot_hook_ok,
+# chromium_ok's directory guard, limine_editor_ok below); the fix can
+# still fail and report FAIL if the stack exists but has no pam_unix.so
+# line to anchor on, same as every other lock here.
+parent_unlock_ok() {
+    local file
+    file="$(posture_pam_dir)/$1"
+    [[ -f "$file" ]] || return 0
+    grep -qxF "$(posture_parent_unlock_marker)" "$file"
+}
+parent_unlock_fix() { posture_ensure_parent_unlock_line "$1"; }
+
 # getty@tty2..6 masked (R-FND-5): masking is nothing more than a symlink
 # to /dev/null at the unit's path -- the same thing `systemctl mask`
 # itself does, --root or not, without needing a live systemd -- so the
@@ -397,6 +412,11 @@ main() {
     assert_one "polkit-deny" polkit_deny_ok polkit_deny_fix
     assert_one "pam:sddm" pam_ok pam_fix sddm
     assert_one "pam:systemd-user" pam_ok pam_fix systemd-user
+
+    local lock_stack
+    lock_stack="$(posture_parent_unlock_lock_stack)"
+    assert_one "parent-unlock:sddm" parent_unlock_ok parent_unlock_fix sddm
+    assert_one "parent-unlock:$lock_stack" parent_unlock_ok parent_unlock_fix "$lock_stack"
 
     local n
     for n in 2 3 4 5 6; do

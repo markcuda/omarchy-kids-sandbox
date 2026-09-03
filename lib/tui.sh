@@ -68,15 +68,10 @@ TUI_ANSWERS_I=0
 # The card's max width (issue #50: min(TUI_CARD_WIDTH, terminal width - 4),
 # never wider) — _tui_measure resolves TUI_CARD_W (this render's actual
 # width) and TUI_CARD_LEFT (the left margin that centers it) from it every
-# card-mode render. TUI_CARD_BORDER_COLOR is the open card's own border
-# color (accent, or the theme's error color mid-validation) — tui_header
-# sets it when it opens a card; _tui_card_close reads it back to close that
-# same card in the same color. Card mode only; plain mode never reads any
-# of these.
+# card-mode render. Card mode only; plain mode never reads either.
 TUI_CARD_WIDTH=72
 TUI_CARD_W=""
 TUI_CARD_LEFT=0
-TUI_CARD_BORDER_COLOR=""
 
 # Colors tui_init resolves via lib/theme.sh's theme_color, in the hex form
 # gum's --foreground and --border-foreground already accept. theme_color's
@@ -210,21 +205,31 @@ _tui_clear() {
 }
 
 # _tui_measure — sets TUI_CARD_W to min(TUI_CARD_WIDTH, terminal width - 4)
-# (issue #50's live-screenshot pass: a 4-column breathing margin on a wide
-# terminal, never a card touching the edges) and TUI_CARD_LEFT to the left
-# margin that centers it, then exports GUM_CHOOSE_PADDING/GUM_INPUT_PADDING/
-# GUM_CONFIRM_PADDING to line the chooser/input's own left edge up with the
-# card's text (TUI_CARD_LEFT plus the card's own "│ " — one column border,
-# one column padding) instead of hugging the terminal's left edge — the
-# same measure-then-pad-every-widget trick omarchy-provision-owner's
-# measure_terminal uses (v4.0.2). `stty size` (the exact probe
-# measure_terminal itself uses) is tried first — a real ioctl on the
-# controlling tty, immune to a stale exported $COLUMNS lying about the
-# terminal's actual width; `tput cols` (also what a stubbed test fakes) is
-# the fallback when `stty` isn't there or isn't attached to a tty (e.g. this
-# capture in a test); COLUMNS, then a fixed 80, are the last resorts. Card
-# mode only; plain mode never calls this, so it can never affect the
-# byte-for-byte output every existing test already parses.
+# (a 4-column breathing margin on a wide terminal, never a card touching
+# the edges) and TUI_CARD_LEFT to the left margin that centers it, then
+# exports two things every widget a screen shows next needs to read as
+# "part of the same card" (issue #50, third live-screenshot pass — the
+# second pass's own hand-drawn border came out broken in real use: right
+# edges landing in different columns row to row, the box never visibly
+# closing. gum owns the one border this file draws now; everything below
+# is just lining gum's *other* widgets up under it):
+#   - GUM_CHOOSE_PADDING/GUM_INPUT_PADDING/GUM_CONFIRM_PADDING, to
+#     TUI_CARD_LEFT plus the card's own left inset (`--padding "1 2"`) —
+#     the same measure-then-pad-every-widget trick omarchy-provision-
+#     owner's measure_terminal uses (v4.0.2) — so the chooser/input starts
+#     at the same column the card's own text does, not the terminal's edge.
+#   - GUM_CHOOSE_SHOW_HELP/GUM_INPUT_SHOW_HELP/GUM_CONFIRM_SHOW_HELP=false,
+#     so gum's own keybind help line ("↑/↓: choose • enter: select") never
+#     prints — tui_screen_choose/input/confirm print their own instead, in
+#     the theme's muted color, the same wording every screen already used.
+# `stty size` (the exact probe measure_terminal itself uses) is tried
+# first — a real ioctl on the controlling tty, immune to a stale exported
+# $COLUMNS lying about the terminal's actual width; `tput cols` (also what
+# a stubbed test fakes) is the fallback when `stty` isn't there or isn't
+# attached to a tty (e.g. this capture in a test); COLUMNS, then a fixed
+# 80, are the last resorts. Card mode only; plain mode never calls this,
+# so it can never affect the byte-for-byte output every existing test
+# already parses.
 _tui_measure() {
     local cols="" sz
     sz="$(stty size 2>/dev/null || true)"
@@ -245,92 +250,7 @@ _tui_measure() {
 
     local pad="0 0 0 $((TUI_CARD_LEFT + 2))"
     export GUM_CHOOSE_PADDING="$pad" GUM_INPUT_PADDING="$pad" GUM_CONFIRM_PADDING="$pad"
-}
-
-# _tui_styled TEXT FLAGS... — TEXT styled via gum, captured. gum/lipgloss
-# (like any termenv-based tool) disable color the moment their own stdout
-# isn't a tty — true of any $(...) capture — so CLICOLOR_FORCE=1 forces it
-# anyway, the standard override every such tool honors; this is only ever
-# used to build one printed card line out of several independently-colored
-# fragments (_tui_card_row/_tui_card_rule below), never for a caller's own
-# gum call to a real terminal. Falls back to the plain, unstyled text when
-# gum isn't installed.
-_tui_styled() {
-    local text="$1"
-    shift
-    if ((TUI_HAVE_GUM)); then
-        CLICOLOR_FORCE=1 gum style "$@" -- "$text"
-    else
-        printf '%s' "$text"
-    fi
-}
-
-# _tui_card_rule LEFT WIDTH COLOR CORNER_L CORNER_R — one top/bottom card
-# border row (issue #50): CORNER_L, WIDTH-2 dashes, CORNER_R, all in COLOR,
-# indented LEFT columns.
-_tui_card_rule() {
-    local left="$1" width="$2" color="$3" cl="$4" cr="$5"
-    local dashes
-    printf -v dashes '%*s' "$((width - 2))" ''
-    dashes="${dashes// /─}"
-    printf '%*s%s\n' "$left" '' "$(_tui_styled "${cl}${dashes}${cr}" --foreground "$color")"
-}
-
-# _tui_card_row LEFT LINE INNER_W BORDER_COLOR FLAGS... — one card content
-# row (issue #50): a BORDER_COLOR "│", one already-single-line LINE padded
-# to INNER_W and styled with FLAGS, another "│", indented LEFT columns.
-# LINE is padded *before* styling — gum's own ANSI codes around it are
-# zero-width but would still throw off `printf`'s own width count if
-# padding happened after. Wrapping a longer TEXT into LINEs first is
-# _tui_card_wrapped_row's job, below — this function only ever draws one.
-_tui_card_row() {
-    local left="$1" line="$2" inner_w="$3" border_color="$4"
-    shift 4
-    local padded
-    printf -v padded '%-*s' "$inner_w" "$line"
-    local pipe body
-    pipe="$(_tui_styled '│' --foreground "$border_color")"
-    body="$(_tui_styled "$padded" "$@")"
-    printf '%*s%s %s %s\n' "$left" '' "$pipe" "$body" "$pipe"
-}
-
-# _tui_card_wrapped_row LEFT TEXT INNER_W BORDER_COLOR FLAGS... — one or
-# more _tui_card_row calls: TEXT wrapped to INNER_W columns first (`gum
-# style --width`, which both wraps *and* pads every resulting line to
-# exactly that width — the second live-screenshot pass found Omy's voice
-# line and a screen's body text running past the card's own right edge
-# without this), then each wrapped line drawn as its own row, all in the
-# same FLAGS. Falls back to one padded, un-wrapped row when gum isn't
-# installed (no wrapping engine to fall back to; same limitation
-# _tui_style's own fallback already accepts elsewhere in this file).
-_tui_card_wrapped_row() {
-    local left="$1" text="$2" inner_w="$3" border_color="$4"
-    shift 4
-    local -a lines=()
-    if ((TUI_HAVE_GUM)); then
-        local wrapped
-        wrapped="$(gum style --width "$inner_w" -- "$text")"
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            lines+=("$line")
-        done <<<"$wrapped"
-    else
-        lines=("$text")
-    fi
-    local line
-    for line in "${lines[@]}"; do
-        _tui_card_row "$left" "$line" "$inner_w" "$border_color" "$@"
-    done
-}
-
-# _tui_card_close — draws the bottom rule that closes the card tui_header
-# opened, in TUI_CARD_BORDER_COLOR (the same color the top used). Card mode
-# only (plain mode's box already closes itself in one `gum style` call);
-# every tui_screen_* function below calls this right after its own
-# gum choose/input/confirm returns, so the rule lands right where that
-# widget's own (self-clearing) view just was.
-_tui_card_close() {
-    _tui_card_mode || return 0
-    _tui_card_rule "$TUI_CARD_LEFT" "$TUI_CARD_W" "$TUI_CARD_BORDER_COLOR" "╰" "╯"
+    export GUM_CHOOSE_SHOW_HELP=false GUM_INPUT_SHOW_HELP=false GUM_CONFIRM_SHOW_HELP=false
 }
 
 # _tui_style FLAGS... -- TEXT... — the one place gum style is called.
@@ -375,20 +295,29 @@ _tui_footer() {
 #     body lines (tui_screen_confirm, tui_screen_summary) prints them
 #     itself right after, the way it always has.
 #   - card mode: clears the screen (_tui_clear), measures it
-#     (_tui_measure), and draws ONE card — a muted "Kids Mode · Step n of
-#     N" caption, the title in bold, Omy (glyph + voice line, accent —
-#     Welcome/Done only), then BODY_ARRAYNAME's lines when a caller passes
-#     one, all as rows of the *same* card (_tui_card_row: a real per-row
-#     color each, not `gum style`'s one-color-for-the-whole-box limit —
-#     see _tui_styled). ERROR=1 (tui_screen_input's failed-validator case)
-#     turns the card's own border the theme's error color. The card is
-#     left OPEN here (no bottom rule) — a caller with its own widget
-#     (gum choose/input/confirm) runs it next, indented to line up with
-#     the card's text (_tui_measure's GUM_*_PADDING) and with its own
-#     header suppressed (nothing to repeat — the title's already in the
-#     card), then calls _tui_card_close itself once the widget returns.
-#     tui_screen_summary has no widget of its own, so it closes the card
-#     right away instead.
+#     (_tui_measure), and draws ONE closed card — a single
+#     `gum style --border rounded --padding "1 2"` call over every line
+#     (the "Kids Mode · Step n of N" caption, the title, Omy's glyph and
+#     voice line when SHOW_OMY is 1, then BODY_ARRAYNAME's lines when a
+#     caller passes one) — the third live-screenshot pass (issue #50):
+#     hand-drawing the border per row (round two) came out broken in real
+#     use, right edges landing in different columns row to row and the box
+#     never visibly closing. One `gum style` call is what actually renders
+#     a reliable, always-closed box; the tradeoff is every line shares one
+#     color (gum strips any color a caller tries to pre-bake into a line
+#     before handing it to a second `gum style` call — confirmed directly,
+#     not assumed), so this picks one readable foreground rather than the
+#     distinct per-row colors an earlier pass asked for. ERROR=1
+#     (tui_screen_input's failed-validator case) turns the card's border
+#     (and text) the theme's error color. The chooser/input/confirm a
+#     caller shows next isn't inside this box — gum has no widget that
+#     nests inside another one — it just runs directly below, indented to
+#     the card's own left edge (_tui_measure's GUM_*_PADDING) with its own
+#     header/prompt and default help line both suppressed (nothing to
+#     repeat — the title's already the card's own line; _tui_measure's
+#     GUM_*_SHOW_HELP=false), and the caller prints its own help line in
+#     the muted color right after, the same wording every screen already
+#     used.
 tui_header() {
     local title="$1" step="$2" total="$3" show_omy="$4" omy_line="${5:-}"
     local body_argname="${6:-}" errflag="${7:-0}"
@@ -397,37 +326,29 @@ tui_header() {
         _tui_clear
         _tui_measure
 
-        local border_color="$TUI_C_ACCENT"
-        [[ "$errflag" == 1 ]] && border_color="$TUI_C_ERROR"
-        TUI_CARD_BORDER_COLOR="$border_color"
-        local inner_w=$((TUI_CARD_W - 4))
-        ((inner_w < 1)) && inner_w=1
+        local card_color="$TUI_C_FG" border_color="$TUI_C_ACCENT"
+        if [[ "$errflag" == 1 ]]; then
+            card_color="$TUI_C_ERROR"
+            border_color="$TUI_C_ERROR"
+        fi
 
-        _tui_card_rule "$TUI_CARD_LEFT" "$TUI_CARD_W" "$border_color" "╭" "╮"
-        _tui_card_row "$TUI_CARD_LEFT" "Kids Mode · Step ${step} of ${total}" "$inner_w" "$border_color" \
-            --foreground "$TUI_C_MUTED"
-        _tui_card_wrapped_row "$TUI_CARD_LEFT" "$title" "$inner_w" "$border_color" \
-            --foreground "$TUI_C_FG" --bold
-
+        local -a lines=("Kids Mode · Step ${step} of ${total}" "$title")
         if [[ "$show_omy" == 1 ]]; then
-            _tui_card_row "$TUI_CARD_LEFT" "🦉 Omy" "$inner_w" "$border_color" \
-                --foreground "$TUI_C_ACCENT" --bold
-            if [[ -n "$omy_line" ]]; then
-                _tui_card_wrapped_row "$TUI_CARD_LEFT" "$omy_line" "$inner_w" "$border_color" \
-                    --foreground "$TUI_C_ACCENT" --italic
-            fi
+            lines+=("🦉 Omy")
+            [[ -n "$omy_line" ]] && lines+=("$omy_line")
         fi
 
         local -a _tui_hdr_body=()
         [[ -n "$body_argname" ]] && _tui_array_copy _tui_hdr_body "$body_argname"
         if ((${#_tui_hdr_body[@]})); then
-            _tui_card_row "$TUI_CARD_LEFT" "" "$inner_w" "$border_color"
+            lines+=("")
             local b
-            for b in "${_tui_hdr_body[@]}"; do
-                _tui_card_wrapped_row "$TUI_CARD_LEFT" "$b" "$inner_w" "$border_color" --foreground "$TUI_C_FG"
-            done
+            for b in "${_tui_hdr_body[@]}"; do lines+=("$b"); done
         fi
-        _tui_card_row "$TUI_CARD_LEFT" "" "$inner_w" "$border_color"
+
+        _tui_style --border rounded --padding "1 2" --margin "1 0 1 $TUI_CARD_LEFT" \
+            --width "$TUI_CARD_W" --foreground "$card_color" --border-foreground "$border_color" -- \
+            "${lines[@]}"
     else
         if [[ "$show_omy" == 1 ]]; then
             _tui_style --foreground "$TUI_C_ACCENT" --bold -- "🦉 Omy"
@@ -520,8 +441,9 @@ tui_screen_choose() {
             for d in "${display[@]+"${display[@]}"}"; do _tui_style "${dm[@]+"${dm[@]}"}" -- "$d"; done
         fi
         # Plain mode's footer sits above the prompt, exactly as before
-        # issue #50; card mode's sits below the closed card instead — see
-        # the _tui_card_close call below.
+        # issue #50; card mode's sits below the widget instead (gum's own
+        # help line is off — _tui_measure's GUM_CHOOSE_SHOW_HELP=false —
+        # so this is the only help text a card-mode screen shows).
         _tui_card_mode || _tui_footer "$footer"
 
         local chosen
@@ -532,9 +454,8 @@ tui_screen_choose() {
             local -a gflags=()
             if _tui_card_mode; then
                 # No --header text: the title's already the card's own
-                # second row, so gum's own header would just repeat it
-                # (issue #50's second screenshot pass). The list still
-                # renders — it just isn't handed a title of its own.
+                # second line, so gum's own header would just repeat it.
+                # The list still renders — it just isn't handed a title.
                 gflags+=(--header "")
             else
                 gflags+=(--header "$title")
@@ -546,9 +467,8 @@ tui_screen_choose() {
             [[ -n "$default_display" ]] && gflags+=(--selected "$default_display")
             chosen="$(gum choose "${gflags[@]}" -- "${display[@]+"${display[@]}"}")"
             case $? in
-                1) _tui_card_close; return 1 ;;
+                1) return 1 ;;
                 130)
-                    _tui_card_close
                     if _tui_confirm_leave; then return 130; else continue; fi
                     ;;
             esac
@@ -556,7 +476,6 @@ tui_screen_choose() {
             read -r -p "> " chosen
         fi
 
-        _tui_card_close
         _tui_card_mode && _tui_footer "$footer"
 
         if [[ "$chosen" == "$TUI_ANS_ESC" ]]; then return 1; fi
@@ -620,8 +539,9 @@ tui_screen_input() {
             [[ -n "$last_err" ]] && _tui_style --foreground "$TUI_C_ERROR" -- "$last_err"
         fi
         # Plain mode's footer sits above the prompt, exactly as before
-        # issue #50; card mode's sits below the closed card instead — see
-        # the _tui_card_close call below.
+        # issue #50; card mode's sits below the widget instead (gum's own
+        # help line is off — _tui_measure's GUM_INPUT_SHOW_HELP=false —
+        # so this is the only help text a card-mode screen shows).
         _tui_card_mode || _tui_footer "$footer"
 
         local ans
@@ -633,9 +553,8 @@ tui_screen_input() {
             [[ "$kind" == password ]] && gflags+=(--password)
             ans="$(gum input "${gflags[@]}")"
             case $? in
-                1) _tui_card_close; return 1 ;;
+                1) return 1 ;;
                 130)
-                    _tui_card_close
                     if _tui_confirm_leave; then return 130; else continue; fi
                     ;;
             esac
@@ -648,7 +567,6 @@ tui_screen_input() {
             fi
         fi
 
-        _tui_card_close
         _tui_card_mode && _tui_footer "$footer"
 
         if [[ "$ans" == "$TUI_ANS_ESC" ]]; then return 1; fi
@@ -696,18 +614,15 @@ tui_screen_confirm() {
         ans="$TUI_NEXT_ANSWER"
         case "$ans" in
             "$TUI_ANS_CTRLC")
-                _tui_card_close
                 TUI_REPLY=""
                 return 130
                 ;;
             "$TUI_ANS_ESC" | no | n | No | N)
-                _tui_card_close
                 _tui_card_mode && _tui_footer "$footer"
                 TUI_REPLY="no"
                 return 1
                 ;;
             yes | y | Yes | Y)
-                _tui_card_close
                 _tui_card_mode && _tui_footer "$footer"
                 TUI_REPLY="yes"
                 return 0
@@ -721,13 +636,15 @@ tui_screen_confirm() {
         # No prompt text in card mode: the title (and any body) is already
         # the card's own content, so gum's own prompt line would just
         # repeat it — same reasoning as tui_screen_choose's --header "".
+        # gum's own help line is off too (_tui_measure's
+        # GUM_CONFIRM_SHOW_HELP=false); the footer below is the only help
+        # text a card-mode screen shows.
         if _tui_card_mode; then
             gum confirm --affirmative "$affirm" --negative "$decline"
         else
             gum confirm --affirmative "$affirm" --negative "$decline" -- "$title"
         fi
         local rc=$?
-        _tui_card_close
         _tui_card_mode && _tui_footer "$footer"
         if [[ $rc == 0 ]]; then
             TUI_REPLY="yes"
@@ -737,7 +654,6 @@ tui_screen_confirm() {
         return $rc
     else
         read -r -p "$title [$affirm/$decline] " ans
-        _tui_card_close
         _tui_card_mode && _tui_footer "$footer"
         if [[ "$ans" =~ ^[Yy] ]]; then
             TUI_REPLY="yes"
@@ -776,10 +692,6 @@ tui_screen_summary() {
 
     if _tui_card_mode; then
         tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_summary_lines
-        # No widget of its own (spec A13's pure display screen) — close the
-        # card immediately rather than leaving it open for a caller to
-        # close later, the way tui_screen_choose/input/confirm do.
-        _tui_card_close
     else
         tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
         local l

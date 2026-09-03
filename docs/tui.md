@@ -42,13 +42,18 @@ two ways, decided once per call by `_tui_card_mode`:
   clear) or `OMARCHY_KIDS_TUI_PLAIN=1` is set explicitly.
 - **card** — a real terminal, neither of those set: clears the screen at every step (`_tui_clear`,
   the same external `clear` `omarchy-provision-owner`'s `clear_logo` calls at v4.0.2) and draws one
-  centered, width-bounded card holding *everything* — the step line, the title, Omy, and any body
-  text — with the screen's own chooser/input/confirm indented to line up underneath it. This is
-  issue #50's fix, in two passes: the first live-screenshot round showed the wizard never clearing
-  (Welcome, the password screen, and the name screen all stacking down the terminal) and printing
-  every `tui_screen_choose` list twice (once by hand, once by `gum choose` itself); the second round
-  showed the card itself holding *only* the title, with the step line, Omy, and the body sitting
-  above it, and the chooser sitting below the help line, outside the card entirely.
+  closed, centered, width-bounded card holding *everything* — the step line, the title, Omy, and any
+  body text — with the screen's own chooser/input/confirm rendered below it, at the same left
+  indent. Issue #50's fix, in three live-screenshot passes: the first showed the wizard never
+  clearing (Welcome, the password screen, and the name screen all stacking down the terminal) and
+  printing every `tui_screen_choose` list twice (once by hand, once by `gum choose` itself); the
+  second showed the card holding *only* the title, with the step line, Omy, and the body sitting
+  above it outside the card; the third — after a hand-drawn, per-row-colored border replaced the
+  single `gum style --border rounded` call to get everything into one card — showed *that* border
+  broken in real use, right edges landing in different columns row to row and the box never visibly
+  closing. This is that single `gum style --border rounded` call again, now over the *whole* text
+  block (step line through body) rather than just the title, which is what actually renders a
+  reliable, always-closed box.
 
 Nothing about the *data* a screen passes changes between the two — a caller never knows or cares
 which one is rendering. Only `lib/tui.sh` itself branches on `_tui_card_mode`.
@@ -57,8 +62,8 @@ which one is rendering. Only `lib/tui.sh` itself branches on `_tui_card_mode`.
 
 ```text
     ╭──────────────────────────────────────────╮
-    │ Kids Mode · Step 3 of 15                  │
-    │ What can Ada see on the web?               │
+    │  Kids Mode · Step 3 of 15                 │
+    │  What can Ada see on the web?              │
     │                                             │
     ╰──────────────────────────────────────────╯
       1) Only sites you choose — A short list you can grow.
@@ -67,32 +72,28 @@ which one is rendering. Only `lib/tui.sh` itself branches on `_tui_card_mode`.
     Enter continue · Esc back · Ctrl+C leave (nothing changes)
 ```
 
-Every row is a real row of the same card — the muted step line, the title in bold, Omy's glyph and
-voice line (accent, italic — Welcome/Done only) right under it, then any body text, then a blank
-row before the card's own bottom edge. `gum style` can only apply one color to an entire box, so a
-card with several differently-colored rows can't be one `gum style --border rounded` call the way
-the plain box still is — `_tui_card_row`/`_tui_card_rule` draw the `│`/`─`/corner characters and
-each row's text as separate, individually-colored `gum style` calls instead (`_tui_styled`, which
-forces color through even though its output is captured — gum disables color for any non-tty
-writer by default, `$(...)` included), assembled onto one printed line per row. A row longer than
-the card wraps first (`_tui_card_wrapped_row`, `gum style --width`) rather than running past the
-right edge.
+One `_tui_style --border rounded --padding "1 2"` call over every line — the step line, the title,
+Omy's glyph and voice line (Welcome/Done only), then any body text — so the box always closes
+itself; there's no separate top/bottom-rule step to get out of sync with the content. The tradeoff:
+`gum style` applies one color to its whole box, and confirmed directly (not assumed) — gum strips
+any ANSI a caller pre-bakes into a line before handing it a second `gum style` call — so a card
+can't actually mix a muted step line with a bold title and an accent Omy line the way an earlier
+pass tried; this picks one readable foreground for the whole card instead (the theme's error color
+instead, border included, when `tui_screen_input`'s validator just failed).
 
 gum has no widget that draws *inside* another one, so the chooser/input/confirm a screen shows next
-isn't literally nested in the card `gum style` renders — the card is left open (no bottom rule) when
-`tui_header` finishes, the widget runs immediately after with no header/prompt text of its own
-(nothing to repeat — the title's already the card's own second row) and the same left indent as the
-card's text (`_tui_measure`'s `GUM_CHOOSE_PADDING`/`GUM_INPUT_PADDING`/`GUM_CONFIRM_PADDING`, the
-same measure-then-pad-every-widget trick `omarchy-provision-owner`'s `measure_terminal` uses at
-v4.0.2), and only once it returns does the caller draw the bottom rule (`_tui_card_close`) — right
-where the widget's own self-clearing view just was, closing the card around it. A screen with no
-widget of its own (`tui_screen_summary`) closes the card immediately instead. A failed
-`tui_screen_input` validator turns the *whole* card the theme's error color on the redraw that
-follows (gum can't color one line inside a card differently than the rest) and adds the error text
-as another row in it, rather than printing a separate line off to the side.
+isn't literally nested in the card — it renders directly below, with no header/prompt text of its
+own (nothing to repeat — the title's already in the card), no keybind help line of its own either
+(`_tui_measure`'s `GUM_CHOOSE_SHOW_HELP`/`GUM_INPUT_SHOW_HELP`/`GUM_CONFIRM_SHOW_HELP=false` — a
+screen prints its own help line in the muted color instead, the same wording it always did), and the
+same left indent as the card's own text (`GUM_CHOOSE_PADDING`/`GUM_INPUT_PADDING`/
+`GUM_CONFIRM_PADDING`, the same measure-then-pad-every-widget trick `omarchy-provision-owner`'s
+`measure_terminal` uses at v4.0.2).
 
 Width is `min(72, terminal width − 4)`, centered — never wider than 72 columns even on a very wide
-terminal, and never touching the edges on a narrow one (`_tui_measure`).
+terminal, and never touching the edges on a narrow one. `_tui_measure` tries `stty size` first (a
+real ioctl on the controlling tty, immune to a stale exported `$COLUMNS`), falling back to
+`tput cols`.
 
 ## Colors
 

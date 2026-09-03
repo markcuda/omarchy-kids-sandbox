@@ -188,15 +188,28 @@ portal_login() {
     return 1
 }
 
-# portal_reset [DEADLINE] — asks SDDM for a fresh greeter over whatever session is currently
-# active, the same D-Bus call V1 verified works both ways without disturbing the session
-# underneath (SPEC.md V1, docs/phase1/V1.md, scripts/v1-two-sessions.sh). This does not log anyone
-# out — Finish (docs/exit.md) is the only documented way to end a kid's session — it only gets a
-# login prompt on screen so portal_login has tiles to navigate. A session left running underneath
-# is a known limitation of using this instead of a real logout; see docs/live-tests.md.
+# portal_reset [DEADLINE] — gets a fresh greeter on screen the only way SDDM 0.21 on Omarchy 4.0.2
+# allows (docs/exit.md, docs/phase1/V1.md): a clean compositor exit of whatever seat0 session is
+# active. SwitchToGreeter over D-Bus fails with HELPER_TTY_ERROR and, on the laptop, revoked the
+# input devices; a hard terminate leaves SDDM with no greeter at all. If nothing is on seat0 (a
+# black screen), restart SDDM (the owner's stock autologin fires) and exit that session cleanly.
 portal_reset() {
-    vm 'dbus-send --system --print-reply --dest=org.freedesktop.DisplayManager /org/freedesktop/DisplayManager/Seat0 org.freedesktop.DisplayManager.Seat.SwitchToGreeter' >/dev/null 2>&1
-    assert_greeter "${1:-30}"
+    local deadline="${1:-45}" who
+    who="$(vmroot "loginctl list-sessions --no-legend | awk '\$4==\"seat0\"{print \$3}' | head -1" 2>/dev/null | tr -d '[:space:]')"
+    case "$who" in
+        sddm) : ;;  # the greeter is already up
+        "")   vmroot "systemctl restart sddm; sleep 16"
+              who="$LIVE_OWNER_ACCOUNT"; portal_clean_exit "$who" ;;
+        *)    portal_clean_exit "$who" ;;
+    esac
+    assert_greeter "$deadline"
+}
+
+# portal_clean_exit ACCOUNT — asks ACCOUNT's Hyprland to exit through the Lua dispatcher, from
+# root, with the instance signature read off /run/user/<uid>/hypr/ (docs/exit.md).
+portal_clean_exit() {
+    local acct="$1"
+    vmroot "uid=\$(id -u '$acct'); sig=\$(ls /run/user/\$uid/hypr/ 2>/dev/null | head -1); [ -n \"\$sig\" ] && runuser -u '$acct' -- env XDG_RUNTIME_DIR=/run/user/\$uid HYPRLAND_INSTANCE_SIGNATURE=\$sig hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1; true"
 }
 
 # --- build / install ---------------------------------------------------------------------

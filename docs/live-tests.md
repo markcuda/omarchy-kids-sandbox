@@ -114,7 +114,7 @@ what state it leaves the VM in; left for a follow-on issue rather than guessed a
   confirmed live with more than two kid tiles.** `lib.sh`'s own comment on `portal_login` has the
   full reasoning (the Left/Right clamp, the "overshoot Left, then Right to the target index"
   trick) and the citation.
-- **`portal_reset` uses `SwitchToGreeter`** (the same D-Bus call V1 verified — docs/phase1/V1.md),
+- **`portal_reset` uses `a clean compositor exit (SwitchToGreeter fails on 4.0.2 and revoked the laptop's input devices once)`** (the same D-Bus call V1 verified — docs/phase1/V1.md),
   which puts a fresh greeter on screen without logging out whatever session is already running
   underneath. That's fine for what these scenarios check (they only look at the greeter and at
   the specific kid's session state), but it means a scenario that runs after a crashed prior run

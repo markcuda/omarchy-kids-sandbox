@@ -28,7 +28,12 @@ license=('MIT')
 # explicitly rather than assumed, since an extra depends= on an already-
 # satisfied package is a no-op, but a missing one silently ships the
 # letter-circle fallback forever.
-depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg')
+# networkmanager (issue #26, R-WIFI-2): bin/omarchy-kids-wifid shells
+# out to `nmcli` with fixed argument shapes; every current Omarchy
+# install already runs NetworkManager for its own Wi-Fi picker
+# (`omarchy-menu` -> Wi-Fi / `omarchy-launch-wifi`), but this is listed
+# explicitly rather than assumed, same reasoning as qt6-svg above.
+depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg' 'networkmanager')
 optdepends=('socat: faster transport between omarchy-kids-parent-auth and omarchy-kids-authd')
 install=omarchy-kids.install
 source=()
@@ -55,13 +60,15 @@ package() {
 	install -Dm644 etc/mkinitcpio.conf.d/omarchy_kids.conf \
 		"$pkgdir/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 
-	# systemd units (authd socket/service, boot-login + its cleanup unit,
-	# the screen-time ledger's timer/service, R-TIME-1, and the ask-collect timer,
-	# R-ASK-1..3, issue #25).
+	# systemd units (authd socket/service, wifid socket/service (R-WIFI-2,
+	# issue #26), boot-login + its cleanup unit, the screen-time ledger's
+	# timer/service, R-TIME-1, and the ask-collect timer, R-ASK-1..3,
+	# issue #25).
 	install -dm755 "$pkgdir/usr/lib/systemd/system"
 	install -m644 systemd/*.service systemd/*.socket systemd/*.timer "$pkgdir/usr/lib/systemd/system/"
 
-	# Data: bands, packs, hyprland, tui, policy, avatars, menu, sddm-theme.
+	# Data: bands, packs, hyprland, tui, policy, avatars, menu, sddm-theme,
+	# wifi (share/wifi/shell.qml, the kid-facing picker, R-WIFI-1..2).
 	# cp -a preserves the share/ subtree; .gitkeep placeholders are pruned
 	# afterward so empty data dirs still exist without shipping git litter.
 	install -dm755 "$pkgdir/usr/share/omarchy-kids"

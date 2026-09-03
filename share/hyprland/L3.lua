@@ -60,6 +60,11 @@ hl.unbind("SUPER + RETURN")
 -- --- Add: the exit modal bind (Appendix E) -------------------------------
 o.bind("SUPER + SHIFT + K", "Kids Mode: parent", "omarchy-kids-exit")
 
+-- Wi-Fi picker (SPEC.md R-WIFI-1..2, issue #26). See L1.lua's comment on
+-- this same bind for why it is unconditional here (the level configs
+-- are static; the refusal lives in omarchy-kids-wifi picker, not here).
+o.bind("SUPER + SHIFT + W", "Kids Mode: Wi-Fi", "omarchy-kids-wifi picker")
+
 -- The triple-tap gesture (SPEC.md R-EXIT-1: "Super pressed three times
 -- within 1.5s" as an alternative to Super+Shift+K). The release-bind
 -- form is real: /usr/share/omarchy/default/hypr/bindings/voxtype.lua

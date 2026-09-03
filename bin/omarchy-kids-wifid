@@ -1,0 +1,341 @@
+#!/usr/bin/env python3
+"""omarchy-kids-wifid -- the Wi-Fi helper daemon (SPEC.md R-WIFI-2).
+
+A root, socket-activated verifier-and-doer, the same shape as
+bin/omarchy-kids-authd (see docs/authd.md): it accepts one request per
+connection and answers it. Unlike authd it isn't a password oracle --
+every connection is identified by its Unix peer credentials (SO_PEERCRED),
+looked up against that account's `wifi` profile key
+(bin/omarchy-kids-conf, Appendix B), and refused outright unless the
+value is `helper`. Kid accounts are polkit-denied from
+`org.freedesktop.NetworkManager.settings.modify` (lib/posture.sh's
+41-omarchy-kids-deny.rules, R-FND-4), so this is the one path a `helper`
+kid has to `nmcli` at all -- and it only ever runs `nmcli` with a fixed,
+hardcoded argument list (never a shell, never string interpolation into
+a command line) so nothing a kid sends over the socket can smuggle in an
+extra flag.
+
+Every connection it creates is named `kids-<ssid>` and gets
+`ipv4.ignore-auto-dns yes` / `ipv6.ignore-auto-dns yes` plus cleared
+`ipv4.dns` / `ipv6.dns` (R-WIFI-2: "forces ignore-auto-dns and clears
+connection DNS", so a captive network or a school's DNS server can never
+weaken the DoH filtering in the kid's Chromium policy, R-WEB-6/I-1). It
+never reads or writes a connection whose name doesn't start with
+`kids-` -- forget refuses anything else, and join always targets (or
+creates) the `kids-<ssid>` profile rather than an existing bare-named
+one, even if that means two profiles exist for the same SSID.
+
+See docs/wifi.md.
+
+Stdlib only, same as omarchy-kids-authd. Requires Linux (SO_PEERCRED via
+SOL_SOCKET; not available on macOS -- see the guard in main()).
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import pwd
+import signal
+import socket
+import struct
+import subprocess
+import sys
+
+MAX_REQUEST = 4096  # bytes; anything longer (or no EOF within the timeout) is refused
+CLIENT_TIMEOUT = 10.0  # seconds; nmcli device wifi list can take a couple of seconds to rescan
+
+DEFAULT_SOCKET = "/run/omarchy-kids/wifi.sock"
+DEFAULT_CONF_BIN = "/usr/bin/omarchy-kids-conf"
+DEFAULT_NMCLI = "/usr/bin/nmcli"
+
+KIDS_PREFIX = "kids-"
+
+
+class Refused(Exception):
+    """The request is well-formed but this peer/command isn't allowed."""
+
+
+class Failed(Exception):
+    """The request was allowed but nmcli (or similar) reported an error."""
+
+
+# --- who is asking (SO_PEERCRED) -------------------------------------------
+
+
+def peer_uid(conn: socket.socket) -> int:
+    """The connecting process's real uid, from the kernel -- never trust
+    anything the client itself claims to be."""
+    # struct ucred { pid_t pid; uid_t uid; gid_t gid; }, three 32-bit ints
+    # on every Linux architecture this targets (Arch x86_64).
+    creds = conn.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i"))
+    _pid, uid, _gid = struct.unpack("3i", creds)
+    return uid
+
+
+def account_for_uid(uid: int) -> "str | None":
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return None
+
+
+def wifi_mode(account: str, conf_bin: str) -> "str | None":
+    """The account's effective `wifi` profile value (Appendix B: `parent`
+    or `helper`), via omarchy-kids-conf -- the one thing that knows how
+    to resolve override/band/default (docs/conf.md). None if the
+    account has no resolvable profile at all (not a kid account, or a
+    stray uid with no `.conf` file and no band)."""
+    try:
+        out = subprocess.run(
+            [conf_bin, "get", account, "wifi"],
+            capture_output=True, text=True, timeout=5, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    return out.stdout.strip() or None
+
+
+def authorize(conn: socket.socket, conf_bin: str) -> str:
+    """Returns the account name, or raises Refused with a one-line reason."""
+    uid = peer_uid(conn)
+    account = account_for_uid(uid)
+    if not account:
+        raise Refused(f"no account for uid {uid}")
+    mode = wifi_mode(account, conf_bin)
+    if mode != "helper":
+        raise Refused(
+            f"'{account}' is wifi={mode or 'unset'}; only wifi=helper may use this daemon (SPEC.md R-WIFI-1/2)"
+        )
+    return account
+
+
+# --- nmcli, fixed argument shapes only --------------------------------------
+
+
+def run_nmcli(nmcli: str, args: "list[str]") -> str:
+    """Runs nmcli with a plain argv list (never shell=True, never string
+    concatenation into a command line) and returns stdout. Raises Failed
+    with nmcli's own stderr (or a generic message) on a non-zero exit."""
+    try:
+        result = subprocess.run(
+            [nmcli, *args], capture_output=True, text=True, timeout=CLIENT_TIMEOUT, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise Failed(f"nmcli {' '.join(args)}: {exc}") from exc
+    if result.returncode != 0:
+        reason = result.stderr.strip() or f"nmcli exited {result.returncode}"
+        raise Failed(reason)
+    return result.stdout
+
+
+def kids_connection_name(ssid: str) -> str:
+    return f"{KIDS_PREFIX}{ssid}"
+
+
+def cmd_list(nmcli: str) -> str:
+    # Terse mode (-t), fixed field list, no rescan flag (nmcli's default
+    # "auto" rescan is good enough and keeps this call fast).
+    return run_nmcli(nmcli, ["-t", "-f", "SSID,SIGNAL,SECURITY,IN-USE", "device", "wifi", "list"])
+
+
+def cmd_status(nmcli: str) -> str:
+    return run_nmcli(nmcli, ["-t", "-f", "NAME,TYPE,DEVICE,STATE", "connection", "show", "--active"])
+
+
+def cmd_join(nmcli: str, ssid: str, password: str) -> str:
+    """Creates/activates `kids-<ssid>` (never a bare-named connection --
+    even if one already exists for this SSID, it is not ours to touch),
+    then forces ignore-auto-dns and clears connection DNS on it, then
+    reactivates so the DNS change actually takes on a connection that
+    may already be up (R-WIFI-2)."""
+    if not ssid:
+        raise Failed("empty SSID")
+    name = kids_connection_name(ssid)
+
+    connect_args = ["device", "wifi", "connect", ssid]
+    if password:
+        connect_args += ["password", password]
+    connect_args += ["name", name]
+    run_nmcli(nmcli, connect_args)
+
+    run_nmcli(nmcli, [
+        "connection", "modify", name,
+        "ipv4.ignore-auto-dns", "yes",
+        "ipv6.ignore-auto-dns", "yes",
+        "ipv4.dns", "",
+        "ipv6.dns", "",
+        "connection.zone", "kids",
+    ])
+
+    run_nmcli(nmcli, ["connection", "up", name])
+    return f"joined {name}\n"
+
+
+def cmd_forget(nmcli: str, ssid: str) -> str:
+    """Deletes `kids-<ssid>` only -- never a bare-named connection, even
+    one for the same SSID, since this daemon didn't create that one."""
+    if not ssid:
+        raise Failed("empty SSID")
+    name = kids_connection_name(ssid)
+    run_nmcli(nmcli, ["connection", "delete", name])
+    return f"forgot {name}\n"
+
+
+# --- wire protocol -----------------------------------------------------------
+
+
+def read_request(conn: socket.socket) -> "bytes | None":
+    """Everything the client sends until it shuts down its write side (or
+    closes), up to MAX_REQUEST bytes. None on timeout/reset/overlong."""
+    buf = bytearray()
+    while True:
+        try:
+            chunk = conn.recv(4096)
+        except (socket.timeout, OSError):
+            return None
+        if not chunk:
+            break
+        buf += chunk
+        if len(buf) > MAX_REQUEST:
+            return None
+    return bytes(buf)
+
+
+def parse_request(raw: bytes):
+    """(command, arg, body) -- arg is the SSID for JOIN/FORGET, body is
+    the password line for JOIN. Raises Failed on a malformed request."""
+    text = raw.decode("utf-8", errors="replace")
+    header, _, rest = text.partition("\n")
+    parts = header.split(None, 1)
+    if not parts:
+        raise Failed("empty request")
+    command = parts[0].upper()
+    arg = parts[1].strip() if len(parts) > 1 else ""
+    body_line, _, _ = rest.partition("\n")
+    return command, arg, body_line
+
+
+def handle_client(conn: socket.socket, conf_bin: str, nmcli: str):
+    conn.settimeout(CLIENT_TIMEOUT)
+    try:
+        try:
+            account = authorize(conn, conf_bin)
+        except Refused as exc:
+            reply = f"REFUSED {exc}\n"
+            conn.sendall(reply.encode("utf-8", errors="replace"))
+            return
+
+        raw = read_request(conn)
+        if raw is None:
+            conn.sendall(b"ERROR malformed or overlong request\n")
+            return
+
+        try:
+            command, arg, body = parse_request(raw)
+            if command == "LIST":
+                payload = cmd_list(nmcli)
+            elif command == "STATUS":
+                payload = cmd_status(nmcli)
+            elif command == "JOIN":
+                payload = cmd_join(nmcli, arg, body)
+            elif command == "FORGET":
+                payload = cmd_forget(nmcli, arg)
+            else:
+                raise Failed(f"unknown command '{command}'")
+        except Failed as exc:
+            conn.sendall(f"ERROR {exc}\n".encode("utf-8", errors="replace"))
+            return
+
+        reply = "OK\n" + payload
+        conn.sendall(reply.encode("utf-8", errors="replace"))
+        _ = account  # only ever used for the authorization decision above
+    except Exception:  # noqa: BLE001 -- never let a bad client kill the daemon
+        pass
+
+
+def get_systemd_socket() -> "socket.socket | None":
+    """sd_listen_fds(3), same minimum-viable version omarchy-kids-authd uses."""
+    listen_pid = os.environ.get("LISTEN_PID")
+    listen_fds = os.environ.get("LISTEN_FDS")
+    os.environ.pop("LISTEN_PID", None)
+    os.environ.pop("LISTEN_FDS", None)
+    os.environ.pop("LISTEN_FDNAMES", None)
+    if not listen_pid or not listen_fds:
+        return None
+    try:
+        if int(listen_pid) != os.getpid() or int(listen_fds) < 1:
+            return None
+    except ValueError:
+        return None
+    return socket.socket(socket.AF_UNIX, socket.SOCK_STREAM, fileno=3)
+
+
+def bind_unix_socket(path: str) -> socket.socket:
+    directory = os.path.dirname(path)
+    if directory and not os.path.isdir(directory):
+        os.makedirs(directory, mode=0o755, exist_ok=True)
+    if os.path.exists(path):
+        os.unlink(path)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.bind(path)
+    os.chmod(path, 0o666)  # matches the .socket unit's SocketMode; SO_PEERCRED is the real gate
+    return sock
+
+
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        prog="omarchy-kids-wifid",
+        description="Root Wi-Fi helper for wifi=helper kid accounts (R-WIFI-2).",
+    )
+    parser.add_argument("--socket", default=DEFAULT_SOCKET, help="Unix socket path to listen on")
+    parser.add_argument("--conf-bin", default=DEFAULT_CONF_BIN, help="Path to omarchy-kids-conf")
+    parser.add_argument("--nmcli", default=DEFAULT_NMCLI, help="Path to nmcli")
+    return parser.parse_args(argv)
+
+
+def main(argv=None) -> int:
+    args = parse_args(sys.argv[1:] if argv is None else argv)
+
+    if not hasattr(socket, "SO_PEERCRED"):
+        print("omarchy-kids-wifid: SO_PEERCRED not available on this platform (Linux only)", file=sys.stderr)
+        return 1
+
+    sock = get_systemd_socket()
+    owns_socket_file = False
+    socket_path = args.socket
+    if sock is None:
+        sock = bind_unix_socket(args.socket)
+        owns_socket_file = True
+    sock.listen(5)
+
+    def _terminate(signum, frame):  # noqa: ARG001
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _terminate)
+    signal.signal(signal.SIGINT, _terminate)
+
+    try:
+        while True:
+            try:
+                conn, _addr = sock.accept()
+            except OSError:
+                break
+            try:
+                handle_client(conn, args.conf_bin, args.nmcli)
+            finally:
+                conn.close()
+    finally:
+        sock.close()
+        if owns_socket_file:
+            try:
+                os.unlink(socket_path)
+            except OSError:
+                pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

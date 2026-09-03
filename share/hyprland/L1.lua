@@ -104,6 +104,14 @@ o.bind("SUPER + RETURN", "Kids Mode: open selected", "omarchy-kids-launcher-ctl 
 o.bind("SUPER + Q", "Kids Mode: close", hl.dsp.window.close())
 o.bind("SUPER + SHIFT + K", "Kids Mode: parent", "omarchy-kids-exit")
 
+-- Wi-Fi picker (SPEC.md R-WIFI-1..2, issue #26). Unconditional here on
+-- purpose: this file is static and provisioned once (R-DESK-1), so it
+-- cannot itself branch on a kid's `wifi` profile key. omarchy-kids-wifi
+-- picker does that check instead -- it refuses, with a small toast,
+-- unless the profile says wifi=helper (I-6: the bind existing is not
+-- the same claim as the bind doing anything).
+o.bind("SUPER + SHIFT + W", "Kids Mode: Wi-Fi", "omarchy-kids-wifi picker")
+
 -- The triple-tap gesture (SPEC.md R-EXIT-1: "Super pressed three times
 -- within 1.5s" as an alternative to Super+Shift+K). The release-bind
 -- form is real: /usr/share/omarchy/default/hypr/bindings/voxtype.lua

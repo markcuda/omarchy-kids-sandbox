@@ -345,11 +345,11 @@ B.2 `/etc/omarchy-kids/kids/<account>.conf`, key=value, only overrides present:
 
 ## Appendix E. Binding tables
 
-Level 1: `Super+Home` launcher · `Super+Enter` open selected · `Super+Q` close · `Super+Shift+K` exit modal · volume/brightness keys. Nothing else bound; every window rule forces fullscreen.
+Level 1: `Super+Home` launcher · `Super+Enter` open selected · `Super+Q` close · `Super+Shift+K` exit modal · `Super+Shift+W` Wi-Fi picker (R-WIFI-1..2; the command itself refuses unless `wifi=helper`) · volume/brightness keys. Nothing else bound; every window rule forces fullscreen.
 
 Level 2: Level 1 plus `Super+arrows` focus · `Super+Shift+arrows` swap · `Super+K` cheat sheet · `Super+Space` launcher.
 
-Level 3: Omarchy defaults minus: terminal-launching binds under `menu=trimmed` (kept under `full`), `omarchy-sudo-passwordless`, screenshot-to-clipboard of other users' windows (n/a), plus `Super+Shift+K`.
+Level 3: Omarchy defaults minus: terminal-launching binds under `menu=trimmed` (kept under `full`), `omarchy-sudo-passwordless`, screenshot-to-clipboard of other users' windows (n/a), plus `Super+Shift+K` and `Super+Shift+W`.
 
 ## Appendix F. Screen-time state machine
 

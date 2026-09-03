@@ -5,9 +5,11 @@ R-FND-2..6, R-SEC-3..5, R-LOGIN-3, R-DESK-1, Appendix B.
 `omarchy-kids-provision` is the one command that turns "a display name and a band" into a real
 Unix account a kid can log into, and the one command that turns it back into nothing. Everything
 it writes is listed below, in the order it writes it. `lib/posture.sh` holds the actual writers
-(polkit rules, pam_namespace lines, the fstab line, the AccountsService pin, the luks-slots
-rewrite) as small, idempotent functions; `bin/omarchy-kids-provision` is the sequencing and the
-policy (bands, passwords, LUKS).
+(polkit rules, pam_namespace lines, the fstab line, the AccountsService pin) as small, idempotent
+functions; the luks-slots parsing and rewrite live in `lib/kids.sh` instead (shared with
+`bin/omarchy-kids-remove`'s "Remove Kids Mode", and with `omarchy-kids-conf machine set parent`'s
+own use of it, docs/conf.md); `bin/omarchy-kids-provision` is the sequencing and the policy
+(bands, passwords, LUKS).
 
 `DRY_RUN=1` is the default everywhere (AGENTS.md rule 8): every action below is printed, not
 run, unless `--apply` is passed or `DRY_RUN=0` is set. The few things that only *decide* what to
@@ -149,7 +151,7 @@ one. If `remove` frees slot 3 and a later `add` gets slot 3 back for a different
 append-only `luks-slots` would end up with two `3=...` lines — one stale, one current — and
 whichever the boot-time reader (`docs/boot.md`) happens to read last decides who lands on whose
 desktop. So every slot change — add or remove — rewrites the *entire* file from the current,
-known-correct set of mappings: `posture_write_luks_slots` (`lib/posture.sh`) always takes the
+known-correct set of mappings: `posture_write_luks_slots` (`lib/kids.sh`) always takes the
 verbatim parent `0=...` line plus the full list of surviving kid entries and writes that, and
 nothing else, replacing the file outright. `add`/`remove` build that list by reading the
 existing file (everyone else's mapping, already correct) and only changing the one line for the

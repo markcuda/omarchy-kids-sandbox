@@ -153,31 +153,40 @@ check_contains "$out" "Add a kid" "Home offers Add a kid"
 check_contains "$out" "Requests (0)" "Home shows the open-request count"
 check_contains "$out" "Remove Kids Mode" "Home offers the Remove Kids Mode row"
 
-# review §3.1: a screen's facts are its own card body now, so they render
-# *under* that screen's title. Echoed above it they were fine here (file
-# mode never clears) and gone on a real terminal, which clears first.
+# review §3.1: a screen's facts are its own card body now, so they belong
+# between that screen's header and its own first row. Echoed above the
+# screen instead -- fine here, since file mode never clears -- they left a
+# header line sitting between the facts and the rows, and on a real
+# terminal the clear took them. facts_in_screen FACTS NTH ROW LABEL looks
+# for that header line, matching loosely on purpose: where gum is really
+# installed (the vm, not the mac) the header is drawn inside a border.
+facts_in_screen() {
+    local facts="$1" nth="$2" row="$3" label="$4" verdict
+    verdict="$(awk -v facts="$facts" -v nth="$nth" -v row="$row" '
+        index($0, facts) && !seen { if (++n == nth) { seen = 1; next } }
+        seen && !done && index($0, "step 1 of 1") { verdict = "a header sits between the facts and the rows"; done = 1 }
+        seen && !done && index($0, row) { verdict = "ok"; done = 1 }
+        END {
+            if (!seen) verdict = "the facts line never rendered"
+            else if (!done) verdict = "no row rendered after the facts"
+            print verdict
+        }' <<<"$out")"
+    if [[ "$verdict" == ok ]]; then pass "$label"; else fail "$label ($verdict)"; fi
+}
+
 answers="$(answers_file "kid:kid-ada" back quit)"
 run_panel "$answers"
 check_contains "$out" "Ada — band 6-8" "the Kid screen shows the kid's name and band"
 check_contains "$out" "Open requests: 0" "the Kid screen shows the open-request count"
-title_line="$(grep -n '^Ada$' <<<"$out" | head -1 | cut -d: -f1)"
-facts_line="$(grep -n '^Ada — band 6-8$' <<<"$out" | head -1 | cut -d: -f1)"
-if [[ -n "$title_line" && -n "$facts_line" ]] && ((title_line < facts_line)); then
-    pass "the Kid screen's facts are its screen body, printed under the title"
-else
-    fail "the Kid screen's facts are its screen body (title=$title_line facts=$facts_line)"
-fi
+facts_in_screen "Ada — band 6-8" 1 "1) Screen time" \
+    "the Kid screen's facts are its own screen body, above its rows"
 
-# The screen-time screen's status lines are its body too.
+# The screen-time screen's status lines are its body too. Its own copy of
+# `omarchy-kids-time status` is the second: the Kid screen shows one first.
 answers="$(answers_file "kid:kid-ada" time back back quit)"
 run_panel "$answers"
-time_title="$(grep -n "^Ada's screen time$" <<<"$out" | head -1 | cut -d: -f1)"
-time_facts="$(grep -n '^kid-ada:' <<<"$out" | tail -1 | cut -d: -f1)"
-if [[ -n "$time_title" && -n "$time_facts" ]] && ((time_title < time_facts)); then
-    pass "Screen time shows 'omarchy-kids-time status' under its own title"
-else
-    fail "Screen time shows 'omarchy-kids-time status' under its own title (title=$time_title facts=$time_facts)"
-fi
+facts_in_screen "min used" 2 "1) Give more minutes today" \
+    "Screen time's status lines are its own screen body, above its rows"
 
 answers="$(answers_file "@esc")"
 run_panel "$answers"

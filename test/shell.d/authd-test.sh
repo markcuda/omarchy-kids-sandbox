@@ -358,3 +358,17 @@ wait "$DAEMON_PID" 2>/dev/null
 DAEMON_PID=""
 
 exit $fail
+
+# --- the line reader keeps the remainder: a GRANT's password arrives in the same chunk -----
+# Runs everywhere (no libcrypt needed): load the daemon's functions and feed a socketpair.
+out="$(python3 - "$AUTHD" <<'PY'
+import socket, sys, runpy
+ns = runpy.run_path(sys.argv[1], run_name="not_main")
+a, b = socket.socketpair()
+a.sendall(b"GRANT {}\nsecret\n"); a.shutdown(socket.SHUT_WR)
+buf = bytearray()
+first = ns["read_candidate_line"](b, buf); second = ns["read_candidate_line"](b, buf)
+print(first, second)
+PY
+)"
+check_contains "$out" "b'GRANT {}' b'secret'" "reader: two lines in one chunk are both readable"

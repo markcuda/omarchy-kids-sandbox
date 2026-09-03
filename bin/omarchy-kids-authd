@@ -301,11 +301,11 @@ def handle_grant(header: str, password: bytes, conn: socket.socket, cfg, limiter
     return b"ok\n"
 
 
-def read_candidate_line(conn: socket.socket) -> "bytes | None":
-    """One line, newline-terminated, at most MAX_LINE bytes. Anything else
-    (no newline, too long, timeout, reset) is None -> "no"."""
-    buf = bytearray()
-    while True:
+def read_candidate_line(conn: socket.socket, buf: bytearray) -> "bytes | None":
+    """One newline-terminated line of at most MAX_LINE bytes; bytes after it stay in buf for
+    the next call (a GRANT's password usually arrives in the same chunk). None on anything
+    else (no newline, too long, timeout, reset) -> "no"."""
+    while b"\n" not in buf:
         try:
             chunk = conn.recv(4096)
         except (socket.timeout, OSError):
@@ -313,11 +313,10 @@ def read_candidate_line(conn: socket.socket) -> "bytes | None":
         if not chunk:
             return None  # closed before sending a full line
         buf += chunk
-        if b"\n" in buf:
-            break
-        if len(buf) > MAX_LINE:
+        if len(buf) > MAX_LINE * 2:
             return None
-    line, _, _rest = bytes(buf).partition(b"\n")
+    line, _, rest = bytes(buf).partition(b"\n")
+    buf[:] = rest
     if len(line) > MAX_LINE:
         return None
     return line
@@ -325,8 +324,9 @@ def read_candidate_line(conn: socket.socket) -> "bytes | None":
 
 def handle_client(conn: socket.socket, cfg, limiter: RateLimiter):
     conn.settimeout(CLIENT_TIMEOUT)
+    buf = bytearray()
     try:
-        first = read_candidate_line(conn)
+        first = read_candidate_line(conn, buf)
         if first is None:
             reply = b"no\n"
         else:
@@ -335,7 +335,7 @@ def handle_client(conn: socket.socket, cfg, limiter: RateLimiter):
                 # Two-line form: the request, then the parent's password.
                 # Only read a second line for a GRANT, so the plain verify
                 # path still answers the instant its one line arrives.
-                password = read_candidate_line(conn)
+                password = read_candidate_line(conn, buf)
                 if password is None:
                     reply = b"no missing password\n"
                 else:

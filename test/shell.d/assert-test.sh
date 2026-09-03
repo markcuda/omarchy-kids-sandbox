@@ -63,7 +63,7 @@ STUBS="$TMP/stubs"
 LOG="$TMP/log"
 ARGV_LOG="$LOG/argv.log"
 
-mkdir -p "$ETC/kids" "$SHARE/hyprland" "$SCRATCH_ROOT/usr/lib/pam.d" "$HOMEROOT" "$STUBS" "$LOG/groups"
+mkdir -p "$ETC/kids" "$SHARE/hyprland" "$SCRATCH_ROOT/usr/lib/pam.d" "$HOMEROOT" "$STUBS" "$LOG/groups" "$LOG/gecos"
 printf 'account include system-login\nsession include system-login\n' > "$SCRATCH_ROOT/usr/lib/pam.d/systemd-user"
 touch "$ARGV_LOG"
 
@@ -128,16 +128,44 @@ cat "__LOG__/groups/$acct" 2>/dev/null || true
 '
 # usermod -aG g1,g2 <acct>: merges g1,g2 into that same per-account file,
 # skipping ones already present (so a second call is a true no-op).
+# usermod -c NAME <acct> (issue #39): writes NAME to
+# "$LOG/gecos/<acct>", read back by the "getent" stub below -- the same
+# per-account-log-file idiom the groups fixture above already uses.
 # shellcheck disable=SC2016
 stub usermod '
-groups="$2"; acct="$3"
-f="__LOG__/groups/$acct"
-existing="$(cat "$f" 2>/dev/null || true)"
-IFS="," read -ra add <<< "$groups"
-for g in "${add[@]}"; do
-    case " $existing " in *" $g "*) ;; *) existing="$existing $g" ;; esac
-done
-printf "%s\n" "${existing# }" > "$f"
+case "$1" in
+    -aG)
+        groups="$2"; acct="$3"
+        f="__LOG__/groups/$acct"
+        existing="$(cat "$f" 2>/dev/null || true)"
+        IFS="," read -ra add <<< "$groups"
+        for g in "${add[@]}"; do
+            case " $existing " in *" $g "*) ;; *) existing="$existing $g" ;; esac
+        done
+        printf "%s\n" "${existing# }" > "$f"
+        ;;
+    -c)
+        name="$2"; acct="$3"
+        printf "%s" "$name" > "__LOG__/gecos/$acct"
+        ;;
+esac
+'
+# getent passwd <acct>: a minimal passwd(5) line whose GECOS field (5th
+# colon-separated field) is whatever the usermod stub above last wrote
+# to "$LOG/gecos/<acct>" -- empty if never seeded, matching a real
+# account with no GECOS set at all. This box has no real "kid-ada" user
+# account to ask (AGENTS.md rule 8: nothing here is ever a real
+# system), so this is the entire NSS lookup for the gecos lock's check
+# side.
+# shellcheck disable=SC2016
+stub getent '
+if [[ "$1" == "passwd" ]]; then
+    acct="$2"
+    gecos="$(cat "__LOG__/gecos/$acct" 2>/dev/null || true)"
+    printf "%s:x:1000:1000:%s:/home/%s:/bin/bash\n" "$acct" "$gecos" "$acct"
+    exit 0
+fi
+exit 1
 '
 # systemctl --root=R mask UNIT: the one subcommand this suite exercises;
 # creates UNIT -> /dev/null under R/etc/systemd/system, exactly what a
@@ -234,6 +262,9 @@ posture_write_polkit_admin_rule mark
 posture_write_polkit_deny_rule
 posture_write_sddm_theme_dropin
 posture_write_accountsservice kid-ada fox
+posture_write_sddm_xhr_dropin
+posture_write_portal_json "$ETC/portal.json" mark "$(printf 'kid-ada\tAda Lovelace\tfox')"
+printf '%s' 'Ada Lovelace' > "$LOG/gecos/kid-ada"
 posture_ensure_parent_unlock_line sddm
 posture_ensure_parent_unlock_line omarchy-lock-password
 
@@ -286,8 +317,8 @@ echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" > "$LOG/lsinitcpio-output"
 out="$("$BIN")"; st=$?
 check_eq "$st" 0 "a fully-provisioned, untouched tree exits 0"
 for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
-    "accountsservice:kid-ada" "groups:kid-ada" "polkit-admin" "polkit-deny" \
-    "sddm-theme" \
+    "accountsservice:kid-ada" "gecos:kid-ada" "groups:kid-ada" "polkit-admin" "polkit-deny" \
+    "sddm-theme" "sddm-xhr" "portal-json" \
     "pam:sddm" "pam:systemd-user" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
     "getty:tty2" "getty:tty3" "getty:tty4" \
     "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook"; do
@@ -334,6 +365,14 @@ out="$("$BIN")"
 only_this_lock_changed "$out" "accountsservice:kid-ada" "accountsservice"
 check_contains "$(cat "$ASFILE" 2>/dev/null)" "Session=omarchy-kids" "accountsservice: the file is back"
 
+# gecos (issue #39): a stray edit clears kid-ada's GECOS field entirely.
+rm -f "$LOG/gecos/kid-ada"
+out="$("$BIN")"
+only_this_lock_changed "$out" "gecos:kid-ada" "gecos"
+check_eq "$(cat "$LOG/gecos/kid-ada" 2>/dev/null)" "Ada Lovelace" "gecos: the display name is back"
+check_contains "$(cat "$ARGV_LOG")" "usermod -c Ada Lovelace kid-ada" "gecos: usermod -c was called with the profile's name"
+: > "$ARGV_LOG"
+
 # groups
 echo "kid-ada omarchy-kids" > "$LOG/groups/kid-ada"  # band group missing
 out="$("$BIN")"
@@ -363,6 +402,25 @@ rm -f "$THEME_DROPIN"
 out="$("$BIN")"
 only_this_lock_changed "$out" "sddm-theme" "sddm-theme"
 check_contains "$(cat "$THEME_DROPIN" 2>/dev/null)" "Current=omarchy-kids" "sddm-theme: the drop-in is back"
+
+# sddm-xhr (issue #39)
+XHR_DROPIN="$SCRATCH_ROOT/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf"
+rm -f "$XHR_DROPIN"
+out="$("$BIN")"
+only_this_lock_changed "$out" "sddm-xhr" "sddm-xhr"
+check_contains "$(cat "$XHR_DROPIN" 2>/dev/null)" "Environment=QML_XHR_ALLOW_FILE_READ=1" "sddm-xhr: the drop-in is back"
+
+# portal-json (issue #39)
+PORTAL_JSON="$ETC/portal.json"
+rm -f "$PORTAL_JSON"
+out="$("$BIN")"
+only_this_lock_changed "$out" "portal-json" "portal-json"
+if command -v jq >/dev/null 2>&1; then
+    check_eq "$(jq -r '.parent' "$PORTAL_JSON" 2>/dev/null)" "mark" "portal-json: the file is back, with the parent"
+    check_eq "$(jq -r '.kids["kid-ada"].name' "$PORTAL_JSON" 2>/dev/null)" "Ada Lovelace" "portal-json: kid-ada's entry is back"
+else
+    check_contains "$(cat "$PORTAL_JSON" 2>/dev/null)" "kid-ada" "portal-json: the file is back"
+fi
 
 # pam:sddm
 #

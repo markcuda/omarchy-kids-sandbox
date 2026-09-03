@@ -1,4 +1,4 @@
-# The portal: `share/sddm-theme/` (SPEC.md R-LOGIN-1..5, R-BOOT-3, R-SEC-3, I-5, I-7; issue #14)
+# The portal: `share/sddm-theme/` (SPEC.md R-LOGIN-1..5, R-BOOT-3, R-SEC-3, I-5, I-7; issue #14, issue #39)
 
 An SDDM greeter theme: one big tile per kid, a smaller parent tile last, arrow keys to move,
 Enter to select, a password field that appears under the highlighted tile (or logs straight in
@@ -16,6 +16,9 @@ of Omarchy's own files (I-7).
 | `share/sddm-theme/Main.qml` | The greeter itself — see its own header comment for exactly which SDDM/Qt APIs each piece rests on and where that was confirmed |
 | `share/avatars/*.svg` | Twelve hand-written, flat, single-color 128×128 animal avatars (fox, owl, panda, frog, whale, cat, bear, bee, koala, otter, penguin, tiger), CC0 (`share/avatars/LICENSE`) |
 | `lib/posture.sh`: `posture_write_sddm_theme_dropin` / `posture_remove_sddm_theme_dropin` | Writes/removes `/etc/sddm.conf.d/zz-omarchy-kids-theme.conf` (`[Theme]` `Current=omarchy-kids`) |
+| `lib/posture.sh`: `posture_write_sddm_xhr_dropin` / `posture_remove_sddm_xhr_dropin` | Writes/removes `/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf` (`Environment=QML_XHR_ALLOW_FILE_READ=1`), issue #39 |
+| `lib/posture.sh`: `posture_write_portal_json` | Writes `/etc/omarchy-kids/portal.json` (root-owned 0644), issue #39 |
+| `omarchy-kids-provision`: `usermod -c "<display name>"` | Sets the passwd GECOS field so the greeter's `realName` role shows the kid's name, issue #39 |
 
 Installed by the package to `/usr/share/sddm/themes/omarchy-kids/` (PKGBUILD's `package()`) —
 **not** under `/usr/share/omarchy-kids/`, even though `share/sddm-theme/` also gets swept into
@@ -42,6 +45,58 @@ provisioned; only Remove Kids Mode (§5.2) takes it out, by removing the package
 `/usr/share/sddm/themes/omarchy-kids/`) — `posture_remove_sddm_theme_dropin` exists for that step
 even though nothing currently calls it (a `TODO` for whichever issue wires up Remove Kids Mode's
 full teardown).
+
+## Display names, parent detection, and avatars (issue #39)
+
+V1's first live boot into the portal (docs/phase1/V1.md; this file's own "Verified live" section
+below) found three things that only show up once real tiles actually render: tiles showed the
+bare account suffix (`ada`, `cy`) instead of the profile's display name; the parent tile wasn't
+distinguished when the machine's *owner* account happened to be named `kid-vm` (a VM test
+fixture); and avatars never rendered, always falling back to the letter-circle.
+
+**Display name.** SDDM's `UserModel` reads its `realName` role from the passwd GECOS field
+(`getpwnam(3)`'s `pw_gecos`), not from AccountsService — so `omarchy-kids-provision add` now runs
+`usermod -c "<display name>" <account>` (chfn's non-interactive equivalent: no PAM prompt, no
+argv password beyond the name itself) right after the account is created. `Main.qml`'s
+`displayNameFor()` prefers `realName` first, then falls back to `portal.json`'s own
+`kids[account].name` (below), then the account name with `kid-` stripped and the first letter
+capitalized. Re-asserted as the `gecos:<account>` lock (`docs/assert.md`).
+
+**Parent detection.** `omarchy-kids-provision add`/`remove` write `/etc/omarchy-kids/portal.json`
+(root-owned 0644, rebuilt in full every time from the current, known-correct set of kid profiles
+plus `machine.conf`'s `parent=` — the same "never append, always rewrite" shape `luks-slots`
+already uses, via `lib/posture.sh`'s `posture_write_portal_json`):
+
+```json
+{"parent":"mark","kids":{"kid-ada":{"name":"Ada Lovelace","avatar":"fox"}}}
+```
+
+`Main.qml` reads this file once at startup with a synchronous
+`XMLHttpRequest("file:///etc/omarchy-kids/portal.json")` and decides `isParentAccount(name)` by an
+exact match against `parent`, never by the `kid-` username prefix, when the read succeeds. **This
+read is likely broken as shipped, not merely untested**: Qt 6's own QML documentation
+(`doc.qt.io/qt-6/qml-qtqml-xmlhttprequest.html`, fetched 2026-09) states "By default, you cannot
+use the `XMLHttpRequest` object to read files from your local file system," lifted only by the
+process environment variable `QML_XHR_ALLOW_FILE_READ=1`. SDDM's own greeter source
+(`sddm/sddm`'s `src/greeter/GreeterApp.cpp`, fetched 2026-09) never sets it — grepped for
+`qputenv`/`setenv` there: only `QT_QPA_PLATFORM` is ever read, nothing XHR-related is ever set.
+`lib/posture.sh`'s `posture_write_sddm_xhr_dropin` writes a systemd drop-in on `sddm.service`
+(`/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf`, never a hand-edit of the
+vendor unit — I-7) exporting that variable, on the **unverified** assumption that the greeter
+process, spawned by `sddm.service`'s own PID, inherits it. If it doesn't, `Main.qml` catches the
+read failure and falls back to the old `kid-` prefix heuristic — the same fail-safe shape every
+other best-effort writer in this repo uses (I-9: absence of confirmation is not treated as
+"broken," but it is also not treated as "working"). Both `portal.json` and the drop-in are
+re-asserted (`portal-json` and `sddm-xhr` locks, `docs/assert.md`).
+
+**Avatars.** `posture_write_accountsservice` already points AccountsService's `Icon=` at
+`/usr/share/omarchy-kids/avatars/<avatar>.svg`; `Main.qml`'s `avatarSourceFor()` uses that role,
+falling back to rebuilding the same path from `portal.json`'s `kids[account].avatar` if the
+AccountsService role comes back empty (a kid provisioned before an avatar was assigned). What was
+actually missing on the live VM was Qt's SVG image plugin, `qt6-svg` — now listed explicitly in
+`PKGBUILD`'s `depends=` (unverified whether `sddm`/`qt6-declarative` already pull it in
+transitively; there is no `pacman` on this dev machine to check with `pacman -Si sddm`'s own
+dependency tree).
 
 ## Ground truth this was checked against (2026-09, no local SDDM/Qt install)
 
@@ -101,17 +156,26 @@ least one kid is provisioned (`docs/provision.md`):
 2. Provision at least two kids (one 3-5 band with `--no-password`, one older band with a
    password) plus confirm the parent account exists, so the portal has something interesting to
    show (a "no password" tile, a password tile, and the smaller parent tile last).
-3. Confirm the drop-in landed and re-asserts:
+3. Confirm the drop-ins and portal.json landed and re-assert (issue #39 additions in bold):
 
    ```sh
    ssh vm 'cat /etc/sddm.conf.d/zz-omarchy-kids-theme.conf'
-   ssh vm 'printf "omarchy\n" | sudo -S -p "" omarchy-kids-assert' # expect "ok      sddm-theme" (or "fixed" the first time)
+   ssh vm 'cat /etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf'   # sddm-xhr
+   ssh vm 'cat /etc/omarchy-kids/portal.json'                                     # portal-json
+   ssh vm 'getent passwd kid-<slug> | cut -d: -f5'                                # gecos: should be the display name
+   ssh vm 'printf "omarchy\n" | sudo -S -p "" omarchy-kids-assert'
+   # expect "ok      sddm-theme", "ok      sddm-xhr", "ok      portal-json", "ok      gecos:<account>"
+   # (or "fixed" the first time)
    ```
 
 4. Restart SDDM from the SSH session (this kills the active graphical session on the console —
-   expected, that's the point):
+   expected, that's the point). If `sddm.service` was already active before step 3 wrote the new
+   `omarchy-kids-portal-xhr.conf` drop-in, a plain `restart` may not be enough for systemd to
+   notice a brand-new drop-in file under a unit it already has loaded — run `daemon-reload` first
+   to be sure (harmless if it was already picked up):
 
    ```sh
+   ssh vm 'printf "omarchy\n" | sudo -S -p "" systemctl daemon-reload'
    ssh vm 'printf "omarchy\n" | sudo -S -p "" systemctl restart sddm'
    ```
 
@@ -151,14 +215,24 @@ least one kid is provisioned (`docs/provision.md`):
   header comment for the full, itemized list and exactly what upstream source each other claim
   rests on.
 - Whether `qt6-svg` (or equivalent) is actually present so the avatar SVGs rasterize, rather than
-  always falling back to the letter-circle.
+  always falling back to the letter-circle — `PKGBUILD` now depends on it explicitly (issue #39),
+  which should settle this, but that dependency line itself is unverified against a real
+  `pacman -Si sddm` dependency tree.
 - Whether `JetBrainsMono Nerd Font` (theme.conf's default `fontFamily`) is available to the
   greeter's own fontconfig, separate from whatever's available inside a logged-in session.
+- **Likely broken, not merely untested (issue #39):** whether `Main.qml`'s
+  `XMLHttpRequest("file:///etc/omarchy-kids/portal.json")` read ever succeeds at all. Qt 6's own
+  docs say local-file XHR reads are refused by default without `QML_XHR_ALLOW_FILE_READ=1` in the
+  process environment; `posture_write_sddm_xhr_dropin`'s systemd drop-in on `sddm.service` is an
+  attempt to set that, but whether the greeter process SDDM spawns actually inherits it is
+  unconfirmed. If it doesn't, parent detection and the portal.json-derived name/avatar fallbacks
+  silently degrade to their pre-#39 behavior — see "Display names, parent detection, and avatars"
+  above.
 - R-LOGIN-5 (parent password overrides a kid's own) — not implemented in this theme at all; see
   above. Needs a PAM-level change in a follow-up issue.
-- `posture_remove_sddm_theme_dropin` — written, unit-tested directly (`test/shell.d/portal-test.sh`),
-  but not yet called from anywhere (no Remove Kids Mode command exists in this checkout to call
-  it from).
+- `posture_remove_sddm_theme_dropin` and `posture_remove_sddm_xhr_dropin` — written, unit-tested
+  directly (`test/shell.d/portal-test.sh`), but not yet called from anywhere (no Remove Kids Mode
+  command exists in this checkout to call them from).
 - Whether Ctrl+Shift+P actually reaches this QML given the greeter's compositor config, rather
   than being consumed earlier — Omarchy's own `default/sddm/hyprland.lua` has no binds of its own
   (confirmed by reading it), but the greeter's overall input routing wasn't otherwise checked.
@@ -175,3 +249,12 @@ Not yet exercised live: the wrong-password shake, the power-off chord, the paren
 a kid tile (needs #15), and the display-name and avatar polish in #39. `sddm-greeter-qt6
 --test-mode` aborts inside a Hyprland session (stock theme too), so a real boot into the portal
 is the only way to see the theme.
+
+**Issue #39's fixes (display name, parent detection via portal.json, avatars) have not yet been
+verified against this VM or any other real engine.** Step 8 of "How to test in the VM" above
+covers the avatar check; confirming the display name shows instead of the bare account suffix,
+and that the parent tile is correctly distinguished even when the machine owner's account starts
+with `kid-`, both need a fresh boot after `pacman -U`ing a build that includes this issue's
+changes. Confirming whether the `QML_XHR_ALLOW_FILE_READ` drop-in actually reaches the greeter
+needs checking the greeter process's own environment on the VM (e.g. `cat
+/proc/$(pgrep sddm-greeter)/environ`), not just that the drop-in file exists.

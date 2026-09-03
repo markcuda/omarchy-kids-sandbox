@@ -12,7 +12,7 @@
 #
 # Every path is overridable for tests, so test/shell.d/provision-test.sh
 # runs entirely against scratch trees with a stub PATH:
-#   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (profiles, machine.conf, luks-slots)
+#   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (profiles, machine.conf, luks-slots, portal.json)
 #   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids
 #   OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
 #   OMARCHY_KIDS_ROOT       scratch prefix for /etc/polkit-1, /etc/security,
@@ -40,6 +40,7 @@ HOME_ROOT="${OMARCHY_KIDS_HOME_ROOT:-}"
 KIDS_DIR="$ETC/kids"
 SLOTS_FILE="$ETC/luks-slots"
 MACHINE_CONF="$ETC/machine.conf"
+PORTAL_JSON_FILE="$ETC/portal.json"
 
 CONF="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF" ]] || CONF=omarchy-kids-conf
 
@@ -226,6 +227,29 @@ detect_luks_device() {
 
 # --- account naming (Appendix B.1) -----------------------------------------
 
+# --- portal.json (R-LOGIN, issue #39) --------------------------------------
+
+# portal_json_entries [EXCLUDE] — one "account<TAB>name<TAB>avatar" line
+# per profile currently under $KIDS_DIR, skipping EXCLUDE if given (the
+# account "remove" is in the middle of tearing down, which is still on
+# disk at the point this is called). Same "rebuild the whole file from
+# the current, known-correct set every time" approach luks_slots_kid_entries
+# above uses, for the same reason: portal.json has to reflect every kid
+# actually provisioned, not just the one this particular add/remove call
+# is touching.
+portal_json_entries() {
+    local exclude="${1:-}" f account name avatar
+    [[ -d "$KIDS_DIR" ]] || return 0
+    for f in "$KIDS_DIR"/*.conf; do
+        [[ -e "$f" ]] || continue
+        account="$(basename "$f" .conf)"
+        [[ -n "$exclude" && "$account" == "$exclude" ]] && continue
+        name="$(conf_get "$f" name 2>/dev/null || true)"
+        avatar="$(conf_get "$f" avatar 2>/dev/null || true)"
+        printf '%s\t%s\t%s\n' "$account" "$name" "$avatar"
+    done
+}
+
 unique_account() {
     local base="$1" n=2
     local account="$base"
@@ -346,6 +370,16 @@ cmd_add() {
         printf '%s:%s\n' "$account" "$kid_password" | run chpasswd
     fi
 
+    # R-LOGIN: the greeter's tile shows the kid's display name, not the
+    # bare account suffix (issue #39 -- V1's live VM run showed "ada",
+    # "cy" instead of "Ada", "Cy"). SDDM's UserModel reads "realName"
+    # from the passwd GECOS field (docs/portal.md), not from
+    # AccountsService, so this is `usermod -c`, not a posture_* writer.
+    # `usermod -c` is chfn's non-interactive equivalent -- no PAM prompt,
+    # no argv password. Re-asserted (idempotent, comparing the current
+    # GECOS field) as the "gecos:<account>" lock in omarchy-kids-assert.
+    run usermod -c "$display" "$account"
+
     # R-FND-2: home bind-mounted nosuid,nodev,noexec.
     run posture_add_fstab_line "$account"
     # A bind mount must exist before it can be remounted with restrictive flags.
@@ -405,6 +439,29 @@ cmd_add() {
     # Remove Kids Mode (R-FND-6), since the portal is still correct as
     # long as any kid profile remains.
     run posture_write_sddm_theme_dropin
+
+    # R-LOGIN, issue #39: lets Main.qml actually read portal.json (see
+    # lib/posture.sh's own header comment on why this is unverified to
+    # actually reach the greeter process, and what happens if it
+    # doesn't). Machine-level, same lifecycle as the theme selection
+    # above.
+    run posture_write_sddm_xhr_dropin
+
+    # R-LOGIN, issue #39: portal.json -- parent detection and avatars for
+    # the greeter, decided from the profile registry rather than the
+    # "kid-" username prefix (docs/portal.md's "Verified live" section:
+    # a VM whose *owner* account happened to be named kid-vm broke that
+    # heuristic). Rebuilt in full from every provisioned kid, same
+    # "full rewrite, never append" shape as luks-slots above. This kid's
+    # own entry is appended explicitly (not read back off $KIDS_DIR)
+    # because DRY_RUN=1's preview must show the correct planned content
+    # even though nothing was actually written to disk above.
+    local portal_entries=() line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && portal_entries+=("$line")
+    done < <(portal_json_entries "$account")
+    portal_entries+=("$account"$'\t'"$display"$'\t'"$avatar")
+    run posture_write_portal_json "$PORTAL_JSON_FILE" "$parent" "${portal_entries[@]}"
 
     # Issue #10 finding (b): go through Omarchy's own per-user setup so the
     # desktop never shows "Pending Omarchy Migrations".
@@ -502,6 +559,15 @@ cmd_remove() {
 
     # R-LOGIN-3
     run posture_remove_accountsservice "$account"
+
+    # R-LOGIN, issue #39: portal.json rebuilt without this account, same
+    # full-rewrite shape as the luks-slots handling above.
+    local parent portal_entries=() line
+    parent="$(read_parent)"
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && portal_entries+=("$line")
+    done < <(portal_json_entries "$account")
+    run posture_write_portal_json "$PORTAL_JSON_FILE" "$parent" "${portal_entries[@]+"${portal_entries[@]}"}"
 
     # R-FND-2: unmount and drop the fstab line.
     run umount "$(home_dir_for "$account")"

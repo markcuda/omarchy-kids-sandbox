@@ -37,10 +37,12 @@ apply_step_getok() {
 }
 
 # Step 2: the account itself, plus every A7/A10/A11 choice that differs
-# from the band default (R-BAND-2: only overrides are ever written). A
-# failed override still fails the step — none of these are optional once
-# chosen — but doesn't stop the others from being attempted, so a parent
-# sees every problem at once rather than one at a time across re-runs.
+# from the band default (R-BAND-2: only overrides are ever written), and
+# theme (issue #53) if Advanced picked one other than the parent's own
+# current theme. A failed override still fails the step — none of these
+# are optional once chosen — but doesn't stop the others from being
+# attempted, so a parent sees every problem at once rather than one at a
+# time across re-runs.
 apply_step_account() {
     local rc=0
     if ((NO_PASSWORD)); then
@@ -72,6 +74,14 @@ apply_step_account() {
     maybe_override history_visible "$HISTORY_VISIBLE" "$(band_field "$BAND" history_visible)" || rc=$?
     maybe_override budget_min_weekend "$BUDGET_MIN_WEEKEND" "$(band_field "$BAND" budget_min_weekend)" || rc=$?
     maybe_override lights_out_weekend "$LIGHTS_OUT_WEEKEND" "$(band_field "$BAND" lights_out_weekend)" || rc=$?
+    # issue #53: theme's "default" isn't a band value (bands.toml has
+    # none) -- it's the parent's own current Omarchy theme, the same
+    # value $PROVISION_BIN's own theme step just copied for this kid
+    # above. maybe_override only writes an override when the parent
+    # picked something else in Advanced, same as every other row; when
+    # they didn't, the kid is already on the parent's theme from
+    # provisioning itself, so there is nothing to override.
+    maybe_override theme "$THEME" "$(theme_current_name)" || rc=$?
     return "$rc"
 }
 

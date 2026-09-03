@@ -173,13 +173,74 @@ also defines the *semantic* names — `red`, `orange` (or `yellow`), `lighter_ba
 `dark_background`, `selection` — gets more accurate `error`/`warning`/tile-surface colors than one
 that only ships the plain ANSI `colorN` set; both work.
 
+## Issue #53: a kid's own desktop theme
+
+Everything above keys colors off whichever theme is already sitting at `.../current/theme` —
+it never asked how that directory got there. Before this issue every Kids Mode surface but the
+portal/wizard/bar (the ones reading through `lib/theme.sh`'s `theme_color`/`theme_font`) stayed on
+Omarchy's stock theme, because a fresh kid account's own `.../current/theme` is whatever
+`omarchy-provision-user` happened to leave — never the parent's. This issue makes the kid's own
+`current/theme` a real, matching copy, the same way `omarchy-theme-set` builds one for a live
+session, applied non-interactively for another account as root.
+
+**`bin/omarchy-theme-set` (omacom/omarchy@v4.0.2, fetched 2026-09 — full text read directly), the
+mechanics `lib/theme.sh`'s `theme_apply_for` mirrors:**
+
+- `OMARCHY_THEMES_PATH="$OMARCHY_PATH/themes"` — the system themes dir; `USER_THEMES_PATH="$HOME/.config/omarchy/themes"` — a second, per-user overlay this repo's own `theme_apply_for` deliberately does not read (see below).
+- A fresh `NEXT_THEME_PATH` (`.../current/next-theme`) is populated with `cp -r "$OMARCHY_THEMES_PATH/$THEME_NAME/"*`, then the user-themes overlay if any.
+- "Generate colors.toml from alacritty.toml if theme is missing colors.toml" via `omarchy-theme-colors-from-alacritty`.
+- Swap in: `rm -rf "$CURRENT_THEME_PATH"; mv "$NEXT_THEME_PATH" "$CURRENT_THEME_PATH"`.
+- `echo "$THEME_NAME" >"$HOME/.local/state/omarchy/current/theme.name"`.
+- Only then, and only outside `OMARCHY_THEME_HEADLESS`/`OMARCHY_THEME_OFFLINE`, does it run `set_theme_background`/`shell_ipc` (an IPC call to a *live* `omarchy-shell`) and the `post_theme_commands` restart list (terminal, btop, GNOME settings, browser, VS Code, …).
+
+**What `lib/theme.sh` adds for issue #53 (all new functions, no existing ones changed in shape):**
+
+- `theme_account_home ACCOUNT` — resolves any account's `$HOME` (`getent passwd`, falling back to `OMARCHY_KIDS_HOME_ROOT`-prefixed `/home/<account>` for tests); `lib/posture.sh`'s `posture_parent_home` is now a one-line call to this (AGENTS.md's "no duplicated helpers" — the two were the same lookup for the parent specifically before this issue).
+- `theme_current_name` — reads `.../current/theme.name` beside `theme_dir`, respecting `THEME_KIDS_HOME` the same way `theme_dir`/`theme_color` do. Empty, not an error, for an account that has never received a theme.
+- `theme_list_installed` — every name under `$OMARCHY_PATH/themes`, sorted. The wizard's Desktop group and the panel's Desktop screen offer only these.
+- `theme_apply_for ACCOUNT NAME` — the non-interactive apply. `NAME` must be one of `theme_list_installed`'s own names (never a user-installed one — `USER_THEMES_PATH` above is not read at all, since the wizard/panel never offer such a name to begin with, and `omarchy-theme-set`'s own repo-theme file-filtering logic only exists to police that overlay). Otherwise the same shape: a fresh staging dir, the alacritty-derived `colors.toml` fallback, `rm -rf` + `mv` into `.../current/theme`, `theme.name` written beside it. No background selection, no `post_theme_commands` — nothing here has a live session to restart; see the next function.
+- `theme_reload_if_live ACCOUNT` — best-effort only. If `pgrep -u ACCOUNT -x Hyprland` finds nothing, this is a no-op with one line explaining why (the theme is already correct on disk; the kid sees it at their next login, no restart needed). If a session *is* live, it runs the same `omarchy-shell shell applyTheme <base64 colors.toml> <base64 shell.toml>` IPC call `omarchy-theme-set`'s own `shell_ipc` makes, via `runuser -l ACCOUNT` so it reaches that account's own socket.
+
+**Ownership: root-owned, inside the kid's own home.** `theme_apply_for` writes the whole
+`.../current/theme` tree (and `theme.name`) as `root:root`, 0644 files / 0755 dirs — the same
+"root-owned file inside a kid-writable directory" shape `bin/omarchy-kids-provision`'s
+`install_kids_chromium_flags` already uses for `~/.config/chromium-flags.conf`, for the identical
+reason: the *containing* directory (`~/.local/state/omarchy/current/`) is still kid-owned, part of
+their normal home, so root ownership on the theme files alone cannot stop a kid with a terminal
+(bands 9-12/13+) from deleting or replacing the whole directory — Unix deletion rights come from
+the directory, not the file. That is exactly what the `theme:<account>` assert lock
+(`bin/omarchy-kids-assert`'s `theme_ok`/`theme_fix`, `docs/assert.md`) is for: it notices the
+kid's `theme.name` no longer matches their profile's `theme` key and calls `theme_apply_for` again
+— the same eventually-fail-closed shape every other Kids Mode lock in this repo already uses, not
+an unbreakable barrier (I-3 only requires *locks* to be root-owned and outside every home; a
+kid-facing theme file has to live inside the kid's own `$HOME` because Omarchy's own tools only
+ever look there — see "Ground truth" above — so this repo does the next best thing instead).
+
+**Where this gets called:**
+
+- `bin/omarchy-kids-provision add` — after the account, posture, and per-user setup are all in
+  place, reads the parent's own `theme_current_name` (via `posture_parent_home`, the same lookup
+  the portal writer already uses) and writes it with `"$CONF" set "$account" theme "$parent_theme"`
+  — so `omarchy-kids-conf`'s own `cmd_set` (below) is the *only* code that ever calls
+  `theme_apply_for`; provisioning never touches theme files directly. A parent who has never picked
+  an Omarchy theme at all gets a warning line and the kid keeps the desktop's stock theme, same as
+  before this issue.
+- `bin/omarchy-kids-conf set <kid> theme <name>` — the per-kid key (Appendix B style,
+  `docs/conf.md`): validates `<name>` is a real directory under `$OMARCHY_PATH/themes`, writes the
+  override, then calls `theme_apply_for` and `theme_reload_if_live` itself. The wizard's Advanced
+  Desktop group and the panel's Desktop screen both write through this same command, never around
+  it.
+- `bin/omarchy-kids-assert`'s `theme:<account>` lock — re-applies on drift, as above.
+
 ## Tests
 
 - `test/shell.d/theme-test.sh` — `theme_dir`/`theme_color`/`theme_font` against a fixture
   `colors.toml` and the fallback path (real-shaped fake `omarchy-theme-color`/`fc-match` on a
   stub `PATH`, `THEME_KIDS_HOME` pointed at a scratch home); the issue #48 `OMARCHY_PATH`/`LANG`
   defaults; a broken theme tool never aborting a caller running under `set -euo pipefail`, logging
-  exactly one line.
+  exactly one line; issue #53's `theme_account_home`/`theme_current_name`/`theme_list_installed`/
+  `theme_apply_for`/`theme_reload_if_live` against fixture theme dirs under a scratch
+  `OMARCHY_PATH`.
 - `test/shell.d/qml-theme-static-test.sh` — no `share/**/*.qml` file hardcodes a literal
   `#rrggbb`/`#rrggbbaa` color outside `share/qml/KidsTheme.qml` (its own fallback palette) and
   `share/sddm-theme/Main.qml` (the SDDM-engine exemption above) — and that those two files still
@@ -188,6 +249,16 @@ that only ships the plain ANSI `colorN` set; both work.
   nine keys, falling back correctly with no parent theme on disk, and — with a fixture `colors.
   toml` under a scratch parent `$HOME` plus a stub `omarchy-theme-color` — that the real values
   actually flow through `posture_write_portal_conf` end to end.
+- `test/shell.d/conf-test.sh` — `theme`'s validation (a real installed name only), that `set`
+  applies it via `theme_apply_for` and that `reset` leaves it alone.
+- `test/shell.d/provision-test.sh` — `add` copies the parent's current fixture theme into the new
+  kid's own `.../current/theme` and writes the `theme` override; the "parent has no theme yet"
+  warning path leaves both untouched.
+- `test/shell.d/assert-test.sh` — `theme_ok`/`theme_fix`: ok when they match, fixed when the kid's
+  `theme.name` drifts from their profile, ok (nothing to fix) with no `theme` override at all.
+- `test/shell.d/wizard-test.sh` / `test/shell.d/panel-test.sh` — the Desktop group's/screen's
+  `theme` row: default is the parent's own current theme, picking a different installed name
+  writes the override.
 
 ## What still needs the VM
 

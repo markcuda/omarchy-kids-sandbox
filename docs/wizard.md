@@ -69,7 +69,7 @@ way just leaves that one app out and moves to the next.
 
 Picking **Advanced** at A6 opens `lib/wizard-advanced.sh`'s `screen_advanced_checklist`: one row
 per Appendix B cell that isn't already collected by a screen both paths share — name/avatar/band
-(A3-A5) and the kid's password (A12) — twelve rows in six groups, Appendix B order within each
+(A3-A5) and the kid's password (A12) — thirteen rows in six groups, Appendix B order within each
 group:
 
 | Group | Rows |
@@ -78,13 +78,21 @@ group:
 | Screen time | Minutes a day, weekdays and weekends (`budget_min`, `budget_min_weekend`), Lights out, weekdays and weekends (`lights_out`, `lights_out_weekend`) |
 | Apps | Starter apps (`allowlist`) |
 | Wi-Fi | New Wi-Fi networks (`wifi`) |
-| Desktop | Desktop level (`level`), App menu (`menu`) |
+| Desktop | Desktop level (`level`), App menu (`menu`), Theme (`theme`) |
 | Data | Browsing history (`history_visible`) |
+
+`theme`'s row (issue #53) is the one whose "default" isn't a band value at all — bands.toml has
+no theme field — it's the parent's own current Omarchy theme (`lib/theme.sh`'s
+`theme_current_name`, no `THEME_KIDS_HOME` override needed since the wizard always runs as the
+parent), the same theme `omarchy-kids-provision add` already copies for the kid at Apply time
+(`docs/theming.md`). Its editor is a `tui_screen_choose` over `theme_list_installed` — every name
+under the system themes dir — not an enum baked into this file.
 
 Every row shows its band default and its current choice (`adv_row_line`), and is marked
 `(changed)` once the current choice no longer matches the default. Enter on a row opens the right
 editor: a `tui_screen_choose` picker for an enum (web, dns, wifi, level, menu, history_visible —
-dns's "Type my own" opens one more field for the address, `custom:<url>`), a validated
+dns's "Type my own" opens one more field for the address, `custom:<url>`), the same picker over
+`theme_list_installed`'s own names for `theme` (issue #53, not a fixed enum), a validated
 `tui_screen_input` for a number (the two budgets, `validate_budget_minutes`), a time
 (`lights_out`/`_weekend`, `validate_lights_out`), or a comma-separated host list (`sites`,
 `validate_sites_list`), and the same per-app walk A9's "Let me pick" uses for `allowlist`

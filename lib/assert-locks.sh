@@ -99,6 +99,29 @@ groups_fix() {
     usermod -aG "${missing[*]}" "$account"
 }
 
+# theme (issue #53, docs/theming.md): the kid's own current Omarchy
+# theme keeps matching the profile's `theme` override. lib/theme.sh's
+# theme_apply_for is the one writer (the same function `omarchy-kids-conf
+# set <kid> theme <name>` uses), so a kid who deletes/replaces
+# .../current/theme themselves (they own the containing directory, same
+# reasoning as install_kids_chromium_flags's root-owned-file-in-a-kid-
+# writable-dir shape) gets it re-applied here. "ok" with no `theme`
+# override at all -- a profile from before issue #53, or a parent with
+# no theme to copy at provision time.
+theme_ok() {
+    local account="$1" expected current
+    expected="$(profile_field "$account" theme)"
+    [[ -n "$expected" ]] || return 0
+    current="$(THEME_KIDS_HOME="$(home_dir_for "$account")" theme_current_name)"
+    [[ "$current" == "$expected" ]]
+}
+theme_fix() {
+    local account="$1" expected
+    expected="$(profile_field "$account" theme)"
+    [[ -n "$expected" ]] || return 0
+    theme_apply_for "$account" "$expected"
+}
+
 # --- machine-level locks ----------------------------------------------------
 
 polkit_admin_ok() {

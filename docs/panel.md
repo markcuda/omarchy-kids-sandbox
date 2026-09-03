@@ -21,7 +21,7 @@ run.
 | Screen | What's on it |
 | --- | --- |
 | **P1 Home** | One row per kid — name, band, minutes used/left today, `paused` if a kid's time isn't counting right now, and their open-request count (`kid_home_line`) — then **Add a kid**, **Requests (N)**, **Remove Kids Mode**, **Quit**. |
-| **P2 Kid** | **Screen time** (today's status, "give more minutes" via `omarchy-kids-time grant`, and editing the daily budget / lights-out, both validated), **Web** (the band's mode; a walled-garden kid also gets an allow-list editor), **Apps** (hide/show the band's pack), **Desktop level**, **Password**, **Remove this kid**, **Back**. |
+| **P2 Kid** | **Screen time** (today's status, "give more minutes" via `omarchy-kids-time grant`, and editing the daily budget / lights-out, both validated), **Web** (the band's mode; a walled-garden kid also gets an allow-list editor), **Apps** (hide/show the band's pack), **Data**, **Desktop** (level, theme — issue #53), **Password**, **Remove this kid**, **Back**. |
 | **P3 Requests** | Every open "Ask a parent" request, each shown as `<kid> — <what> (<age>)`; Enter opens the reason line and **Approve**/**Decline**. |
 
 Every screen is keyboard-complete (I-5): Esc or a **Back**/**Quit** row goes back or leaves; Ctrl+C
@@ -62,9 +62,14 @@ sends a parent back through the app entry point today.
   plain words without touching Chromium at all (R-DATA-4), so this screen skips `read_priv` and
   asks for no password it wouldn't use. See docs/data.md for what's recorded, where, and for how
   long.
-- **Desktop level** is the same 1/2/3 choice as the wizard's own A11, writing `level` only when it
-  changed from the current value (same "only overrides" reasoning as R-BAND-2, applied one screen
-  at a time instead of a whole Apply).
+- **Desktop** (issue #53) is a small menu over two rows: **Desktop level** is the same 1/2/3 choice
+  as the wizard's own A11, writing `level` only when it changed from the current value (same "only
+  overrides" reasoning as R-BAND-2, applied one screen at a time instead of a whole Apply).
+  **Theme** is a picker over `lib/theme.sh`'s `theme_list_installed` (the system themes dir only);
+  writing `theme` here goes through `omarchy-kids-conf set <kid> theme <name>`, whose own `cmd_set`
+  applies it to the kid's `$HOME` as root and best-effort reloads a live session — see
+  `docs/theming.md`. Empty (no themes found under `$OMARCHY_PATH/themes`) shows a message instead
+  of an empty picker.
 - **Password**: `omarchy-kids-provision` has no `passwd` subcommand yet — only `add`/`remove`/`list`
   (docs/provision.md) — so this screen checks for one (future-proofing) and, finding none, names
   the exact command a parent runs themselves (`sudo passwd <kid>`) rather than claiming a control

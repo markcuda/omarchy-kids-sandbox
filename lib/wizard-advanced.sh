@@ -4,12 +4,15 @@
 # (SPEC.md R-WIZ-2, R-WIZ-3, Appendix B; issue #20), reachable from A6
 # and the summary's "Change something". Sourced by bin/omarchy-kids-
 # wizard, which already defines every global/helper this file reads
-# ($BAND, $DISPLAY_NAME, band_field, every tui_screen_* function); not
+# ($BAND, $DISPLAY_NAME, band_field, lib/theme.sh's theme_current_name/
+# theme_list_installed (issue #53), every tui_screen_* function); not
 # meant to be sourced on its own. adv_get/adv_set read/write each row's
 # value by variable name (bash 3.2 has no namerefs/associative arrays).
-# Full row list and the six groups: docs/wizard.md.
+# theme's own "default" is the parent's own current Omarchy theme, not a
+# band value — bands.toml has no theme field. Full row list and the six
+# groups: docs/wizard.md.
 
-ADV_KEYS=(web dns sites budget_min budget_min_weekend lights_out lights_out_weekend allowlist wifi level menu history_visible)
+ADV_KEYS=(web dns sites budget_min budget_min_weekend lights_out lights_out_weekend allowlist wifi level menu theme history_visible)
 
 adv_varname() { # KEY -> the bash variable name holding its current value
     case "$1" in
@@ -24,6 +27,7 @@ adv_varname() { # KEY -> the bash variable name holding its current value
         wifi) echo WIFI_MODE ;;
         level) echo LEVEL ;;
         menu) echo MENU_MODE ;;
+        theme) echo THEME ;;
         history_visible) echo HISTORY_VISIBLE ;;
     esac
 }
@@ -34,7 +38,7 @@ adv_group_of() { # KEY -> the group its row is shown under
         budget_min | budget_min_weekend | lights_out | lights_out_weekend) echo "Screen time" ;;
         allowlist) echo "Apps" ;;
         wifi) echo "Wi-Fi" ;;
-        level | menu) echo "Desktop" ;;
+        level | menu | theme) echo "Desktop" ;;
         history_visible) echo "Data" ;;
     esac
 }
@@ -52,6 +56,7 @@ adv_label_of() { # KEY -> the row's label, in parent words
         wifi) echo "New Wi-Fi networks" ;;
         level) echo "Desktop level" ;;
         menu) echo "App menu" ;;
+        theme) echo "Theme" ;;
         history_visible) echo "Browsing history" ;;
     esac
 }
@@ -67,11 +72,17 @@ pack_sites() {
 }
 
 # adv_default KEY — this band's (or its pack's) default value, in the
-# same raw form `omarchy-kids-conf set` expects.
+# same raw form `omarchy-kids-conf set` expects. theme (issue #53) has no
+# band default at all -- bands.toml carries no theme field -- its
+# "default" is the parent's own current Omarchy theme, the same value
+# bin/omarchy-kids-provision's own theme step copies at Add time
+# (docs/theming.md); theme_current_name reads it with no THEME_KIDS_HOME
+# override since the wizard always runs as the parent themselves.
 adv_default() {
     case "$1" in
         sites) pack_sites "$BAND" ;;
         allowlist) pack_field "$BAND" id | paste -sd, - ;;
+        theme) theme_current_name ;;
         *) band_field "$BAND" "$1" ;;
     esac
 }
@@ -352,6 +363,29 @@ adv_edit_allowlist() {
     return 0
 }
 
+# adv_edit_theme STEP TOTAL — a tui_screen_choose over
+# theme_list_installed's own names (lib/theme.sh, issue #53) — the system
+# themes dir only, never a kid- or parent-installed
+# ~/.config/omarchy/themes/<name> (theme_apply_for's own header has why).
+# Preselects the row's *current* value (adv_edit_enum's own contract), not
+# necessarily the parent's own theme, so re-opening a changed row shows
+# the change. No themes found at all (no real Omarchy install on this
+# box) is a message and "row untouched", same as an Esc.
+adv_edit_theme() {
+    local step="$1" total="$2"
+    local -a choices=()
+    local name
+    while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        choices+=("$name|$name|")
+    done < <(theme_list_installed)
+    if ((${#choices[@]} == 0)); then
+        echo "No installed themes found under \$OMARCHY_PATH/themes." >&2
+        return 1
+    fi
+    adv_edit_enum theme "Which Omarchy theme should $DISPLAY_NAME's desktop use?" "$step" "$total" "${choices[@]}"
+}
+
 # adv_edit KEY STEP TOTAL — dispatches to the right editor for one row.
 adv_edit() {
     local key="$1" step="$2" total="$3"
@@ -390,6 +424,7 @@ adv_edit() {
         lights_out_weekend) adv_edit_time lights_out_weekend "Lights out at, on weekends?" "$step" "$total" ;;
         sites) adv_edit_sites "$step" "$total" ;;
         allowlist) adv_edit_allowlist "$step" "$total" ;;
+        theme) adv_edit_theme "$step" "$total" ;;
         *) return 1 ;;
     esac
 }

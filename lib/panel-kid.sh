@@ -1,8 +1,8 @@
 # shellcheck shell=bash
 # lib/panel-kid.sh — omarchy-kids-panel's P2 (one kid): time, web, apps,
-# plugins, data, level, password, remove — screen_kid is the row menu
-# that dispatches to each. Sourced by the dispatcher; not meant to be
-# executed directly.
+# plugins, data, desktop (level, theme — issue #53), password, remove —
+# screen_kid is the row menu that dispatches to each. Sourced by the
+# dispatcher; not meant to be executed directly.
 
 # --- P2: one kid -------------------------------------------------------------
 
@@ -280,12 +280,81 @@ screen_kid_level() { # ACCOUNT NAME
         "2|Two things side by side|Split-screen multitasking."
         "3|The full desktop|Everything Omarchy normally offers."
     )
-    tui_screen_choose "$name's desktop" 1 1 0 "" choices "$current"
+    tui_screen_choose "$name's desktop level" 1 1 0 "" choices "$current"
     local rc=$?
     ((rc == 130)) && return 130
     ((rc == 0)) || return 0
     [[ "$TUI_REPLY" != "$current" ]] && run_priv "$CONF_BIN" set "$account" level "$TUI_REPLY"
     return 0
+}
+
+# screen_kid_theme ACCOUNT NAME — a picker over theme_list_installed's own
+# names (lib/theme.sh, issue #53: the system themes dir only, never a
+# kid- or parent-installed one — theme_apply_for's own header has why).
+# Writing an override here (`omarchy-kids-conf set <kid> theme <name>`)
+# is what actually applies the theme to disk as root and best-effort
+# reloads a live session — see that command's own cmd_set.
+screen_kid_theme() { # ACCOUNT NAME
+    local account="$1" name="$2" current
+    current="$(kid_conf_get "$account" theme)"
+    local -a choices=()
+    local t
+    while IFS= read -r t; do
+        [[ -z "$t" ]] && continue
+        choices+=("$t|$t|")
+    done < <(theme_list_installed)
+    if ((${#choices[@]} == 0)); then
+        echo
+        echo "No installed themes found under \$OMARCHY_PATH/themes — nothing to pick from."
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local back_choices=("back|Back|")
+        tui_screen_choose "$name's theme" 1 1 0 "" back_choices "back"
+        local rc=$?
+        ((rc == 130)) && return 130
+        return 0
+    fi
+    tui_screen_choose "$name's theme" 1 1 0 "" choices "$current"
+    local rc=$?
+    ((rc == 130)) && return 130
+    ((rc == 0)) || return 0
+    [[ "$TUI_REPLY" != "$current" ]] && run_priv "$CONF_BIN" set "$account" theme "$TUI_REPLY"
+    return 0
+}
+
+# screen_kid_desktop ACCOUNT NAME — the panel's Desktop screen (issue
+# #53's own brief: "a row in the panel's Desktop screen"): Desktop level
+# and Theme, each opening its own picker above.
+screen_kid_desktop() { # ACCOUNT NAME
+    local account="$1" name="$2"
+    while true; do
+        local level_cur theme_cur
+        level_cur="$(kid_conf_get "$account" level)"
+        theme_cur="$(kid_conf_get "$account" theme)"
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local choices=(
+            "level|Desktop level|Level $level_cur"
+            "theme|Theme|${theme_cur:-(none set)}"
+            "back|Back|"
+        )
+        tui_screen_choose "$name's desktop" 1 1 0 "" choices "level"
+        local rc=$?
+        case "$rc" in
+            130) return 130 ;;
+            1) return 0 ;;
+        esac
+        ((rc == 0)) || return 0
+        case "$TUI_REPLY" in
+            level)
+                screen_kid_level "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            theme)
+                screen_kid_theme "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            back) return 0 ;;
+        esac
+    done
 }
 
 # screen_kid_password ACCOUNT NAME — SPEC.md R-WIZ-8's "reset password"
@@ -367,7 +436,7 @@ screen_kid() { # ACCOUNT
             "web|Web|"
             "apps|Apps|"
             "data|Data|"
-            "level|Desktop level|"
+            "desktop|Desktop|"
             "password|Password|"
             "remove|Remove this kid|"
             "back|Back|"
@@ -397,8 +466,8 @@ screen_kid() { # ACCOUNT
                 screen_kid_data "$account" "$name"
                 rc=$?; ((rc == 130)) && return 130
                 ;;
-            level)
-                screen_kid_level "$account" "$name"
+            desktop)
+                screen_kid_desktop "$account" "$name"
                 rc=$?; ((rc == 130)) && return 130
                 ;;
             password)

@@ -78,6 +78,18 @@ EOF
 mkdir -p "$HOMEROOT/home/mark"
 echo "0=mark:omarchy.desktop" > "$ETC/luks-slots"
 
+# issue #53: the parent's own current theme (posture_parent_home falls
+# back to OMARCHY_KIDS_HOME_ROOT-prefixed /home/mark here, same as every
+# other "mark" lookup in this file) and a scratch system themes dir
+# (OMARCHY_PATH/themes) for theme_apply_for's own file copy.
+OMARCHY_PATH="$TMP/omarchy"
+mkdir -p "$OMARCHY_PATH/themes/tokyo-night/backgrounds"
+echo 'background = "#1a1b26"' > "$OMARCHY_PATH/themes/tokyo-night/colors.toml"
+: > "$OMARCHY_PATH/themes/tokyo-night/backgrounds/bg1.png"
+mkdir -p "$HOMEROOT/home/mark/.local/state/omarchy/current/theme"
+echo 'background = "#1a1b26"' > "$HOMEROOT/home/mark/.local/state/omarchy/current/theme/colors.toml"
+echo tokyo-night > "$HOMEROOT/home/mark/.local/state/omarchy/current/theme.name"
+
 # Real SDDM stacks ship with a real auth chain already in them (issue
 # #15, R-SEC-2): "add" inserts the parent-unlock pam_exec line right
 # before the first non-comment "auth" line, since sddm's own first auth
@@ -163,6 +175,7 @@ export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$SCRATCH_ROOT"
 export OMARCHY_KIDS_HOME_ROOT="$HOMEROOT"
+export OMARCHY_PATH
 export DRY_RUN=0
 
 SLUG="$("$CONFBIN" slug "Ada Lovelace")"
@@ -323,6 +336,18 @@ else
     fail "add: no chromium-flags.conf written for $SLUG"
 fi
 
+# --- issue #53: the kid's own theme matches the parent's current one ------
+
+check_eq "$(grep -c "^theme=tokyo-night\$" "$ETC/kids/$SLUG.conf")" "1" "profile: theme=tokyo-night, the parent's own current theme"
+
+KID_THEME_DIR="$HOMEROOT/home/$SLUG/.local/state/omarchy/current/theme"
+check_eq "$(cat "$KID_THEME_DIR/colors.toml" 2>/dev/null)" "$(cat "$OMARCHY_PATH/themes/tokyo-night/colors.toml")" \
+    "add: theme_apply_for actually copied the parent's theme into $SLUG's own \$HOME"
+[[ -f "$KID_THEME_DIR/backgrounds/bg1.png" ]] && pass "add: the whole theme tree was copied, not just colors.toml" \
+    || fail "add: backgrounds/ was not copied into $SLUG's theme"
+check_eq "$(cat "$HOMEROOT/home/$SLUG/.local/state/omarchy/current/theme.name" 2>/dev/null)" "tokyo-night" \
+    "add: theme.name written beside $SLUG's own theme directory"
+
 # --- add: slug collision gets -2 ------------------------------------------
 
 : > "$ARGV_LOG"
@@ -374,6 +399,22 @@ check_not_contains "$out5" "omarchy-provision-user" "add without omarchy-provisi
 [[ -f "$MARKER" ]] && pass "migration marker file written when omarchy-provision-user is absent" \
     || fail "no migration marker at $MARKER"
 stub omarchy-provision-user  # restore for the rest of the test
+
+# --- issue #53: parent has no current Omarchy theme yet -> a warning, no
+#     override written, no theme directory copied for the new kid --------
+
+mv "$HOMEROOT/home/mark/.local/state/omarchy/current/theme.name" "$TMP/theme.name.bak"
+: > "$ARGV_LOG"
+out_notheme="$(printf 'kidpass4\n' | "$BIN" add "Nia" --band 6-8 --avatar bear --password-stdin 2>&1)"
+SLUG_NIA="$("$CONFBIN" slug "Nia")"
+check_contains "$out_notheme" "parent 'mark' has no current Omarchy theme yet" \
+    "add: warns (does not fail) when the parent has never picked an Omarchy theme"
+check_eq "$(grep -c '^theme=' "$ETC/kids/$SLUG_NIA.conf")" "0" \
+    "add: no theme override is written when the parent has no theme to copy"
+[[ -e "$HOMEROOT/home/$SLUG_NIA/.local/state/omarchy/current/theme" ]] \
+    && fail "add: no theme directory should be created for $SLUG_NIA" \
+    || pass "add: $SLUG_NIA's own theme directory was never created"
+mv "$TMP/theme.name.bak" "$HOMEROOT/home/mark/.local/state/omarchy/current/theme.name"
 
 # --- list ------------------------------------------------------------------
 

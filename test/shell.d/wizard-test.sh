@@ -58,6 +58,17 @@ cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
 cp "$DIR"/share/avatars/*.svg "$SHARE/avatars/"
 : >"$ARGV_LOG"
 
+# issue #53: a scratch $HOME (so theme_current_name never reads whatever
+# real Omarchy theme this dev/CI box happens to have, AGENTS.md rule 8)
+# with a current theme set, plus a scratch system themes dir
+# ($OMARCHY_PATH/themes) with two installed names for the Desktop group's
+# theme row to pick from.
+export HOME="$TMP/home"
+mkdir -p "$HOME/.local/state/omarchy/current/theme"
+echo tokyo-night > "$HOME/.local/state/omarchy/current/theme.name"
+export OMARCHY_PATH="$TMP/omarchy"
+mkdir -p "$OMARCHY_PATH/themes/tokyo-night" "$OMARCHY_PATH/themes/catppuccin-latte"
+
 # Fake gum: same convention as test/shell.d/tui-test.sh's own fake --
 # only needed here so lib/tui.sh's header rendering has something to
 # call; every actual answer in this file comes from OMARCHY_KIDS_TUI_ANSWERS,
@@ -249,6 +260,27 @@ check_contains "$out" "omarchy-kids-conf set kid-ada dns cleanbrowsing-family" "
 check_contains "$out" "omarchy-kids-conf set kid-ada budget_min 75" "Apply writes the budget_min override chosen in Advanced"
 check_not_contains "$out" "omarchy-kids-conf set kid-ada wifi" "a row never opened in Advanced writes no override"
 check_not_contains "$out" "omarchy-kids-conf set kid-ada menu" "a row never opened in Advanced writes no override"
+
+# --- issue #53: the Desktop group's theme row -- default is the parent's
+# own current theme (tokyo-night, from $HOME above), not a band value;
+# leaving it untouched writes no override; picking a different installed
+# theme does ---------------------------------------------------------
+
+: >"$ARGV_LOG"
+answers="$(answers_file begin parentpw123 Ada fox 6-8 advanced "done" secret1 secret1 apply parent)"
+run_wizard "$answers"
+check_status "$WIZ_STATUS" 0 "Advanced with no rows opened still completes"
+check_not_contains "$out" "omarchy-kids-conf set kid-ada theme" \
+    "theme's default already matches the parent's current theme, so leaving the row alone writes no override"
+
+: >"$ARGV_LOG"
+answers="$(answers_file begin parentpw123 Ada fox 6-8 advanced \
+    theme catppuccin-latte "done" secret1 secret1 apply parent)"
+run_wizard "$answers"
+check_status "$WIZ_STATUS" 0 "picking a different theme in Advanced still completes"
+check_contains "$out" "[Desktop] Theme" "the checklist groups the theme row under Desktop, with level and menu"
+check_contains "$out" "omarchy-kids-conf set kid-ada theme catppuccin-latte" \
+    "Apply writes the theme override chosen in Advanced"
 
 # --- Esc from an editor returns to the checklist, not out of it: the
 # row's value is untouched and the wizard still finishes normally -------

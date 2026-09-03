@@ -3,14 +3,22 @@
 # omarchy:args=<command> [args]
 # The one way to read and write every kid setting (SPEC.md R-BAND-1,
 # R-BAND-2, R-BUILD-5, Appendix B/C): kid override, else band default,
-# else global default. See docs/conf.md for the precedence, the
-# extension keys, and every env var.
+# else global default. `band`, `name`, `avatar`, and `theme` (issue #53,
+# docs/theming.md) have no default at all — they must already be in the
+# profile; `set <kid> theme <name>` also applies the theme to that kid's
+# own $HOME as root, the one key here with a real side effect. See
+# docs/conf.md for the precedence, the extension keys, and every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # lib/ sits beside bin/ in the repo; the package installs it to /usr/lib/omarchy-kids.
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 source "$LIB/conf.sh"
+# theme_list_installed/theme_apply_for/theme_reload_if_live (issue #53):
+# `set <kid> theme <name>` is the one key here with a real side effect --
+# applying the theme to disk as root, docs/theming.md.
+# shellcheck source=lib/theme.sh
+source "$LIB/theme.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -21,12 +29,18 @@ PACKS_DIR="$SHARE/packs"
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 PYHELPER="$LIB/conf.py"
 
-# Appendix B, in table order.
+# Appendix B, in table order. theme (issue #53) sits with level/menu --
+# the other "how the desktop looks" cells -- rather than at the end.
 APPENDIX_B_KEYS=(name avatar band level web dns budget_min budget_min_weekend
-    lights_out lights_out_weekend wifi history_visible menu allowlist sites
+    lights_out lights_out_weekend wifi history_visible menu theme allowlist sites
     password onboarded)
-# No default anywhere; must already be an override.
-REQUIRED_KEYS=(name avatar band)
+# No default anywhere; must already be an override. theme joins this list
+# for the same reason avatar/band do: bin/omarchy-kids-provision always
+# tries to set it (to the parent's own current theme, docs/theming.md),
+# so in practice it is always there — the one documented exception is a
+# parent who has never picked an Omarchy theme at all, which provisioning
+# warns about and leaves unset rather than guessing (see its own comment).
+REQUIRED_KEYS=(name avatar band theme)
 # Resolved from the band table in bands.toml when there's no override.
 BAND_KEYS=(level web dns budget_min budget_min_weekend lights_out
     lights_out_weekend wifi history_visible menu)
@@ -140,6 +154,12 @@ validate_value() {
         menu)
             is_in "$value" trimmed full || die "invalid value for 'menu': must be trimmed or full"
             ;;
+        theme)
+            [[ "$value" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "invalid value for 'theme': lowercase id, e.g. 'tokyo-night'"
+            if [[ -d "$OMARCHY_PATH/themes" ]]; then
+                [[ -d "$OMARCHY_PATH/themes/$value" ]] || die "invalid value for 'theme': no such theme '$value' under $OMARCHY_PATH/themes"
+            fi
+            ;;
         allowlist)
             [[ "$value" =~ ^[a-z0-9_-]+(,[a-z0-9_-]+)*$ || -z "$value" ]] || die "invalid value for 'allowlist': comma-separated launcher ids"
             ;;
@@ -236,6 +256,22 @@ cmd_set() {
     is_valid_key "$key" || die "unknown key: '$key' (see docs/conf.md)"
     validate_value "$key" "$value"
     conf_set "$(profile_file "$kid")" "$key" "$value"
+    # issue #53: theme is the one key with a real side effect -- applying
+    # it to $kid's own $HOME as root (lib/theme.sh's theme_apply_for,
+    # docs/theming.md), the same writer bin/omarchy-kids-provision's own
+    # theme step and the "theme:<account>" assert lock both go through,
+    # so there is one place that ever touches theme files. A failed
+    # apply (not root, no real $OMARCHY_PATH/themes on this box) doesn't
+    # fail the override write itself -- omarchy-kids-assert re-applies it
+    # the next time it runs, same "eventually correct" shape as every
+    # other lock here.
+    if [[ "$key" == theme ]]; then
+        if theme_apply_for "$kid" "$value"; then
+            theme_reload_if_live "$kid"
+        else
+            echo "omarchy-kids-conf: wrote the 'theme' override for '$kid' but could not apply it to disk yet (see stderr above) -- omarchy-kids-assert will retry" >&2
+        fi
+    fi
     echo "$kid: $key=$value"
 }
 
@@ -255,7 +291,7 @@ cmd_reset() {
     profile="$(profile_file "$kid")"
     [[ -e "$profile" ]] || die "kid '$kid' has no profile ($profile)"
     for key in "${APPENDIX_B_KEYS[@]}" "${EXT_KEYS[@]}"; do
-        is_in "$key" band name avatar password onboarded && continue
+        is_in "$key" band name avatar theme password onboarded && continue
         conf_del "$profile" "$key"
     done
     echo "$kid: reset to band defaults"

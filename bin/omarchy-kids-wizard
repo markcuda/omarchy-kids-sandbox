@@ -13,6 +13,10 @@ source "$LIB/sock.sh"
 source "$LIB/conf.sh"
 # shellcheck source=lib/tui.sh
 source "$LIB/tui.sh"
+# theme_current_name/theme_list_installed (issue #53): lib/wizard-advanced.sh's
+# Desktop-group theme row reads these directly.
+# shellcheck source=lib/theme.sh
+source "$LIB/theme.sh"
 # shellcheck source=lib/wizard-advanced.sh
 source "$LIB/wizard-advanced.sh"
 # shellcheck source=lib/units.sh

@@ -1,8 +1,10 @@
 #!/bin/bash
-# omarchy:summary=The parent panel: per-kid time, web, apps, level, password, remove
+# omarchy:summary=The parent panel: per-kid time, web, apps, desktop, password, remove
 # omarchy:args=[--dry-run] [--apply]
-# Everything after the first run: per-kid time, web, apps, level, password, remove (SPEC.md R-WIZ-7/8, Appendix A's P1-P5).
-# See docs/panel.md for the full screen list and every env var.
+# Everything after the first run: per-kid time, web, apps, data, desktop
+# (level, theme — issue #53), password, remove (SPEC.md R-WIZ-7/8,
+# Appendix A's P1-P5). See docs/panel.md for the full screen list and
+# every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,6 +13,9 @@ LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omar
 source "$LIB/tui.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
+# theme_list_installed (issue #53): screen_kid_theme's own picker.
+# shellcheck source=lib/theme.sh
+source "$LIB/theme.sh"
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 ASK_PY="$LIB/ask.py"
 

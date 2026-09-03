@@ -30,12 +30,16 @@ stops at the first hit:
 3. **default** — a global default that isn't band-specific (`dns`, `history_visible`, `password`,
    `onboarded`).
 
-`name`, `avatar`, and `band` have no default at all: they must already be an override, or `get`
-(and anything that resolves through them) exits 2.
+`name`, `avatar`, `band`, and `theme` have no default at all: they must already be an override, or
+`get` (and anything that resolves through them) exits 2. `theme` (issue #53, `docs/theming.md`)
+joins this list for a different reason than the other three — it isn't asked for interactively;
+`omarchy-kids-provision add` always writes it, to the parent's own current Omarchy theme at that
+moment, unless the parent has never picked one at all (a warning, not a failure — see that
+command's own comment).
 
 "Reset to band defaults" (`omarchy-kids-conf reset <kid>`) deletes every override except
-`band`, `name`, `avatar`, `password`, and `onboarded` — a kid's identity and password survive a
-reset; everything else falls back to their band.
+`band`, `name`, `avatar`, `theme`, `password`, and `onboarded` — a kid's identity, theme, and
+password survive a reset; everything else falls back to their band.
 
 ## Appendix B keys
 
@@ -52,6 +56,7 @@ reset; everything else falls back to their band.
 | `wifi` | `parent` `helper` | band | per band |
 | `history_visible` | `yes` `no` | global | `yes` |
 | `menu` | `trimmed` `full` | band | per band (trimmed for Levels 1-2, full for Level 3) |
+| `theme` | id from the system themes dir (`$OMARCHY_PATH/themes`) | none — required | — (`omarchy-kids-provision add` sets it to the parent's current theme; `docs/theming.md`) |
 | `allowlist` | comma-separated launcher ids | band's pack | the full starter pack |
 | `sites` | comma-separated hosts | band's pack | the band's `[garden]` list |
 | `password` | `set` `none` | global | `set` |
@@ -91,6 +96,18 @@ same as any other key. `reset` clears both, same as every other override.
 `apps.show_missing` controls what `bin/omarchy-kids-session-start` does with a tile whose app
 isn't installed (docs/levels.md's "The launcher's tile list"): `no` (the default) omits it
 entirely; `yes` keeps it, greyed, with a caption. Not read anywhere else.
+
+### `theme`: the one key with a real side effect (issue #53)
+
+Every other key above is a plain profile write — whatever reads it later (session-start, the bar,
+a lock) is what actually acts on it. `theme` is the exception: `omarchy-kids-conf set <kid> theme
+<name>` writes the override *and* applies it to `<kid>`'s own `$HOME` as root right away
+(`lib/theme.sh`'s `theme_apply_for`, the same shape `omarchy theme set` uses for a live session —
+see `docs/theming.md` for the full mechanics, the ownership rationale, and what "applies" actually
+means non-interactively). A live session gets a best-effort reload the same way; no session means
+the kid simply sees it at their next login — no restart needed either way. A failed apply (not
+root, no `$OMARCHY_PATH/themes` on this box) still leaves the override written; `omarchy-kids-assert`'s
+`theme:<account>` lock re-applies it on its own the next time it runs.
 
 ### Machine-level keys (`machine.conf`, not profile keys)
 
@@ -139,7 +156,7 @@ entirely against a throwaway tree — see `test/shell.d/conf-test.sh`.
 omarchy-kids-conf get <kid> <key>          effective value: override, else band, else default
 omarchy-kids-conf set <kid> <key> <value>  write an override (validated against the table above)
 omarchy-kids-conf show <kid>                every key, its value, and where it came from
-omarchy-kids-conf reset <kid>                clear overrides except band/name/avatar/password/onboarded
+omarchy-kids-conf reset <kid>                clear overrides except band/name/avatar/theme/password/onboarded
 omarchy-kids-conf bands                      list bands with their label and blurb
 omarchy-kids-conf band <band>                print one band's defaults
 omarchy-kids-conf slug <display name>        the kid- account-name slug for a display name (Appendix B.1)
@@ -148,7 +165,7 @@ omarchy-kids-conf machine set parent <name>  write machine.conf's parent= (issue
 
 `set` refuses a key that isn't in Appendix B, and a value that doesn't match the key's format, with
 exit 2 and a one-line reason on stderr. `get` on an unknown key also exits 2. `get` on `name`,
-`avatar`, or `band` with no override set exits 2, naming the missing key.
+`avatar`, `band`, or `theme` with no override set exits 2, naming the missing key.
 
 ## Examples
 

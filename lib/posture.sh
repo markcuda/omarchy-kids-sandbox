@@ -416,18 +416,13 @@ posture_remove_sddm_theme_dropin() {
 # Root-owned 0644, rewritten in full on every add/remove. Full citation
 # and the live-VM finding: docs/portal.md.
 
-# posture_parent_home PARENT — resolves PARENT's $HOME: `getent passwd`
-# first, falling back to OMARCHY_KIDS_HOME_ROOT-prefixed "/home/<parent>"
-# for tests. Points lib/theme.sh's THEME_KIDS_HOME at the parent's own
-# theme, not root's.
-posture_parent_home() {
-    local parent="$1" home
-    if command -v getent >/dev/null 2>&1; then
-        home="$(getent passwd "$parent" 2>/dev/null | cut -d: -f6)"
-        [[ -n "$home" ]] && { printf '%s\n' "$home"; return 0; }
-    fi
-    printf '%s/home/%s\n' "${OMARCHY_KIDS_HOME_ROOT:-}" "$parent"
-}
+# posture_parent_home PARENT — resolves PARENT's $HOME. A thin name for
+# lib/theme.sh's own theme_account_home (AGENTS.md: "no duplicated
+# helpers" — that function generalizes what used to be duplicated here,
+# issue #53): `getent passwd` first, falling back to
+# OMARCHY_KIDS_HOME_ROOT-prefixed "/home/<parent>" for tests. Points
+# lib/theme.sh's THEME_KIDS_HOME at the parent's own theme, not root's.
+posture_parent_home() { theme_account_home "$1"; }
 
 # posture_theme_conf_lines PARENT — the nine [General] color/font keys
 # theme.conf(.user) carries, resolved from PARENT's own Omarchy theme

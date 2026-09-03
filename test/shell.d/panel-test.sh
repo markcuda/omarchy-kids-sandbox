@@ -90,7 +90,12 @@ run_panel() {
 # beyond the real helper binaries beside this script (no writes ever
 # actually run in this mode) ------------------------------------------
 
-export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" OMARCHY_KIDS_ROOT="$ROOT"
+# issue #53: a scratch system themes dir for the Desktop screen's theme
+# picker (screen_kid_theme's own theme_list_installed).
+OMARCHY_PATH="$TMP/omarchy"
+mkdir -p "$OMARCHY_PATH/themes/tokyo-night" "$OMARCHY_PATH/themes/catppuccin-latte"
+
+export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" OMARCHY_KIDS_ROOT="$ROOT" OMARCHY_PATH
 
 answers="$(answers_file "kid:kid-ada" time grant 15 back back quit)"
 run_panel "$answers" --dry-run
@@ -107,6 +112,17 @@ answers="$(answers_file "kid:kid-ada" apps gcompris back back quit)"
 run_panel "$answers"
 check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-apps hide kid-ada gcompris" \
     "dry-run: hiding an app prints the exact hide command"
+
+# issue #53: the Desktop screen's two rows, level and theme.
+answers="$(answers_file "kid:kid-ada" desktop level 2 back back quit)"
+run_panel "$answers"
+check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-conf set kid-ada level 2" \
+    "dry-run: Desktop -> Desktop level prints the exact conf-set command"
+
+answers="$(answers_file "kid:kid-ada" desktop theme catppuccin-latte back back quit)"
+run_panel "$answers"
+check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-conf set kid-ada theme catppuccin-latte" \
+    "dry-run: Desktop -> Theme prints the exact conf-set command"
 
 answers="$(answers_file "kid:kid-ada" remove NotAda back quit)"
 run_panel "$answers"

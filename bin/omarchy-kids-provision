@@ -47,8 +47,9 @@ add     Creates the Unix account, the profile, the polkit/pam/fstab
         (R-LOGIN), a LUKS key slot if a password and an encrypted root
         device are both in play, and either runs omarchy-provision-user
         or marks Omarchy's per-user migrations done -- so the new
-        desktop never shows "Pending Omarchy Migrations". Bands: 3-5,
-        6-8, 9-12, 13+.
+        desktop never shows "Pending Omarchy Migrations". Also matches
+        the kid's own desktop theme to the parent's current one
+        (docs/theming.md). Bands: 3-5, 6-8, 9-12, 13+.
 
         The kid's password is read from stdin (never argv), one line,
         with --password-stdin. --no-password locks the account instead,

@@ -25,8 +25,20 @@ mkdir -p "$SHARE/bands" "$SHARE/packs"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
 
+# issue #53: a scratch system themes dir ($OMARCHY_PATH/themes) for
+# `theme`'s validation and `theme_apply_for`'s own file copy, plus a
+# scratch home root so that copy never touches this box's real /home.
+OMARCHY_PATH="$TMP/omarchy"
+mkdir -p "$OMARCHY_PATH/themes/tokyo-night" "$OMARCHY_PATH/themes/catppuccin-latte"
+echo 'background = "#1a1b26"' > "$OMARCHY_PATH/themes/tokyo-night/colors.toml"
+echo 'background = "#eff1f5"' > "$OMARCHY_PATH/themes/catppuccin-latte/colors.toml"
+OMARCHY_KIDS_HOME_ROOT="$TMP/homeroot"
+mkdir -p "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada"
+
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
+export OMARCHY_PATH
+export OMARCHY_KIDS_HOME_ROOT
 
 fail=0
 check() { # got want label
@@ -78,6 +90,7 @@ check "$slug_long" "kid-$(printf 'a%.0s' {1..24})" "slug: truncated slug is the 
 "$CONF" set kid-ada name Ada >/dev/null
 "$CONF" set kid-ada avatar fox >/dev/null
 "$CONF" set kid-ada band 6-8 >/dev/null
+"$CONF" set kid-ada theme tokyo-night >/dev/null
 check_status "$?" 0 "set writes the identity keys"
 
 # --- get: override -> band -> default fallback ----------------------------
@@ -116,6 +129,40 @@ check_status "$status" 2 "get: an unknown key is also refused"
 "$CONF" set kid-ada budget_min 75 >/dev/null
 check "$("$CONF" get kid-ada budget_min)" "75" "set: a valid budget_min is written and read back"
 
+# --- theme (issue #53): validation, get, and the real apply side effect ----
+
+check "$("$CONF" get kid-ada theme)" "tokyo-night" "get: theme reads back the fixture's override"
+
+"$CONF" set kid-ada theme "Not A Real Theme" >/dev/null 2>&1
+check_status "$?" 2 "set: a theme name with spaces/caps is refused before it ever checks the themes dir"
+
+err="$("$CONF" set kid-ada theme no-such-theme 2>&1 >/dev/null)"
+status=$?
+check_status "$status" 2 "set: a lowercase-shaped but non-existent theme is refused"
+check_contains "$err" "no-such-theme" "set: the refusal names the bad theme"
+check_contains "$err" "$OMARCHY_PATH/themes" "set: the refusal names where it looked"
+
+"$CONF" set kid-ada theme catppuccin-latte >/dev/null
+check "$("$CONF" get kid-ada theme)" "catppuccin-latte" "set: a real installed theme is accepted and read back"
+
+KID_THEME_DIR="$OMARCHY_KIDS_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme"
+check "$(cat "$KID_THEME_DIR/colors.toml" 2>/dev/null)" "$(cat "$OMARCHY_PATH/themes/catppuccin-latte/colors.toml")" \
+    "set theme: theme_apply_for actually copied the new theme's colors.toml to disk"
+check "$(cat "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme.name" 2>/dev/null)" "catppuccin-latte" \
+    "set theme: theme.name on disk matches what was just set"
+
+# put kid-ada back on tokyo-night for the rest of this file's fixtures
+"$CONF" set kid-ada theme tokyo-night >/dev/null
+
+# get-with-no-override still behaves like name/avatar/band (theme joined
+# REQUIRED_KEYS, docs/conf.md) -- a second, fresh kid that's never had
+# `theme` set at all.
+"$CONF" set kid-notheme name Notheme >/dev/null
+"$CONF" set kid-notheme avatar fox >/dev/null
+"$CONF" set kid-notheme band 6-8 >/dev/null
+"$CONF" get kid-notheme theme >/dev/null 2>&1
+check_status "$?" 2 "get: theme with no override at all exits 2, same as name/avatar/band"
+
 # --- show: source column ----------------------------------------------------
 # Match on the key at the start of the line and the source at the end,
 # rather than the exact column widths, so this doesn't break if the
@@ -137,6 +184,7 @@ profile="$ETC/kids/kid-ada.conf"
 check "$(grep -c '^name=' "$profile")" "1" "reset: name survives"
 check "$(grep -c '^avatar=' "$profile")" "1" "reset: avatar survives"
 check "$(grep -c '^band=' "$profile")" "1" "reset: band survives"
+check "$(grep -c '^theme=' "$profile")" "1" "reset: theme survives (issue #53)"
 check "$(grep -c '^password=' "$profile")" "1" "reset: password survives"
 check "$(grep -c '^onboarded=' "$profile")" "1" "reset: onboarded survives"
 check "$(grep -c '^level=' "$profile")" "0" "reset: level override is cleared"

@@ -243,3 +243,7 @@ Not yet exercised live: the wrong-password shake and the 30 s lockout, Esc to cl
 (needs the decision in docs/phase1/DECISIONS-NEEDED.md), and the parent password on a kid's
 tile at the portal (#15's PAM line is installed; a portal login with the parent password is
 the next check).
+
+Root-side finish, 2026-09-03: `omarchy-kids-exit --finish --kid kid-cy` run as root ended Cy's
+session through the compositor's Lua exit and SDDM started a fresh greeter, which is the path
+the bar widget's "end" action and the panel use.

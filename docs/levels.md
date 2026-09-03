@@ -210,3 +210,8 @@ output against a scratch profile), plus `bash test/shell.d/launcher-grid-test.sh
 for what a test file on a laptop with no Hyprland or Quickshell cannot check, chiefly step 2's
 actual on-screen tile adjacency and issue #43's GridView column-count assumption (open question 8
 above).
+
+## Verified live (2026-09-03, QEMU test VM)
+
+With ten tiles drawn five per row, eight Right presses from the first tile highlighted Web and
+Enter launched Chromium (issue #43's column-count fix, `share/launcher/gridnav.js`).

@@ -21,11 +21,11 @@ own login password, and never stores it.
 A client connects to the Unix socket, writes exactly one line — the candidate password,
 newline-terminated, at most 512 bytes — and reads the reply:
 
-```
+```text
 client -> "hunter2\n"
 server -> "ok\n"    # or "no\n"
 server closes the connection
-```
+```text
 
 Anything that doesn't fit that shape (no newline, over 512 bytes, a client that goes quiet for
 more than 5 seconds) gets `no`. The daemon serves one client at a time; there's no reason for it
@@ -82,9 +82,9 @@ guess made during a lockout still comes back `no`.
 `pam_exec.so` with `expose_authtok` puts the just-typed password on the client's stdin; the
 client asks the daemon and turns the reply into an exit code the PAM stack understands:
 
-```
+```text
 auth [success=1 default=ignore] pam_exec.so quiet expose_authtok /usr/bin/omarchy-kids-parent-auth
-```
+```text
 
 `success=1` skips the next line (normally a `pam_deny` or similar) when the verifier says yes;
 `default=ignore` means every other outcome falls through to whatever comes after, unchanged. This
@@ -116,8 +116,8 @@ test fixtures — no real `/etc/shadow` or `/etc/omarchy-kids/machine.conf` invo
 loadable `libcrypt.so.1` to actually run the daemon, which macOS doesn't have; on a host without
 it, the test prints `SKIP` and exits 0 rather than failing. Run it directly with:
 
-```
+```text
 bash test/shell.d/authd-test.sh
-```
+```text
 
 or as part of the full suite with `test/all`.

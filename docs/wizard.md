@@ -11,7 +11,7 @@ test suite.
 
 ```text
 omarchy-kids-wizard [--dry-run] [--help]
-```
+```text
 
 `omarchy-kids` (the app entry point) opens this automatically when no kid has been provisioned
 yet; `omarchy-kids wizard` always opens it, to add another kid (R-WIZ-7). `DRY_RUN=1` is the
@@ -190,7 +190,7 @@ secret1            # A12 Kid password
 secret1            # A12 Kid password, again
 apply              # A13 Summary: Apply (not "Change something")
 parent             # A14 Done: "Return to my desktop"
-```
+```text
 
 Band 3-5 inserts one extra line right after A11 (`yes`/`no`, for A12's "set a password?"):
 
@@ -209,7 +209,7 @@ parent
 no                 # no password for this band
 apply
 parent
-```
+```text
 
 Picking "I'll set my own" at A8 inserts two more lines (minutes, then lights-out); picking
 "Let me pick" at A9 inserts one `yes`/`no` line per app in the band's starter pack, in pack order.

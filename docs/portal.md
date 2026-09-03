@@ -72,7 +72,7 @@ same "never append, always rewrite" shape `luks-slots` already uses, via `lib/po
 [General]
 parent=mark
 kids=kid-ada:Ada Lovelace:fox
-```
+```text
 
 An **earlier version of this fix** wrote a separate `/etc/omarchy-kids/portal.json` and had
 `Main.qml` read it with a synchronous `XMLHttpRequest("file:///etc/omarchy-kids/portal.json")`.
@@ -179,7 +179,7 @@ least one kid is provisioned (`docs/provision.md`):
    ```sh
    ssh vm 'cd ~/omarchy-kids-sandbox && git pull && makepkg -sf --noconfirm'
    ssh vm 'printf "omarchy\n" | sudo -S -p "" pacman -U --noconfirm ~/omarchy-kids-sandbox/omarchy-kids-*.pkg.tar.zst'
-   ```
+   ```text
 
 2. Provision at least two kids (one 3-5 band with `--no-password`, one older band with a
    password) plus confirm the parent account exists, so the portal has something interesting to
@@ -194,7 +194,7 @@ least one kid is provisioned (`docs/provision.md`):
    ssh vm 'printf "omarchy\n" | sudo -S -p "" omarchy-kids-assert'
    # expect "ok      sddm-theme", "ok      portal-conf", "ok      face:<account>", "ok      gecos:<account>"
    # (or "fixed" the first time)
-   ```
+   ```text
 
 4. Restart SDDM from the SSH session (this kills the active graphical session on the console —
    expected, that's the point). Unlike an earlier, dropped design (a systemd drop-in on
@@ -203,13 +203,13 @@ least one kid is provisioned (`docs/provision.md`):
 
    ```sh
    ssh vm 'printf "omarchy\n" | sudo -S -p "" systemctl restart sddm'
-   ```
+   ```text
 
 5. Screenshot the console over QMP from the Mac (`scripts/vm-qmp.sh`, `docs/vm.md`):
 
    ```sh
    VM_DIR=~/vm scripts/vm-qmp.sh shot portal.png
-   ```
+   ```text
 
    Confirm visually: one tile per kid (avatar or fallback letter-circle, name below), the parent
    tile last and visibly smaller, no session-picker dropdown or list anywhere, a clock.

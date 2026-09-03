@@ -81,20 +81,20 @@ the trade-off; nothing here tries to hide that.
 
 ## `bin/omarchy-kids-time` (the kid)
 
-```
+```text
 omarchy-kids-time daemon           # started detached by omarchy-kids-session-start
 omarchy-kids-time status [<kid>]   # minutes used, left, and the next boundary
 omarchy-kids-time grant <kid> <n>  # root only: +n minutes to <kid>'s budget, today only
 omarchy-kids-time ask-grownup      # see "Ask a grown-up" below
-```
+```text
 
 `status` (default `<kid>`: this account) prints two lines:
 
-```
+```text
 $ omarchy-kids-time status kid-ada
 kid-ada: 23 min used, 37 min left today (budget 60)
 next boundary: lights-out at 19:30
-```
+```text
 
 `grant` adds to a *separate* `usage/<day>.grant` file, never subtracted from `usage/<day>` itself
 — "used" always means "used", and "budget" for the day is `budget_min(_weekend) + grant`

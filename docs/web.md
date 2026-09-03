@@ -72,7 +72,7 @@ $ omarchy-kids-web render 6-8
   ...
   "URLAllowlist": ["highlightskids.org", "kids.nationalgeographic.com", "pbskids.org", ...]
 }
-```
+```text
 
 ## `omarchy-kids-web install <band> [--allow FILE] [--apply]`
 

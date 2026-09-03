@@ -32,7 +32,7 @@ omarchy-kids-ask collect [--apply]
 omarchy-kids-ask list [<kid>]
 omarchy-kids-ask approve <id> [--apply]
 omarchy-kids-ask decline <id> [--apply]
-```
+```text
 
 ### Kid-side: `time` / `app` / `plugin` / `site`
 
@@ -53,9 +53,9 @@ is no "ask for negative screen time".
 
 ### `submit` — internal, what the modal calls back into
 
-```
+```text
 omarchy-kids-ask submit <kind> <what> --state open|approved --by keyboard [--minutes N]
-```
+```text
 
 Writes one Appendix D record into `$OMARCHY_KIDS_RUN/ask-outbox/<unix-ts>-<account>-<kind>.json`
 (`lib/ask.py write` does the actual JSON, atomically). Never gated by `DRY_RUN` — it only ever

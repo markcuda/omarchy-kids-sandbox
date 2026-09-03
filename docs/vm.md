@@ -37,7 +37,7 @@ Host vm
   ProxyJump air
   IdentityFile ~/.ssh/omarchy_kids_ed25519
   UserKnownHostsFile ~/.ssh/known_hosts_vm
-```
+```text
 
 Inside the VM, `sudo` wants the password: `printf 'omarchy\n' | sudo -S -p '' <cmd>`. Ten wrong
 attempts trip faillock for two minutes, so never call `sudo` without feeding it.

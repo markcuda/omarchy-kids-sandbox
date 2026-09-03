@@ -57,11 +57,11 @@ One mapping per line, `slot=account` or `slot=account:session`. Blank lines and 
 are ignored; no whitespace around `=` or `:`. When no `:session` is given, the session is
 guessed from the account name: `kid-*` → `omarchy-kids`, anything else → `omarchy`. Example:
 
-```
+```text
 0=mark
 2=kid-ada
 3=kid-ben:omarchy
-```
+```text
 
 ## Fail-safe list (I-9: never a machine that will not boot)
 
@@ -99,7 +99,7 @@ lsinitcpio initrd.img | grep omarchy-kids-unlock
 # Expect to see the hook's runtime script and the helper:
 #   usr/lib/initcpio/hooks/omarchy-kids-unlock  (or the compiled runscript form)
 #   usr/lib/initcpio/omarchy-kids-open
-```
+```text
 
 If a plain (non-UKI) initramfs is in use instead, skip the `objcopy` step and run `lsinitcpio`
 directly on `/boot/initramfs-linux.img`.

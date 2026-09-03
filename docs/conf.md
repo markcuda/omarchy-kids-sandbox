@@ -129,7 +129,7 @@ omarchy-kids-conf reset <kid>                clear overrides except band/name/av
 omarchy-kids-conf bands                      list bands with their label and blurb
 omarchy-kids-conf band <band>                print one band's defaults
 omarchy-kids-conf slug <display name>        the kid- account-name slug for a display name (Appendix B.1)
-```
+```text
 
 `set` refuses a key that isn't in Appendix B, and a value that doesn't match the key's format, with
 exit 2 and a one-line reason on stderr. `get` on an unknown key also exits 2. `get` on `name`,
@@ -169,7 +169,7 @@ $ omarchy-kids-conf get kid-ada level
 
 $ omarchy-kids-conf slug "Zoë  O'Brien"
 kid-zoeobrien
-```
+```text
 
 ## Appendix B.1: the account-name slug
 

@@ -23,7 +23,7 @@ issue) reads the kid's profile and execs:
 
 ```text
 Hyprland --config /etc/omarchy-kids/hyprland/L<level>.lua
-```
+```text
 
 **Cross-issue dependency, not yet wired:** the level file's band overlay (`OMARCHY_KIDS_BAND`)
 has to be an environment variable already set when Hyprland starts parsing its config — i.e.
@@ -95,7 +95,7 @@ back to running the pack `id` as a bare command if no `.desktop` file matches. I
     { "id": "tuxpaint", "label": "Tux Paint", "icon": "tuxpaint", "exec": "gtk-launch tuxpaint" }
   ]
 }
-```
+```text
 
 to `/run/omarchy-kids/launcher-<uid>.json` (root-owned, tmpfs — never under the kid's home). If
 the kid's `web` key isn't `none` **and** `/etc/chromium/policies/managed/omarchy-kids-<band>.json`

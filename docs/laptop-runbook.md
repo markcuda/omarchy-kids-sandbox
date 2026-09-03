@@ -41,7 +41,7 @@ Tailscale**, and in a terminal:
 
 ```bash
 sudo tailscale up --ssh
-```
+```text
 
 Open the printed link on your phone and sign in. The laptop is now reachable from any machine
 on the same Tailscale account, with no SSH keys to manage: Tailscale SSH authenticates through
@@ -54,7 +54,7 @@ same account, then:
 
 ```bash
 ssh mark@<laptop-name>        # the name Tailscale shows for the Air
-```
+```text
 
 If Wi-Fi is still dead after install, Method 5 of the t2linux guide needs no macOS: run their
 `firmware.sh` on the laptop and pick the download option.

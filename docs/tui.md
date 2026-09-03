@@ -24,9 +24,9 @@ screen still gets the same bordered header — "Kids Mode", the step counter ("s
 and the screen's title — but the Omy glyph and voice line above it only render when the screen
 asks for them:
 
-```
+```text
 tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
-```
+```text
 
 `SHOW_OMY` is `1` on Welcome and Done, `0` everywhere else — pass an empty `OMY_LINE` when it's
 `0`, since it's never shown.
@@ -121,14 +121,14 @@ case $? in
   1)   : ;;  # go back a screen
   130) exit 130 ;;  # left setup; nothing changed
 esac
-```
+```text
 
 Driving the same screen from a file:
 
-```
+```text
 $ printf 'filtered\n' > /tmp/answers
 $ OMARCHY_KIDS_TUI_ANSWERS=/tmp/answers bin/omarchy-kids-tui-demo
-```
+```text
 
 See `bin/omarchy-kids-tui-demo` for a full three-screen walk (Welcome, a choice screen, Done), and
 `test/shell.d/tui-test.sh` for every case above driven through a fake `gum`.

@@ -13,7 +13,7 @@ laptop or in a VM (see the test-machine rule in `AGENTS.md`).
 ```sh
 # in the checkout, as the normal (non-root) user
 makepkg -sf
-```
+```text
 
 `-s` resolves and installs missing `depends`/`makedepends` with pacman (will prompt for sudo);
 `-f` rebuilds even if a package of the same version already exists, which is the common case
@@ -23,7 +23,7 @@ Install the result:
 
 ```sh
 sudo pacman -U omarchy-kids-0.1.0-1-x86_64.pkg.tar.zst
-```
+```text
 
 pacman will run `omarchy-kids.install`'s `post_install` (or `post_upgrade` on a reinstall), which
 creates the groups and reloads systemd unit files — see below.
@@ -85,7 +85,7 @@ runs, and its exit codes.
 
 ```sh
 sudo pacman -R omarchy-kids
-```
+```text
 
 This removes the files in the table above and prints `post_remove`'s notice. It does **not**:
 

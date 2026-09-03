@@ -31,7 +31,7 @@ recorded here so packaging picks it up):
 
 ```sh
 omarchy hook install post-update omarchy-kids-assert
-```
+```text
 
 This is a **note**, not something `omarchy-kids-assert` itself runs or depends on: the pacman
 hook alone already satisfies R-TRUST-5 for every package transaction, `omarchy update` included.

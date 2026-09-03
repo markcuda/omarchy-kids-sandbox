@@ -16,7 +16,7 @@ omarchy-kids-apps hide <kid> <app>
 omarchy-kids-apps show <kid> <app>
 omarchy-kids-apps hide-from-mine [--apply]
 omarchy-kids-apps show-in-mine [--apply]
-```
+```text
 
 ### `list <band|kid>`
 
@@ -103,7 +103,7 @@ value `omarchy-kids-apps allowlist <kid>` prints) to
 
 ```json
 { "account": "kid-ada", "band": "6-8", "allowlist": ["gcompris", "tuxpaint", "..."] }
-```
+```text
 
 This exists for a future trimmed-menu extension at Levels 2/3 to read (Omarchy's own shell runs
 there, not the Level 1 big-tile launcher, so there is no tile grid to read the list from instead).

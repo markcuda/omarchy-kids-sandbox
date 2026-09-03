@@ -180,6 +180,36 @@ Tokens:
 DUMP
 fi
 '
+# loginctl: a fixture session directory, one "__LOG__/loginctl-session-<acct>"
+# file per live session, holding "<session-id> <leader-pid>". Tests toggle
+# which of these files exist to move live_test_tmpfs_noexec (issue #41)
+# between its three paths: a live session, no session but a log to fall
+# back on, or neither.
+# shellcheck disable=SC2016
+stub loginctl '
+if [[ "$1" == "--no-legend" && "$2" == "list-sessions" ]]; then
+    for f in __LOG__/loginctl-session-*; do
+        [[ -e "$f" ]] || continue
+        acct="$(basename "$f")"; acct="${acct#loginctl-session-}"
+        read -r sess pid < "$f"
+        printf "%s 1000 %s seat0 tty1\n" "$sess" "$acct"
+    done
+    exit 0
+fi
+if [[ "$1" == "show-session" ]]; then
+    sess="$2"
+    for f in __LOG__/loginctl-session-*; do
+        [[ -e "$f" ]] || continue
+        read -r fsess fpid < "$f"
+        if [[ "$fsess" == "$sess" ]]; then
+            printf "%s\n" "$fpid"
+            exit 0
+        fi
+    done
+    exit 1
+fi
+exit 1
+'
 
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
@@ -427,6 +457,98 @@ fi
 
 out="$("$BIN")"
 check_contains "$out" "not run — pass --live" "without --live: the Live tests section says how to run it"
+
+# --- --live's session-aware /tmp and /dev/shm noexec check (issue #41) --
+#
+# The old probe ran `findmnt` through `runuser`, whose PAM stack never
+# opens a pam_namespace session, so it always saw the machine's own
+# global /tmp/dev-shm and FAILed even when the kid's real session has
+# private noexec tmpfs mounts (docs/check.md's "Verified live" section).
+# live_test_tmpfs_noexec replaces it: a live session's own mountinfo,
+# else the kid's last "omarchy-kids-session --check" log, else a WARN
+# naming the exact command to run. All three need run_live_section's own
+# EUID-0 gate, which needs a real (or simulated) root -- unshare --user
+# --map-root-user when this box supports unprivileged user namespaces,
+# skipped otherwise (AGENTS.md rule 8's root/unshare convention; this
+# dev box has no unshare at all, Darwin).
+PROC_ROOT="$TMP/proc"
+RUN_ROOT="$SCRATCH_ROOT/run/user/1000/omarchy-kids"
+mkdir -p "$PROC_ROOT" "$RUN_ROOT"
+
+if command -v unshare >/dev/null 2>&1 && unshare --user --map-root-user true 2>/dev/null; then
+    as_root() { unshare --user --map-root-user -- "$@"; }
+
+    # -- a live session whose leader's own mountinfo shows real, private
+    #    noexec tmpfs mounts on both /tmp and /dev/shm: PASS both -------
+    mkdir -p "$PROC_ROOT/4242"
+    cat > "$PROC_ROOT/4242/mountinfo" <<'EOF'
+22 28 0:20 / /tmp rw,nosuid,nodev shared:9 - tmpfs tmpfs rw,size=1000000k
+23 28 0:21 / /dev/shm rw,nosuid,nodev shared:10 - tmpfs tmpfs rw
+24 22 0:22 / /tmp rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs:kids-inst rw,size=65536k,uid=1000,gid=1000
+25 23 0:23 / /dev/shm rw,nosuid,nodev,noexec,relatime - tmpfs tmpfs:kids-inst rw,size=65536k,uid=1000,gid=1000
+EOF
+    printf 's1 4242\n' > "$LOG/loginctl-session-kid-ada"
+
+    out="$(OMARCHY_KIDS_PROC_ROOT="$PROC_ROOT" as_root "$BIN" --live)"
+    plain="$(strip_ansi "$out")"
+    check_contains "$plain" "PASS  live:kid-ada:tmp-noexec" "live session, private noexec /tmp: PASS from the session leader's own mountinfo"
+    check_contains "$plain" "PASS  live:kid-ada:shm-noexec" "live session, private noexec /dev/shm: PASS too"
+    check_contains "$plain" "pid 4242" "live session PASS: the detail names the session leader pid it read"
+
+    # -- same live session, but its mountinfo shows only the machine's
+    #    global (non-noexec) /tmp and /dev/shm -- exactly what the old
+    #    runuser-based probe always saw: FAIL both, correctly this time --
+    mkdir -p "$PROC_ROOT/4243"
+    cat > "$PROC_ROOT/4243/mountinfo" <<'EOF'
+22 28 0:20 / /tmp rw,nosuid,nodev shared:9 - tmpfs tmpfs rw,size=1000000k
+23 28 0:21 / /dev/shm rw,nosuid,nodev shared:10 - tmpfs tmpfs rw
+EOF
+    printf 's1 4243\n' > "$LOG/loginctl-session-kid-ada"
+
+    out="$(OMARCHY_KIDS_PROC_ROOT="$PROC_ROOT" as_root "$BIN" --live)"
+    plain="$(strip_ansi "$out")"
+    check_contains "$plain" "FAIL  live:kid-ada:tmp-noexec" "live session, global (non-noexec) /tmp: FAIL, not a false pass"
+    check_contains "$plain" "FAIL  live:kid-ada:shm-noexec" "live session, global (non-noexec) /dev/shm: FAIL too"
+    check_contains "$plain" "NOT a private noexec tmpfs" "live session FAIL: the detail says why"
+
+    # -- no live session, but the kid's last session-log has a
+    #    check=tmp_noexec PASS line: fall back to it, and skip shm (the
+    #    log never records /dev/shm) -------------------------------------
+    rm -f "$LOG/loginctl-session-kid-ada"
+    printf '%s check=tmp_noexec name="private /tmp noexec" result=PASS detail="/tmp mounted noexec"\n' \
+        "$(date '+%Y-%m-%dT%H:%M:%S%z')" > "$RUN_ROOT/session-1000.log"
+
+    out="$(OMARCHY_KIDS_PROC_ROOT="$PROC_ROOT" as_root "$BIN" --live)"
+    plain="$(strip_ansi "$out")"
+    check_contains "$plain" "PASS  live:kid-ada:tmp-noexec" "no live session, log says PASS: falls back to the session log"
+    check_contains "$plain" "last 'omarchy-kids-session --check' log" "log fallback: the detail says it's reading the log, not a live probe"
+    check_contains "$plain" "SKIP  live:kid-ada:shm-noexec" "log fallback: /dev/shm is a SKIP (the log never records it), not a FAIL"
+
+    # -- same, but the log's line is a WARN (R-FND-2a not rolled out on
+    #    this stack yet) -- surfaced as WARN, not silently upgraded to
+    #    PASS or downgraded to FAIL -------------------------------------
+    printf '%s check=tmp_noexec name="private /tmp noexec" result=WARN detail="/tmp is not a private noexec mount yet"\n' \
+        "$(date '+%Y-%m-%dT%H:%M:%S%z')" > "$RUN_ROOT/session-1000.log"
+
+    out="$(OMARCHY_KIDS_PROC_ROOT="$PROC_ROOT" as_root "$BIN" --live)"
+    plain="$(strip_ansi "$out")"
+    check_contains "$plain" "WARN  live:kid-ada:tmp-noexec" "no live session, log says WARN: surfaced as WARN"
+
+    # -- no live session and no log at all: WARN naming the exact command
+    #    a parent can run, never a silent skip or a false FAIL ----------
+    rm -f "$RUN_ROOT/session-1000.log"
+
+    out="$(OMARCHY_KIDS_PROC_ROOT="$PROC_ROOT" as_root "$BIN" --live)"
+    plain="$(strip_ansi "$out")"
+    check_contains "$plain" "WARN  live:kid-ada:tmp-noexec" "no live session, no log: WARN, not FAIL"
+    check_contains "$plain" "no live session to inspect" "no live session, no log: says so"
+    check_contains "$plain" "loginctl list-sessions" "no live session, no log: names the exact command to run"
+    check_contains "$plain" "omarchy-kids-session --check" "no live session, no log: names the check to run once logged in"
+    check_contains "$plain" "SKIP  live:kid-ada:shm-noexec" "no live session, no log: /dev/shm is a SKIP too, pointing back at tmp-noexec"
+else
+    pass "--live session-aware tmp/shm check: no unprivileged user namespaces on this box (Darwin, or disabled) -- skipping, per AGENTS.md rule 8"
+fi
+rm -f "$LOG/loginctl-session-kid-ada" "$RUN_ROOT/session-1000.log"
 
 echo "check-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

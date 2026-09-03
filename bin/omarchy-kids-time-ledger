@@ -70,12 +70,14 @@ active_kid_sessions() {
 
 # write_status_json — R-BAR-3, best-effort: never fails the tick.
 write_status_json() {
-    local now day weekend hm kid remaining paused live rows
+    local now day weekend hm kid remaining paused live rows active
     now="$(time_now)"; hm="$(time_hm "$now")"
     IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || return 0
     command -v jq >/dev/null 2>&1 || return 0
     install -d -m 0755 "$RUN_DIR" 2>/dev/null || return 0
     rows="$(mktemp)" || return 0
+    # One loginctl scan for every kid below, not one per kid.
+    active="$(active_kid_sessions)"
     while IFS= read -r kid; do
         [[ -n "$kid" ]] || continue
         remaining="$(time_remaining_minutes "$kid" "$day" "$weekend" 2>/dev/null || echo 0)"
@@ -83,7 +85,7 @@ write_status_json() {
         live="false"
         while IFS= read -r live_kid; do
             [[ "$live_kid" == "$kid" ]] && live="true"
-        done <<<"$(active_kid_sessions)"
+        done <<<"$active"
         jq -n --arg kid "$kid" --argjson minutes_left "$remaining" \
             --argjson paused "$paused" --argjson live "$live" \
             '{kid: $kid, minutes_left: $minutes_left, paused: $paused, live: $live}' \

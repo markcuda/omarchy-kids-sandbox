@@ -197,13 +197,64 @@ check_status "$WIZ_STATUS" 0 "a bad name doesn't abort the wizard"
 check_contains "$out" "Letters, spaces, and hyphens only" "invalid name is rejected with a reason"
 check_contains "$out" "kid-mo" "the wizard proceeds once a valid name is given"
 
-# --- Advanced says "coming next" and returns to the same screen --------
+# --- Advanced (A6 -> the grouped checklist, A13a, issue #20): changing
+# three keys across two groups (Web's web/dns, Screen time's budget_min)
+# shows them grouped and marked, and Apply writes exactly those three
+# overrides -- nothing else, since every untouched row is still at its
+# band default (R-BAND-2) --------------------------------------------
 
 : >"$ARGV_LOG"
-answers="$(answers_file begin parentpw123 Ada fox 6-8 advanced simple garden default pack parent 1 secret1 secret1 apply parent)"
+answers="$(answers_file begin parentpw123 Ada fox 6-8 advanced \
+    web filtered dns cleanbrowsing-family budget_min 75 "done" \
+    secret1 secret1 apply parent)"
 run_wizard "$answers"
-check_status "$WIZ_STATUS" 0 "choosing Advanced then Simple still completes"
-check_contains "$out" "coming next" "Advanced explains it isn't built yet"
+check_status "$WIZ_STATUS" 0 "the Advanced path completes"
+check_contains "$out" "[Web] Web access" "the checklist groups the web row under Web"
+check_contains "$out" "[Web] Safe-search DNS" "the checklist groups the dns row under Web too"
+check_contains "$out" "[Screen time] Minutes a day (weekdays)" "the checklist groups budget_min under Screen time"
+check_contains "$out" "now: Filtered open web (changed)" "a changed row is marked, showing the new value"
+check_contains "$out" "omarchy-kids-conf set kid-ada web filtered" "Apply writes the web override chosen in Advanced"
+check_contains "$out" "omarchy-kids-conf set kid-ada dns cleanbrowsing-family" "Apply writes the dns override chosen in Advanced"
+check_contains "$out" "omarchy-kids-conf set kid-ada budget_min 75" "Apply writes the budget_min override chosen in Advanced"
+check_not_contains "$out" "omarchy-kids-conf set kid-ada wifi" "a row never opened in Advanced writes no override"
+check_not_contains "$out" "omarchy-kids-conf set kid-ada menu" "a row never opened in Advanced writes no override"
+
+# --- Esc from an editor returns to the checklist, not out of it: the
+# row's value is untouched and the wizard still finishes normally -------
+
+: >"$ARGV_LOG"
+answers="$(answers_file begin parentpw123 Ada fox 6-8 advanced \
+    web @esc "done" secret1 secret1 apply parent)"
+run_wizard "$answers"
+check_status "$WIZ_STATUS" 0 "Esc from an editor still lets the wizard finish"
+check_contains "$out" "Band default: Only sites you choose" "the web row still shows its band default after Esc"
+check_not_contains "$out" "omarchy-kids-conf set kid-ada web" "Esc from the web editor writes no override"
+
+# --- Nothing is written before Apply: making changes in Advanced, then
+# leaving from the summary (before choosing Apply), never runs (or, in
+# --dry-run, prints) omarchy-kids-conf set at all -- only Apply's own
+# maybe_override calls (apply_step_account) ever do that -----------------
+
+: >"$ARGV_LOG"
+answers="$(answers_file begin parentpw123 Ada fox 6-8 advanced \
+    web filtered "done" secret1 secret1 @ctrlc yes)"
+run_wizard "$answers"
+check_status "$WIZ_STATUS" 130 "leaving from the summary after Advanced changes exits 130"
+check_contains "$out" "Left setup. Nothing changed." "leaving from the summary shows the leave message"
+check_not_contains "$out" "omarchy-kids-conf set" "nothing is written before Apply, even after changing a row in Advanced"
+check_not_contains "$out" "omarchy-kids-provision" "Apply itself never starts before the summary's own Apply is chosen"
+
+# --- The Easy summary's "Change something" opens that same grouped
+# checklist (issue #20, point 2: "for both paths"), and the summary marks
+# the result distinctly once Apply is finally chosen --------------------
+
+: >"$ARGV_LOG"
+answers="$(answers_file begin parentpw123 Ada fox 6-8 simple garden default pack parent 1 \
+    secret1 secret1 change level 2 "done" apply parent)"
+run_wizard "$answers"
+check_status "$WIZ_STATUS" 0 "Change something from a Simple-built summary still completes"
+check_contains "$out" "Level 2 (custom)" "the summary marks a row changed via Change something"
+check_contains "$out" "omarchy-kids-conf set kid-ada level 2" "Apply writes the override made through Change something"
 
 # --- Esc from the face screen goes back to the name screen, keyboard-only
 

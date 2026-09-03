@@ -9,10 +9,11 @@
 # (A2), name (A3), face (A4), age band (A5), Simple or Advanced (A6), the
 # five Simple one-choice screens (A7-A11: web, time, apps, Wi-Fi, level —
 # each with the band's default preselected and a one-line reason per
-# option), the kid's password (A12), the summary (A13), Apply (A13b) with
-# the safety check (A13c), and Done (A14). Advanced (A13a's per-cell
-# checklist) is issue #20; choosing it on A6 here just explains that and
-# returns to A6.
+# option) or Advanced's grouped checklist (A13a, issue #20 — every
+# Appendix B cell those five screens don't already cover, one screen,
+# lib/wizard-advanced.sh), the kid's password (A12), the summary (A13,
+# whose "Change something" opens that same checklist for either path),
+# Apply (A13b) with the safety check (A13c), and Done (A14).
 #
 # Every screen is keyboard-complete (Esc back, Ctrl+C leave with nothing
 # changed — see lib/tui.sh) up to the moment Apply actually starts
@@ -36,6 +37,8 @@
 #   OMARCHY_KIDS_ETC             default /etc/omarchy-kids
 #   OMARCHY_KIDS_SHARE            default /usr/share/omarchy-kids
 #   OMARCHY_KIDS_LIB              default lib/ beside bin/, else /usr/lib/omarchy-kids
+#                                  (conf.sh, tui.sh, wizard-advanced.sh — the
+#                                  Advanced-path grouped checklist, issue #20)
 #   OMARCHY_KIDS_CONF_BIN          path to omarchy-kids-conf (default: resolved
 #                                  beside this script, else PATH)
 #   OMARCHY_KIDS_CONF_PY           python3 interpreter for lib/conf.py (default: python3)
@@ -63,6 +66,8 @@ LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/oma
 source "$LIB/conf.sh"
 # shellcheck source=lib/tui.sh
 source "$LIB/tui.sh"
+# shellcheck source=lib/wizard-advanced.sh
+source "$LIB/wizard-advanced.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -401,6 +406,33 @@ maybe_override() {
     run_priv "$CONF_BIN" set "$ACCOUNT" "$key" "$value"
 }
 
+# apps_pick_walk STEP TOTAL — walks the band's starter pack one app at a
+# time, asking a plain yes/no per app (there's no multi-select checklist
+# widget in lib/tui.sh — see docs/wizard.md); sets $TUI_REPLY to the
+# comma-joined ids of the ones answered yes. Shared by A9's "Let me pick"
+# (screen_apps below) and the Advanced checklist's own apps row
+# (lib/wizard-advanced.sh's adv_edit_allowlist, issue #20's own brief:
+# "the per-app checklist from the Easy path for apps") rather than
+# duplicated. An Esc on any one app is the same as "No" for that app
+# (tui_screen_confirm's own contract) and just moves to the next; only
+# Ctrl+C (130) actually leaves the wizard, from wherever this was called.
+apps_pick_walk() {
+    local step="$1" total="$2" id label chosen=() body
+    while IFS= read -r id; do
+        [[ -z "$id" ]] && continue
+        label="$(app_label_for "$BAND" "$id")"
+        # shellcheck disable=SC2034 # read by tui_screen_confirm via nameref-by-name
+        body=("Include $label in $DISPLAY_NAME's starter apps?")
+        tui_screen_confirm "$label" "$step" "$total" 0 "" body "Yes" "No"
+        local rc=$?
+        ((rc == 130)) && return 130
+        [[ "$TUI_REPLY" == yes ]] && chosen+=("$id")
+    done < <(pack_field "$BAND" id)
+    local IFS=,
+    TUI_REPLY="${chosen[*]}"
+    return 0
+}
+
 # --- screens -------------------------------------------------------------
 # One function per screen, in Appendix A order. Each returns lib/tui.sh's
 # own contract: 0 = continue (answer in the variable the caller expects),
@@ -485,30 +517,32 @@ screen_band() {
     ((rc == 0)) || return $rc
     BAND="$TUI_REPLY"
     PASSWORD_MIN="$(band_field "$BAND" password_min)"
+    # Seeds every Advanced-checklist row (lib/wizard-advanced.sh) to this
+    # band's default, whether or not the parent ever opens that checklist
+    # — Simple's own A7-A11 screens below still overwrite the five they
+    # cover, same as always.
+    adv_init
     # R-WIZ-4: prefetch starts here, in the background, and never blocks.
     start_prefetch "$BAND"
     return 0
 }
 
-# A6: Simple or Advanced. Advanced (A13a's per-cell checklist) is issue
-# #20; choosing it here explains that and re-shows this same screen.
+# A6: Simple or Advanced. Advanced opens the grouped checklist
+# (screen_advanced_checklist, lib/wizard-advanced.sh, issue #20) in place
+# of Simple's five one-choice screens (A7-A11) — see the driver loop's
+# own step-7 special case below for how "Done customizing" there skips
+# straight to A12, and Esc there returns here instead of one step back.
 screen_mode() {
-    while true; do
-        local choices=(
-            "simple|Simple|A few clear choices with sensible defaults. About five minutes."
-            "advanced|Advanced|Every setting on one screen. Coming in a later update."
-        )
-        tui_screen_choose "How do you want to set up $DISPLAY_NAME's computer?" \
-            6 "$TOTAL_STEPS" 0 "" choices "simple"
-        local rc=$?
-        ((rc == 0)) || return $rc
-        if [[ "$TUI_REPLY" == advanced ]]; then
-            echo
-            echo "Advanced setup is coming next — for now, Simple covers everyone with sensible defaults."
-            continue
-        fi
-        return 0
-    done
+    local choices=(
+        "simple|Simple|A few clear choices with sensible defaults. About five minutes."
+        "advanced|Advanced|Every setting on one screen."
+    )
+    tui_screen_choose "How do you want to set up $DISPLAY_NAME's computer?" \
+        6 "$TOTAL_STEPS" 0 "" choices "simple"
+    local rc=$?
+    ((rc == 0)) || return $rc
+    MODE="$TUI_REPLY"
+    return 0
 }
 
 # A7: Web (Simple). Two options, band-appropriate (R-WEB-3's three real
@@ -577,11 +611,10 @@ screen_time() {
     return 0
 }
 
-# A9: Apps (Simple). B walks the pack one app at a time (a confirm per
-# app, since lib/tui.sh has no multi-select checklist widget yet — the
-# real checklist is Advanced's, A13a, issue #20); a "No" and an Esc are
-# the same thing there (tui_screen_confirm's own contract): the app is
-# left out either way, and the wizard moves to the next one.
+# A9: Apps (Simple). B walks the pack one app at a time via apps_pick_walk
+# (above) — a confirm per app, since lib/tui.sh has no multi-select
+# checklist widget yet (the real checklist is Advanced's, A13a, issue
+# #20, which reuses this same walk for its own apps row).
 screen_apps() {
     local names
     names="$(pack_field "$BAND" label | paste -sd, - | sed 's/,/, /g')"
@@ -593,22 +626,17 @@ screen_apps() {
     local rc=$?
     ((rc == 0)) || return $rc
     APPS_MODE="$TUI_REPLY"
-    ALLOWLIST_IDS=""
     if [[ "$APPS_MODE" == pick ]]; then
-        local id label chosen=()
-        local body
-        while IFS= read -r id; do
-            [[ -z "$id" ]] && continue
-            label="$(app_label_for "$BAND" "$id")"
-            # shellcheck disable=SC2034 # read by tui_screen_confirm via nameref-by-name
-            body=("Include $label in $DISPLAY_NAME's starter apps?")
-            tui_screen_confirm "$label" 9 "$TOTAL_STEPS" 0 "" body "Yes" "No"
-            rc=$?
-            ((rc == 130)) && return 130
-            [[ "$TUI_REPLY" == yes ]] && chosen+=("$id")
-        done < <(pack_field "$BAND" id)
-        local IFS=,
-        ALLOWLIST_IDS="${chosen[*]}"
+        apps_pick_walk 9 "$TOTAL_STEPS"
+        rc=$?
+        ((rc == 130)) && return 130
+        ALLOWLIST_IDS="$TUI_REPLY"
+    else
+        # "The whole starter pack" — the band default, every id, in pack
+        # order (R-WIZ-4's own words apply here too: re-visiting this
+        # screen after an earlier "Let me pick" must not leave a stale
+        # partial selection behind).
+        ALLOWLIST_IDS="$(pack_field "$BAND" id | paste -sd, -)"
     fi
     return 0
 }
@@ -685,53 +713,55 @@ screen_password() {
     done
 }
 
-# A13: Summary.
+# A13: Summary. "Change something" opens the same grouped checklist
+# Advanced uses (screen_advanced_checklist, lib/wizard-advanced.sh, issue
+# #20, point 2), for a kid set up either way, then redraws this same
+# summary with whatever changed — so this is a loop, not a single screen.
 screen_summary() {
-    local label blurb apps_desc password_line
-    label="$(band_field "$BAND" label)"
-    blurb="$(band_field "$BAND" blurb)"
-    if [[ -n "$ALLOWLIST_IDS" ]]; then
-        apps_desc=""
-        local id oldifs="$IFS"
-        IFS=,
-        for id in $ALLOWLIST_IDS; do
-            IFS="$oldifs"
-            [[ -z "$id" ]] && continue
-            [[ -n "$apps_desc" ]] && apps_desc+=", "
-            apps_desc+="$(app_label_for "$BAND" "$id")"
-        done
-        IFS="$oldifs"
-        [[ -z "$apps_desc" ]] && apps_desc="(none selected)"
-    else
-        apps_desc="$(pack_field "$BAND" label | paste -sd, - | sed 's/,/, /g')"
-    fi
-    if ((NO_PASSWORD)); then
-        password_line="No password — $DISPLAY_NAME gets in once you start their session."
-    else
-        password_line="$DISPLAY_NAME types their own password to get in."
-    fi
+    while true; do
+        local label blurb apps_desc password_line
+        label="$(band_field "$BAND" label)"
+        blurb="$(band_field "$BAND" blurb)"
+        apps_desc="$(friendly_allowlist "$ALLOWLIST_IDS")"
+        if ((NO_PASSWORD)); then
+            password_line="No password — $DISPLAY_NAME gets in once you start their session."
+        else
+            password_line="$DISPLAY_NAME types their own password to get in."
+        fi
 
-    # shellcheck disable=SC2034 # read by tui_screen_summary via nameref-by-name
-    local rows=(
-        "Account|$ACCOUNT"
-        "Face|$AVATAR"
-        "Age band|$label ($blurb)"
-        "Desktop|Level $LEVEL"
-        "Web|$(friendly_web_mode "$WEB_MODE")"
-        "Screen time|$BUDGET_MIN minutes a day"
-        "Bedtime|$LIGHTS_OUT"
-        "Wi-Fi|$(friendly_wifi_mode "$WIFI_MODE")"
-        "Starter apps|$apps_desc"
-        "Password|$password_line"
-    )
-    tui_screen_summary "Here's what happens next for $DISPLAY_NAME." 13 "$TOTAL_STEPS" 0 "" rows
+        # shellcheck disable=SC2034 # read by tui_screen_summary via nameref-by-name
+        local rows=(
+            "Account|$ACCOUNT"
+            "Face|$AVATAR"
+            "Age band|$label ($blurb)"
+            "Desktop|$(mark_if_changed level "Level $LEVEL")"
+            "Web|$(mark_if_changed web "$(friendly_web_mode "$WEB_MODE")")"
+            "Screen time|$(mark_if_changed budget_min "$BUDGET_MIN minutes a day")"
+            "Bedtime|$(mark_if_changed lights_out "$LIGHTS_OUT")"
+            "Wi-Fi|$(mark_if_changed wifi "$(friendly_wifi_mode "$WIFI_MODE")")"
+            "Starter apps|$(mark_if_changed allowlist "$apps_desc")"
+            "Password|$password_line"
+        )
+        # The seven cells Simple never shows on its own (dns, sites, menu,
+        # history_visible, and the two weekend fields) only appear here
+        # once Advanced (or this same "Change something") has actually
+        # changed one — a Simple-only kid's summary looks exactly as it
+        # always has.
+        adv_summary_extra_rows rows
+        tui_screen_summary "Here's what happens next for $DISPLAY_NAME." 13 "$TOTAL_STEPS" 0 "" rows
 
-    local choices=("apply|Apply|" "change|Change something|")
-    tui_screen_choose "Ready?" 13 "$TOTAL_STEPS" 0 "" choices "apply"
-    local rc=$?
-    ((rc == 0)) || return $rc
-    [[ "$TUI_REPLY" == apply ]] && return 0
-    return 1 # "Change something" == Esc: don't proceed, go back a screen
+        local choices=("apply|Apply|" "change|Change something|")
+        tui_screen_choose "Ready?" 13 "$TOTAL_STEPS" 0 "" choices "apply"
+        local rc=$?
+        ((rc == 0)) || return $rc # Esc/Ctrl+C: go back a screen / leave
+        [[ "$TUI_REPLY" == apply ]] && return 0
+
+        screen_advanced_checklist 13 "$TOTAL_STEPS"
+        rc=$?
+        ((rc == 130)) && return 130
+        # rc 0 ("Done customizing") or 1 (Esc out of the checklist's own
+        # row list): either way, back to a freshly recomputed summary.
+    done
 }
 
 # --- Apply's five steps, one function each -------------------------------
@@ -775,14 +805,26 @@ apply_step_account() {
     rc=$?
     ((rc == 0)) || return "$rc"
 
+    # Every Appendix B cell either path can change — Simple's own five
+    # (A7/A8/A10/A11's web/budget_min/lights_out/wifi/level) plus the
+    # seven Advanced's checklist adds (issue #20) — through the same
+    # maybe_override, which only ever writes the ones that actually
+    # differ from this band's default (R-BAND-2: "the profile stores
+    # only overrides"). A kid set up entirely through Simple never
+    # touches the last seven, so they're always still at their band
+    # default here and none of these seven ever fire for one.
     maybe_override level "$LEVEL" "$(band_field "$BAND" level)" || rc=$?
     maybe_override web "$WEB_MODE" "$(band_field "$BAND" web)" || rc=$?
     maybe_override wifi "$WIFI_MODE" "$(band_field "$BAND" wifi)" || rc=$?
     maybe_override budget_min "$BUDGET_MIN" "$(band_field "$BAND" budget_min)" || rc=$?
     maybe_override lights_out "$LIGHTS_OUT" "$(band_field "$BAND" lights_out)" || rc=$?
-    if [[ -n "$ALLOWLIST_IDS" ]]; then
-        run_priv "$CONF_BIN" set "$ACCOUNT" allowlist "$ALLOWLIST_IDS" || rc=$?
-    fi
+    maybe_override allowlist "$ALLOWLIST_IDS" "$(pack_field "$BAND" id | paste -sd, -)" || rc=$?
+    maybe_override dns "$DNS_MODE" "$(band_field "$BAND" dns)" || rc=$?
+    maybe_override sites "$SITES" "$(pack_sites "$BAND")" || rc=$?
+    maybe_override menu "$MENU_MODE" "$(band_field "$BAND" menu)" || rc=$?
+    maybe_override history_visible "$HISTORY_VISIBLE" "$(band_field "$BAND" history_visible)" || rc=$?
+    maybe_override budget_min_weekend "$BUDGET_MIN_WEEKEND" "$(band_field "$BAND" budget_min_weekend)" || rc=$?
+    maybe_override lights_out_weekend "$LIGHTS_OUT_WEEKEND" "$(band_field "$BAND" lights_out_weekend)" || rc=$?
     return "$rc"
 }
 
@@ -934,13 +976,24 @@ DISPLAY_NAME=""
 ACCOUNT=""
 AVATAR="fox"
 BAND=""
+MODE="simple"
 WEB_MODE=""
 BUDGET_MIN=""
+BUDGET_MIN_WEEKEND=""
 LIGHTS_OUT=""
+LIGHTS_OUT_WEEKEND=""
 APPS_MODE="pack"
 ALLOWLIST_IDS=""
 WIFI_MODE=""
 LEVEL=""
+# The four Advanced-only cells Simple never shows a screen for (issue
+# #20): seeded to this band's default by screen_band's adv_init, changed
+# only through the Advanced checklist or the summary's "Change
+# something" (lib/wizard-advanced.sh).
+DNS_MODE=""
+SITES=""
+MENU_MODE=""
+HISTORY_VISIBLE=""
 NO_PASSWORD=0
 KID_PASSWORD=""
 PARENT_PASSWORD=""
@@ -959,7 +1012,18 @@ while ((STEP <= TOTAL_STEPS)); do
         4) screen_face ;;
         5) screen_band ;;
         6) screen_mode ;;
-        7) screen_web ;;
+        7)
+            # Advanced's grouped checklist stands in for all five of
+            # Simple's A7-A11 screens at once (issue #20) — see the rc
+            # handling below for how it skips straight to A12 (step 12)
+            # instead of stepping to 8, and Esc there returns to A6
+            # (step 6) instead of one step back.
+            if [[ "$MODE" == advanced ]]; then
+                screen_advanced_checklist 7 "$TOTAL_STEPS"
+            else
+                screen_web
+            fi
+            ;;
         8) screen_time ;;
         9) screen_apps ;;
         10) screen_wifi ;;
@@ -971,13 +1035,23 @@ while ((STEP <= TOTAL_STEPS)); do
     esac
     rc=$?
     case "$rc" in
-        0) STEP=$((STEP + 1)) ;;
+        0)
+            if ((STEP == 7)) && [[ "$MODE" == advanced ]]; then
+                STEP=12 # "Done customizing": skip Simple's A7-A11 entirely
+            else
+                STEP=$((STEP + 1))
+            fi
+            ;;
         1)
             if ((STEP == 1)); then
                 echo "Nothing to go back to — leaving, nothing changed." >&2
                 exit 1
             fi
-            STEP=$((STEP - 1))
+            if ((STEP == 7)) && [[ "$MODE" == advanced ]]; then
+                STEP=6 # Esc out of the checklist's own row list: back to A6
+            else
+                STEP=$((STEP - 1))
+            fi
             ;;
         130)
             stop_prefetch

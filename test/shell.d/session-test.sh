@@ -79,6 +79,7 @@ printf '%s\n' "$ans" >&2
 PK
 chmod +x "$STUBS/pkcheck"
 export PKCHECK_ANSWER_FILE="$TMP/pkcheck.answer"
+export VERIFY_FAIL_FILE="$TMP/verify.fail"
 # --- stub PATH: findmnt, systemctl, Hyprland --------------------------
 
 cat > "$STUBS/findmnt" <<'EOF'
@@ -103,6 +104,11 @@ EOF
 
 cat > "$STUBS/Hyprland" <<'EOF'
 #!/bin/bash
+# --verify-config: answer from a control file (missing = config verifies).
+if [[ " $* " == *" --verify-config "* ]]; then
+  if [[ -f "${VERIFY_FAIL_FILE:-/nonexistent}" ]]; then echo "config error: boom" >&2; exit 1; fi
+  exit 0
+fi
 { printf 'HYPRLAND'; printf ' %s' "$@"; printf '\n'; } >> "$OMARCHY_KIDS_TEST_HYPRLAND_LOG"
 {
   printf 'ACCOUNT=%s\n' "$OMARCHY_KIDS_ACCOUNT"
@@ -129,7 +135,7 @@ export OMARCHY_KIDS_TEST_GETTY_STATE="$GETTY_STATE_FILE"
 export OMARCHY_KIDS_TEST_HYPRLAND_LOG="$HYPRLAND_LOG"
 
 reset_pass() { # everything set up so every check passes
-  rm -f "$PKCHECK_ANSWER_FILE"  # pkcheck stub answers "Not authorized" again
+  rm -f "$PKCHECK_ANSWER_FILE" "$VERIFY_FAIL_FILE"  # stubs answer "all good" again
   write_profile garden
   rm -f "$POLICY"; : > "$POLICY"; chmod 644 "$POLICY"
   : > "$POLKIT_ADMIN"
@@ -183,6 +189,8 @@ run_fail_case "policy unreadable (web=garden)" break_policy_unreadable policy "b
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"
 break_polkit() { printf "Authorization requires authentication\n" > "$PKCHECK_ANSWER_FILE"; }
 run_fail_case "polkit deny rule missing" break_polkit polkit "polkit rules present"
+break_verify() { touch "$VERIFY_FAIL_FILE"; }
+run_fail_case "level config fails verification" break_verify level_config "level config present"
 
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"
 break_home() { echo "rw,nosuid,nodev,relatime" > "$HOME_OPTS_FILE"; }

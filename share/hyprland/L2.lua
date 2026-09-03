@@ -17,6 +17,11 @@
 -- Same reasoning as L1.lua: looknfeel and input are self-contained (no
 -- nested requires, no home paths); envs is reimplemented directly to
 -- avoid default.hypr.envs's default.hypr.paths (home) dependency.
+-- Root-owned config (I-3): search Omarchy's own module path only, never the kid's home.
+-- Omarchy's user bootstrap.lua puts ~/.config and ~/.local/state first; a kid could shadow modules there.
+package.path = (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/?.lua;" .. package.path
+require("default.hypr.helpers")
+
 require("default.hypr.looknfeel")
 require("default.hypr.input")
 

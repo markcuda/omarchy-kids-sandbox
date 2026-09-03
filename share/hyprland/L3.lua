@@ -10,6 +10,11 @@
 -- gets (see hypr-omarchy.lua in the reference material this was written
 -- against) -- and then this file removes exactly what Appendix E says
 -- to remove.
+-- Root-owned config (I-3): search Omarchy's own module path only, never the kid's home.
+-- Omarchy's user bootstrap.lua puts ~/.config and ~/.local/state first; a kid could shadow modules there.
+package.path = (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/?.lua;" .. package.path
+require("default.hypr.helpers")
+
 require("default.hypr.omarchy")
 
 -- --- Unbind: terminal-launching binds (menu=trimmed) --------------------

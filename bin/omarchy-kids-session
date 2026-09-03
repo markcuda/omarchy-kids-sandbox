@@ -224,13 +224,18 @@ check_consoles_masked() {
 }
 
 check_level_config() {
-  local conf="$HYPRLAND_DIR/L$LEVEL.lua"
-  if [[ -n "$LEVEL" && -f "$conf" ]]; then
-    RESULT=PASS; DETAIL="$conf present"
-    return 0
+  local conf="$HYPRLAND_DIR/L$LEVEL.lua" out
+  if [[ -z "$LEVEL" || ! -f "$conf" ]]; then
+    RESULT=FAIL; DETAIL="$conf missing"
+    return 1
   fi
-  RESULT=FAIL; DETAIL="$conf missing"
-  return 1
+  # A config error puts Hyprland in emergency mode, which binds a terminal: fail closed instead.
+  if ! out="$("$HYPRLAND_BIN" --config "$conf" --verify-config 2>&1)"; then
+    RESULT=FAIL; DETAIL="$conf has errors: ${out%%$'\n'*}"
+    return 1
+  fi
+  RESULT=PASS; DETAIL="$conf present and verifies"
+  return 0
 }
 
 # Checks in R-DESK-2 order. No associative arrays: bash 3.2 (the macOS

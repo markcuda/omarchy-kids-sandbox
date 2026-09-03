@@ -18,6 +18,11 @@ would send it back; **low** = a nit they'd fix in the merge commit.
 **Applied on branch `review3`** (five commits, `test/all` green, `shellcheck -S warning -x` clean):
 1.2, 3.3, 4.1, 2.4, and the 1.13/5.1/4.7 trio. Everything else is a finding only.
 
+**Resolution, end of the same day.** Every finding above is applied on `main` (branches
+`review3`, `lows`, `panel-facts`, `fmt2`, and direct commits), each verified by the suite on the
+Mac and on the VM, the visible ones by screenshot. One deliberate exception: 2.3's two `eval`s
+stay, with a one-line why, because the dev Mac's `/bin/bash` is 3.2 and the suite runs there too.
+
 ---
 
 ## 1. `bin/omarchy-kids-*`

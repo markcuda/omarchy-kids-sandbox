@@ -79,3 +79,6 @@ done
 
 echo "qml-theme-static-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc
+
+# Quickshell cannot import a sibling directory: no surface may use the directory import.
+if grep -rl 'import "../qml"' share >/dev/null 2>&1; then fail "a QML surface still uses import \"../qml\""; else pass "no QML surface imports ../qml"; fi

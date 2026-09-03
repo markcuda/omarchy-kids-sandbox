@@ -91,6 +91,11 @@ package() {
 	# afterward so empty data dirs still exist without shipping git litter.
 	install -dm755 "$pkgdir/usr/share/omarchy-kids"
 	cp -a share/. "$pkgdir/usr/share/omarchy-kids/"
+	# Quickshell only resolves types inside a shell's own directory, so the one theme file is
+	# installed next to every standalone surface (seen live: "KidsTheme is not a type").
+	for d in "$pkgdir"/usr/share/omarchy-kids/{launcher,exit-modal,ask,time,plugins,wifi}; do
+		[ -d "$d" ] && cp share/qml/KidsTheme.qml "$d/"
+	done
 	find "$pkgdir/usr/share/omarchy-kids" -name '.gitkeep' -delete
 
 	# The portal (R-LOGIN, issue #14): SDDM only looks for greeter themes

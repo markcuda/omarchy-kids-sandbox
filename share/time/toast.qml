@@ -35,7 +35,6 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
-import "../qml"
 
 PanelWindow {
     id: root

@@ -44,7 +44,6 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "gridnav.js" as GridNav
-import "../qml"
 
 Window {
     id: root

@@ -153,6 +153,13 @@ from screenshots. Done since:
   kid shell for the speed you can feel, and two deepenings in place. Per your direction the
   pipeline from here is: gpt-5.6-sol writes a spec per candidate in `docs/specs/` with a ticket
   breakdown, the tickets are filed, gpt-5.6-luna drafts each one, I gate and merge.
+- Six specs are in `docs/specs/` (written by gpt-5.6-sol, checked against the code), and their
+  24 tickets are issues #64 to #87, four per spec, in order. Codex is drafting #64, the session
+  manifest builder. Codex's launcher fix (#60) merged after both suites; its first cold boot
+  showed an empty launcher because the boot-time assert runs with no HOME and the builder wrote
+  an empty map silently; fixed the same hour with two rules that now have tests: root-side
+  builders never replace state on failure, and root paths are exercised with an empty
+  environment.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

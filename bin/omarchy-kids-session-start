@@ -195,20 +195,15 @@ if [[ "$LEVEL" == "1" && "$BAND" != "3-5" ]]; then
 fi
 
 # R-DATA-3 (issue #27): "What my grown-ups can see", gated on BAND not
-# LEVEL -- see docs/data.md for why, and the terminal-choice caveat below.
+# LEVEL -- see docs/data.md for why.
 if [[ "$BAND" == "9-12" || "$BAND" == "13+" ]]; then
   DATA_BIN="$(kids_bin data "$DIR")"
-  DATA_TERM=""
-  for term in kitty alacritty foot wezterm xterm; do
-    if command -v "$term" >/dev/null 2>&1; then DATA_TERM="$term"; break; fi
-  done
-  if [[ -n "$DATA_TERM" ]]; then
-    DATA_EXEC="$DATA_TERM -e sh -c '\"$DATA_BIN\" mine; printf \"\\nPress Enter to close.\\n\"; read _'"
-    jq -n --arg exec "$DATA_EXEC" \
-      '{id: "kids-data", label: "What grown-ups see", icon: "", exec: $exec}' >>"$TILES_FILE"
-  else
-    log "kids-data tile omitted for '$ACCOUNT': no terminal emulator found on PATH (I-6; see docs/data.md)"
-  fi
+  # Omarchy's own floating-terminal helper, the same one bin/omarchy-kids-bar
+  # opens a grant in -- not a walk of terminal emulators a stock box may not
+  # have installed at all (review 1.4, docs/data.md).
+  DATA_EXEC="omarchy-launch-floating-terminal-with-presentation sh -c '\"$DATA_BIN\" mine; printf \"\\nPress Enter to close.\\n\"; read _'"
+  jq -n --arg exec "$DATA_EXEC" \
+    '{id: "kids-data", label: "What grown-ups see", icon: "", exec: $exec}' >>"$TILES_FILE"
 fi
 
 jq -s '{account: $account, band: $band, level: $level, tiles: .}' \

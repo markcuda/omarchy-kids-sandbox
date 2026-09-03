@@ -149,3 +149,16 @@ what state it leaves the VM in; left for a follow-on issue rather than guessed a
   writable paths: all seven passed again.
 - 2026-09-03, fourth full run against the structural refactor (shared helpers, dispatchers,
   strict mode): all seven passed.
+- 2026-09-03, run 6, `05-unit-tests-on-vm.sh` on its own — the first time `test/all` had been run
+  on a VM that already has `omarchy-kids` *installed*. 61 checks in 16 files failed there and
+  passed on the Mac, none of them about the code under test: `stat -f '%Lp' … || stat -c '%a'`
+  reads GNU coreutils' *filesystem* status and succeeds with junk; and every case that needs a
+  command absent (`limine`, `omarchy-theme-color`, the floating-terminal helper, `getent`,
+  `lsblk`, `/usr/bin/omarchy-kids-*`) found the real one. `test/shell.d/lib.sh` now owns
+  `kids_file_mode` and `kids_base_path` (stubs plus a base toolset, nothing else), and the tests
+  build the PATH they claim to have. It also turned up four things that only misbehave on Linux —
+  `omarchy-kids-check --live` aborting mid-report on pkcheck's "not authorized" exit status,
+  `omarchy-kids-wifi` swallowing its own "no reply" line wherever `socat` is installed,
+  `theme_color` handing a themeless account one derived black tile, and `kids_bin`'s `/usr/bin`
+  fallback hiding "not installed yet" — all fixed here. Result: `test/all` green on both,
+  32 files, 0 FAIL, one skip on the VM (`unlock-hook-test.sh`: no ash/busybox there).

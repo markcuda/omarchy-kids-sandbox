@@ -124,6 +124,10 @@ Match omacom/omarchy's own style, not just its tools. Full citations and gaps:
   locals promoted onto a shared table (`o.foo = foo`).
 - Tests: one `test/shell.d/<command>-test.sh` per command, opening with the SPEC.md requirement
   ids it covers, the same discipline upstream expects. VM-only checks stay in `test/acceptance.d/`.
+- Every test must pass on a real Omarchy box with `omarchy-kids` installed and Omarchy's own tools
+  on `PATH`, not only on a bare dev machine. A test that needs a command *absent* builds its own
+  `PATH` (`test/shell.d/lib.sh`'s `kids_base_path`: its stubs plus a base toolset, nothing else),
+  and reads a file's mode through that file's `kids_file_mode`, never `stat -f` first.
 
 ## Test machines
 

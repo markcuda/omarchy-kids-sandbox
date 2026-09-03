@@ -13,6 +13,7 @@ PY="$KIDS_PY"
 ASKPY="$LIB/ask.py"
 CONF_BIN="$(kids_bin conf "$DIR")"
 WEB_BIN="$(kids_bin web "$DIR")"
+TIME_BIN="$(kids_bin time "$DIR")"
 SELF="$(kids_bin ask "$DIR")"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
@@ -224,16 +225,10 @@ apply_record() {
     esac
 }
 
-# apply_time KID MINUTES -- omarchy-kids-time is being built in a
-# parallel issue; call it by name and degrade gracefully (never fail the
-# decision) if it isn't on this box yet.
+# apply_time KID MINUTES -- through the sibling command, resolved beside
+# this one like every other (kids_bin, never PATH).
 apply_time() {
-    local kid="$1" minutes="$2"
-    if command -v omarchy-kids-time >/dev/null 2>&1; then
-        run omarchy-kids-time grant "$kid" "$minutes"
-    else
-        echo "omarchy-kids-ask: omarchy-kids-time isn't installed yet -- approved but NOT applied; grant $minutes minute(s) to $kid by hand once it exists" >&2
-    fi
+    run "$TIME_BIN" grant "$1" "$2"
 }
 
 # apply_apps_extra KID WHAT -- appends WHAT (an app or plugin id) to the

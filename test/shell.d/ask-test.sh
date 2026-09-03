@@ -11,10 +11,11 @@
 # this environment. This file only checks the bash side: what env vars
 # it's launched with, and what it's expected to call back into.
 #
-# Fully self-contained: quickshell, pgrep, omarchy-kids-conf,
-# omarchy-kids-web, and omarchy-kids-time are fakes on a stub PATH that
-# only log their argv and fake just enough state to react to -- same
-# shape as test/shell.d/exit-test.sh's and apps-test.sh's stub() helper.
+# Fully self-contained: quickshell and pgrep are fakes on a stub PATH;
+# omarchy-kids-conf, -web and -time are fakes placed in the scratch tree
+# beside the command under test. All of them only log their argv and fake
+# just enough state to react to -- the same shape as
+# test/shell.d/exit-test.sh's and apps-test.sh's stub() helper.
 # One provisioned kid throughout: kid-ada, band 6-8 (AGENTS.md rule 9);
 # a second, kid-bo, only where two-kids-at-once matters (collect).
 set -uo pipefail
@@ -109,6 +110,11 @@ stub omarchy-kids-web ''
 kids_tree "$TMP/tree" "$ROOT_DIR"
 BIN="$TMP/tree/bin/omarchy-kids-ask"
 cp "$STUBS/omarchy-kids-conf" "$STUBS/omarchy-kids-web" "$TMP/tree/bin/"
+
+# omarchy-kids-time is a sibling too, resolved beside the command under
+# test, so its stub goes in the tree, not on PATH.
+time_stub() { stub omarchy-kids-time ''; cp "$STUBS/omarchy-kids-time" "$TMP/tree/bin/"; }
+time_stub_gone() { rm -f "$STUBS/omarchy-kids-time" "$TMP/tree/bin/omarchy-kids-time"; }
 
 # The verifier socket is a constant now: point this copy at one that will
 # never exist, so the suite can never reach a real daemon.
@@ -314,7 +320,7 @@ cat > "$RUN_USER_ROOT/1001/omarchy-kids/ask-outbox/1000000006-evil-site.json" <<
 {"kid": "../../../../etc/sudoers.d", "kind": "site", "what": "kid-ada ALL=(ALL) NOPASSWD: ALL", "asked_at": 1000000006, "state": "approved", "by": "keyboard"}
 EOF
 
-stub omarchy-kids-time ''  # present on PATH: a time grant COULD apply here
+time_stub  # installed here: a time grant COULD apply
 before="$(argv_lines)"
 out="$("$BIN" collect --apply)"
 after_argv="$(argv_since "$before")"
@@ -415,13 +421,6 @@ for args in \
     check_eq "$?" 2 "apply-grant refuses: $args"
 done
 
-# --- omarchy-kids-time missing: degrades, never fails ---------------------
-
-rm -f "$STUBS/omarchy-kids-time" "$TMP/tree/bin/omarchy-kids-time"
-err="$("$BIN" apply-grant --kid kid-ada --kind time --what 5 --minutes 5 --apply 2>&1 >/dev/null)"
-check_contains "$err" "omarchy-kids-time isn't installed yet" \
-    "apply-grant: names the missing command and degrades gracefully"
-
 unset KIDS_TEST_UID
 
 # =====================================================================
@@ -455,12 +454,12 @@ check_contains "$(cat "$ASK_QML")" '"grant"' \
     "share/ask/shell.qml goes through the root grant path instead"
 
 # An honest open request, for the `list`/approve sections below.
-stub omarchy-kids-time ''
+time_stub
 cat > "$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox/1000000009-kid-ada-time.json" <<'EOF'
 {"kid": "kid-ada", "kind": "time", "what": "10", "minutes": 10, "asked_at": 1000000009, "state": "open"}
 EOF
 "$BIN" collect --apply >/dev/null
-rm -f "$STUBS/omarchy-kids-time"
+time_stub_gone
 
 # =====================================================================
 # list: only open (undecided) requests, all kids or one
@@ -488,7 +487,7 @@ before="$(argv_lines)"
 check_contains "$(cat "$QUEUE_DIR/$id.json")" '"state": "open"' \
     "approve (default, no --apply): does not decide yet"
 
-stub omarchy-kids-time ''  # back on PATH for the approve/decline checks
+time_stub  # back in place for the approve/decline checks
 "$BIN" approve "$id" --apply >/dev/null
 after_argv="$(argv_since "$before")"
 check_contains "$after_argv" "time grant kid-ada 10" "approve --apply: performs the action (time grant)"

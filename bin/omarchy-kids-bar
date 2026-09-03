@@ -177,15 +177,10 @@ open_terminal_running() {
     local inner; inner="$(printf '%q ' "$@")"
     inner+="; ec=\$?; if [ \"\$ec\" -ne 0 ]; then read -r -p $(printf '%q' "$fail_msg (see above) -- press Enter to close ") _; else read -r -p $(printf '%q' "$ok_msg Press Enter to close ") _; fi; exit \"\$ec\""
 
-    local -a term
-    if command -v omarchy-launch-floating-terminal-with-presentation >/dev/null 2>&1; then
-        term=(omarchy-launch-floating-terminal-with-presentation)
-    else
-        term=(alacritty -e)
-    fi
-    term+=(sh -c "$inner")
-
-    "${term[@]}"
+    # Omarchy's own helper, trusted the way this package already trusts
+    # /usr/bin/omarchy-launch-shell: a stock 4.0.2 box has it, and the
+    # alacritty this used to fall back to is not installed there (review 1.4).
+    omarchy-launch-floating-terminal-with-presentation sh -c "$inner"
 }
 
 cmd_grant() {

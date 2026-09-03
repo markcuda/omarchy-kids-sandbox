@@ -28,7 +28,10 @@ fi
 
 fail=0
 pass() { echo "ok   $*"; }
-fail_() { echo "FAIL $*"; fail=1; }
+fail_() {
+  echo "FAIL $*"
+  fail=1
+}
 check() { # got want label
   if [[ "$1" == "$2" ]]; then pass "$3"; else fail_ "$3 (want '$2', got '$1')"; fi
 }
@@ -45,9 +48,9 @@ trap cleanup EXIT
 
 ETC="$TMP/etc"
 SHARE="$TMP/share"
-ROOT="$TMP/root"   # OMARCHY_KIDS_ROOT
+ROOT="$TMP/root" # OMARCHY_KIDS_ROOT
 STUBS="$TMP/stubs"
-SESSIONS="$TMP/sessions"   # loginctl stub's state file
+SESSIONS="$TMP/sessions" # loginctl stub's state file
 
 mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$STUBS"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
@@ -120,9 +123,12 @@ used_today() { cat "$USAGE_DIR/$1" 2>/dev/null || echo 0; }
 
 # --- --help --------------------------------------------------------------
 
-"$LEDGER" --help >/dev/null 2>&1; check "$?" 0 "omarchy-kids-time-ledger --help exits 0"
-"$TIME" --help >/dev/null 2>&1; check "$?" 0 "omarchy-kids-time --help exits 0"
-"$TIME" >/dev/null 2>&1; check "$?" 2 "omarchy-kids-time with no command exits 2"
+"$LEDGER" --help >/dev/null 2>&1
+check "$?" 0 "omarchy-kids-time-ledger --help exits 0"
+"$TIME" --help >/dev/null 2>&1
+check "$?" 0 "omarchy-kids-time --help exits 0"
+"$TIME" >/dev/null 2>&1
+check "$?" 2 "omarchy-kids-time with no command exits 2"
 
 # =========================================================================
 # lib/time.py logical-day: the 04:00 rollover and weekday math
@@ -156,20 +162,20 @@ source "$DIR/lib/time.sh"
 
 toast_cases=(
   # first-ever check ("" previous == +infinity, everything is a "drop")
-  "|15|10 5 1|||"                 # above every threshold: nothing fires
-  "|8|10 5 1||10|10"              # starts already below 10
-  "|3|10 5 1||10 5|10 5"          # starts already below 5: 10 marked too
+  "|15|10 5 1|||"        # above every threshold: nothing fires
+  "|8|10 5 1||10|10"     # starts already below 10
+  "|3|10 5 1||10 5|10 5" # starts already below 5: 10 marked too
   # ordinary descent, one threshold crossed per step
   "15|8|10 5 1||10|10"
   "8|3|10 5 1|10|5|10 5"
-  "3|2|10 5 1|10 5||10 5"         # 2 > 1: the 1-minute mark not reached yet
-  "2|1|10 5 1|10 5|1|10 5 1"      # the exact 1-minute crossing (issue #40's 3rd ask)
-  "1|1|10 5 1|10 5 1||10 5 1"     # a flat repeat poll on the same minute: no refire
+  "3|2|10 5 1|10 5||10 5"     # 2 > 1: the 1-minute mark not reached yet
+  "2|1|10 5 1|10 5|1|10 5 1"  # the exact 1-minute crossing (issue #40's 3rd ask)
+  "1|1|10 5 1|10 5 1||10 5 1" # a flat repeat poll on the same minute: no refire
   # a grant mid-countdown -- the live bug this issue reported
-  "3|16|10 5 1|10 5||"            # grant clears every threshold: no immediate refire
-  "16|9|10 5 1||10|10"            # descending again afterward re-fires 10
-  "9|20|10 5 1|10||"               # a smaller grant only un-fires 10 (was already past it)
-  "9|7|10 5 1|10||10"              # a grant that doesn't reach back above 10: stays fired
+  "3|16|10 5 1|10 5||" # grant clears every threshold: no immediate refire
+  "16|9|10 5 1||10|10" # descending again afterward re-fires 10
+  "9|20|10 5 1|10||"   # a smaller grant only un-fires 10 (was already past it)
+  "9|7|10 5 1|10||10"  # a grant that doesn't reach back above 10: stays fired
 )
 for c in "${toast_cases[@]}"; do
   IFS='|' read -r tprev tcurr tthresh tfired texpect_fire texpect_fired <<<"$c"
@@ -248,7 +254,7 @@ echo
 # budget/lights-out math: band defaults, overrides, weekday vs weekend
 # =========================================================================
 
-export OMARCHY_KIDS_NOW="2026-09-02 10:00:00"   # a Wednesday
+export OMARCHY_KIDS_NOW="2026-09-02 10:00:00" # a Wednesday
 CONF="$DIR/bin/omarchy-kids-conf"
 
 out="$("$TIME" status kid-ada)"
@@ -277,7 +283,7 @@ check_contains "$out" "budget runs out at 10:20" "status: next boundary picks th
 # next boundary: lights-out wins when it comes before the budget would
 # run out (grant kid-ada a huge budget for today so lights-out is the
 # binding constraint).
-"$LEDGER" tick >/dev/null  # bump used by one so remaining isn't a round number, just to be sure both paths compute independently
+"$LEDGER" tick >/dev/null # bump used by one so remaining isn't a round number, just to be sure both paths compute independently
 "$TIME" grant kid-ada 500 >/dev/null
 out="$(OMARCHY_KIDS_NOW="2026-09-02 19:00:00" "$TIME" status kid-ada)"
 check_contains "$out" "lights-out at 19:30" "status: lights-out wins when the budget would outlast it"
@@ -300,7 +306,8 @@ if [[ "$(id -u)" != "0" ]]; then
   check "$?" 1 "grant: refuses to run without root"
 fi
 
-out="$("$TIME" grant kid-ada 15 2>&1)"; st=$?
+out="$("$TIME" grant kid-ada 15 2>&1)"
+st=$?
 check "$st" 0 "grant: exits 0 with the root bypass"
 check_contains "$out" "granted 15" "grant: says how many minutes it granted"
 
@@ -327,7 +334,7 @@ echo
 # stub.
 # =========================================================================
 
-DAEMON_DAY="2026-09-16"   # a fresh day, untouched by the tests above
+DAEMON_DAY="2026-09-16" # a fresh day, untouched by the tests above
 export OMARCHY_KIDS_NOW="$DAEMON_DAY 10:00:00"
 "$CONF" set kid-ada budget_min 12 >/dev/null
 "$CONF" set kid-ada budget_min_weekend 12 >/dev/null
@@ -344,23 +351,24 @@ set_sessions "1 1000 kid-ada yes no"
 # ledger file, runs one daemon poll against it, and prints the fresh
 # session log.
 run_daemon_oneshot() {
-  rm -rf "$DAEMON_RUN"; mkdir -p "$DAEMON_RUN"
+  rm -rf "$DAEMON_RUN"
+  mkdir -p "$DAEMON_RUN"
   echo "$1" >"$DAEMON_USAGE_DIR/$DAEMON_DAY"
   OMARCHY_KIDS_TIME_DAEMON_ONESHOT=1 "$TIME" daemon >/dev/null 2>&1
   cat "$DAEMON_LOG" 2>/dev/null
 }
 
-log_out="$(run_daemon_oneshot 8)"   # budget 12, used 8: 4 min remaining
+log_out="$(run_daemon_oneshot 8)" # budget 12, used 8: 4 min remaining
 check_contains "$log_out" "toast-check: kid='kid-ada' previous=none current=4 fired={10 5} firing={10 5}" \
   "daemon: logs previous/current and picks up both thresholds a lagging tick jumped past at once"
 check_contains "$log_out" "toast: 5 minutes left" "daemon: shows only the most urgent of the thresholds crossed (5, not a stale 10)"
 
-log_out="$(run_daemon_oneshot 11)"   # budget 12, used 11: exactly 1 min remaining
+log_out="$(run_daemon_oneshot 11)" # budget 12, used 11: exactly 1 min remaining
 check_contains "$log_out" "current=1 fired={10 5 1} firing={10 5 1}" \
   "daemon: the 1-minute mark is caught exactly (issue #40's 3rd ask), never skipped between polls"
 check_contains "$log_out" "toast: 1 minute left" "daemon: shows the 1-minute toast, singular"
 
-log_out="$(run_daemon_oneshot 12)"   # budget 12, used 12: 0 remaining -> Time's Up by budget, not lights-out
+log_out="$(run_daemon_oneshot 12)" # budget 12, used 12: 0 remaining -> Time's Up by budget, not lights-out
 check_contains "$log_out" "time's up shown for 'kid-ada'" "daemon: Time's Up fires at 0 remaining by budget (issue #40's other open question)"
 check_not_contains "$log_out" "toast-check" "daemon: no toast-check logged once Time's Up has taken over"
 
@@ -370,7 +378,6 @@ rm -rf "$DAEMON_RUN"
 set_sessions
 
 echo
-
 
 # =========================================================================
 # static: systemd/omarchy-kids-time-ledger.{service} and omarchy-kids-time.timer
@@ -390,18 +397,18 @@ if [[ -f "$SERVICE" ]]; then
   pass "omarchy-kids-time-ledger.service exists"
   grep -qE '^\[Service\]' "$SERVICE" && pass "service: has [Service]" || fail_ "service: missing [Service]"
   grep -qE '^Type=oneshot' "$SERVICE" && pass "service: Type=oneshot" || fail_ "service: missing Type=oneshot"
-  grep -qE '^ExecStart=.*omarchy-kids-time-ledger tick' "$SERVICE" \
-    && pass "service: ExecStart runs 'omarchy-kids-time-ledger tick'" \
-    || fail_ "service: ExecStart does not run time-ledger tick"
-  grep -qE '^ProtectHome=yes' "$SERVICE" \
-    && fail_ "service: ProtectHome=yes would hide /run/user/* -- the runtime launches log tick folds lives there" \
-    || pass "service: ProtectHome=yes is not set (so /run/user/<uid> stays visible to the fold step)"
-  grep -qE '^ReadWritePaths=.*\bvar/lib/omarchy-kids\b' "$SERVICE" \
-    && pass "service: ReadWritePaths includes /var/lib/omarchy-kids" \
-    || fail_ "service: ReadWritePaths missing /var/lib/omarchy-kids"
-  grep -qE '^ReadWritePaths=.*\brun/omarchy-kids\b' "$SERVICE" \
-    && pass "service: ReadWritePaths includes /run/omarchy-kids" \
-    || fail_ "service: ReadWritePaths missing /run/omarchy-kids"
+  grep -qE '^ExecStart=.*omarchy-kids-time-ledger tick' "$SERVICE" &&
+    pass "service: ExecStart runs 'omarchy-kids-time-ledger tick'" ||
+    fail_ "service: ExecStart does not run time-ledger tick"
+  grep -qE '^ProtectHome=yes' "$SERVICE" &&
+    fail_ "service: ProtectHome=yes would hide /run/user/* -- the runtime launches log tick folds lives there" ||
+    pass "service: ProtectHome=yes is not set (so /run/user/<uid> stays visible to the fold step)"
+  grep -qE '^ReadWritePaths=.*\bvar/lib/omarchy-kids\b' "$SERVICE" &&
+    pass "service: ReadWritePaths includes /var/lib/omarchy-kids" ||
+    fail_ "service: ReadWritePaths missing /var/lib/omarchy-kids"
+  grep -qE '^ReadWritePaths=.*\brun/omarchy-kids\b' "$SERVICE" &&
+    pass "service: ReadWritePaths includes /run/omarchy-kids" ||
+    fail_ "service: ReadWritePaths missing /run/omarchy-kids"
 else
   fail_ "$SERVICE not found"
 fi
@@ -409,9 +416,9 @@ fi
 if [[ -f "$TIMER" ]]; then
   pass "omarchy-kids-time.timer exists"
   grep -qE '^\[Timer\]' "$TIMER" && pass "timer: has [Timer]" || fail_ "timer: missing [Timer]"
-  grep -qE '^Unit=omarchy-kids-time-ledger\.service' "$TIMER" \
-    && pass "timer: points at omarchy-kids-time-ledger.service" \
-    || fail_ "timer: missing/wrong Unit="
+  grep -qE '^Unit=omarchy-kids-time-ledger\.service' "$TIMER" &&
+    pass "timer: points at omarchy-kids-time-ledger.service" ||
+    fail_ "timer: missing/wrong Unit="
   grep -qE '^\[Install\]' "$TIMER" && pass "timer: has [Install]" || fail_ "timer: missing [Install]"
   grep -qE '^WantedBy=timers\.target' "$TIMER" && pass "timer: WantedBy=timers.target" || fail_ "timer: missing WantedBy=timers.target"
 else

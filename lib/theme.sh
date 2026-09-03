@@ -6,7 +6,7 @@
 # See docs/theming.md for the ground-truth citations against v4.0.2.
 
 # shellcheck source=./kids.sh
-source "$(dirname "${BASH_SOURCE[0]}")/kids.sh"  # account_home
+source "$(dirname "${BASH_SOURCE[0]}")/kids.sh" # account_home
 
 # _theme_kids_env_defaults -- defaults $OMARCHY_PATH/$LANG (issue #48) --
 # unset in a session with no Omarchy env (SSH, CI). Called from every
@@ -15,34 +15,34 @@ source "$(dirname "${BASH_SOURCE[0]}")/kids.sh"  # account_home
 # caller's environment (review 2.7). A tool that still fails never aborts
 # the caller, see _theme_kids_tool_ready. Idempotent; cheap to call again.
 _theme_kids_env_defaults() {
-    : "${OMARCHY_PATH:=/usr/share/omarchy}"
-    export OMARCHY_PATH
-    if [[ -z "${LANG:-}" || "${LANG:-}" == "C" ]]; then
-        export LANG=C.UTF-8
-    fi
+  : "${OMARCHY_PATH:=/usr/share/omarchy}"
+  export OMARCHY_PATH
+  if [[ -z "${LANG:-}" || "${LANG:-}" == "C" ]]; then
+    export LANG=C.UTF-8
+  fi
 }
 
 # theme_dir -- the directory whose colors.toml theme_color/theme_font
 # read. THEME_KIDS_HOME overrides $HOME; unset falls back to plain $HOME.
 theme_dir() {
-    _theme_kids_env_defaults
-    printf '%s/.local/state/omarchy/current/theme' "${THEME_KIDS_HOME:-$HOME}"
+  _theme_kids_env_defaults
+  printf '%s/.local/state/omarchy/current/theme' "${THEME_KIDS_HOME:-$HOME}"
 }
 
 # _theme_kids_fallback NAME -- matches share/sddm-theme/theme.conf's own
 # hardcoded defaults.
 _theme_kids_fallback() {
-    case "$1" in
-        background) printf '#1a1b26\n' ;;
-        foreground) printf '#ffffff\n' ;;
-        accent) printf '#8fb8ff\n' ;;
-        muted) printf '#9aa5ce\n' ;;
-        error) printf '#f7768e\n' ;;
-        warning) printf '#ffd27a\n' ;;
-        surface) printf '#232838\n' ;;
-        surface_muted) printf '#1f2335\n' ;;
-        highlight) printf '#3a4266\n' ;;
-    esac
+  case "$1" in
+    background) printf '#1a1b26\n' ;;
+    foreground) printf '#ffffff\n' ;;
+    accent) printf '#8fb8ff\n' ;;
+    muted) printf '#9aa5ce\n' ;;
+    error) printf '#f7768e\n' ;;
+    warning) printf '#ffd27a\n' ;;
+    surface) printf '#232838\n' ;;
+    surface_muted) printf '#1f2335\n' ;;
+    highlight) printf '#3a4266\n' ;;
+  esac
 }
 THEME_KIDS_FALLBACK_FONT="JetBrainsMono Nerd Font"
 
@@ -54,76 +54,76 @@ THEME_KIDS_FALLBACK_FONT="JetBrainsMono Nerd Font"
 # fallback palette rather than one derived black tile.
 _THEME_KIDS_TOOL_STATUS=""
 _theme_kids_tool_ready() {
-    _theme_kids_env_defaults
-    if [[ -z "$_THEME_KIDS_TOOL_STATUS" ]]; then
-        if command -v omarchy-theme-color >/dev/null 2>&1 \
-            && [[ -r "$(theme_dir)/colors.toml" ]] \
-            && omarchy-theme-color --file "$(theme_dir)/colors.toml" --all >/dev/null 2>&1; then
-            _THEME_KIDS_TOOL_STATUS="ok"
-        else
-            _THEME_KIDS_TOOL_STATUS="unavailable"
-            echo "theme_color: omarchy-theme-color is missing or failed here — using the fallback palette (docs/theming.md)" >&2
-        fi
+  _theme_kids_env_defaults
+  if [[ -z "$_THEME_KIDS_TOOL_STATUS" ]]; then
+    if command -v omarchy-theme-color >/dev/null 2>&1 &&
+      [[ -r "$(theme_dir)/colors.toml" ]] &&
+      omarchy-theme-color --file "$(theme_dir)/colors.toml" --all >/dev/null 2>&1; then
+      _THEME_KIDS_TOOL_STATUS="ok"
+    else
+      _THEME_KIDS_TOOL_STATUS="unavailable"
+      echo "theme_color: omarchy-theme-color is missing or failed here — using the fallback palette (docs/theming.md)" >&2
     fi
-    [[ "$_THEME_KIDS_TOOL_STATUS" == "ok" ]]
+  fi
+  [[ "$_THEME_KIDS_TOOL_STATUS" == "ok" ]]
 }
 
 # theme_color NAME -- resolves one semantic color via omarchy-theme-color,
 # falling back to _theme_kids_fallback. docs/theming.md for the key map.
 theme_color() {
-    local name="$1" key value
-    case "$name" in
-        background | foreground | accent | muted) key="$name" ;;
-        error) key="red" ;;
-        warning) key="orange" ;;
-        surface) key="lighter_background" ;;
-        surface_muted) key="dark_background" ;;
-        highlight) key="selection" ;;
-        *)
-            echo "theme_color: unknown color '$name'" >&2
-            return 1
-            ;;
-    esac
+  local name="$1" key value
+  case "$name" in
+    background | foreground | accent | muted) key="$name" ;;
+    error) key="red" ;;
+    warning) key="orange" ;;
+    surface) key="lighter_background" ;;
+    surface_muted) key="dark_background" ;;
+    highlight) key="selection" ;;
+    *)
+      echo "theme_color: unknown color '$name'" >&2
+      return 1
+      ;;
+  esac
 
-    if _theme_kids_tool_ready; then
-        value="$(omarchy-theme-color --file "$(theme_dir)/colors.toml" "$key" 2>/dev/null || true)"
-    fi
-    if [[ -z "${value:-}" ]]; then
-        value="$(_theme_kids_fallback "$name")"
-    fi
-    printf '%s\n' "$value"
+  if _theme_kids_tool_ready; then
+    value="$(omarchy-theme-color --file "$(theme_dir)/colors.toml" "$key" 2>/dev/null || true)"
+  fi
+  if [[ -z "${value:-}" ]]; then
+    value="$(_theme_kids_fallback "$name")"
+  fi
+  printf '%s\n' "$value"
 }
 
 # theme_font -- resolves "monospace" via fc-match, same as Omarchy's
 # shell. THEME_KIDS_HOME has no effect: fontconfig resolves per-process.
 theme_font() {
-    local family
-    if command -v fc-match >/dev/null 2>&1; then
-        family="$(fc-match -f '%{family[0]}' monospace 2>/dev/null || true)"
-    fi
-    [[ -n "${family:-}" ]] || family="$THEME_KIDS_FALLBACK_FONT"
-    printf '%s\n' "$family"
+  local family
+  if command -v fc-match >/dev/null 2>&1; then
+    family="$(fc-match -f '%{family[0]}' monospace 2>/dev/null || true)"
+  fi
+  [[ -n "${family:-}" ]] || family="$THEME_KIDS_FALLBACK_FONT"
+  printf '%s\n' "$family"
 }
 
 # theme_current_name -- theme_dir's own theme.name, plain one-line file.
 # Empty, not an error, if that account has never received a theme.
 theme_current_name() {
-    local f
-    f="$(dirname "$(theme_dir)")/theme.name"
-    [[ -r "$f" ]] && cat "$f" || true
+  local f
+  f="$(dirname "$(theme_dir)")/theme.name"
+  [[ -r "$f" ]] && cat "$f" || true
 }
 
 # theme_list_installed -- every name under $OMARCHY_PATH/themes, sorted.
 # The wizard/panel Desktop screens offer only these, never a user-installed
 # ~/.config/omarchy/themes/<name> -- docs/theming.md issue #53.
 theme_list_installed() {
-    _theme_kids_env_defaults
-    local dir="$OMARCHY_PATH/themes" d
-    [[ -d "$dir" ]] || return 0
-    for d in "$dir"/*/; do
-        [[ -d "$d" ]] || continue
-        basename "$d"
-    done | sort
+  _theme_kids_env_defaults
+  local dir="$OMARCHY_PATH/themes" d
+  [[ -d "$dir" ]] || return 0
+  for d in "$dir"/*/; do
+    [[ -d "$d" ]] || continue
+    basename "$d"
+  done | sort
 }
 
 # theme_apply_for ACCOUNT NAME -- writes ACCOUNT's current theme, mirroring
@@ -135,41 +135,41 @@ theme_list_installed() {
 # unbreakable barrier). See docs/theming.md issue #53 for the full mapping
 # to upstream and the ownership rationale.
 theme_apply_for() {
-    _theme_kids_env_defaults
-    local account="$1" name="$2" home src current next tmp
-    home="$(account_home "$account")"
-    src="$OMARCHY_PATH/themes/$name"
-    if [[ ! -d "$src" ]]; then
-        echo "theme_apply_for: no such theme '$name' under $OMARCHY_PATH/themes" >&2
-        return 1
-    fi
+  _theme_kids_env_defaults
+  local account="$1" name="$2" home src current next tmp
+  home="$(account_home "$account")"
+  src="$OMARCHY_PATH/themes/$name"
+  if [[ ! -d "$src" ]]; then
+    echo "theme_apply_for: no such theme '$name' under $OMARCHY_PATH/themes" >&2
+    return 1
+  fi
 
-    current="$home/.local/state/omarchy/current/theme"
-    next="$home/.local/state/omarchy/current/.next-theme.$$"
-    install -d -m 0755 "$(dirname "$current")" || return 1
-    rm -rf "$next"
-    install -d -m 0755 "$next" || return 1
-    cp -r "$src/." "$next/" 2>/dev/null
+  current="$home/.local/state/omarchy/current/theme"
+  next="$home/.local/state/omarchy/current/.next-theme.$$"
+  install -d -m 0755 "$(dirname "$current")" || return 1
+  rm -rf "$next"
+  install -d -m 0755 "$next" || return 1
+  cp -r "$src/." "$next/" 2>/dev/null
 
-    if [[ ! -f "$next/colors.toml" && -f "$next/alacritty.toml" ]] \
-        && command -v omarchy-theme-colors-from-alacritty >/dev/null 2>&1; then
-        omarchy-theme-colors-from-alacritty "$next" >/dev/null 2>&1 || true
-    fi
+  if [[ ! -f "$next/colors.toml" && -f "$next/alacritty.toml" ]] &&
+    command -v omarchy-theme-colors-from-alacritty >/dev/null 2>&1; then
+    omarchy-theme-colors-from-alacritty "$next" >/dev/null 2>&1 || true
+  fi
 
-    if ! chown -R root:root "$next" >/dev/null 2>&1; then
-        echo "theme_apply_for: could not chown $next to root:root (fine outside a real root run)" >&2
-    fi
-    find "$next" -type d -exec chmod 0755 {} + 2>/dev/null
-    find "$next" -type f -exec chmod 0644 {} + 2>/dev/null
+  if ! chown -R root:root "$next" >/dev/null 2>&1; then
+    echo "theme_apply_for: could not chown $next to root:root (fine outside a real root run)" >&2
+  fi
+  find "$next" -type d -exec chmod 0755 {} + 2>/dev/null
+  find "$next" -type f -exec chmod 0644 {} + 2>/dev/null
 
-    rm -rf "$current"
-    mv "$next" "$current" || return 1
+  rm -rf "$current"
+  mv "$next" "$current" || return 1
 
-    tmp="$(mktemp "$(dirname "$current")/.theme.name.XXXXXX")" || return 1
-    printf '%s\n' "$name" > "$tmp"
-    chown root:root "$tmp" >/dev/null 2>&1 || true
-    chmod 0644 "$tmp"
-    mv -f "$tmp" "$(dirname "$current")/theme.name"
+  tmp="$(mktemp "$(dirname "$current")/.theme.name.XXXXXX")" || return 1
+  printf '%s\n' "$name" >"$tmp"
+  chown root:root "$tmp" >/dev/null 2>&1 || true
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$(dirname "$current")/theme.name"
 }
 
 # theme_reload_if_live ACCOUNT -- best-effort IPC reload (same call
@@ -177,16 +177,16 @@ theme_apply_for() {
 # reaches their own socket, not root's. No-op with one log line when
 # ACCOUNT has no live Hyprland session -- the theme is on disk either way.
 theme_reload_if_live() {
-    local account="$1" current colors_b64="" shell_b64=""
-    if ! pgrep -u "$account" -x Hyprland >/dev/null 2>&1; then
-        echo "theme_reload_if_live: no live session for '$account' -- the new theme applies at next login" >&2
-        return 0
-    fi
-    current="$(account_home "$account")/.local/state/omarchy/current/theme"
-    [[ -f "$current/colors.toml" ]] && colors_b64="$(base64 -w 0 "$current/colors.toml" 2>/dev/null || true)"
-    [[ -f "$current/shell.toml" ]] && shell_b64="$(base64 -w 0 "$current/shell.toml" 2>/dev/null || true)"
-    if command -v runuser >/dev/null 2>&1; then
-        runuser -l "$account" -c "timeout 2 omarchy-shell shell applyTheme '$colors_b64' '$shell_b64'" >/dev/null 2>&1 \
-            || echo "theme_reload_if_live: live reload failed for '$account' -- the theme is applied on disk, they will see it at next login" >&2
-    fi
+  local account="$1" current colors_b64="" shell_b64=""
+  if ! pgrep -u "$account" -x Hyprland >/dev/null 2>&1; then
+    echo "theme_reload_if_live: no live session for '$account' -- the new theme applies at next login" >&2
+    return 0
+  fi
+  current="$(account_home "$account")/.local/state/omarchy/current/theme"
+  [[ -f "$current/colors.toml" ]] && colors_b64="$(base64 -w 0 "$current/colors.toml" 2>/dev/null || true)"
+  [[ -f "$current/shell.toml" ]] && shell_b64="$(base64 -w 0 "$current/shell.toml" 2>/dev/null || true)"
+  if command -v runuser >/dev/null 2>&1; then
+    runuser -l "$account" -c "timeout 2 omarchy-shell shell applyTheme '$colors_b64' '$shell_b64'" >/dev/null 2>&1 ||
+      echo "theme_reload_if_live: live reload failed for '$account' -- the theme is applied on disk, they will see it at next login" >&2
+  fi
 }

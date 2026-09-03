@@ -2,23 +2,35 @@
 # Start the test VM. `install`: boot the ISO with the cidata drive; QEMU exits when the installer
 # reboots. `boot`: boot the installed disk. `stop`: power it off. State lives in ~/vm.
 set -euo pipefail
-VM="${VM_DIR:-$HOME/vm}"; MODE="${1:-boot}"; MEM="${VM_MEM:-3072}"; SSH_PORT="${VM_SSH_PORT:-2222}"
+VM="${VM_DIR:-$HOME/vm}"
+MODE="${1:-boot}"
+MEM="${VM_MEM:-3072}"
+SSH_PORT="${VM_SSH_PORT:-2222}"
 cd "$VM"
 case $MODE in
   stop) # Graceful first: ACPI power button -> the guest shuts down and flushes btrfs. A hard
-        # `quit` right after a write leaves zero-length files (seen once with the unit files).
-        if [[ -S qmp.sock ]]; then
-          printf '{"execute":"qmp_capabilities"}\n{"execute":"system_powerdown"}\n' | socat - UNIX-CONNECT:qmp.sock >/dev/null
-          for _ in $(seq 1 40); do [[ -S qmp.sock ]] && kill -0 "$(cat qemu.pid 2>/dev/null)" 2>/dev/null || break; sleep 1; done
-          if [[ -S qmp.sock ]] && kill -0 "$(cat qemu.pid 2>/dev/null)" 2>/dev/null; then
-            printf '{"execute":"qmp_capabilities"}\n{"execute":"quit"}\n' | socat - UNIX-CONNECT:qmp.sock >/dev/null; echo "stopped (forced)"
-          else echo "stopped (clean)"; fi
-        fi
-        rm -f qmp.sock; exit 0 ;;
+    # `quit` right after a write leaves zero-length files (seen once with the unit files).
+    if [[ -S qmp.sock ]]; then
+      printf '{"execute":"qmp_capabilities"}\n{"execute":"system_powerdown"}\n' | socat - UNIX-CONNECT:qmp.sock >/dev/null
+      for _ in $(seq 1 40); do
+        [[ -S qmp.sock ]] && kill -0 "$(cat qemu.pid 2>/dev/null)" 2>/dev/null || break
+        sleep 1
+      done
+      if [[ -S qmp.sock ]] && kill -0 "$(cat qemu.pid 2>/dev/null)" 2>/dev/null; then
+        printf '{"execute":"qmp_capabilities"}\n{"execute":"quit"}\n' | socat - UNIX-CONNECT:qmp.sock >/dev/null
+        echo "stopped (forced)"
+      else echo "stopped (clean)"; fi
+    fi
+    rm -f qmp.sock
+    exit 0
+    ;;
   install) extra=(-drive file=omarchy-4.0.2.iso,media=cdrom,if=none,id=cd0 -device ide-cd,drive=cd0,bootindex=0
-                  -drive file=cidata.img,format=raw,if=none,id=cidata -device virtio-blk-pci,drive=cidata -no-reboot) ;;
+    -drive file=cidata.img,format=raw,if=none,id=cidata -device virtio-blk-pci,drive=cidata -no-reboot) ;;
   boot) extra=() ;;
-  *) echo "usage: vm-run.sh install|boot|stop"; exit 2 ;;
+  *)
+    echo "usage: vm-run.sh install|boot|stop"
+    exit 2
+    ;;
 esac
 rm -f qmp.sock
 qemu-system-x86_64 -cpu host -enable-kvm -machine q35,accel=kvm -smp 2 -m "$MEM" \

@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/conf.sh
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh
@@ -29,10 +30,13 @@ DRY_RUN=0
 ANY_FAIL=0
 FAILED_STEPS=()
 
-die() { echo "omarchy-kids-remove: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-remove: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
-    cat <<'EOF'
+  cat <<'EOF'
 Usage: omarchy-kids-remove [--yes] [--dry-run] [--delete-homes]
                             [--parent-password-stdin] [--no-snapshot]
                             [--keep-parent-group]
@@ -67,25 +71,28 @@ EOF
 }
 
 for arg in "$@"; do
-    case "$arg" in
-        -h|--help) usage; exit 0 ;;
-    esac
+  case "$arg" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+  esac
 done
 
 for arg in "$@"; do
-    case "$arg" in
-        --yes) YES=1 ;;
-        --dry-run) REAL_DRY_RUN=1 ;;
-        --delete-homes) DELETE_HOMES=1 ;;
-        --parent-password-stdin) PARENT_PW_STDIN=1 ;;
-        --no-snapshot) NO_SNAPSHOT=1 ;;
-        --keep-parent-group) KEEP_PARENT_GROUP=1 ;;
-        *)
-            echo "omarchy-kids-remove: unknown argument '$arg'" >&2
-            usage >&2
-            exit 2
-            ;;
-    esac
+  case "$arg" in
+    --yes) YES=1 ;;
+    --dry-run) REAL_DRY_RUN=1 ;;
+    --delete-homes) DELETE_HOMES=1 ;;
+    --parent-password-stdin) PARENT_PW_STDIN=1 ;;
+    --no-snapshot) NO_SNAPSHOT=1 ;;
+    --keep-parent-group) KEEP_PARENT_GROUP=1 ;;
+    *)
+      echo "omarchy-kids-remove: unknown argument '$arg'" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
 done
 
 # --- small helpers -----------------------------------------------------
@@ -96,24 +103,24 @@ report() { printf '%-12s %s\n' "$1" "$2"; }
 # plan_one DESC CHECK_FN FIX_FN [ARGS...] -- assert_one's check/fix shape,
 # inverted for removal; never stops the rest on FAILED (docs/remove.md).
 plan_one() {
-    local desc="$1" check="$2" fix="$3"
-    shift 3
-    if ! "$check" "$@"; then
-        report skipped "$desc"
-        return 0
-    fi
-    if [[ "$DRY_RUN" -eq 1 ]]; then
-        report would-remove "$desc"
-        return 0
-    fi
-    if "$fix" "$@"; then
-        report removed "$desc"
-    else
-        report FAILED "$desc"
-        ANY_FAIL=1
-        FAILED_STEPS+=("$desc")
-    fi
+  local desc="$1" check="$2" fix="$3"
+  shift 3
+  if ! "$check" "$@"; then
+    report skipped "$desc"
     return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    report would-remove "$desc"
+    return 0
+  fi
+  if "$fix" "$@"; then
+    report removed "$desc"
+  else
+    report FAILED "$desc"
+    ANY_FAIL=1
+    FAILED_STEPS+=("$desc")
+  fi
+  return 0
 }
 
 file_present() { [[ -e "$1" ]]; }
@@ -123,56 +130,61 @@ file_remove() { rm -f "$1"; }
 # script not a library -- docs/assert.md's Judgment calls) --------------
 
 luks_slots_parent_line() {
-    local file="$1" line
-    [[ -r "$file" ]] || return 0
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        case "$line" in
-            ''|'#'*) continue ;;
-            0=*) printf '%s\n' "$line"; return 0 ;;
-        esac
-    done < "$file"
+  local file="$1" line
+  [[ -r "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      '' | '#'*) continue ;;
+      0=*)
+        printf '%s\n' "$line"
+        return 0
+        ;;
+    esac
+  done <"$file"
 }
 
 luks_slots_kid_entries() {
-    local file="$1" line key
-    [[ -r "$file" ]] || return 0
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        case "$line" in ''|'#'*) continue ;; esac
-        key="${line%%=*}"
-        [[ "$key" == "0" ]] && continue
-        printf '%s\n' "$line"
-    done < "$file"
+  local file="$1" line key
+  [[ -r "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in '' | '#'*) continue ;; esac
+    key="${line%%=*}"
+    [[ "$key" == "0" ]] && continue
+    printf '%s\n' "$line"
+  done <"$file"
 }
 
 luks_slot_for_account() {
-    local file="$1" account="$2" line key val acct
-    [[ -r "$file" ]] || return 0
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        case "$line" in ''|'#'*) continue ;; esac
-        key="${line%%=*}"; val="${line#*=}"
-        acct="${val%%:*}"
-        if [[ "$acct" == "$account" ]]; then
-            printf '%s\n' "$key"
-            return 0
-        fi
-    done < "$file"
+  local file="$1" account="$2" line key val acct
+  [[ -r "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in '' | '#'*) continue ;; esac
+    key="${line%%=*}"
+    val="${line#*=}"
+    acct="${val%%:*}"
+    if [[ "$acct" == "$account" ]]; then
+      printf '%s\n' "$key"
+      return 0
+    fi
+  done <"$file"
 }
 
 # --- per-kid steps -------------------------------------------------------
 
 mount_present() {
-    local home; home="$(home_dir_for "$1")"
-    findmnt -no OPTIONS "$home" >/dev/null 2>&1
+  local home
+  home="$(home_dir_for "$1")"
+  findmnt -no OPTIONS "$home" >/dev/null 2>&1
 }
 mount_remove() {
-    local account="$1" home unit
-    home="$(home_dir_for "$account")"
-    # Transient mount unit if any (best-effort) -- docs/remove.md.
-    if command -v systemd-escape >/dev/null 2>&1; then
-        unit="$(systemd-escape --path --suffix=mount "$home" 2>/dev/null || true)"
-        [[ -n "$unit" ]] && systemctl stop "$unit" >/dev/null 2>&1
-    fi
-    umount "$home"
+  local account="$1" home unit
+  home="$(home_dir_for "$account")"
+  # Transient mount unit if any (best-effort) -- docs/remove.md.
+  if command -v systemd-escape >/dev/null 2>&1; then
+    unit="$(systemd-escape --path --suffix=mount "$home" 2>/dev/null || true)"
+    [[ -n "$unit" ]] && systemctl stop "$unit" >/dev/null 2>&1
+  fi
+  umount "$home"
 }
 
 fstab_present() { grep -qxF "$(posture_fstab_line "$1")" "$(posture_fstab)" 2>/dev/null; }
@@ -180,32 +192,34 @@ fstab_remove() { posture_remove_fstab_line "$1"; }
 
 luks_present() { [[ -n "$(luks_slot_for_account "$SLOTS_FILE" "$1" || true)" ]]; }
 luks_remove() {
-    local account="$1" slot device
-    slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
-    if device="$(detect_luks_device)"; then
-        if [[ -n "$PARENT_PASSWORD" ]]; then
-            cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$PARENT_PASSWORD") "$device" "$slot" || return 1
-        else
-            cryptsetup luksKillSlot --batch-mode "$device" "$slot" || return 1
-        fi
+  local account="$1" slot device
+  slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+  if device="$(detect_luks_device)"; then
+    if [[ -n "$PARENT_PASSWORD" ]]; then
+      cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$PARENT_PASSWORD") "$device" "$slot" || return 1
     else
-        echo "warning: no LUKS device found; slot $slot for $account was not killed on disk (luks-slots is rewritten anyway)" >&2
+      cryptsetup luksKillSlot --batch-mode "$device" "$slot" || return 1
     fi
-    local parent_line entries=() line acct
-    parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        acct="${line#*=}"; acct="${acct%%:*}"
-        [[ "$acct" == "$account" ]] && continue
-        entries+=("$line")
-    done < <(luks_slots_kid_entries "$SLOTS_FILE")
-    posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}"
+  else
+    echo "warning: no LUKS device found; slot $slot for $account was not killed on disk (luks-slots is rewritten anyway)" >&2
+  fi
+  local parent_line entries=() line acct
+  parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    acct="${line#*=}"
+    acct="${acct%%:*}"
+    [[ "$acct" == "$account" ]] && continue
+    entries+=("$line")
+  done < <(luks_slots_kid_entries "$SLOTS_FILE")
+  posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}"
 }
 
 namespace_present() {
-    local file; file="$(posture_namespace_conf)"
-    [[ -f "$file" ]] || return 1
-    grep -qxF "$(posture_namespace_line_tmp "$1")" "$file" || grep -qxF "$(posture_namespace_line_shm "$1")" "$file"
+  local file
+  file="$(posture_namespace_conf)"
+  [[ -f "$file" ]] || return 1
+  grep -qxF "$(posture_namespace_line_tmp "$1")" "$file" || grep -qxF "$(posture_namespace_line_shm "$1")" "$file"
 }
 namespace_remove() { posture_remove_namespace_lines "$1"; }
 
@@ -219,11 +233,11 @@ face_remove() { posture_remove_face_icon "$1"; }
 
 account_present() { id "$1" >/dev/null 2>&1; }
 account_remove() {
-    if [[ "$DELETE_HOMES" -eq 1 ]]; then
-        userdel -r "$1"
-    else
-        userdel "$1"
-    fi
+  if [[ "$DELETE_HOMES" -eq 1 ]]; then
+    userdel -r "$1"
+  else
+    userdel "$1"
+  fi
 }
 
 profile_present() { [[ -e "$KIDS_DIR/$1.conf" ]]; }
@@ -233,30 +247,30 @@ profile_remove() { rm -f "$KIDS_DIR/$1.conf"; }
 # Mode/<name>/", 0700, chowned parent:parent -- group too (issue #45 item 2, docs/remove.md).
 home_present() { [[ -e "$(home_dir_for "$1")" ]]; }
 home_remove() {
-    local account="$1" display_name="$2" home parent_home dest parent
-    home="$(home_dir_for "$account")"
-    parent_home="$(parent_home_dir "$ETC/machine.conf")" || return 1
-    parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
-    dest="$parent_home/Kids Mode/$display_name"
-    install -d -m 0700 "$parent_home/Kids Mode" || return 1
-    mv "$home" "$dest" || return 1
-    [[ -n "$parent" ]] && chown -R "$parent:$parent" "$dest" >/dev/null 2>&1
-    return 0
+  local account="$1" display_name="$2" home parent_home dest parent
+  home="$(home_dir_for "$account")"
+  parent_home="$(parent_home_dir "$ETC/machine.conf")" || return 1
+  parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+  dest="$parent_home/Kids Mode/$display_name"
+  install -d -m 0700 "$parent_home/Kids Mode" || return 1
+  mv "$home" "$dest" || return 1
+  [[ -n "$parent" ]] && chown -R "$parent:$parent" "$dest" >/dev/null 2>&1
+  return 0
 }
 
 remove_kid() {
-    local account="$1" display_name
-    display_name="$(conf_get "$KIDS_DIR/$account.conf" name 2>/dev/null || true)"
-    [[ -n "$display_name" ]] || display_name="$account"
-    plan_one "mount:$account" mount_present mount_remove "$account"
-    plan_one "fstab:$account" fstab_present fstab_remove "$account"
-    plan_one "luks:$account" luks_present luks_remove "$account"
-    plan_one "namespace:$account" namespace_present namespace_remove "$account"
-    plan_one "accountsservice:$account" accountsservice_present accountsservice_remove "$account"
-    plan_one "face:$account" face_present face_remove "$account"
-    plan_one "account:$account" account_present account_remove "$account"
-    plan_one "profile:$account" profile_present profile_remove "$account"
-    plan_one "home:$account" home_present home_remove "$account" "$display_name"
+  local account="$1" display_name
+  display_name="$(conf_get "$KIDS_DIR/$account.conf" name 2>/dev/null || true)"
+  [[ -n "$display_name" ]] || display_name="$account"
+  plan_one "mount:$account" mount_present mount_remove "$account"
+  plan_one "fstab:$account" fstab_present fstab_remove "$account"
+  plan_one "luks:$account" luks_present luks_remove "$account"
+  plan_one "namespace:$account" namespace_present namespace_remove "$account"
+  plan_one "accountsservice:$account" accountsservice_present accountsservice_remove "$account"
+  plan_one "face:$account" face_present face_remove "$account"
+  plan_one "account:$account" account_present account_remove "$account"
+  plan_one "profile:$account" profile_present profile_remove "$account"
+  plan_one "home:$account" home_present home_remove "$account" "$display_name"
 }
 
 # --- machine-level steps -------------------------------------------------
@@ -269,13 +283,14 @@ polkit_deny_remove() { rm -f "$(posture_polkit_dir)/41-omarchy-kids-deny.rules";
 
 getty_unit_path() { printf '%s/etc/systemd/system/getty@tty%s.service' "$(posture_root)" "$1"; }
 getty_present() {
-    local link; link="$(getty_unit_path "$1")"
-    [[ -L "$link" ]] && [[ "$(readlink "$link")" == "/dev/null" ]]
+  local link
+  link="$(getty_unit_path "$1")"
+  [[ -L "$link" ]] && [[ "$(readlink "$link")" == "/dev/null" ]]
 }
 getty_remove() {
-    local root_args=()
-    [[ -n "$(posture_root)" ]] && root_args=(--root="$(posture_root)")
-    systemctl "${root_args[@]}" unmask "getty@tty$1.service"
+  local root_args=()
+  [[ -n "$(posture_root)" ]] && root_args=(--root="$(posture_root)")
+  systemctl "${root_args[@]}" unmask "getty@tty$1.service"
 }
 
 sddm_theme_present() { [[ -f "$(posture_sddm_conf_dir)/zz-omarchy-kids-theme.conf" ]]; }
@@ -285,29 +300,30 @@ sddm_theme_remove() { posture_remove_sddm_theme_dropin; }
 # under $KIDS_DIR now (docs/remove.md). No EXCLUDE needed here: the account it would
 # have excluded is already gone from $KIDS_DIR by the time this runs.
 portal_conf_expected() {
-    local parent entries=() line
-    parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
-    [[ -n "$parent" ]] || return 1
-    while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries "$KIDS_DIR")
-    posture_portal_conf_text "$parent" "${entries[@]+"${entries[@]}"}"
+  local parent entries=() line
+  parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+  [[ -n "$parent" ]] || return 1
+  while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries "$KIDS_DIR")
+  posture_portal_conf_text "$parent" "${entries[@]+"${entries[@]}"}"
 }
 portal_conf_present() {
-    local expected file
-    expected="$(portal_conf_expected)" || return 1
-    file="$(posture_sddm_theme_dir)/theme.conf.user"
-    [[ -f "$file" ]] && [[ "$(cat "$file")" != "$expected" ]]
+  local expected file
+  expected="$(portal_conf_expected)" || return 1
+  file="$(posture_sddm_theme_dir)/theme.conf.user"
+  [[ -f "$file" ]] && [[ "$(cat "$file")" != "$expected" ]]
 }
 portal_conf_remove() {
-    local parent entries=() line
-    parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
-    [[ -n "$parent" ]] || return 1
-    while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries "$KIDS_DIR")
-    posture_write_portal_conf "$parent" "${entries[@]+"${entries[@]}"}"
+  local parent entries=() line
+  parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+  [[ -n "$parent" ]] || return 1
+  while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries "$KIDS_DIR")
+  posture_write_portal_conf "$parent" "${entries[@]+"${entries[@]}"}"
 }
 
 parent_unlock_present() {
-    local file; file="$(posture_pam_dir)/$1"
-    [[ -f "$file" ]] && grep -qxF "$(posture_parent_unlock_marker)" "$file"
+  local file
+  file="$(posture_pam_dir)/$1"
+  [[ -f "$file" ]] && grep -qxF "$(posture_parent_unlock_marker)" "$file"
 }
 parent_unlock_remove() { posture_remove_parent_unlock_line "$1"; }
 
@@ -323,26 +339,34 @@ chromium_dir() { printf '%s/etc/chromium/policies/managed' "$(posture_root)"; }
 LIMINE_SNAPSHOTS_MARKER='# omarchy-kids: was MAX_SNAPSHOT_ENTRIES='
 limine_default() { printf '%s/etc/default/limine' "$(posture_root)"; }
 limine_snapshots_present() {
-    local f; f="$(limine_default)"
-    [[ -f "$f" ]] || return 1
-    grep -qF "$LIMINE_SNAPSHOTS_MARKER" "$f" || grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$f"
+  local f
+  f="$(limine_default)"
+  [[ -f "$f" ]] || return 1
+  grep -qF "$LIMINE_SNAPSHOTS_MARKER" "$f" || grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$f"
 }
 limine_snapshots_remove() {
-    local f old tmp; f="$(limine_default)"
-    old="$(grep -F "$LIMINE_SNAPSHOTS_MARKER" "$f" 2>/dev/null | tail -n1 || true)"
-    old="${old#"$LIMINE_SNAPSHOTS_MARKER"}"
-    tmp="$(mktemp)" || return 1
-    {
-        grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${LIMINE_SNAPSHOTS_MARKER}" "$f" || true
-        [[ -n "$old" ]] && printf 'MAX_SNAPSHOT_ENTRIES=%s\n' "$old"
-        true
-    } > "$tmp" || { rm -f "$tmp"; return 1; }
-    cat "$tmp" > "$f" || { rm -f "$tmp"; return 1; }
+  local f old tmp
+  f="$(limine_default)"
+  old="$(grep -F "$LIMINE_SNAPSHOTS_MARKER" "$f" 2>/dev/null | tail -n1 || true)"
+  old="${old#"$LIMINE_SNAPSHOTS_MARKER"}"
+  tmp="$(mktemp)" || return 1
+  {
+    grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${LIMINE_SNAPSHOTS_MARKER}" "$f" || true
+    [[ -n "$old" ]] && printf 'MAX_SNAPSHOT_ENTRIES=%s\n' "$old"
+    true
+  } >"$tmp" || {
     rm -f "$tmp"
-    if [[ -z "$(posture_root)" ]] && command -v limine-snapper-sync >/dev/null 2>&1; then
-        limine-snapper-sync
-    fi
-    return 0
+    return 1
+  }
+  cat "$tmp" >"$f" || {
+    rm -f "$tmp"
+    return 1
+  }
+  rm -f "$tmp"
+  if [[ -z "$(posture_root)" ]] && command -v limine-snapper-sync >/dev/null 2>&1; then
+    limine-snapper-sync
+  fi
+  return 0
 }
 
 # editor_enabled is left as-is on purpose (the parent chose it); only our
@@ -351,8 +375,8 @@ limine_snapshots_remove() {
 mkinitcpio_dropin() { printf '%s/etc/mkinitcpio.conf.d/omarchy_kids.conf' "$(posture_root)"; }
 mkinitcpio_dropin_present() { [[ -f "$(mkinitcpio_dropin)" ]]; }
 mkinitcpio_dropin_remove() {
-    rm -f "$(mkinitcpio_dropin)" || return 1
-    mkinitcpio -P
+  rm -f "$(mkinitcpio_dropin)" || return 1
+  mkinitcpio -P
 }
 
 autologin_dropin() { printf '%s/zz-omarchy-kids-autologin.conf' "$(posture_sddm_conf_dir)"; }
@@ -370,21 +394,21 @@ autologin_remove() { rm -f "$(autologin_dropin)"; }
 KIDS_EXTRA_UNITS=(omarchy-kids-authd.service omarchy-kids-wifid.service omarchy-kids-time-ledger.service omarchy-kids-ask-collect.service)
 unit_link() { printf '%s/etc/systemd/system/%s.wants/%s' "$(posture_root)" "$1" "$2"; }
 units_present() {
-    local u
-    for u in "${KIDS_UNITS[@]}"; do [[ -L "$(unit_link multi-user.target "$u")" ]] && return 0; done
-    for u in "${KIDS_SOCKETS[@]}"; do [[ -L "$(unit_link sockets.target "$u")" ]] && return 0; done
-    for u in "${KIDS_TIMERS[@]}"; do [[ -L "$(unit_link timers.target "$u")" ]] && return 0; done
-    return 1
+  local u
+  for u in "${KIDS_UNITS[@]}"; do [[ -L "$(unit_link multi-user.target "$u")" ]] && return 0; done
+  for u in "${KIDS_SOCKETS[@]}"; do [[ -L "$(unit_link sockets.target "$u")" ]] && return 0; done
+  for u in "${KIDS_TIMERS[@]}"; do [[ -L "$(unit_link timers.target "$u")" ]] && return 0; done
+  return 1
 }
 units_remove() {
-    local root_args=() now_args=()
-    if [[ -n "$(posture_root)" ]]; then
-        root_args=(--root="$(posture_root)")
-    else
-        now_args=(--now)
-    fi
-    systemctl "${root_args[@]}" disable "${now_args[@]+"${now_args[@]}"}" \
-        "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" "${KIDS_EXTRA_UNITS[@]}"
+  local root_args=() now_args=()
+  if [[ -n "$(posture_root)" ]]; then
+    root_args=(--root="$(posture_root)")
+  else
+    now_args=(--now)
+  fi
+  systemctl "${root_args[@]}" disable "${now_args[@]+"${now_args[@]}"}" \
+    "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" "${KIDS_EXTRA_UNITS[@]}"
 }
 
 # parent-group (issue #45 item 3): the parent stays a member of
@@ -399,50 +423,53 @@ units_remove() {
 current_groups() { id -nG "$1" 2>/dev/null || true; }
 has_group() { [[ " $1 " == *" $2 "* ]]; }
 parent_group_present() {
-    (( KEEP_PARENT_GROUP )) && return 1
-    local parent; parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
-    [[ -n "$parent" ]] || return 1
-    has_group "$(current_groups "$parent")" omarchy-parents
+  ((KEEP_PARENT_GROUP)) && return 1
+  local parent
+  parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+  [[ -n "$parent" ]] || return 1
+  has_group "$(current_groups "$parent")" omarchy-parents
 }
 parent_group_remove() {
-    local parent; parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
-    [[ -n "$parent" ]] || return 1
-    gpasswd -d "$parent" omarchy-parents >/dev/null 2>&1
+  local parent
+  parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+  [[ -n "$parent" ]] || return 1
+  gpasswd -d "$parent" omarchy-parents >/dev/null 2>&1
 }
 
 varlib_dir() { printf '%s/var/lib/omarchy-kids' "$(posture_root)"; }
 purge_present() { [[ -d "$ETC" ]] || [[ -d "$(varlib_dir)" ]]; }
 purge_remove() {
-    local base varlib stamp tar_dir tarball paths=()
-    base="$(posture_root)"; [[ -n "$base" ]] || base="/"
-    varlib="$(varlib_dir)"
-    stamp="$(date +%Y%m%d-%H%M%S)"
-    tar_dir="$base/root"
-    install -d -m 0700 "$tar_dir" || return 1
-    tarball="$tar_dir/omarchy-kids-removed-$stamp.tar.gz"
-    [[ -d "$ETC" ]] && paths+=("$ETC")
-    [[ -d "$varlib" ]] && paths+=("$varlib")
-    if [[ ${#paths[@]} -gt 0 ]]; then
-        tar czf "$tarball" "${paths[@]}" || return 1
-    fi
-    rm -rf "$ETC"
-    rm -rf "$varlib"
+  local base varlib stamp tar_dir tarball paths=()
+  base="$(posture_root)"
+  [[ -n "$base" ]] || base="/"
+  varlib="$(varlib_dir)"
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  tar_dir="$base/root"
+  install -d -m 0700 "$tar_dir" || return 1
+  tarball="$tar_dir/omarchy-kids-removed-$stamp.tar.gz"
+  [[ -d "$ETC" ]] && paths+=("$ETC")
+  [[ -d "$varlib" ]] && paths+=("$varlib")
+  if [[ ${#paths[@]} -gt 0 ]]; then
+    tar czf "$tarball" "${paths[@]}" || return 1
+  fi
+  rm -rf "$ETC"
+  rm -rf "$varlib"
 }
 
 print_uninstall_hint() {
-    echo
-    echo "Kids Mode itself is not removed yet. When ready:"
-    echo "  sudo pacman -R omarchy-kids"
+  echo
+  echo "Kids Mode itself is not removed yet. When ready:"
+  echo "  sudo pacman -R omarchy-kids"
 }
 
 confirm_or_abort() {
-    local reply=""
-    printf 'Type "yes" to continue, anything else cancels: '
-    IFS= read -r reply || true
-    if [[ "$reply" != "yes" ]]; then
-        echo "omarchy-kids-remove: cancelled, nothing changed" >&2
-        exit 1
-    fi
+  local reply=""
+  printf 'Type "yes" to continue, anything else cancels: '
+  IFS= read -r reply || true
+  if [[ "$reply" != "yes" ]]; then
+    echo "omarchy-kids-remove: cancelled, nothing changed" >&2
+    exit 1
+  fi
 }
 
 snapshot_present() { [[ "$NO_SNAPSHOT" -eq 0 ]] && command -v snapper >/dev/null 2>&1; }
@@ -451,96 +478,98 @@ snapshot_present() { [[ "$NO_SNAPSHOT" -eq 0 ]] && command -v snapper >/dev/null
 # (`snapper -c root undochange <number>..0`, or the Snapper GUI); everything
 # else about the call is unchanged.
 snapshot_take() {
-    local num
-    num="$(snapper -c root create --print-number -d "before Remove Kids Mode")" || return 1
-    [[ -n "$num" ]] && echo "Snapper snapshot: #$num"
-    return 0
+  local num
+  num="$(snapper -c root create --print-number -d "before Remove Kids Mode")" || return 1
+  [[ -n "$num" ]] && echo "Snapper snapshot: #$num"
+  return 0
 }
 
 # --- one full pass, at whichever $DRY_RUN is currently set to -----------
 
 run_body() {
-    local kids=() k
-    while IFS= read -r k; do
-        [[ -n "$k" ]] && kids+=("$k")
-    done < <(kids_list "$KIDS_DIR")
+  local kids=() k
+  while IFS= read -r k; do
+    [[ -n "$k" ]] && kids+=("$k")
+  done < <(kids_list "$KIDS_DIR")
 
-    plan_one "snapshot" snapshot_present snapshot_take
+  plan_one "snapshot" snapshot_present snapshot_take
 
-    local account
-    for account in "${kids[@]+"${kids[@]}"}"; do
-        remove_kid "$account"
+  local account
+  for account in "${kids[@]+"${kids[@]}"}"; do
+    remove_kid "$account"
+  done
+
+  plan_one "polkit-admin" polkit_admin_present polkit_admin_remove
+  plan_one "polkit-deny" polkit_deny_present polkit_deny_remove
+
+  local n
+  for n in 2 3 4 5 6; do
+    plan_one "getty:tty$n" getty_present getty_remove "$n"
+  done
+
+  plan_one "sddm-theme" sddm_theme_present sddm_theme_remove
+  plan_one "portal-conf" portal_conf_present portal_conf_remove
+
+  local lock_stack
+  lock_stack="$(posture_parent_unlock_lock_stack)"
+  plan_one "parent-unlock:sddm" parent_unlock_present parent_unlock_remove sddm
+  plan_one "parent-unlock:$lock_stack" parent_unlock_present parent_unlock_remove "$lock_stack"
+
+  local dir f band_token
+  dir="$(chromium_dir)"
+  if [[ -d "$dir" ]]; then
+    for f in "$dir"/omarchy-kids-*.json; do
+      [[ -e "$f" ]] || continue
+      band_token="$(basename "$f")"
+      band_token="${band_token#omarchy-kids-}"
+      band_token="${band_token%.json}"
+      plan_one "chromium-policy:$band_token" file_present file_remove "$f"
     done
+  fi
 
-    plan_one "polkit-admin" polkit_admin_present polkit_admin_remove
-    plan_one "polkit-deny" polkit_deny_present polkit_deny_remove
-
-    local n
-    for n in 2 3 4 5 6; do
-        plan_one "getty:tty$n" getty_present getty_remove "$n"
-    done
-
-    plan_one "sddm-theme" sddm_theme_present sddm_theme_remove
-    plan_one "portal-conf" portal_conf_present portal_conf_remove
-
-    local lock_stack
-    lock_stack="$(posture_parent_unlock_lock_stack)"
-    plan_one "parent-unlock:sddm" parent_unlock_present parent_unlock_remove sddm
-    plan_one "parent-unlock:$lock_stack" parent_unlock_present parent_unlock_remove "$lock_stack"
-
-    local dir f band_token
-    dir="$(chromium_dir)"
-    if [[ -d "$dir" ]]; then
-        for f in "$dir"/omarchy-kids-*.json; do
-            [[ -e "$f" ]] || continue
-            band_token="$(basename "$f")"; band_token="${band_token#omarchy-kids-}"; band_token="${band_token%.json}"
-            plan_one "chromium-policy:$band_token" file_present file_remove "$f"
-        done
-    fi
-
-    plan_one "limine-snapshots" limine_snapshots_present limine_snapshots_remove
-    plan_one "mkinitcpio-hook" mkinitcpio_dropin_present mkinitcpio_dropin_remove
-    plan_one "sddm-autologin" autologin_present autologin_remove
-    plan_one "units" units_present units_remove
-    plan_one "parent-group" parent_group_present parent_group_remove
-    plan_one "etc-and-varlib" purge_present purge_remove
+  plan_one "limine-snapshots" limine_snapshots_present limine_snapshots_remove
+  plan_one "mkinitcpio-hook" mkinitcpio_dropin_present mkinitcpio_dropin_remove
+  plan_one "sddm-autologin" autologin_present autologin_remove
+  plan_one "units" units_present units_remove
+  plan_one "parent-group" parent_group_present parent_group_remove
+  plan_one "etc-and-varlib" purge_present purge_remove
 }
 
 # --- main --------------------------------------------------------------
 
 main() {
-    if (( PARENT_PW_STDIN )) && (( ! REAL_DRY_RUN )); then
-        IFS= read -r PARENT_PASSWORD || die "--parent-password-stdin needs a line on stdin"
-    fi
+  if ((PARENT_PW_STDIN)) && ((!REAL_DRY_RUN)); then
+    IFS= read -r PARENT_PASSWORD || die "--parent-password-stdin needs a line on stdin"
+  fi
 
-    echo "Plan:"
-    DRY_RUN=1
-    run_body
+  echo "Plan:"
+  DRY_RUN=1
+  run_body
 
-    if (( REAL_DRY_RUN )); then
-        print_uninstall_hint
-        exit 0
-    fi
-
-    (( YES )) || confirm_or_abort
-
-    echo
-    echo "Removing:"
-    DRY_RUN=0
-    ANY_FAIL=0
-    FAILED_STEPS=()
-    run_body
-
-    echo
-    if (( ANY_FAIL )); then
-        echo "Summary: ${#FAILED_STEPS[@]} step(s) FAILED: ${FAILED_STEPS[*]}"
-    else
-        echo "Summary: every step removed or skipped, nothing failed."
-    fi
-
+  if ((REAL_DRY_RUN)); then
     print_uninstall_hint
-    (( ANY_FAIL == 0 )) || exit 1
     exit 0
+  fi
+
+  ((YES)) || confirm_or_abort
+
+  echo
+  echo "Removing:"
+  DRY_RUN=0
+  ANY_FAIL=0
+  FAILED_STEPS=()
+  run_body
+
+  echo
+  if ((ANY_FAIL)); then
+    echo "Summary: ${#FAILED_STEPS[@]} step(s) FAILED: ${FAILED_STEPS[*]}"
+  else
+    echo "Summary: every step removed or skipped, nothing failed."
+  fi
+
+  print_uninstall_hint
+  ((ANY_FAIL == 0)) || exit 1
+  exit 0
 }
 
 main

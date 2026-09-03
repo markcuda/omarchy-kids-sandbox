@@ -30,7 +30,10 @@ fi
 
 fail=0
 pass() { echo "ok   $*"; }
-fail_() { echo "FAIL $*"; fail=1; }
+fail_() {
+  echo "FAIL $*"
+  fail=1
+}
 check() { # got want label
   if [[ "$1" == "$2" ]]; then pass "$3"; else fail_ "$3 (want '$2', got '$1')"; fi
 }
@@ -50,8 +53,8 @@ trap cleanup EXIT
 
 ETC="$TMP/etc"
 SHARE="$TMP/share"
-ROOT="$TMP/root"       # OMARCHY_KIDS_ROOT
-HOME_DIR="$TMP/home"   # OMARCHY_KIDS_HOME
+ROOT="$TMP/root"     # OMARCHY_KIDS_ROOT
+HOME_DIR="$TMP/home" # OMARCHY_KIDS_HOME
 APPDIR="$TMP/applications"
 STUBS="$TMP/stubs"
 LOG="$TMP/log"
@@ -117,7 +120,7 @@ export OMARCHY_KIDS_APPLICATIONS_DIRS="$APPDIR"
 QUEUE_FILE="$ROOT/var/lib/omarchy-kids/apps-queue"
 
 argv_since() { # LINE_COUNT -> everything appended to argv.log since LINE_COUNT
-  tail -n "+$(( $1 + 1 ))" "$ARGV_LOG"
+  tail -n "+$(($1 + 1))" "$ARGV_LOG"
 }
 argv_lines() { wc -l <"$ARGV_LOG" | tr -d ' '; }
 
@@ -193,7 +196,7 @@ check_contains "$queued_mixed" "ktuberling" "install --apply (mixed): every othe
 after_argv="$(argv_since "$before")"
 check_contains "$after_argv" "systemctl start --no-block omarchy-kids-apps-install.service" \
   "install --apply (mixed): still starts the unit for the resolvable rest"
-rm -f "$QUEUE_FILE"  # not `: >`, the very next test asserts the file doesn't exist yet
+rm -f "$QUEUE_FILE" # not `: >`, the very next test asserts the file doesn't exist yet
 : >"$LOG/unavailable"
 
 # --- install: default only previews; never queues or starts the unit ------
@@ -204,8 +207,8 @@ before="$(argv_lines)"
 out="$("$APPS" install 6-8)"
 check_contains "$out" "dry-run" "install (default): reports dry-run"
 check_status "$?" 0 "install (default) exits 0"
-[[ -f "$QUEUE_FILE" ]] && fail_ "install (default, no --apply): must not create the queue file" \
-  || pass "install (default, no --apply): queue file not created"
+[[ -f "$QUEUE_FILE" ]] && fail_ "install (default, no --apply): must not create the queue file" ||
+  pass "install (default, no --apply): queue file not created"
 after_argv="$(argv_since "$before")"
 check_not_contains "$after_argv" "pacman -S " "install (default, no --apply): never calls pacman -S"
 check_not_contains "$after_argv" "systemctl" "install (default, no --apply): never starts the unit"
@@ -218,7 +221,7 @@ check_contains "$err" "tuxpaint" "install 6-8: names the AUR-only tuxpaint on st
 before="$(argv_lines)"
 "$APPS" install 6-8 --apply >/dev/null
 [[ -f "$QUEUE_FILE" ]] && pass "install --apply: queue file created" || fail_ "install --apply: queue file missing"
-queued="$(sort "$QUEUE_FILE" 2>/dev/null | tr '\n' ',' )"
+queued="$(sort "$QUEUE_FILE" 2>/dev/null | tr '\n' ',')"
 # gcompris-qt was already "installed" above; tuxpaint is aur:-marked (issue
 # #52 audit) so it's skipped, not queued; ktuberling/blinken/supertux/
 # supertuxkart/klettres/kanagram were not installed.
@@ -242,8 +245,8 @@ before="$(argv_lines)"
 "$APPS" install 6-8 --now --apply >/dev/null
 after_argv="$(argv_since "$before")"
 check_contains "$after_argv" "pacman -S --needed --noconfirm" "install --now --apply: calls pacman -S directly"
-[[ -s "$QUEUE_FILE" ]] && fail_ "install --now: must not also queue anything" \
-  || pass "install --now: queue file left empty"
+[[ -s "$QUEUE_FILE" ]] && fail_ "install --now: must not also queue anything" ||
+  pass "install --now: queue file left empty"
 
 for pkg in tuxpaint ktuberling blinken supertux supertuxkart klettres kanagram; do
   echo "$pkg" >>"$LOG/installed"
@@ -265,7 +268,7 @@ check_not_contains "$queued_912" "turbowarp" "install 9-12: an AUR package's pkg
 
 # --- install-queued: worker installs what's still missing, empties the queue
 
-printf 'kstars\nsonic-pi\ngcompris-qt\n' >"$QUEUE_FILE"  # gcompris-qt already "installed"
+printf 'kstars\nsonic-pi\ngcompris-qt\n' >"$QUEUE_FILE" # gcompris-qt already "installed"
 before="$(argv_lines)"
 "$APPS" install-queued >/dev/null
 after_argv="$(argv_since "$before")"
@@ -296,7 +299,7 @@ check "$(cat "$QUEUE_FILE" 2>/dev/null || true)" "" \
 
 # --- hide-from-mine / show-in-mine ------------------------------------------
 
-"$CONF" set kid-ada apps.hidden "" >/dev/null  # full pack allowlist again
+"$CONF" set kid-ada apps.hidden "" >/dev/null # full pack allowlist again
 cat >"$APPDIR/org.gcompris.GCompris.desktop" <<'EOF'
 [Desktop Entry]
 Type=Application
@@ -323,14 +326,14 @@ APPS_DIR_OUT="$HOME_DIR/.local/share/applications"
 
 out="$("$APPS" hide-from-mine)"
 check_contains "$out" "dry-run" "hide-from-mine (default): reports dry-run"
-[[ -f "$APPS_DIR_OUT/org.gcompris.GCompris.desktop" ]] && fail_ "hide-from-mine (no --apply): must not write yet" \
-  || pass "hide-from-mine (no --apply): nothing written yet"
+[[ -f "$APPS_DIR_OUT/org.gcompris.GCompris.desktop" ]] && fail_ "hide-from-mine (no --apply): must not write yet" ||
+  pass "hide-from-mine (no --apply): nothing written yet"
 
 "$APPS" hide-from-mine --apply >/dev/null
-[[ -f "$APPS_DIR_OUT/org.gcompris.GCompris.desktop" ]] && pass "hide-from-mine --apply: wrote the GCompris override" \
-  || fail_ "hide-from-mine --apply: GCompris override missing"
-[[ -f "$APPS_DIR_OUT/tuxpaint.desktop" ]] && pass "hide-from-mine --apply: wrote the Tux Paint override" \
-  || fail_ "hide-from-mine --apply: Tux Paint override missing"
+[[ -f "$APPS_DIR_OUT/org.gcompris.GCompris.desktop" ]] && pass "hide-from-mine --apply: wrote the GCompris override" ||
+  fail_ "hide-from-mine --apply: GCompris override missing"
+[[ -f "$APPS_DIR_OUT/tuxpaint.desktop" ]] && pass "hide-from-mine --apply: wrote the Tux Paint override" ||
+  fail_ "hide-from-mine --apply: Tux Paint override missing"
 check_contains "$(cat "$APPS_DIR_OUT/org.gcompris.GCompris.desktop")" "NoDisplay=true" \
   "hide-from-mine --apply: override sets NoDisplay=true"
 check_contains "$(cat "$APPS_DIR_OUT/org.gcompris.GCompris.desktop")" "X-OmarchyKidsHideFromMine=true" \
@@ -342,11 +345,11 @@ before_count="$(find "$APPS_DIR_OUT" -maxdepth 1 -name '*.desktop' | wc -l | tr 
 check "$before_count" "3" "hide-from-mine --apply: exactly two overrides written, plus the parent's pre-existing one"
 
 "$APPS" show-in-mine --apply >/dev/null
-[[ -f "$APPS_DIR_OUT/org.gcompris.GCompris.desktop" ]] && fail_ "show-in-mine --apply: GCompris override should be gone" \
-  || pass "show-in-mine --apply: GCompris override removed"
-[[ -f "$APPS_DIR_OUT/tuxpaint.desktop" ]] && fail_ "show-in-mine --apply: Tux Paint override should be gone" \
-  || pass "show-in-mine --apply: Tux Paint override removed"
-[[ -f "$APPS_DIR_OUT/my-own-override.desktop" ]] && pass "show-in-mine --apply: leaves the parent's own unrelated override alone" \
-  || fail_ "show-in-mine --apply: must not remove a file without our marker"
+[[ -f "$APPS_DIR_OUT/org.gcompris.GCompris.desktop" ]] && fail_ "show-in-mine --apply: GCompris override should be gone" ||
+  pass "show-in-mine --apply: GCompris override removed"
+[[ -f "$APPS_DIR_OUT/tuxpaint.desktop" ]] && fail_ "show-in-mine --apply: Tux Paint override should be gone" ||
+  pass "show-in-mine --apply: Tux Paint override removed"
+[[ -f "$APPS_DIR_OUT/my-own-override.desktop" ]] && pass "show-in-mine --apply: leaves the parent's own unrelated override alone" ||
+  fail_ "show-in-mine --apply: must not remove a file without our marker"
 
 exit $fail

@@ -74,7 +74,7 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
 
 - Pick an issue in milestone order. Read its spec ids. Post a one-line plan on the issue before
   a large change.
-- Shell: bash 5, `shellcheck` clean, quoted heredocs for anything root writes, passwords only
+- Shell: bash 5, `shellcheck` clean, `shfmt -i 2 -ci` clean (Omarchy's two-space indent), quoted heredocs for anything root writes, passwords only
   ever on stdin, never argv, never logged.
 - Every command supports `--help` and, where it writes, `DRY_RUN=1` (default) printing the plan.
 - Tests before merge: `test/all`. Tests that need root use `unshare --user --map-root-user` when

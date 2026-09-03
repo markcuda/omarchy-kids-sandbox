@@ -32,17 +32,20 @@ set -uo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 pass() { echo "PASS  $*"; }
-fail() { echo "FAIL  $*"; rc=1; }
+fail() {
+  echo "FAIL  $*"
+  rc=1
+}
 rc=0
 
 check_contains() { # haystack needle label
-    if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2')"; fi
+  if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2')"; fi
 }
 check_not_contains() { # haystack needle label
-    if [[ "$1" != *"$2"* ]]; then pass "$3"; else fail "$3 (did not want to find '$2')"; fi
+  if [[ "$1" != *"$2"* ]]; then pass "$3"; else fail "$3 (did not want to find '$2')"; fi
 }
 check_eq() { # got want label
-    if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
+  if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
 }
 
 TMP="$(mktemp -d)"
@@ -64,7 +67,7 @@ OUR_LINE="auth       [success=done default=ignore]  $PAM_EXEC_LINE"
 # --- sddm: insert BEFORE the first auth line (no leading preauth line) ---
 
 SDDM="$SCRATCH_ROOT/etc/pam.d/sddm"
-cat > "$SDDM" <<'EOF'
+cat >"$SDDM" <<'EOF'
 #%PAM-1.0
 auth        include     system-login
 -auth       optional    pam_kwallet5.so
@@ -93,7 +96,7 @@ check_eq "$(cat "$SDDM")" "$out" "sddm: file content unchanged by the second cal
 # --- omarchy-lock-password: insert AFTER the leading preauth line ---------
 
 LOCKPW="$SCRATCH_ROOT/etc/pam.d/omarchy-lock-password"
-cat > "$LOCKPW" <<'EOF'
+cat >"$LOCKPW" <<'EOF'
 #%PAM-1.0
 auth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120
 -auth      [success=2 default=ignore]  pam_systemd_home.so
@@ -111,7 +114,7 @@ out2="$(cat "$LOCKPW")"
 check_eq "$(grep -cxF "$MARKER" "$LOCKPW")" "1" "omarchy-lock-password: marker inserted exactly once"
 check_eq "$(grep -cxF "$OUR_LINE" "$LOCKPW")" "1" "omarchy-lock-password: parent-unlock line uses the fixed success=done control"
 check_contains "$out2" $'auth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120\n'"$MARKER"$'\n'"$OUR_LINE"$'\n-auth      [success=2 default=ignore]  pam_systemd_home.so' \
-    "omarchy-lock-password: inserted directly after the leading preauth line, before pam_systemd_home"
+  "omarchy-lock-password: inserted directly after the leading preauth line, before pam_systemd_home"
 
 expected_lockpw=$'#%PAM-1.0\nauth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120\n'"$MARKER"$'\n'"$OUR_LINE"$'\n-auth      [success=2 default=ignore]  pam_systemd_home.so\nauth       [success=1 default=bad]     pam_unix.so try_first_pass nullok\nauth       [default=die]               pam_faillock.so authfail deny=10 unlock_time=120\nauth       optional                    pam_permit.so\nauth       required                    pam_env.so\nauth       required                    pam_faillock.so authsucc\naccount    include                     system-local-login'
 check_eq "$out2" "$expected_lockpw" "omarchy-lock-password: exact resulting file content"
@@ -129,10 +132,10 @@ check_eq "$(cat "$LOCKPW")" "$out2" "omarchy-lock-password: file content unchang
 # removed. It's a fixed answer now, not a file-existence probe.
 
 check_eq "$(posture_parent_unlock_lock_stack)" "omarchy-lock-password" \
-    "lock_stack: always omarchy-lock-password"
+  "lock_stack: always omarchy-lock-password"
 rm -f "$LOCKPW"
 check_eq "$(posture_parent_unlock_lock_stack)" "omarchy-lock-password" \
-    "lock_stack: still omarchy-lock-password even if the file doesn't exist yet (nothing to probe)"
+  "lock_stack: still omarchy-lock-password even if the file doesn't exist yet (nothing to probe)"
 
 # --- removal reverses both shapes, leaving everything else untouched -----
 
@@ -142,9 +145,9 @@ check_not_contains "$(cat "$SDDM")" "$MARKER" "sddm: removal drops the marker"
 check_not_contains "$(cat "$SDDM")" "$PAM_EXEC_LINE" "sddm: removal drops the pam_exec line"
 check_contains "$(cat "$SDDM")" "auth        include     system-login" "sddm: removal leaves the real auth chain untouched"
 check_contains "$(cat "$SDDM")" "-session    optional    pam_kwallet5.so         auto_start" \
-    "sddm: removal leaves the rest of the file untouched"
-[[ "$(cat "$SDDM")" != "$before_removal" ]] && pass "sddm: removal actually changed the file" \
-    || fail "sddm: removal was a no-op (should have removed something)"
+  "sddm: removal leaves the rest of the file untouched"
+[[ "$(cat "$SDDM")" != "$before_removal" ]] && pass "sddm: removal actually changed the file" ||
+  fail "sddm: removal was a no-op (should have removed something)"
 
 # removal is idempotent too: a second call on an already-clean file is a no-op.
 after_first_removal="$(cat "$SDDM")"
@@ -154,22 +157,22 @@ check_eq "$(cat "$SDDM")" "$after_first_removal" "sddm: a second removal is a no
 # --- error paths: no auth line at all, missing file ------------------------
 
 NOAUTH="$SCRATCH_ROOT/etc/pam.d/no-auth-line"
-cat > "$NOAUTH" <<'EOF'
+cat >"$NOAUTH" <<'EOF'
 #%PAM-1.0
 account    include    system-login
 session    include    system-login
 EOF
 if posture_ensure_parent_unlock_line no-auth-line 2>/tmp/parent-unlock-test.stderr; then
-    fail "a stack with no non-comment 'auth' line should be refused"
+  fail "a stack with no non-comment 'auth' line should be refused"
 else
-    pass "a stack with no non-comment 'auth' line is refused (exit non-zero)"
+  pass "a stack with no non-comment 'auth' line is refused (exit non-zero)"
 fi
 check_not_contains "$(cat "$NOAUTH")" "$MARKER" "a stack with no 'auth' line is left untouched"
 
 if posture_ensure_parent_unlock_line does-not-exist 2>/dev/null; then
-    fail "a missing PAM stack should be refused"
+  fail "a missing PAM stack should be refused"
 else
-    pass "a missing PAM stack is refused (exit non-zero)"
+  pass "a missing PAM stack is refused (exit non-zero)"
 fi
 
 echo "parent-unlock-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"

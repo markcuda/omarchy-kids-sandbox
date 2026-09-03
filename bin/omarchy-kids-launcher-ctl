@@ -44,7 +44,10 @@ cmd_activate() {
 
 cmd_log() {
   local id="${1:-}"
-  [[ -n "$id" ]] || { echo "omarchy-kids-launcher-ctl: log needs an app id" >&2; exit 2; }
+  [[ -n "$id" ]] || {
+    echo "omarchy-kids-launcher-ctl: log needs an app id" >&2
+    exit 2
+  }
   local now
   # Naive local "YYYY-MM-DDTHH:MM:SS", one token -- docs/data.md.
   now="${OMARCHY_KIDS_NOW:-$(date '+%Y-%m-%d %H:%M:%S')}"
@@ -53,12 +56,21 @@ cmd_log() {
   printf '%s %s\n' "$now" "$id" >>"$LAUNCHES_LOG" 2>/dev/null || true
 }
 
-[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+[[ $# -ge 1 ]] || {
+  usage >&2
+  exit 2
+}
 case "$1" in
-  -h|--help) usage; exit 0 ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
   show) cmd_show ;;
   activate) cmd_activate ;;
-  log) shift; cmd_log "${1:-}" ;;
+  log)
+    shift
+    cmd_log "${1:-}"
+    ;;
   *)
     echo "omarchy-kids-launcher-ctl: unknown command: '$1' (see --help)" >&2
     exit 2

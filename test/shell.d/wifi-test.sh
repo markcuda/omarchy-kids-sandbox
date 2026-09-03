@@ -35,13 +35,22 @@ fi
 
 fail=0
 check() { # got want label
-  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want '$2', got '$1')"
+    fail=1
+  fi
 }
 check_contains() { # haystack needle label
-  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (want to find '$2' in '$1')"; fail=1; fi
+  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want to find '$2' in '$1')"
+    fail=1
+  fi
 }
 check_status() { # got_status want_status label
-  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want exit $2, got $1)"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want exit $2, got $1)"
+    fail=1
+  fi
 }
 
 # =====================================================================
@@ -49,7 +58,7 @@ check_status() { # got_status want_status label
 # =====================================================================
 
 PYTEST="$(mktemp)"
-cat > "$PYTEST" <<'PYEOF'
+cat >"$PYTEST" <<'PYEOF'
 import importlib.util
 import os
 import subprocess
@@ -249,7 +258,7 @@ else
   # to make the daemon see any other account without root, so the
   # fixture profile has to live under this test's own account name.
   WHOAMI="$(id -un)"
-  cat > "$ETC/kids/$WHOAMI.conf" <<EOF
+  cat >"$ETC/kids/$WHOAMI.conf" <<EOF
 name=Test
 avatar=fox
 band=9-12
@@ -260,7 +269,7 @@ EOF
   # replies with fixed, deterministic output for the two read commands.
   FAKE_NMCLI="$TMP/nmcli"
   ARGV_LOG="$TMP/nmcli-argv.log"
-  cat > "$FAKE_NMCLI" <<EOF
+  cat >"$FAKE_NMCLI" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$ARGV_LOG"
 case "\$1 \$2 \$3" in
@@ -275,7 +284,10 @@ EOF
   export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE"
   python3 "$WIFID" --socket "$SOCK" --conf-bin "$CONF_BIN" --nmcli "$FAKE_NMCLI" &
   DAEMON_PID=$!
-  for _ in $(seq 1 50); do [[ -S "$SOCK" ]] && break; sleep 0.1; done
+  for _ in $(seq 1 50); do
+    [[ -S "$SOCK" ]] && break
+    sleep 0.1
+  done
   if [[ ! -S "$SOCK" ]]; then
     echo "FAIL wifi-test.sh section B: daemon never created $SOCK"
     fail=1
@@ -290,11 +302,13 @@ EOF
     WIFI_B="$TMP/tree/bin/omarchy-kids-wifi"
     kids_set_const "$WIFI_B" SOCK "$SOCK"
 
-    out="$("$WIFI_B" list)"; st=$?
+    out="$("$WIFI_B" list)"
+    st=$?
     check_status "$st" 0 "wifi list: exits 0 for wifi=helper"
     check_contains "$out" "SchoolNet" "wifi list: passes through nmcli's terse output"
 
-    out="$(printf 'hunter2\n' | "$WIFI_B" join TestNet --password-stdin)"; st=$?
+    out="$(printf 'hunter2\n' | "$WIFI_B" join TestNet --password-stdin)"
+    st=$?
     check_status "$st" 0 "wifi join: exits 0"
     argv_log="$(cat "$ARGV_LOG")"
     check_contains "$argv_log" "connection add type wifi con-name kids-TestNet autoconnect no" \
@@ -304,13 +318,15 @@ EOF
     check_contains "$argv_log" "connection up kids-TestNet" \
       "wifi join: end-to-end activation happens after the DNS lockdown"
 
-    : > "$ARGV_LOG"
-    out="$("$WIFI_B" forget TestNet)"; st=$?
+    : >"$ARGV_LOG"
+    out="$("$WIFI_B" forget TestNet)"
+    st=$?
     check_status "$st" 0 "wifi forget: exits 0"
     check "$(cat "$ARGV_LOG")" "connection delete -- kids-TestNet" \
       "wifi forget: end-to-end argv only ever deletes kids-<ssid>"
 
-    out="$("$WIFI_B" status)"; st=$?
+    out="$("$WIFI_B" status)"
+    st=$?
     check_status "$st" 0 "wifi status: exits 0"
     check_contains "$out" "kids-SchoolNet" "wifi status: passes through nmcli's terse output"
 
@@ -350,13 +366,13 @@ mkdir -p "$ETC_C/kids" "$SHARE_C/bands" "$SHARE_C/packs"
 cp "$DIR/share/bands/bands.toml" "$SHARE_C/bands/"
 cp "$DIR"/share/packs/*.toml "$SHARE_C/packs/"
 
-cat > "$ETC_C/kids/kid-helper.conf" <<'EOF'
+cat >"$ETC_C/kids/kid-helper.conf" <<'EOF'
 name=Helper
 avatar=fox
 band=9-12
 wifi=helper
 EOF
-cat > "$ETC_C/kids/kid-parent.conf" <<'EOF'
+cat >"$ETC_C/kids/kid-parent.conf" <<'EOF'
 name=Parent-mode
 avatar=owl
 band=6-8
@@ -372,34 +388,42 @@ WIFI_C="$TMP_C/tree/bin/omarchy-kids-wifi"
 kids_set_const "$WIFI_C" SOCK "$TMP_C/no-such.sock"
 
 run_wifi_c() { # ACCOUNT SUBCOMMAND... -> combined output on stdout; exit status is the command's
-  local account="$1"; shift
+  local account="$1"
+  shift
   PATH="$STUBS_C:$PATH" KIDS_TEST_ACCOUNT="$account" \
-  OMARCHY_KIDS_ETC="$ETC_C" OMARCHY_KIDS_SHARE="$SHARE_C" \
+    OMARCHY_KIDS_ETC="$ETC_C" OMARCHY_KIDS_SHARE="$SHARE_C" \
     "$WIFI_C" "$@" 2>&1
 }
 
-out="$(run_wifi_c kid-parent list)"; st=$?
+out="$(run_wifi_c kid-parent list)"
+st=$?
 check_status "$st" 3 "wifi list: refuses (exit 3) for wifi=parent"
 check_contains "$out" "grown-up" "wifi list: refusal message is a plain sentence (I-6)"
 
-out="$(run_wifi_c kid-parent join TestNet)"; st=$?
+out="$(run_wifi_c kid-parent join TestNet)"
+st=$?
 check_status "$st" 3 "wifi join: refuses (exit 3) for wifi=parent"
-out="$(run_wifi_c kid-parent status)"; st=$?
+out="$(run_wifi_c kid-parent status)"
+st=$?
 check_status "$st" 3 "wifi status: refuses (exit 3) for wifi=parent"
-out="$(run_wifi_c kid-parent forget TestNet)"; st=$?
+out="$(run_wifi_c kid-parent forget TestNet)"
+st=$?
 check_status "$st" 3 "wifi forget: refuses (exit 3) for wifi=parent"
 
-out="$(run_wifi_c kid-nobody list)"; st=$?
+out="$(run_wifi_c kid-nobody list)"
+st=$?
 check_status "$st" 1 "wifi list: exits 1 (not 3) when there's no profile at all"
 
-out="$(run_wifi_c kid-helper list)"; st=$?
+out="$(run_wifi_c kid-helper list)"
+st=$?
 check_status "$st" 1 "wifi list: wifi=helper passes require_helper, then fails (exit 1) with no daemon running"
 check_contains "$out" "no reply" "wifi list: 'no reply' message when the socket doesn't exist"
 
 # picker: no Quickshell on PATH in this test environment either way, so
 # only the refusal path (before it would try to exec quickshell at all)
 # is checked here -- the real overlay is VM-only (docs/wifi.md).
-out="$(run_wifi_c kid-parent picker)"; st=$?
+out="$(run_wifi_c kid-parent picker)"
+st=$?
 check_status "$st" 3 "wifi picker: refuses (exit 3) for wifi=parent"
 check_contains "$out" "grown-up" "wifi picker: falls back to a stderr message when Quickshell isn't available"
 
@@ -408,7 +432,8 @@ cleanup_c
 
 # `omarchy-kids-wifi portal` used to be tested here. The command is gone
 # (see this file's header): a kid could never have run it.
-out="$("$WIFI" portal 2>&1)"; st=$?
+out="$("$WIFI" portal 2>&1)"
+st=$?
 check_status "$st" 2 "portal: the command a kid could never run is gone (I-6)"
 
 # =====================================================================
@@ -420,7 +445,8 @@ check_status "$st" 2 "portal: the command a kid could never run is gone (I-6)"
 # daemon sends straight back to the client. Unit-level, so it runs on
 # every platform, including where SO_PEERCRED does not exist.
 
-leak_out="$(python3 - "$DIR/bin/omarchy-kids-wifid" <<'PYEOF'
+leak_out="$(
+  python3 - "$DIR/bin/omarchy-kids-wifid" <<'PYEOF'
 import importlib.machinery, importlib.util, sys
 spec = importlib.util.spec_from_loader(
     "wifid", importlib.machinery.SourceFileLoader("wifid", sys.argv[1]))
@@ -435,14 +461,26 @@ except Exception as exc:  # noqa: BLE001
 PYEOF
 )"
 case "$leak_out" in
-  *S3cretWifiPw*) echo "FAIL S8: the Wi-Fi password came back in the daemon's error text"; fail=1 ;;
-  UNEXPECTED*)    echo "FAIL S8: run_nmcli raised the wrong thing ($leak_out)"; fail=1 ;;
-  "")             echo "FAIL S8: run_nmcli did not fail on a missing nmcli"; fail=1 ;;
-  *)              echo "ok   S8: a failed nmcli call never echoes the Wi-Fi password back" ;;
+  *S3cretWifiPw*)
+    echo "FAIL S8: the Wi-Fi password came back in the daemon's error text"
+    fail=1
+    ;;
+  UNEXPECTED*)
+    echo "FAIL S8: run_nmcli raised the wrong thing ($leak_out)"
+    fail=1
+    ;;
+  "")
+    echo "FAIL S8: run_nmcli did not fail on a missing nmcli"
+    fail=1
+    ;;
+  *) echo "ok   S8: a failed nmcli call never echoes the Wi-Fi password back" ;;
 esac
 case "$leak_out" in
   *device*) echo "ok   S8: the error still names the nmcli subcommand, so it is diagnosable" ;;
-  *) echo "FAIL S8: the error names nothing useful ($leak_out)"; fail=1 ;;
+  *)
+    echo "FAIL S8: the error names nothing useful ($leak_out)"
+    fail=1
+    ;;
 esac
 
 echo "wifi-test RESULT: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"

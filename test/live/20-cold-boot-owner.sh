@@ -8,26 +8,26 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=test/live/lib.sh
 source "$DIR/lib.sh"
 
-build_install && ok "package installed and pacman -Qkk clean" \
-    || fail "package build/install/Qkk gate failed"
+build_install && ok "package installed and pacman -Qkk clean" ||
+  fail "package build/install/Qkk gate failed"
 
 if boot_with "$LIVE_OWNER_PASSWORD" "$LIVE_OWNER_ACCOUNT"; then
-    ok "vm booted with the owner's disk password"
+  ok "vm booted with the owner's disk password"
 else
-    fail "vm never came up on the owner's disk password"
+  fail "vm never came up on the owner's disk password"
 fi
 
 if assert_session "$LIVE_OWNER_ACCOUNT" 60; then
-    ok "$LIVE_OWNER_ACCOUNT's own session is live"
+  ok "$LIVE_OWNER_ACCOUNT's own session is live"
 else
-    fail "$LIVE_OWNER_ACCOUNT's own session never appeared"
-    state
+  fail "$LIVE_OWNER_ACCOUNT's own session never appeared"
+  state
 fi
 
 if assert_no_session "$LIVE_KID1_ACCOUNT" 5; then
-    ok "no kid session started on the owner's boot"
+  ok "no kid session started on the owner's boot"
 else
-    fail "a kid session started on the owner's boot — fail-safe broken"
+  fail "a kid session started on the owner's boot — fail-safe broken"
 fi
 
 shot 20-cold-boot-owner || fail "screenshot failed"

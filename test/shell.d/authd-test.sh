@@ -14,10 +14,16 @@ CLIENT="$DIR/bin/omarchy-kids-parent-auth"
 
 fail=0
 check() { # got want label
-  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want '$2', got '$1')"
+    fail=1
+  fi
 }
 ok() { echo "ok   $1"; }
-bad() { echo "FAIL $1"; fail=1; }
+bad() {
+  echo "FAIL $1"
+  fail=1
+}
 
 TMP="$(mktemp -d)"
 DAEMON_PID=""
@@ -38,7 +44,7 @@ PARENT="testparent"
 # so this string verifies the same on any Linux box regardless of how it was
 # produced.
 SHADOW="$TMP/shadow"
-cat > "$SHADOW" <<'EOF'
+cat >"$SHADOW" <<'EOF'
 testparent:$6$saltsalt$4wxWeHqpAHNNJcQMSu6jvr3dQTQoGoqMQhPAP0o5Ygzna6vr4y0u6.EZzboAAqg6dXU4q/OfcYqdrvZixR76r0:19000:0:99999:7:::
 EOF
 chmod 600 "$SHADOW"
@@ -64,14 +70,14 @@ sys.stdout.write(s.recv(4096).decode(errors="replace").strip())
 ETC="$TMP/etc"
 mkdir -p "$ETC/kids"
 ME="$(id -un)"
-printf 'band=6-8\n' > "$ETC/kids/$ME.conf"
-printf 'band=6-8\n' > "$ETC/kids/kid-ada.conf"
+printf 'band=6-8\n' >"$ETC/kids/$ME.conf"
+printf 'band=6-8\n' >"$ETC/kids/kid-ada.conf"
 
 # grant_check JSON UID -> the refusal reason, or "OK". The request goes
 # through a file, not argv, so no amount of shell quoting can change what
 # check_grant actually sees.
 grant_check() {
-  printf '%s' "$1" > "$TMP/request.json"
+  printf '%s' "$1" >"$TMP/request.json"
   python3 - "$AUTHD" "$DIR/lib" "$ETC" "$TMP/request.json" "$2" <<'PYEOF'
 import importlib.machinery, importlib.util, json, sys
 spec = importlib.util.spec_from_loader("authd", importlib.machinery.SourceFileLoader("authd", sys.argv[1]))
@@ -139,13 +145,14 @@ case "$r" in
   *"not a provisioned kid"*) ok "an unprovisioned account cannot be granted anything" ;;
   *) bad "an unprovisioned account was not refused ($r)" ;;
 esac
-printf 'band=6-8\n' > "$ETC/kids/$ME.conf"
+printf 'band=6-8\n' >"$ETC/kids/$ME.conf"
 
 # =====================================================================
 # review S7: the rate limiter is per peer uid, and it decays
 # =====================================================================
 
-limiter_out="$(python3 - "$AUTHD" <<'PYEOF'
+limiter_out="$(
+  python3 - "$AUTHD" <<'PYEOF'
 import importlib.machinery, importlib.util, sys
 spec = importlib.util.spec_from_loader("authd", importlib.machinery.SourceFileLoader("authd", sys.argv[1]))
 authd = importlib.util.module_from_spec(spec); spec.loader.exec_module(authd)
@@ -187,7 +194,10 @@ while True:
         c.close()
 PYEOF
 HOSTILE_PID=$!
-for _ in $(seq 1 50); do [[ -S "$HOSTILE/yes.sock" ]] && break; sleep 0.1; done
+for _ in $(seq 1 50); do
+  [[ -S "$HOSTILE/yes.sock" ]] && break
+  sleep 0.1
+done
 
 # A kid's environment says "ask this socket instead". The verifier reads
 # no environment at all now (review §2.1), so this must be ignored.
@@ -216,7 +226,7 @@ check "$(grep -c '^TEST_SOCKET_ROOT=""$' "$CLIENT")" "1" \
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 kids_tree "$TMP/tree" "$DIR"
 TESTCLIENT="$TMP/tree/bin/omarchy-kids-parent-auth"
-sed "s|^TEST_SOCKET_ROOT=\"\"$|TEST_SOCKET_ROOT=\"$TMP\"|" "$CLIENT" > "$TESTCLIENT"
+sed "s|^TEST_SOCKET_ROOT=\"\"$|TEST_SOCKET_ROOT=\"$TMP\"|" "$CLIENT" >"$TESTCLIENT"
 chmod +x "$TESTCLIENT"
 
 # Sanity: the copy really can speak to a socket under its own test root,
@@ -232,7 +242,8 @@ else
   ok "S4: even with a test root, a socket outside it is refused"
 fi
 
-kill "$HOSTILE_PID" >/dev/null 2>&1; wait "$HOSTILE_PID" 2>/dev/null
+kill "$HOSTILE_PID" >/dev/null 2>&1
+wait "$HOSTILE_PID" 2>/dev/null
 
 # The PAM line names the helper by absolute path, so pam_exec never
 # consults the kid's PATH, and the helper above never consults the kid's
@@ -261,12 +272,12 @@ sys.stdout.write(s.recv(4096).decode(errors="replace").strip())
 # A record of every apply-grant the daemon asks for, so we can prove it
 # asked for none of the ones it should have refused.
 APPLIED="$TMP/applied.log"
-cat > "$TMP/fake-ask" <<EOF
+cat >"$TMP/fake-ask" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$APPLIED"
 EOF
 chmod +x "$TMP/fake-ask"
-: > "$APPLIED"
+: >"$APPLIED"
 
 start_daemon() {
   kill "$DAEMON_PID" >/dev/null 2>&1
@@ -275,8 +286,14 @@ start_daemon() {
   python3 "$AUTHD" --socket "$SOCK" --shadow "$SHADOW" --parent "$PARENT" \
     --etc "$ETC" --lib "$DIR/lib" --ask-bin "$TMP/fake-ask" &
   DAEMON_PID=$!
-  for _ in $(seq 1 50); do [[ -S "$SOCK" ]] && break; sleep 0.1; done
-  [[ -S "$SOCK" ]] || { bad "the daemon never created $SOCK"; return 1; }
+  for _ in $(seq 1 50); do
+    [[ -S "$SOCK" ]] && break
+    sleep 0.1
+  done
+  [[ -S "$SOCK" ]] || {
+    bad "the daemon never created $SOCK"
+    return 1
+  }
 }
 
 start_daemon || exit $fail
@@ -284,13 +301,13 @@ start_daemon || exit $fail
 # Every shape the review named, over the real socket. None may be applied.
 while read -r label kid kind what minutes password; do
   [[ -n "$label" ]] || continue
-  : > "$APPLIED"
+  : >"$APPLIED"
   r="$(send2 "GRANT $(req "$kid" "$kind" "$what" "${minutes//-/}")" "$password")"
   case "$r" in
     no*) ok "GRANT refused: $label" ;;
     *) bad "GRANT was NOT refused ($label): got '$r'" ;;
   esac
-  check "$(wc -l < "$APPLIED" | tr -d ' ')" "0" "GRANT applied nothing: $label"
+  check "$(wc -l <"$APPLIED" | tr -d ' ')" "0" "GRANT applied nothing: $label"
 done <<EOF
 wrong password $ME app minecraft - wrongpass
 another kid's account kid-ada time 600 600 secret123
@@ -328,15 +345,18 @@ check "$(send "$LONG")" "no" "overlong line -> no (and doesn't count as a miss)"
 if bash -c "echo secret123 | '$TESTCLIENT' --socket '$SOCK'"; then
   echo "ok   client exits 0 on correct password"
 else
-  echo "FAIL client exits 0 on correct password"; fail=1
+  echo "FAIL client exits 0 on correct password"
+  fail=1
 fi
 if bash -c "echo wrongpass | '$TESTCLIENT' --socket '$SOCK'"; then
-  echo "FAIL client should exit 1 on wrong password"; fail=1
+  echo "FAIL client should exit 1 on wrong password"
+  fail=1
 else
   echo "ok   client exits 1 on wrong password"
 fi
 if PAM_TYPE=account bash -c "echo secret123 | '$TESTCLIENT' --socket '$SOCK'"; then
-  echo "FAIL client should exit 1 when PAM_TYPE != auth"; fail=1
+  echo "FAIL client should exit 1 when PAM_TYPE != auth"
+  fail=1
 else
   echo "ok   client exits 1 when PAM_TYPE=account"
 fi
@@ -350,7 +370,7 @@ check "$(send secret123)" "no" "correct password while locked (3 misses) -> no"
 # --- GRANT over the wire, the accepting half (needs crypt(3)) ------------
 
 start_daemon || exit $fail
-: > "$APPLIED"
+: >"$APPLIED"
 r="$(send2 "GRANT $(req "$ME" app minecraft)" "secret123")"
 check "$r" "ok" "GRANT with the right password, from the right uid, is granted"
 check "$(grep -c -- "apply-grant --kid $ME --kind app --what minecraft --apply" "$APPLIED")" "1" \
@@ -367,7 +387,8 @@ exit $fail
 
 # --- the line reader keeps the remainder: a GRANT's password arrives in the same chunk -----
 # Runs everywhere (no libcrypt needed): load the daemon's functions and feed a socketpair.
-out="$(python3 - "$AUTHD" <<'PY'
+out="$(
+  python3 - "$AUTHD" <<'PY'
 import socket, sys, runpy
 ns = runpy.run_path(sys.argv[1], run_name="not_main")
 a, b = socket.socketpair()

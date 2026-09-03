@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 ASKPY="$LIB/ask.py"
@@ -37,10 +38,13 @@ DRY_RUN="${DRY_RUN:-1}"
 
 VALID_KINDS=(time app plugin site)
 
-die() { echo "omarchy-kids-ask: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-ask: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
-    cat <<'EOF'
+  cat <<'EOF'
 Usage: omarchy-kids-ask time <minutes>
        omarchy-kids-ask app <package-or-desktop-id>
        omarchy-kids-ask plugin <plugin-id>
@@ -92,46 +96,47 @@ is_valid_kind() { is_in "$1" "${VALID_KINDS[@]}"; }
 # open_modal KIND WHAT DESC [MINUTES] -- exports what the QML needs and
 # execs quickshell, same shape as bin/omarchy-kids-exit's cmd_open.
 open_modal() {
-    local kind="$1" what="$2" desc="$3" minutes="${4:-}"
+  local kind="$1" what="$2" desc="$3" minutes="${4:-}"
 
-    if modal_already_open "$MODAL_PIDFILE"; then
-        exit 0
-    fi
+  if modal_already_open "$MODAL_PIDFILE"; then
+    exit 0
+  fi
 
-    OMARCHY_KIDS_ACCOUNT="$(id -un)"
-    export OMARCHY_KIDS_ACCOUNT
-    export OMARCHY_KIDS_ASK_KIND="$kind"
-    export OMARCHY_KIDS_ASK_WHAT="$what"
-    export OMARCHY_KIDS_ASK_DESC="$desc"
-    export OMARCHY_KIDS_ASK_MINUTES="$minutes"
-    export OMARCHY_KIDS_ASK_BIN="$SELF"
+  OMARCHY_KIDS_ACCOUNT="$(id -un)"
+  export OMARCHY_KIDS_ACCOUNT
+  export OMARCHY_KIDS_ASK_KIND="$kind"
+  export OMARCHY_KIDS_ASK_WHAT="$what"
+  export OMARCHY_KIDS_ASK_DESC="$desc"
+  export OMARCHY_KIDS_ASK_MINUTES="$minutes"
+  export OMARCHY_KIDS_ASK_BIN="$SELF"
 
-    # exec keeps this pid, so $$ is the modal's own pid.
-    install -d -m 0700 "$RUN"
-    modal_write_pid "$MODAL_PIDFILE"
-    exec quickshell -p "$MODAL_QML"
+  # exec keeps this pid, so $$ is the modal's own pid.
+  install -d -m 0700 "$RUN"
+  modal_write_pid "$MODAL_PIDFILE"
+  exec quickshell -p "$MODAL_QML"
 }
 
 cmd_time() {
-    local minutes="${1:?omarchy-kids-ask time <minutes>}"
-    [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -gt 0 ]] || die "time: <minutes> must be a positive whole number"
-    local plural=""; [[ "$minutes" != 1 ]] && plural="s"
-    open_modal time "$minutes" "$minutes more minute$plural of screen time" "$minutes"
+  local minutes="${1:?omarchy-kids-ask time <minutes>}"
+  [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -gt 0 ]] || die "time: <minutes> must be a positive whole number"
+  local plural=""
+  [[ "$minutes" != 1 ]] && plural="s"
+  open_modal time "$minutes" "$minutes more minute$plural of screen time" "$minutes"
 }
 
 cmd_app() {
-    local id="${1:?omarchy-kids-ask app <package-or-desktop-id>}"
-    open_modal app "$id" "the app \"$id\""
+  local id="${1:?omarchy-kids-ask app <package-or-desktop-id>}"
+  open_modal app "$id" "the app \"$id\""
 }
 
 cmd_plugin() {
-    local id="${1:?omarchy-kids-ask plugin <plugin-id>}"
-    open_modal plugin "$id" "the plugin \"$id\""
+  local id="${1:?omarchy-kids-ask plugin <plugin-id>}"
+  open_modal plugin "$id" "the plugin \"$id\""
 }
 
 cmd_site() {
-    local host="${1:?omarchy-kids-ask site <host>}"
-    open_modal site "$host" "the website \"$host\""
+  local host="${1:?omarchy-kids-ask site <host>}"
+  open_modal site "$host" "the website \"$host\""
 }
 
 # --- submit: kid-side, writes into the kid's own outbox --------------------
@@ -139,33 +144,49 @@ cmd_site() {
 # parse_request_args -- the <kind> <what> [--minutes N] shape `submit`,
 # `grant` and `apply-grant` all take. Sets KIND/WHAT/MINUTES.
 parse_request_args() {
-    local verb="$1"; shift
-    KIND=""; WHAT=""; MINUTES=""
-    if (($# >= 1)) && [[ "$1" != -* ]]; then KIND="$1"; shift; fi
-    if (($# >= 1)) && [[ "$1" != -* ]]; then WHAT="$1"; shift; fi
-    while (($#)); do
-        case "$1" in
-            --minutes) MINUTES="${2:?--minutes needs a value}"; shift 2 ;;
-            -h|--help) usage; exit 0 ;;
-            *) die "$verb: unknown argument '$1'" ;;
-        esac
-    done
-    [[ -n "$KIND" && -n "$WHAT" ]] || die "$verb: needs <kind> <what>"
-    # `time 15` carries its minutes in <what>; the kid-side entry already relies on that.
-    [[ "$KIND" == time && -z "$MINUTES" ]] && MINUTES="$WHAT"
-    is_valid_kind "$KIND" || die "$verb: unknown kind '$KIND' (must be one of ${VALID_KINDS[*]})"
+  local verb="$1"
+  shift
+  KIND=""
+  WHAT=""
+  MINUTES=""
+  if (($# >= 1)) && [[ "$1" != -* ]]; then
+    KIND="$1"
+    shift
+  fi
+  if (($# >= 1)) && [[ "$1" != -* ]]; then
+    WHAT="$1"
+    shift
+  fi
+  while (($#)); do
+    case "$1" in
+      --minutes)
+        MINUTES="${2:?--minutes needs a value}"
+        shift 2
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *) die "$verb: unknown argument '$1'" ;;
+    esac
+  done
+  [[ -n "$KIND" && -n "$WHAT" ]] || die "$verb: needs <kind> <what>"
+  # `time 15` carries its minutes in <what>; the kid-side entry already relies on that.
+  [[ "$KIND" == time && -z "$MINUTES" ]] && MINUTES="$WHAT"
+  is_valid_kind "$KIND" || die "$verb: unknown kind '$KIND' (must be one of ${VALID_KINDS[*]})"
 }
 
 cmd_submit() {
-    local KIND WHAT MINUTES
-    parse_request_args submit "$@"
+  local KIND WHAT MINUTES
+  parse_request_args submit "$@"
 
-    local account; account="$(id -un)"
-    install -d -m 0700 "$OUTBOX_DIR"
+  local account
+  account="$(id -un)"
+  install -d -m 0700 "$OUTBOX_DIR"
 
-    local -a args=("write" "$OUTBOX_DIR" --kid "$account" --kind "$KIND" --what "$WHAT")
-    [[ -n "$MINUTES" ]] && args+=(--minutes "$MINUTES")
-    "$KIDS_PY" "$ASKPY" "${args[@]}"
+  local -a args=("write" "$OUTBOX_DIR" --kid "$account" --kind "$KIND" --what "$WHAT")
+  [[ -n "$MINUTES" ]] && args+=(--minutes "$MINUTES")
+  "$KIDS_PY" "$ASKPY" "${args[@]}"
 }
 
 # --- kid-side: grant, the on-the-spot path (review S1) ---------------------
@@ -176,27 +197,29 @@ cmd_submit() {
 # here is trusted by anything: a kid faking this command's exit code
 # fakes only the "Got it!" message their own modal shows them.
 cmd_grant() {
-    local KIND WHAT MINUTES
-    parse_request_args grant "$@"
+  local KIND WHAT MINUTES
+  parse_request_args grant "$@"
 
-    local account; account="$(id -un)"
-    local password; IFS= read -r password || true
+  local account
+  account="$(id -un)"
+  local password
+  IFS= read -r password || true
 
-    local json
-    json="$("$KIDS_PY" "$ASKPY" request-json --kid "$account" --kind "$KIND" --what "$WHAT" \
-        ${MINUTES:+--minutes "$MINUTES"})" || die "grant: $KIND request rejected before it was sent"
+  local json
+  json="$("$KIDS_PY" "$ASKPY" request-json --kid "$account" --kind "$KIND" --what "$WHAT" \
+    ${MINUTES:+--minutes "$MINUTES"})" || die "grant: $KIND request rejected before it was sent"
 
-    local reply
-    reply="$(kids_sock_request "$AUTH_SOCK" "GRANT $json"$'\n'"$password"$'\n')" || {
-        echo "omarchy-kids-ask: no way to reach the verifier (install socat or python3)" >&2
-        return 1
-    }
-    password=""
-    if [[ "$reply" == ok* ]]; then
-        return 0
-    fi
-    echo "omarchy-kids-ask: ${reply:-no reply from the verifier}" >&2
+  local reply
+  reply="$(kids_sock_request "$AUTH_SOCK" "GRANT $json"$'\n'"$password"$'\n')" || {
+    echo "omarchy-kids-ask: no way to reach the verifier (install socat or python3)" >&2
     return 1
+  }
+  password=""
+  if [[ "$reply" == ok* ]]; then
+    return 0
+  fi
+  echo "omarchy-kids-ask: ${reply:-no reply from the verifier}" >&2
+  return 1
 }
 
 # --- root: collect --------------------------------------------------------
@@ -206,24 +229,27 @@ cmd_grant() {
 # did, or collect is about to for an on-the-spot one) -- this is purely
 # "do the thing", separate from "who decided".
 apply_record() {
-    local path="$1" kid kind what minutes
-    kid="$("$KIDS_PY" "$ASKPY" show "$path" --field kid)"
-    kind="$("$KIDS_PY" "$ASKPY" show "$path" --field kind)"
-    what="$("$KIDS_PY" "$ASKPY" show "$path" --field what)"
-    minutes="$("$KIDS_PY" "$ASKPY" show "$path" --field minutes)"
+  local path="$1" kid kind what minutes
+  kid="$("$KIDS_PY" "$ASKPY" show "$path" --field kid)"
+  kind="$("$KIDS_PY" "$ASKPY" show "$path" --field kind)"
+  what="$("$KIDS_PY" "$ASKPY" show "$path" --field what)"
+  minutes="$("$KIDS_PY" "$ASKPY" show "$path" --field minutes)"
 
-    case "$kind" in
-        time) apply_time "$kid" "$minutes" ;;
-        app|plugin) apply_apps_extra "$kid" "$what" ;;
-        site) apply_site "$kid" "$what" ;;
-        *) echo "omarchy-kids-ask: record $path has an unknown kind '$kind'; skipped" >&2; return 1 ;;
-    esac
+  case "$kind" in
+    time) apply_time "$kid" "$minutes" ;;
+    app | plugin) apply_apps_extra "$kid" "$what" ;;
+    site) apply_site "$kid" "$what" ;;
+    *)
+      echo "omarchy-kids-ask: record $path has an unknown kind '$kind'; skipped" >&2
+      return 1
+      ;;
+  esac
 }
 
 # apply_time KID MINUTES -- through the sibling command, resolved beside
 # this one like every other (kids_bin, never PATH).
 apply_time() {
-    run "$TIME_BIN" grant "$1" "$2"
+  run "$TIME_BIN" grant "$1" "$2"
 }
 
 # apply_apps_extra KID WHAT -- appends WHAT (an app or plugin id) to the
@@ -232,28 +258,30 @@ apply_time() {
 # directly). Idempotent: asking for the same id twice is a no-op the
 # second time.
 apply_apps_extra() {
-    local kid="$1" what="$2" extra
-    extra="$("$CONF_BIN" get "$kid" apps.extra 2>/dev/null || true)"
-    local -a arr=() out=()
-    IFS=',' read -ra arr <<<"$extra"
-    local id
-    for id in "${arr[@]+"${arr[@]}"}"; do
-        [[ -n "$id" ]] || continue
-        [[ "$id" == "$what" ]] && return 0  # already granted
-        out+=("$id")
-    done
-    out+=("$what")
-    local IFS_SAVE="$IFS" joined
-    IFS=,; joined="${out[*]}"; IFS="$IFS_SAVE"
-    run "$CONF_BIN" set "$kid" apps.extra "$joined"
+  local kid="$1" what="$2" extra
+  extra="$("$CONF_BIN" get "$kid" apps.extra 2>/dev/null || true)"
+  local -a arr=() out=()
+  IFS=',' read -ra arr <<<"$extra"
+  local id
+  for id in "${arr[@]+"${arr[@]}"}"; do
+    [[ -n "$id" ]] || continue
+    [[ "$id" == "$what" ]] && return 0 # already granted
+    out+=("$id")
+  done
+  out+=("$what")
+  local IFS_SAVE="$IFS" joined
+  IFS=,
+  joined="${out[*]}"
+  IFS="$IFS_SAVE"
+  run "$CONF_BIN" set "$kid" apps.extra "$joined"
 }
 
 # append_allow_line FILE HOST -- the actual write append_allow does under
 # `run`, so a dry run never touches the file.
 append_allow_line() {
-    local file="$1" host="$2"
-    install -d -m 0755 "$(dirname "$file")"
-    grep -qxF "$host" "$file" 2>/dev/null || printf '%s\n' "$host" >>"$file"
+  local file="$1" host="$2"
+  install -d -m 0755 "$(dirname "$file")"
+  grep -qxF "$host" "$file" 2>/dev/null || printf '%s\n' "$host" >>"$file"
 }
 
 # apply_site KID HOST -- SPEC.md's `omarchy-kids-web` only renders a
@@ -265,14 +293,14 @@ append_allow_line() {
 # this makes the site visible to every kid sharing the band, not just
 # the one who asked, until web gets real per-kid policies.
 apply_site() {
-    local kid="$1" host="$2" band allow_file
-    band="$("$CONF_BIN" get "$kid" band 2>/dev/null)" || {
-        echo "omarchy-kids-ask: could not read '$kid's band; site grant not applied" >&2
-        return 1
-    }
-    allow_file="$ETC/kids/$kid/allow.txt"
-    run append_allow_line "$allow_file" "$host"
-    run "$WEB_BIN" install "$band" --allow "$allow_file" --apply
+  local kid="$1" host="$2" band allow_file
+  band="$("$CONF_BIN" get "$kid" band 2>/dev/null)" || {
+    echo "omarchy-kids-ask: could not read '$kid's band; site grant not applied" >&2
+    return 1
+  }
+  allow_file="$ETC/kids/$kid/allow.txt"
+  run append_allow_line "$allow_file" "$host"
+  run "$WEB_BIN" install "$band" --allow "$allow_file" --apply
 }
 
 # outbox_owner DIR -- the account that owns the outbox at
@@ -281,88 +309,94 @@ apply_site() {
 # runtime dir), never from anything inside the file. Prints nothing when
 # the uid maps to no account.
 outbox_owner() {
-    local dir="$1" uid rest
-    rest="${dir#"$RUN_USER_ROOT"/}"
-    uid="${rest%%/*}"
-    [[ "$uid" =~ ^[0-9]+$ ]] || return 1
-    if [[ -n "$UID_MAP" && -r "$UID_MAP" ]]; then
-        local line
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            [[ "${line%%:*}" == "$uid" ]] || continue
-            printf '%s\n' "${line#*:}"
-            return 0
-        done < "$UID_MAP"
-        return 1
-    fi
-    local entry; entry="$(getent passwd "$uid" 2>/dev/null | head -1)"
-    [[ -n "$entry" ]] || return 1
-    printf '%s\n' "${entry%%:*}"
+  local dir="$1" uid rest
+  rest="${dir#"$RUN_USER_ROOT"/}"
+  uid="${rest%%/*}"
+  [[ "$uid" =~ ^[0-9]+$ ]] || return 1
+  if [[ -n "$UID_MAP" && -r "$UID_MAP" ]]; then
+    local line
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "${line%%:*}" == "$uid" ]] || continue
+      printf '%s\n' "${line#*:}"
+      return 0
+    done <"$UID_MAP"
+    return 1
+  fi
+  local entry
+  entry="$(getent passwd "$uid" 2>/dev/null | head -1)"
+  [[ -n "$entry" ]] || return 1
+  printf '%s\n' "${entry%%:*}"
 }
 
-
 cmd_collect() {
-    while (($#)); do
-        case "$1" in
-            --apply) DRY_RUN=0; shift ;;
-            -h|--help) usage; exit 0 ;;
-            *) die "collect: unexpected argument '$1'" ;;
-        esac
-    done
+  while (($#)); do
+    case "$1" in
+      --apply)
+        DRY_RUN=0
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *) die "collect: unexpected argument '$1'" ;;
+    esac
+  done
 
-    install -d -m 0755 "$QUEUE_DIR"
+  install -d -m 0755 "$QUEUE_DIR"
 
-    local collected=0 skipped=0
-    local -a outbox_dirs=("$RUN_USER_ROOT"/*/omarchy-kids/ask-outbox)
-    local dir file base dest owner n
-    for dir in "${outbox_dirs[@]}"; do
-        [[ -d "$dir" ]] || continue
+  local collected=0 skipped=0
+  local -a outbox_dirs=("$RUN_USER_ROOT"/*/omarchy-kids/ask-outbox)
+  local dir file base dest owner n
+  for dir in "${outbox_dirs[@]}"; do
+    [[ -d "$dir" ]] || continue
 
-        # Who owned this outbox decides who the request is from -- not the
-        # `kid` field, which the kid wrote (review S2/S3).
-        owner="$(outbox_owner "$dir")" || {
-            echo "omarchy-kids-ask: collect: no account owns $dir; skipped" >&2
-            continue
-        }
-        if ! is_known_kid "$KIDS_DIR" "$owner"; then
-            echo "omarchy-kids-ask: collect: '$owner' is not a provisioned kid; $dir skipped" >&2
-            continue
-        fi
-
-        for file in "$dir"/*.json; do
-            [[ -e "$file" ]] || continue
-            base="$(basename "$file")"
-            dest="$QUEUE_DIR/$base"
-            n=1
-            while [[ -e "$dest" ]]; do
-                n=$((n + 1))
-                dest="$QUEUE_DIR/${base%.json}-$n.json"
-            done
-
-            if [[ "$DRY_RUN" == "0" ]]; then
-                mv -n "$file" "$dest" || continue
-                # The one and only thing collect does to a record: make it
-                # an open request from the outbox's real owner. Never a
-                # decision, never an action (review S1). A record that
-                # cannot survive the allowlist is dropped, not queued.
-                if "$KIDS_PY" "$ASKPY" reopen "$dest" --kid "$owner" 2>/dev/null; then
-                    collected=$((collected + 1))
-                else
-                    rm -f "$dest"
-                    skipped=$((skipped + 1))
-                    echo "omarchy-kids-ask: collect: $base failed validation; dropped" >&2
-                fi
-            else
-                echo "  [dry-run] would collect $file -> $dest as an open request from $owner"
-                collected=$((collected + 1))
-            fi
-        done
-    done
-
-    if [[ "$DRY_RUN" == "0" ]]; then
-        echo "omarchy-kids-ask: collect: $collected request(s) collected, $skipped dropped"
-    else
-        echo "omarchy-kids-ask: collect: $collected request(s) would be collected (dry-run; pass --apply for real)"
+    # Who owned this outbox decides who the request is from -- not the
+    # `kid` field, which the kid wrote (review S2/S3).
+    owner="$(outbox_owner "$dir")" || {
+      echo "omarchy-kids-ask: collect: no account owns $dir; skipped" >&2
+      continue
+    }
+    if ! is_known_kid "$KIDS_DIR" "$owner"; then
+      echo "omarchy-kids-ask: collect: '$owner' is not a provisioned kid; $dir skipped" >&2
+      continue
     fi
+
+    for file in "$dir"/*.json; do
+      [[ -e "$file" ]] || continue
+      base="$(basename "$file")"
+      dest="$QUEUE_DIR/$base"
+      n=1
+      while [[ -e "$dest" ]]; do
+        n=$((n + 1))
+        dest="$QUEUE_DIR/${base%.json}-$n.json"
+      done
+
+      if [[ "$DRY_RUN" == "0" ]]; then
+        mv -n "$file" "$dest" || continue
+        # The one and only thing collect does to a record: make it
+        # an open request from the outbox's real owner. Never a
+        # decision, never an action (review S1). A record that
+        # cannot survive the allowlist is dropped, not queued.
+        if "$KIDS_PY" "$ASKPY" reopen "$dest" --kid "$owner" 2>/dev/null; then
+          collected=$((collected + 1))
+        else
+          rm -f "$dest"
+          skipped=$((skipped + 1))
+          echo "omarchy-kids-ask: collect: $base failed validation; dropped" >&2
+        fi
+      else
+        echo "  [dry-run] would collect $file -> $dest as an open request from $owner"
+        collected=$((collected + 1))
+      fi
+    done
+  done
+
+  if [[ "$DRY_RUN" == "0" ]]; then
+    echo "omarchy-kids-ask: collect: $collected request(s) collected, $skipped dropped"
+  else
+    echo "omarchy-kids-ask: collect: $collected request(s) would be collected (dry-run; pass --apply for real)"
+  fi
 }
 
 # --- root: apply-grant, omarchy-kids-authd's callback ----------------------
@@ -374,141 +408,189 @@ cmd_collect() {
 # shows it, and performs it through the same apply_record every other
 # path uses.
 cmd_apply_grant() {
-    local kid="" kind="" what="" minutes="" apply_flag=0
-    while (($#)); do
-        case "$1" in
-            --kid) kid="${2:?--kid needs a value}"; shift 2 ;;
-            --kind) kind="${2:?--kind needs a value}"; shift 2 ;;
-            --what) what="${2:?--what needs a value}"; shift 2 ;;
-            --minutes) minutes="${2:?--minutes needs a value}"; shift 2 ;;
-            --apply) apply_flag=1; shift ;;
-            -h|--help) usage; exit 0 ;;
-            *) die "apply-grant: unknown argument '$1'" ;;
-        esac
-    done
-    # Root, full stop. A scratch root used to satisfy this check too,
-    # which made $OMARCHY_KIDS_ROOT -- a variable a kid's session owns --
-    # the thing that decided whether a root check happened (review §3.6).
-    is_root || die "apply-grant: root only (it is omarchy-kids-authd's callback, not a user command)"
-    [[ "$apply_flag" == 1 ]] && DRY_RUN=0
+  local kid="" kind="" what="" minutes="" apply_flag=0
+  while (($#)); do
+    case "$1" in
+      --kid)
+        kid="${2:?--kid needs a value}"
+        shift 2
+        ;;
+      --kind)
+        kind="${2:?--kind needs a value}"
+        shift 2
+        ;;
+      --what)
+        what="${2:?--what needs a value}"
+        shift 2
+        ;;
+      --minutes)
+        minutes="${2:?--minutes needs a value}"
+        shift 2
+        ;;
+      --apply)
+        apply_flag=1
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *) die "apply-grant: unknown argument '$1'" ;;
+    esac
+  done
+  # Root, full stop. A scratch root used to satisfy this check too,
+  # which made $OMARCHY_KIDS_ROOT -- a variable a kid's session owns --
+  # the thing that decided whether a root check happened (review §3.6).
+  is_root || die "apply-grant: root only (it is omarchy-kids-authd's callback, not a user command)"
+  [[ "$apply_flag" == 1 ]] && DRY_RUN=0
 
-    "$KIDS_PY" "$ASKPY" validate --kid "$kid" --kind "$kind" --what "$what" \
-        ${minutes:+--minutes "$minutes"} || die "apply-grant: refused"
-    is_known_kid "$KIDS_DIR" "$kid" || die "apply-grant: '$kid' is not a provisioned kid account"
+  "$KIDS_PY" "$ASKPY" validate --kid "$kid" --kind "$kind" --what "$what" \
+    ${minutes:+--minutes "$minutes"} || die "apply-grant: refused"
+  is_known_kid "$KIDS_DIR" "$kid" || die "apply-grant: '$kid' is not a provisioned kid account"
 
-    install -d -m 0755 "$QUEUE_DIR"
-    local name
-    name="$("$KIDS_PY" "$ASKPY" write "$QUEUE_DIR" --kid "$kid" --kind "$kind" --what "$what" \
-        ${minutes:+--minutes "$minutes"})" || die "apply-grant: could not record the request"
-    local path="$QUEUE_DIR/$name"
+  install -d -m 0755 "$QUEUE_DIR"
+  local name
+  name="$("$KIDS_PY" "$ASKPY" write "$QUEUE_DIR" --kid "$kid" --kind "$kind" --what "$what" \
+    ${minutes:+--minutes "$minutes"})" || die "apply-grant: could not record the request"
+  local path="$QUEUE_DIR/$name"
 
-    apply_record "$path" || die "apply-grant: could not apply the request"
-    if [[ "$DRY_RUN" == "0" ]]; then
-        "$KIDS_PY" "$ASKPY" decide "$path" --state approved --by keyboard
-    fi
-    echo "omarchy-kids-ask: granted $kind '$what' to $kid"
+  apply_record "$path" || die "apply-grant: could not apply the request"
+  if [[ "$DRY_RUN" == "0" ]]; then
+    "$KIDS_PY" "$ASKPY" decide "$path" --state approved --by keyboard
+  fi
+  echo "omarchy-kids-ask: granted $kind '$what' to $kid"
 }
 
 # --- root: list / approve / decline ---------------------------------------
 
 cmd_list() {
-    local kid="${1:-}"
-    install -d -m 0755 "$QUEUE_DIR"
-    local -a args=("list-open" "$QUEUE_DIR")
-    [[ -n "$kid" ]] && args+=(--kid "$kid")
+  local kid="${1:-}"
+  install -d -m 0755 "$QUEUE_DIR"
+  local -a args=("list-open" "$QUEUE_DIR")
+  [[ -n "$kid" ]] && args+=(--kid "$kid")
 
-    local rows; rows="$("$KIDS_PY" "$ASKPY" "${args[@]}")"
-    if [[ -z "$rows" ]]; then
-        echo "omarchy-kids-ask: no open requests"
-        return 0
-    fi
-    printf '%-28s %-12s %-8s %-24s %s\n' ID KID KIND WHAT ASKED_AT
-    printf '%s\n' "$rows" | while IFS=$'\t' read -r id rkid kind what minutes asked_at; do
-        [[ "$kind" == time ]] && what="${minutes} min"
-        printf '%-28s %-12s %-8s %-24s %s\n' "$id" "$rkid" "$kind" "$what" "$asked_at"
-    done
+  local rows
+  rows="$("$KIDS_PY" "$ASKPY" "${args[@]}")"
+  if [[ -z "$rows" ]]; then
+    echo "omarchy-kids-ask: no open requests"
+    return 0
+  fi
+  printf '%-28s %-12s %-8s %-24s %s\n' ID KID KIND WHAT ASKED_AT
+  printf '%s\n' "$rows" | while IFS=$'\t' read -r id rkid kind what minutes asked_at; do
+    [[ "$kind" == time ]] && what="${minutes} min"
+    printf '%-28s %-12s %-8s %-24s %s\n' "$id" "$rkid" "$kind" "$what" "$asked_at"
+  done
 }
 
 record_path_for_id() {
-    local id="$1"
-    local path="$QUEUE_DIR/$id.json"
-    [[ -f "$path" ]] || die "no such request id '$id' (see 'omarchy-kids-ask list')"
-    printf '%s\n' "$path"
+  local id="$1"
+  local path="$QUEUE_DIR/$id.json"
+  [[ -f "$path" ]] || die "no such request id '$id' (see 'omarchy-kids-ask list')"
+  printf '%s\n' "$path"
 }
 
 cmd_approve() {
-    local id="" apply_flag=0
-    while (($#)); do
-        case "$1" in
-            --apply) apply_flag=1; shift ;;
-            -h|--help) usage; exit 0 ;;
-            *) if [[ -z "$id" ]]; then id="$1"; else die "approve: unexpected argument '$1'"; fi; shift ;;
-        esac
-    done
-    [[ -n "$id" ]] || die "approve: needs <id>"
-    [[ "$apply_flag" == 1 ]] && DRY_RUN=0
+  local id="" apply_flag=0
+  while (($#)); do
+    case "$1" in
+      --apply)
+        apply_flag=1
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *)
+        if [[ -z "$id" ]]; then id="$1"; else die "approve: unexpected argument '$1'"; fi
+        shift
+        ;;
+    esac
+  done
+  [[ -n "$id" ]] || die "approve: needs <id>"
+  [[ "$apply_flag" == 1 ]] && DRY_RUN=0
 
-    local path; path="$(record_path_for_id "$id")"
-    local state; state="$("$KIDS_PY" "$ASKPY" show "$path" --field state)"
-    [[ "$state" == "open" ]] || die "request '$id' is already decided ($state)"
+  local path
+  path="$(record_path_for_id "$id")"
+  local state
+  state="$("$KIDS_PY" "$ASKPY" show "$path" --field state)"
+  [[ "$state" == "open" ]] || die "request '$id' is already decided ($state)"
 
-    # A failed apply (root required, the target not installed yet) is
-    # never a reason to leave the request stuck "open" -- same
-    # graceful-degradation apply_time's own comment documents.
-    apply_record "$path" || echo "omarchy-kids-ask: could not apply $id (see above) -- approving it anyway" >&2
-    if [[ "$DRY_RUN" == "0" ]]; then
-        "$KIDS_PY" "$ASKPY" decide "$path" --state approved --by panel
-        echo "omarchy-kids-ask: approved $id"
-    else
-        echo "  [dry-run] would mark $id approved (by=panel)"
-    fi
+  # A failed apply (root required, the target not installed yet) is
+  # never a reason to leave the request stuck "open" -- same
+  # graceful-degradation apply_time's own comment documents.
+  apply_record "$path" || echo "omarchy-kids-ask: could not apply $id (see above) -- approving it anyway" >&2
+  if [[ "$DRY_RUN" == "0" ]]; then
+    "$KIDS_PY" "$ASKPY" decide "$path" --state approved --by panel
+    echo "omarchy-kids-ask: approved $id"
+  else
+    echo "  [dry-run] would mark $id approved (by=panel)"
+  fi
 }
 
 cmd_decline() {
-    local id="" apply_flag=0
-    while (($#)); do
-        case "$1" in
-            --apply) apply_flag=1; shift ;;
-            -h|--help) usage; exit 0 ;;
-            *) if [[ -z "$id" ]]; then id="$1"; else die "decline: unexpected argument '$1'"; fi; shift ;;
-        esac
-    done
-    [[ -n "$id" ]] || die "decline: needs <id>"
-    [[ "$apply_flag" == 1 ]] && DRY_RUN=0
+  local id="" apply_flag=0
+  while (($#)); do
+    case "$1" in
+      --apply)
+        apply_flag=1
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *)
+        if [[ -z "$id" ]]; then id="$1"; else die "decline: unexpected argument '$1'"; fi
+        shift
+        ;;
+    esac
+  done
+  [[ -n "$id" ]] || die "decline: needs <id>"
+  [[ "$apply_flag" == 1 ]] && DRY_RUN=0
 
-    local path; path="$(record_path_for_id "$id")"
-    local state; state="$("$KIDS_PY" "$ASKPY" show "$path" --field state)"
-    [[ "$state" == "open" ]] || die "request '$id' is already decided ($state)"
+  local path
+  path="$(record_path_for_id "$id")"
+  local state
+  state="$("$KIDS_PY" "$ASKPY" show "$path" --field state)"
+  [[ "$state" == "open" ]] || die "request '$id' is already decided ($state)"
 
-    if [[ "$DRY_RUN" == "0" ]]; then
-        "$KIDS_PY" "$ASKPY" decide "$path" --state declined --by panel
-        echo "omarchy-kids-ask: declined $id"
-    else
-        echo "  [dry-run] would mark $id declined (by=panel), no action performed"
-    fi
+  if [[ "$DRY_RUN" == "0" ]]; then
+    "$KIDS_PY" "$ASKPY" decide "$path" --state declined --by panel
+    echo "omarchy-kids-ask: declined $id"
+  else
+    echo "  [dry-run] would mark $id declined (by=panel), no action performed"
+  fi
 }
 
 # --- main ------------------------------------------------------------------
 
 main() {
-    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
-    local cmd="$1"; shift
+  [[ $# -ge 1 ]] || {
+    usage >&2
+    exit 2
+  }
+  local cmd="$1"
+  shift
 
-    case "$cmd" in
-        -h|--help) usage; exit 0 ;;
-        time) cmd_time "$@" ;;
-        app) cmd_app "$@" ;;
-        plugin) cmd_plugin "$@" ;;
-        site) cmd_site "$@" ;;
-        submit) cmd_submit "$@" ;;
-        grant) cmd_grant "$@" ;;
-        apply-grant) cmd_apply_grant "$@" ;;
-        collect) cmd_collect "$@" ;;
-        list) cmd_list "$@" ;;
-        approve) cmd_approve "$@" ;;
-        decline) cmd_decline "$@" ;;
-        *) die "unknown command: '$cmd' (see --help)" ;;
-    esac
+  case "$cmd" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    time) cmd_time "$@" ;;
+    app) cmd_app "$@" ;;
+    plugin) cmd_plugin "$@" ;;
+    site) cmd_site "$@" ;;
+    submit) cmd_submit "$@" ;;
+    grant) cmd_grant "$@" ;;
+    apply-grant) cmd_apply_grant "$@" ;;
+    collect) cmd_collect "$@" ;;
+    list) cmd_list "$@" ;;
+    approve) cmd_approve "$@" ;;
+    decline) cmd_decline "$@" ;;
+    *) die "unknown command: '$cmd' (see --help)" ;;
+  esac
 }
 
 main "$@"

@@ -24,7 +24,10 @@ fi
 
 fail=0
 pass() { echo "ok   $*"; }
-fail_() { echo "FAIL $*"; fail=1; }
+fail_() {
+  echo "FAIL $*"
+  fail=1
+}
 check() { # got want label
   if [[ "$1" == "$2" ]]; then pass "$3"; else fail_ "$3 (want '$2', got '$1')"; fi
 }
@@ -173,7 +176,7 @@ export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_PLUGIN_INDEX="$IDX"
 
-argv_since() { tail -n "+$(( $1 + 1 ))" "$ARGV_LOG"; } # LINE_COUNT -> lines appended since
+argv_since() { tail -n "+$(($1 + 1))" "$ARGV_LOG"; } # LINE_COUNT -> lines appended since
 argv_lines() { wc -l <"$ARGV_LOG" | tr -d ' '; }
 
 # --- shelf: category Kids AND verified only, by default -------------------

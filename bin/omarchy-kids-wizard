@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/sock.sh
 source "$LIB/sock.sh"
 # shellcheck source=lib/conf.sh
@@ -44,17 +45,20 @@ INVOKING_USER="${OMARCHY_KIDS_INVOKING_USER:-$(id -un 2>/dev/null || echo "${USE
 # Interactive: a human's own button press is the confirmation, so the
 # default is a real run (review §1.5, docs/wizard.md).
 if launched_by_a_human; then
-    DRY_RUN="${DRY_RUN:-0}"
+  DRY_RUN="${DRY_RUN:-0}"
 else
-    DRY_RUN="${DRY_RUN:-1}"
+  DRY_RUN="${DRY_RUN:-1}"
 fi
 
 TOTAL_STEPS=15
 
-die() { echo "omarchy-kids-wizard: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-wizard: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
-    cat <<EOF
+  cat <<EOF
 Usage: omarchy-kids-wizard [--dry-run] [--help]
 
 Walks a parent through adding one kid, screen by screen (SPEC.md
@@ -73,17 +77,17 @@ EOF
 }
 
 for arg in "$@"; do
-    case "$arg" in
-        --dry-run) DRY_RUN=1 ;;
-        --apply) DRY_RUN=0 ;;
-        -h | --help)
-            usage
-            exit 0
-            ;;
-        *)
-            die "unknown argument: '$arg' (see --help)"
-            ;;
-    esac
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --apply) DRY_RUN=0 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "unknown argument: '$arg' (see --help)"
+      ;;
+  esac
 done
 
 # --- small helpers -----------------------------------------------------
@@ -91,27 +95,27 @@ done
 # band_field BAND KEY — lib/kids.sh's kids_band_field, this command's own
 # error message (review §2.7).
 band_field() {
-    kids_band_field "$CONF_BIN" "$@" || die "could not read band '$1' defaults from $CONF_BIN"
+  kids_band_field "$CONF_BIN" "$@" || die "could not read band '$1' defaults from $CONF_BIN"
 }
 
 # pack_field BAND KEY — every value of a `key = "value"` line in that
 # band's pack TOML, one per line (AGENTS.md Appendix C).
 pack_field() {
-    local band="$1" key="$2"
-    local pack="$SHARE/packs/$band.toml"
-    [[ -f "$pack" ]] || return 0
-    sed -n "s/^${key} = \"\\(.*\\)\"\$/\\1/p" "$pack"
+  local band="$1" key="$2"
+  local pack="$SHARE/packs/$band.toml"
+  [[ -f "$pack" ]] || return 0
+  sed -n "s/^${key} = \"\\(.*\\)\"\$/\\1/p" "$pack"
 }
 
 # app_label_for BAND ID — one app's label via lib/conf.py's pack-app;
 # falls back to the raw id.
 app_label_for() {
-    local band="$1" id="$2" out
-    out="$("$KIDS_PY" "$PYHELPER" pack-app "$SHARE/packs/$band.toml" "$id" 2>/dev/null)" || {
-        printf '%s\n' "$id"
-        return
-    }
-    printf '%s\n' "${out%%$'\t'*}"
+  local band="$1" id="$2" out
+  out="$("$KIDS_PY" "$PYHELPER" pack-app "$SHARE/packs/$band.toml" "$id" 2>/dev/null)" || {
+    printf '%s\n' "$id"
+    return
+  }
+  printf '%s\n' "${out%%$'\t'*}"
 }
 
 # repo_and_aur_pkgs BAND [COMMA_IDS] — sets REPO_PKGS=()/AUR_PKGS=() (the
@@ -120,70 +124,70 @@ app_label_for() {
 REPO_PKGS=()
 AUR_PKGS=()
 repo_and_aur_pkgs() {
-    REPO_PKGS=()
-    AUR_PKGS=()
-    local band="$1" filter="${2:-}"
-    _bucket_pkg() {
-        case "$1" in
-            aur:*) AUR_PKGS+=("${1#aur:}") ;;
-            *) REPO_PKGS+=("$1") ;;
-        esac
-    }
-    if [[ -z "$filter" ]]; then
-        local p
-        while IFS= read -r p; do
-            [[ -z "$p" ]] && continue
-            _bucket_pkg "$p"
-        done < <(pack_field "$band" pkg)
-    else
-        local id out pkg oldifs="$IFS"
-        IFS=,
-        for id in $filter; do
-            IFS="$oldifs"
-            [[ -z "$id" ]] && continue
-            out="$("$KIDS_PY" "$PYHELPER" pack-app "$SHARE/packs/$band.toml" "$id" 2>/dev/null)" || continue
-            pkg="$(printf '%s\n' "$out" | cut -f2)"
-            [[ -n "$pkg" ]] && _bucket_pkg "$pkg"
-        done
-        IFS="$oldifs"
-    fi
+  REPO_PKGS=()
+  AUR_PKGS=()
+  local band="$1" filter="${2:-}"
+  _bucket_pkg() {
+    case "$1" in
+      aur:*) AUR_PKGS+=("${1#aur:}") ;;
+      *) REPO_PKGS+=("$1") ;;
+    esac
+  }
+  if [[ -z "$filter" ]]; then
+    local p
+    while IFS= read -r p; do
+      [[ -z "$p" ]] && continue
+      _bucket_pkg "$p"
+    done < <(pack_field "$band" pkg)
+  else
+    local id out pkg oldifs="$IFS"
+    IFS=,
+    for id in $filter; do
+      IFS="$oldifs"
+      [[ -z "$id" ]] && continue
+      out="$("$KIDS_PY" "$PYHELPER" pack-app "$SHARE/packs/$band.toml" "$id" 2>/dev/null)" || continue
+      pkg="$(printf '%s\n' "$out" | cut -f2)"
+      [[ -n "$pkg" ]] && _bucket_pkg "$pkg"
+    done
+    IFS="$oldifs"
+  fi
 }
 
 # run_priv CMD... — print (DRY_RUN=1) or run under sudo. docs/wizard.md.
 run_priv() {
-    if [[ "$DRY_RUN" == "1" ]]; then
-        printf '  [dry-run] sudo'
-        printf ' %q' "$@"
-        printf '\n'
-    else
-        sudo "$@"
-    fi
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '  [dry-run] sudo'
+    printf ' %q' "$@"
+    printf '\n'
+  else
+    sudo "$@"
+  fi
 }
 
 # run_priv_stdin CMD... — like run_priv, forwarding stdin (a password);
 # DRY_RUN drains and discards it, never echoes (AGENTS.md).
 run_priv_stdin() {
-    if [[ "$DRY_RUN" == "1" ]]; then
-        printf '  [dry-run] sudo'
-        printf ' %q' "$@"
-        printf '\n'
-        cat >/dev/null
-    else
-        sudo "$@"
-    fi
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '  [dry-run] sudo'
+    printf ' %q' "$@"
+    printf '\n'
+    cat >/dev/null
+  else
+    sudo "$@"
+  fi
 }
 
 # run_priv_as USER CMD... — run_priv, but as USER.
 run_priv_as() {
-    local user="$1"
-    shift
-    if [[ "$DRY_RUN" == "1" ]]; then
-        printf '  [dry-run] sudo -u %q' "$user"
-        printf ' %q' "$@"
-        printf '\n'
-    else
-        sudo -u "$user" "$@"
-    fi
+  local user="$1"
+  shift
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '  [dry-run] sudo -u %q' "$user"
+    printf ' %q' "$@"
+    printf '\n'
+  else
+    sudo -u "$user" "$@"
+  fi
 }
 
 # --- prefetch (R-WIZ-4): starts on the age screen, never blocks. Only
@@ -191,27 +195,27 @@ run_priv_as() {
 # so -- Apply's install step works either way. docs/wizard.md "Prefetch".
 PREFETCH_PID=""
 start_prefetch() {
-    local band="$1"
-    repo_and_aur_pkgs "$band"
-    ((${#REPO_PKGS[@]})) || return 0
-    if [[ "$DRY_RUN" == "1" ]]; then
-        printf '  [dry-run] sudo -n pacman -Sw --noconfirm'
-        printf ' %q' "${REPO_PKGS[@]}"
-        printf ' (background, started now, never blocks)\n'
-        return 0
-    fi
-    if sudo -n true 2>/dev/null; then
-        sudo -n pacman -Sw --noconfirm "${REPO_PKGS[@]}" >/dev/null 2>&1 &
-        PREFETCH_PID=$!
-    else
-        echo "  (starter-pack download will start at Apply instead of now — see docs/wizard.md)" >&2
-    fi
+  local band="$1"
+  repo_and_aur_pkgs "$band"
+  ((${#REPO_PKGS[@]})) || return 0
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '  [dry-run] sudo -n pacman -Sw --noconfirm'
+    printf ' %q' "${REPO_PKGS[@]}"
+    printf ' (background, started now, never blocks)\n'
+    return 0
+  fi
+  if sudo -n true 2>/dev/null; then
+    sudo -n pacman -Sw --noconfirm "${REPO_PKGS[@]}" >/dev/null 2>&1 &
+    PREFETCH_PID=$!
+  else
+    echo "  (starter-pack download will start at Apply instead of now — see docs/wizard.md)" >&2
+  fi
 }
 stop_prefetch() {
-    if [[ -n "$PREFETCH_PID" ]]; then
-        kill "$PREFETCH_PID" >/dev/null 2>&1 || true
-    fi
-    PREFETCH_PID=""
+  if [[ -n "$PREFETCH_PID" ]]; then
+    kill "$PREFETCH_PID" >/dev/null 2>&1 || true
+  fi
+  PREFETCH_PID=""
 }
 trap stop_prefetch EXIT
 
@@ -221,107 +225,107 @@ trap stop_prefetch EXIT
 # (issue #19's brief); printed on failure, redraws the screen (lib/tui.sh's
 # VALIDATOR contract).
 validate_kid_name() {
-    local name="$1"
-    if [[ -z "$name" ]]; then
-        echo "Type a name — a first name or nickname is fine."
-        return 1
-    fi
-    if ((${#name} > 24)); then
-        echo "Keep it to 24 characters or fewer."
-        return 1
-    fi
-    if [[ ! "$name" =~ ^[A-Za-z][A-Za-z\ -]*$ ]]; then
-        echo "Letters, spaces, and hyphens only, please."
-        return 1
-    fi
-    return 0
+  local name="$1"
+  if [[ -z "$name" ]]; then
+    echo "Type a name — a first name or nickname is fine."
+    return 1
+  fi
+  if ((${#name} > 24)); then
+    echo "Keep it to 24 characters or fewer."
+    return 1
+  fi
+  if [[ ! "$name" =~ ^[A-Za-z][A-Za-z\ -]*$ ]]; then
+    echo "Letters, spaces, and hyphens only, please."
+    return 1
+  fi
+  return 0
 }
 
 PASSWORD_MIN=4
 validate_kid_password() {
-    local pw="$1"
-    if ((${#pw} < PASSWORD_MIN)); then
-        echo "That needs to be at least $PASSWORD_MIN characters."
-        return 1
-    fi
-    return 0
+  local pw="$1"
+  if ((${#pw} < PASSWORD_MIN)); then
+    echo "That needs to be at least $PASSWORD_MIN characters."
+    return 1
+  fi
+  return 0
 }
 
 # verify_parent_password_authd CANDIDATE — same protocol
 # bin/omarchy-kids-parent-auth speaks (docs/authd.md); fails closed if
 # neither socat nor python3 is available.
 verify_parent_password_authd() {
-    local candidate="$1" reply
-    reply="$(kids_sock_request "$AUTH_SOCK" "$candidate"$'\n')" || return 1
-    [[ "$reply" == ok* ]]
+  local candidate="$1" reply
+  reply="$(kids_sock_request "$AUTH_SOCK" "$candidate"$'\n')" || return 1
+  [[ "$reply" == ok* ]]
 }
 
 # verify_parent_password_sudo CANDIDATE — fallback for when authd's
 # socket isn't up: sudo -S -v, stdin only, never argv/logged. docs/wizard.md.
 verify_parent_password_sudo() {
-    local candidate="$1"
-    sudo -k >/dev/null 2>&1
-    printf '%s\n' "$candidate" | sudo -S -p '' -v >/dev/null 2>&1
+  local candidate="$1"
+  sudo -k >/dev/null 2>&1
+  printf '%s\n' "$candidate" | sudo -S -p '' -v >/dev/null 2>&1
 }
 
 # authd_verifiable — true iff the authd socket is active AND machine.conf
 # names a parent. Both gates matter independently -- docs/authd.md.
 authd_verifiable() {
-    [[ -S "$AUTH_SOCK" ]] || return 1
-    local parent
-    parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null)" && [[ -n "$parent" ]]
+  [[ -S "$AUTH_SOCK" ]] || return 1
+  local parent
+  parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null)" && [[ -n "$parent" ]]
 }
 
 # verify_parent_password CANDIDATE — authd when authd_verifiable allows
 # it, else sudo. The fallback reason is a stderr diagnostic only, never
 # shown to the parent (issue #46) -- docs/wizard.md.
 verify_parent_password() {
-    local candidate="$1"
-    if authd_verifiable; then
-        verify_parent_password_authd "$candidate"
-        return $?
-    fi
-    if [[ -S "$AUTH_SOCK" ]]; then
-        echo "omarchy-kids-wizard: $MACHINE_CONF has no 'parent=' line — verifying the parent password via sudo instead" >&2
-    else
-        echo "omarchy-kids-wizard: omarchy-kids-authd socket not active ($AUTH_SOCK) — verifying the parent password via sudo instead" >&2
-    fi
-    verify_parent_password_sudo "$candidate"
+  local candidate="$1"
+  if authd_verifiable; then
+    verify_parent_password_authd "$candidate"
+    return $?
+  fi
+  if [[ -S "$AUTH_SOCK" ]]; then
+    echo "omarchy-kids-wizard: $MACHINE_CONF has no 'parent=' line — verifying the parent password via sudo instead" >&2
+  else
+    echo "omarchy-kids-wizard: omarchy-kids-authd socket not active ($AUTH_SOCK) — verifying the parent password via sudo instead" >&2
+  fi
+  verify_parent_password_sudo "$candidate"
 }
 
 friendly_wifi_mode() {
-    case "$1" in
-        parent) echo "Ask me first" ;;
-        helper) echo "On their own, safely" ;;
-        *) echo "$1" ;;
-    esac
+  case "$1" in
+    parent) echo "Ask me first" ;;
+    helper) echo "On their own, safely" ;;
+    *) echo "$1" ;;
+  esac
 }
 
 # maybe_override KEY VALUE BAND_DEFAULT — writes only when it differs (R-BAND-2).
 maybe_override() {
-    local key="$1" value="$2" band_default="$3"
-    [[ "$value" == "$band_default" ]] && return 0
-    run_priv "$CONF_BIN" set "$ACCOUNT" "$key" "$value"
+  local key="$1" value="$2" band_default="$3"
+  [[ "$value" == "$band_default" ]] && return 0
+  run_priv "$CONF_BIN" set "$ACCOUNT" "$key" "$value"
 }
 
 # apps_pick_walk STEP TOTAL — yes/no per app, one at a time; sets
 # $TUI_REPLY to the comma-joined yes ids. Shared by A9 and the Advanced
 # checklist's apps row (docs/wizard.md).
 apps_pick_walk() {
-    local step="$1" total="$2" id label chosen=() body
-    while IFS= read -r id; do
-        [[ -z "$id" ]] && continue
-        label="$(app_label_for "$BAND" "$id")"
-        # shellcheck disable=SC2034 # read by tui_screen_confirm via nameref-by-name
-        body=("Include $label in $DISPLAY_NAME's starter apps?")
-        tui_screen_confirm "$label" "$step" "$total" 0 "" body "Yes" "No"
-        local rc=$?
-        ((rc == 130)) && return 130
-        [[ "$TUI_REPLY" == yes ]] && chosen+=("$id")
-    done < <(pack_field "$BAND" id)
-    local IFS=,
-    TUI_REPLY="${chosen[*]}"
-    return 0
+  local step="$1" total="$2" id label chosen=() body
+  while IFS= read -r id; do
+    [[ -z "$id" ]] && continue
+    label="$(app_label_for "$BAND" "$id")"
+    # shellcheck disable=SC2034 # read by tui_screen_confirm via nameref-by-name
+    body=("Include $label in $DISPLAY_NAME's starter apps?")
+    tui_screen_confirm "$label" "$step" "$total" 0 "" body "Yes" "No"
+    local rc=$?
+    ((rc == 130)) && return 130
+    [[ "$TUI_REPLY" == yes ]] && chosen+=("$id")
+  done < <(pack_field "$BAND" id)
+  local IFS=,
+  TUI_REPLY="${chosen[*]}"
+  return 0
 }
 
 # --- thin dispatch: one lib/wizard-<area>.sh per screen group ---------------
@@ -362,63 +366,63 @@ tui_init || exit $?
 
 STEP=1
 while ((STEP <= TOTAL_STEPS)); do
-    rc=0
-    # 1=Esc back, 130=Ctrl+C leave is data for the case below, not a failure.
-    set +e
-    case "$STEP" in
-        1) screen_welcome ;;
-        2) screen_parent_password ;;
-        3) screen_name ;;
-        4) screen_face ;;
-        5) screen_band ;;
-        6) screen_mode ;;
-        7)
-            # Advanced's checklist stands in for A7-A11 at once (issue #20).
-            if [[ "$MODE" == advanced ]]; then
-                screen_advanced_checklist 7 "$TOTAL_STEPS"
-            else
-                screen_web
-            fi
-            ;;
-        8) screen_time ;;
-        9) screen_apps ;;
-        10) screen_wifi ;;
-        11) screen_level ;;
-        12) screen_password ;;
-        13) screen_summary ;;
-        14) screen_apply ;;
-        15) screen_done ;;
-    esac
-    rc=$?
-    set -e
-    case "$rc" in
-        0)
-            if ((STEP == 7)) && [[ "$MODE" == advanced ]]; then
-                STEP=12 # "Done customizing": skip Simple's A7-A11 entirely
-            else
-                STEP=$((STEP + 1))
-            fi
-            ;;
-        1)
-            if ((STEP == 1)); then
-                echo "Nothing to go back to — leaving, nothing changed." >&2
-                exit 1
-            fi
-            if ((STEP == 7)) && [[ "$MODE" == advanced ]]; then
-                STEP=6 # Esc out of the checklist's own row list: back to A6
-            else
-                STEP=$((STEP - 1))
-            fi
-            ;;
-        130)
-            stop_prefetch
-            echo "Left setup. Nothing changed." >&2
-            exit 130
-            ;;
-        *)
-            die "screen at step $STEP failed unexpectedly" 2
-            ;;
-    esac
+  rc=0
+  # 1=Esc back, 130=Ctrl+C leave is data for the case below, not a failure.
+  set +e
+  case "$STEP" in
+    1) screen_welcome ;;
+    2) screen_parent_password ;;
+    3) screen_name ;;
+    4) screen_face ;;
+    5) screen_band ;;
+    6) screen_mode ;;
+    7)
+      # Advanced's checklist stands in for A7-A11 at once (issue #20).
+      if [[ "$MODE" == advanced ]]; then
+        screen_advanced_checklist 7 "$TOTAL_STEPS"
+      else
+        screen_web
+      fi
+      ;;
+    8) screen_time ;;
+    9) screen_apps ;;
+    10) screen_wifi ;;
+    11) screen_level ;;
+    12) screen_password ;;
+    13) screen_summary ;;
+    14) screen_apply ;;
+    15) screen_done ;;
+  esac
+  rc=$?
+  set -e
+  case "$rc" in
+    0)
+      if ((STEP == 7)) && [[ "$MODE" == advanced ]]; then
+        STEP=12 # "Done customizing": skip Simple's A7-A11 entirely
+      else
+        STEP=$((STEP + 1))
+      fi
+      ;;
+    1)
+      if ((STEP == 1)); then
+        echo "Nothing to go back to — leaving, nothing changed." >&2
+        exit 1
+      fi
+      if ((STEP == 7)) && [[ "$MODE" == advanced ]]; then
+        STEP=6 # Esc out of the checklist's own row list: back to A6
+      else
+        STEP=$((STEP - 1))
+      fi
+      ;;
+    130)
+      stop_prefetch
+      echo "Left setup. Nothing changed." >&2
+      exit 130
+      ;;
+    *)
+      die "screen at step $STEP failed unexpectedly" 2
+      ;;
+  esac
 done
 
 exit 0

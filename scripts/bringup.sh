@@ -4,7 +4,7 @@ set -euo pipefail
 KEY="${1:?usage: bringup.sh \"ssh-ed25519 AAAA... comment\"}"
 sudo hostnamectl set-hostname kids-test
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
-grep -qF "$KEY" ~/.ssh/authorized_keys 2>/dev/null || echo "$KEY" >> ~/.ssh/authorized_keys
+grep -qF "$KEY" ~/.ssh/authorized_keys 2>/dev/null || echo "$KEY" >>~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 sudo systemctl enable --now sshd
 echo "Bring-up done. Reach this box at:"

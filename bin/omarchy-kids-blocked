@@ -22,7 +22,10 @@ EOF
 
 for arg in "$@"; do
   case "$arg" in
-    -h|--help) usage; exit 0 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
   esac
 done
 
@@ -40,7 +43,7 @@ Find a grown-up. They can run 'omarchy-kids-check' to see what's wrong."
 # Actually attempt the write rather than `[[ -w /dev/tty ]]` first -- the
 # permission-bit check can lie (docs/session.md).
 OUT=/dev/stdout
-if { : > /dev/tty; } 2>/dev/null; then
+if { : >/dev/tty; } 2>/dev/null; then
   OUT=/dev/tty
 fi
 

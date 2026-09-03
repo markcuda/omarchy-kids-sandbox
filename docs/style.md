@@ -88,6 +88,10 @@ kills the whole script) whenever there was nothing to kill; `bin/omarchy-kids-se
 called `run_check "$id"` bare, so a real FAIL exited before the FAIL/ask-grownup handling below it
 ever ran.
 
+**Indentation.** Two spaces, `case` patterns indented, operators at line ends: what
+`shfmt -i 2 -ci` produces, and what most of Omarchy's own `bin/` uses. `shfmt -i 2 -ci -d bin lib
+test scripts` must print nothing.
+
 ## 3. Length and comment density
 
 **Observed.** Short single-purpose commands stay short and almost bare: `bin/omarchy-system-logout`

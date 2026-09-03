@@ -16,19 +16,19 @@ DEMO="$ROOT/scripts/omarchy-kids-tui-demo"
 
 pass() { echo "PASS  $*"; }
 fail() {
-    echo "FAIL  $*"
-    rc=1
+  echo "FAIL  $*"
+  rc=1
 }
 rc=0
 
 check_contains() { # haystack needle label
-    if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2' in: $1)"; fi
+  if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2' in: $1)"; fi
 }
 check_not_contains() { # haystack needle label
-    if [[ "$1" != *"$2"* ]]; then pass "$3"; else fail "$3 (did not want '$2' in: $1)"; fi
+  if [[ "$1" != *"$2"* ]]; then pass "$3"; else fail "$3 (did not want '$2' in: $1)"; fi
 }
 check_eq() { # got want label
-    if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
+  if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
 }
 
 TMP="$(mktemp -d)"
@@ -87,21 +87,21 @@ export PATH="$STUBS:$PATH"
 export GUM_LOG CLEAR_LOG TPUT_LOG
 
 answers_file() { # writes $1's remaining args, one per line, returns its path
-    local f="$TMP/answers.$RANDOM"
-    printf '%s\n' "$@" >"$f"
-    printf '%s' "$f"
+  local f="$TMP/answers.$RANDOM"
+  printf '%s\n' "$@" >"$f"
+  printf '%s' "$f"
 }
 
 # --- non-tty, no answers file: tui_init fails closed with exit 2 -----------
 
 out="$(
-    {
-        unset OMARCHY_KIDS_TUI_ANSWERS
-        # shellcheck source=/dev/null
-        source "$TUI_LIB"
-        tui_init
-        echo "tui_init rc=$?"
-    } 2>&1
+  {
+    unset OMARCHY_KIDS_TUI_ANSWERS
+    # shellcheck source=/dev/null
+    source "$TUI_LIB"
+    tui_init
+    echo "tui_init rc=$?"
+  } 2>&1
 )" </dev/null
 check_contains "$out" "tui_init rc=2" "tui_init: no terminal and no answers file exits 2"
 check_contains "$out" "nothing to answer prompts with" "tui_init: exit-2 message explains why"
@@ -110,12 +110,12 @@ check_contains "$out" "nothing to answer prompts with" "tui_init: exit-2 message
 
 f="$(answers_file begin)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    echo "rc=$? mode=$TUI_MODE"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  echo "rc=$? mode=$TUI_MODE"
 )" </dev/null
 check_contains "$out" "rc=0 mode=file" "tui_init: an answers file selects file mode and returns 0"
 
@@ -123,11 +123,11 @@ check_contains "$out" "rc=0 mode=file" "tui_init: an answers file selects file m
 
 : >"$GUM_LOG"
 out="$(
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init 2>/dev/null  # no answers file here; the test overrides TUI_MODE below
-    TUI_MODE="file"
-    tui_header "Some Screen" 2 5 0 "should never print"
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null # no answers file here; the test overrides TUI_MODE below
+  TUI_MODE="file"
+  tui_header "Some Screen" 2 5 0 "should never print"
 )" </dev/null
 check_not_contains "$out" "Omy" "tui_header show_omy=0: no Omy glyph"
 check_not_contains "$out" "should never print" "tui_header show_omy=0: no Omy line"
@@ -136,11 +136,11 @@ check_contains "$out" "Some Screen" "tui_header: title always renders"
 
 : >"$GUM_LOG"
 out="$(
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init 2>/dev/null  # no answers file here; the test overrides TUI_MODE below
-    TUI_MODE="file"
-    tui_header "Welcome" 1 3 1 "Hi, I'm Omy."
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null # no answers file here; the test overrides TUI_MODE below
+  TUI_MODE="file"
+  tui_header "Welcome" 1 3 1 "Hi, I'm Omy."
 )" </dev/null
 check_contains "$out" "Omy" "tui_header show_omy=1: Omy glyph renders"
 check_contains "$out" "Hi, I'm Omy." "tui_header show_omy=1: Omy line renders"
@@ -150,18 +150,18 @@ check_contains "$(cat "$GUM_LOG")" "style" "tui_header: rendering goes through t
 
 f="$(answers_file garden)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    web_choices=(
-        "garden|Only sites you choose|A short list you can grow."
-        "filtered|Filtered open web|Adult content blocked."
-    )
-    tui_screen_choose "What can K see?" 2 3 0 "" web_choices "garden"
-    echo "rc=$? reply=$TUI_REPLY"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  web_choices=(
+    "garden|Only sites you choose|A short list you can grow."
+    "filtered|Filtered open web|Adult content blocked."
+  )
+  tui_screen_choose "What can K see?" 2 3 0 "" web_choices "garden"
+  echo "rc=$? reply=$TUI_REPLY"
 )" </dev/null
 check_contains "$out" "What can K see?" "tui_screen_choose: title renders"
 check_contains "$out" "Only sites you choose" "tui_screen_choose: choice label renders"
@@ -175,17 +175,17 @@ check_contains "$out" "rc=0 reply=garden" "tui_screen_choose: the matching answe
 
 f="$(answers_file garden)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    web_choices=("garden|Only sites you choose|A short list you can grow.")
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    web_facts=("17m used / 0m left today" "Open requests: 2")
-    tui_screen_choose "Ada" 1 1 0 "" web_choices "garden" "" web_facts
-    echo "rc=$? reply=$TUI_REPLY"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  web_choices=("garden|Only sites you choose|A short list you can grow.")
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  web_facts=("17m used / 0m left today" "Open requests: 2")
+  tui_screen_choose "Ada" 1 1 0 "" web_choices "garden" "" web_facts
+  echo "rc=$? reply=$TUI_REPLY"
 )" </dev/null
 check_contains "$out" "17m used / 0m left today" "tui_screen_choose: a body line renders in plain mode"
 check_contains "$out" "Open requests: 2" "tui_screen_choose: every body line renders in plain mode"
@@ -193,23 +193,23 @@ check_contains "$out" "rc=0 reply=garden" "tui_screen_choose: a body changes not
 title_line="$(grep -n '^Ada$' <<<"$out" | head -1 | cut -d: -f1)"
 body_line="$(grep -n '^17m used' <<<"$out" | head -1 | cut -d: -f1)"
 if [[ -n "$title_line" && -n "$body_line" ]] && ((title_line < body_line)); then
-    pass "tui_screen_choose: plain mode prints the body under the title, not above it"
+  pass "tui_screen_choose: plain mode prints the body under the title, not above it"
 else
-    fail "tui_screen_choose: body/title are out of order (title=$title_line body=$body_line)"
+  fail "tui_screen_choose: body/title are out of order (title=$title_line body=$body_line)"
 fi
 
 # a bare 1-based number also resolves
 f="$(answers_file 2)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    web_choices=("garden|Only sites you choose|reason one" "filtered|Filtered open web|reason two")
-    tui_screen_choose "T" 1 1 0 "" web_choices
-    echo "rc=$? reply=$TUI_REPLY"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  web_choices=("garden|Only sites you choose|reason one" "filtered|Filtered open web|reason two")
+  tui_screen_choose "T" 1 1 0 "" web_choices
+  echo "rc=$? reply=$TUI_REPLY"
 )" </dev/null
 check_contains "$out" "rc=0 reply=filtered" "tui_screen_choose: a number-key answer resolves by position"
 
@@ -217,15 +217,15 @@ check_contains "$out" "rc=0 reply=filtered" "tui_screen_choose: a number-key ans
 
 f="$(answers_file "@esc" garden)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    web_choices=("garden|Only sites you choose|r" "filtered|Filtered open web|r")
-    tui_screen_choose "T" 1 1 0 "" web_choices
-    echo "rc=$?"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  web_choices=("garden|Only sites you choose|r" "filtered|Filtered open web|r")
+  tui_screen_choose "T" 1 1 0 "" web_choices
+  echo "rc=$?"
 )" </dev/null
 check_contains "$out" "rc=1" "tui_screen_choose: @esc returns 1 (Esc = back)"
 
@@ -233,54 +233,54 @@ check_contains "$out" "rc=1" "tui_screen_choose: @esc returns 1 (Esc = back)"
 
 f="$(answers_file "@ctrlc" no garden)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    web_choices=("garden|Only sites you choose|r" "filtered|Filtered open web|r")
-    tui_screen_choose "T" 1 1 0 "" web_choices
-    echo "rc=$? reply=$TUI_REPLY"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  web_choices=("garden|Only sites you choose|r" "filtered|Filtered open web|r")
+  tui_screen_choose "T" 1 1 0 "" web_choices
+  echo "rc=$? reply=$TUI_REPLY"
 )" </dev/null
 check_contains "$out" "rc=0 reply=garden" "tui_screen_choose: @ctrlc + no stays, next line answers the screen"
 
 f="$(answers_file "@ctrlc" yes)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    web_choices=("garden|Only sites you choose|r" "filtered|Filtered open web|r")
-    tui_screen_choose "T" 1 1 0 "" web_choices
-    echo "rc=$?"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  web_choices=("garden|Only sites you choose|r" "filtered|Filtered open web|r")
+  tui_screen_choose "T" 1 1 0 "" web_choices
+  echo "rc=$?"
 )" </dev/null
 check_contains "$out" "rc=130" "tui_screen_choose: @ctrlc + yes leaves, exit 130"
 
 # The same Esc/Ctrl+C contract on tui_screen_input.
 f="$(answers_file "@esc")"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    tui_screen_input "Name" 1 1 0 "" text "hint" ""
-    echo "rc=$?"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  tui_screen_input "Name" 1 1 0 "" text "hint" ""
+  echo "rc=$?"
 )" </dev/null
 check_contains "$out" "rc=1" "tui_screen_input: @esc returns 1"
 
 f="$(answers_file "@ctrlc" yes)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    tui_screen_input "Name" 1 1 0 "" text "hint" ""
-    echo "rc=$?"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  tui_screen_input "Name" 1 1 0 "" text "hint" ""
+  echo "rc=$?"
 )" </dev/null
 check_contains "$out" "rc=130" "tui_screen_input: @ctrlc + yes leaves, exit 130"
 
@@ -295,15 +295,15 @@ lower_only() {
 EOF
 f="$(answers_file "BAD1" "ok")"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    # shellcheck source=/dev/null
-    source "$TMP/lower_only.sh"
-    tui_init
-    tui_screen_input "Name" 1 1 0 "" text "" lower_only
-    echo "rc=$? reply=$TUI_REPLY"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  # shellcheck source=/dev/null
+  source "$TMP/lower_only.sh"
+  tui_init
+  tui_screen_input "Name" 1 1 0 "" text "" lower_only
+  echo "rc=$? reply=$TUI_REPLY"
 )" </dev/null
 check_contains "$out" "letters only" "tui_screen_input: a failed validator's message is shown"
 check_contains "$out" "rc=0 reply=ok" "tui_screen_input: retries until the validator accepts"
@@ -312,57 +312,57 @@ check_contains "$out" "rc=0 reply=ok" "tui_screen_input: retries until the valid
 
 f="$(answers_file yes)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    body=("Apply this?")
-    tui_screen_confirm "Summary" 1 1 0 "" body "Apply" "Change something"
-    echo "rc=$? reply=$TUI_REPLY"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  body=("Apply this?")
+  tui_screen_confirm "Summary" 1 1 0 "" body "Apply" "Change something"
+  echo "rc=$? reply=$TUI_REPLY"
 )" </dev/null
 check_contains "$out" "Apply this?" "tui_screen_confirm: body renders"
 check_contains "$out" "rc=0 reply=yes" "tui_screen_confirm: yes returns 0"
 
 f="$(answers_file "@esc")"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    body=("Apply this?")
-    tui_screen_confirm "Summary" 1 1 0 "" body
-    echo "rc=$? reply=$TUI_REPLY"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  body=("Apply this?")
+  tui_screen_confirm "Summary" 1 1 0 "" body
+  echo "rc=$? reply=$TUI_REPLY"
 )" </dev/null
 check_contains "$out" "rc=1 reply=no" "tui_screen_confirm: @esc is the same outcome as declining"
 
 f="$(answers_file "@ctrlc")"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    body=("Apply this?")
-    tui_screen_confirm "Summary" 1 1 0 "" body
-    echo "rc=$?"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  body=("Apply this?")
+  tui_screen_confirm "Summary" 1 1 0 "" body
+  echo "rc=$?"
 )" </dev/null
 check_contains "$out" "rc=130" "tui_screen_confirm: @ctrlc leaves directly, exit 130"
 
 # --- tui_screen_summary: a pure table render, no prompt ---------------------
 
 out="$(
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init 2>/dev/null  # no answers file here; the test overrides TUI_MODE below
-    TUI_MODE="file"
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    rows=("Account|kid-ada" "Level|1 — one thing at a time")
-    tui_screen_summary "Summary" 1 1 0 "" rows
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null # no answers file here; the test overrides TUI_MODE below
+  TUI_MODE="file"
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  rows=("Account|kid-ada" "Level|1 — one thing at a time")
+  tui_screen_summary "Summary" 1 1 0 "" rows
 )" </dev/null
 check_contains "$out" "Account" "tui_screen_summary: row label renders"
 check_contains "$out" "kid-ada" "tui_screen_summary: row value renders"
@@ -371,13 +371,13 @@ check_contains "$out" "Level" "tui_screen_summary: second row renders"
 # --- tui_progress: done marks, current marker, and the tip -----------------
 
 out="$(
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init 2>/dev/null  # no answers file here; the test overrides TUI_MODE below
-    TUI_MODE="file"
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    steps=("Create account" "Install packages" "Apply settings")
-    tui_progress steps 1 "Grab a coffee."
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null # no answers file here; the test overrides TUI_MODE below
+  TUI_MODE="file"
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  steps=("Create account" "Install packages" "Apply settings")
+  tui_progress steps 1 "Grab a coffee."
 )" </dev/null
 check_contains "$out" "✓" "tui_progress: a done step gets a check mark"
 check_contains "$out" "▸" "tui_progress: the current step gets its marker"
@@ -394,20 +394,20 @@ check_contains "$out" "Grab a coffee." "tui_progress: the tip renders"
 : >"$CLEAR_LOG"
 : >"$TPUT_LOG"
 out="$(
-    unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init 2>/dev/null  # no tty, no answers file here; force interactive below
-    TUI_MODE="interactive"
-    # shellcheck disable=SC2034 # read by tui_screen_choose in lib/tui.sh (gates gum vs the read fallback)
-    TUI_HAVE_GUM=1
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    web_choices=(
-        "garden|Only sites you choose|A short list you can grow."
-        "filtered|Filtered open web|Adult content blocked."
-    )
-    tui_screen_choose "What can K see?" 2 3 0 "" web_choices "garden" 2>/dev/null
-    echo "rc=$?"
+  unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null # no tty, no answers file here; force interactive below
+  TUI_MODE="interactive"
+  # shellcheck disable=SC2034 # read by tui_screen_choose in lib/tui.sh (gates gum vs the read fallback)
+  TUI_HAVE_GUM=1
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  web_choices=(
+    "garden|Only sites you choose|A short list you can grow."
+    "filtered|Filtered open web|Adult content blocked."
+  )
+  tui_screen_choose "What can K see?" 2 3 0 "" web_choices "garden" 2>/dev/null
+  echo "rc=$?"
 )" </dev/null
 check_contains "$(cat "$CLEAR_LOG")" "cleared" "tui_header: card mode clears the screen"
 check_contains "$(cat "$TPUT_LOG")" "cols" "tui_header: card mode measures the terminal with tput"
@@ -425,9 +425,9 @@ check_not_contains "$out" "Only sites you choose" "tui_screen_choose: card mode 
 style_line="$(grep -n -- '--border rounded' "$GUM_LOG" | head -1 | cut -d: -f1)"
 choose_line="$(grep -n '^choose ' "$GUM_LOG" | head -1 | cut -d: -f1)"
 if [[ -n "$style_line" && -n "$choose_line" && "$style_line" -lt "$choose_line" ]]; then
-    pass "tui_screen_choose: the card renders before gum choose runs, not after"
+  pass "tui_screen_choose: the card renders before gum choose runs, not after"
 else
-    fail "tui_screen_choose: card/choose are out of order (card=$style_line choose=$choose_line)"
+  fail "tui_screen_choose: card/choose are out of order (card=$style_line choose=$choose_line)"
 fi
 
 # ...and a choose screen's body is drawn *inside* that one card (review
@@ -435,18 +435,18 @@ fi
 : >"$GUM_LOG"
 : >"$CLEAR_LOG"
 out="$(
-    unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init 2>/dev/null
-    TUI_MODE="interactive"
-    # shellcheck disable=SC2034 # read by tui_screen_choose in lib/tui.sh (gates gum vs the read fallback)
-    TUI_HAVE_GUM=1
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    kid_choices=("time|Screen time|")
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    kid_facts=("Ada — band 6-8" "17m used / 0m left today")
-    tui_screen_choose "Ada" 1 1 0 "" kid_choices "time" "" kid_facts 2>/dev/null
+  unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null
+  TUI_MODE="interactive"
+  # shellcheck disable=SC2034 # read by tui_screen_choose in lib/tui.sh (gates gum vs the read fallback)
+  TUI_HAVE_GUM=1
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  kid_choices=("time|Screen time|")
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  kid_facts=("Ada — band 6-8" "17m used / 0m left today")
+  tui_screen_choose "Ada" 1 1 0 "" kid_choices "time" "" kid_facts 2>/dev/null
 )" </dev/null
 card_call="$(grep -- '--border rounded' "$GUM_LOG" | head -1)"
 check_contains "$card_call" "Ada — band 6-8" "tui_screen_choose: card mode puts the body inside the card"
@@ -457,13 +457,13 @@ check_contains "$card_call" "17m used / 0m left today" "tui_screen_choose: every
 # edge, and turns off gum's own keybind help line -- lib/tui.sh's own
 # footer is the only help text a card-mode screen shows now.
 pad_out="$(
-    unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init 2>/dev/null
-    TUI_MODE="interactive"
-    _tui_measure
-    echo "left=$TUI_CARD_LEFT pad=$GUM_CHOOSE_PADDING help=$GUM_CHOOSE_SHOW_HELP"
+  unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null
+  TUI_MODE="interactive"
+  _tui_measure
+  echo "left=$TUI_CARD_LEFT pad=$GUM_CHOOSE_PADDING help=$GUM_CHOOSE_SHOW_HELP"
 )" </dev/null
 left_val="$(sed -n 's/^left=\([0-9]*\).*/\1/p' <<<"$pad_out")"
 check_contains "$pad_out" "pad=0 0 0 $((left_val + 2))" "_tui_measure: GUM_CHOOSE_PADDING lines up with the card's text, not its left edge"
@@ -473,15 +473,15 @@ check_contains "$pad_out" "help=false" "_tui_measure: GUM_CHOOSE_SHOW_HELP is of
 : >"$CLEAR_LOG"
 f="$(answers_file garden)"
 out="$(
-    OMARCHY_KIDS_TUI_ANSWERS="$f"
-    export OMARCHY_KIDS_TUI_ANSWERS
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init
-    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
-    web_choices=("garden|Only sites you choose|reason" "filtered|Filtered open web|reason")
-    tui_screen_choose "What can K see?" 2 3 0 "" web_choices "garden"
-    echo "rc=$? reply=$TUI_REPLY"
+  OMARCHY_KIDS_TUI_ANSWERS="$f"
+  export OMARCHY_KIDS_TUI_ANSWERS
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init
+  # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+  web_choices=("garden|Only sites you choose|reason" "filtered|Filtered open web|reason")
+  tui_screen_choose "What can K see?" 2 3 0 "" web_choices "garden"
+  echo "rc=$? reply=$TUI_REPLY"
 )" </dev/null
 check_eq "$(cat "$CLEAR_LOG")" "" "tui_screen_choose: file mode never clears the screen"
 check_contains "$out" "Only sites you choose" "tui_screen_choose: file mode still prints its own list (nothing else will)"
@@ -491,13 +491,13 @@ check_contains "$out" "rc=0 reply=garden" "tui_screen_choose: file mode still an
 # otherwise be interactive.
 : >"$CLEAR_LOG"
 out="$(
-    unset OMARCHY_KIDS_TUI_ANSWERS
-    export OMARCHY_KIDS_TUI_PLAIN=1
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    tui_init 2>/dev/null
-    TUI_MODE="interactive"
-    _tui_card_mode && echo "card" || echo "plain"
+  unset OMARCHY_KIDS_TUI_ANSWERS
+  export OMARCHY_KIDS_TUI_PLAIN=1
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null
+  TUI_MODE="interactive"
+  _tui_card_mode && echo "card" || echo "plain"
 )" </dev/null
 check_contains "$out" "plain" "OMARCHY_KIDS_TUI_PLAIN=1: forces plain mode even in an interactive terminal"
 
@@ -505,15 +505,15 @@ check_contains "$out" "plain" "OMARCHY_KIDS_TUI_PLAIN=1: forces plain mode even 
 # --- never overwritten; an unset one gets theme_color's own fallback ------
 
 out="$(
-    unset OMARCHY_KIDS_TUI_ANSWERS
-    export GUM_CHOOSE_CURSOR_FOREGROUND="#custom"
-    unset GUM_INPUT_PROMPT_FOREGROUND
-    # shellcheck source=/dev/null
-    source "$TUI_LIB"
-    f="$(answers_file begin)"
-    OMARCHY_KIDS_TUI_ANSWERS="$f" tui_init >/dev/null 2>&1
-    echo "cursor=$GUM_CHOOSE_CURSOR_FOREGROUND"
-    if [[ -n "$GUM_INPUT_PROMPT_FOREGROUND" ]]; then echo "prompt=set"; else echo "prompt=unset"; fi
+  unset OMARCHY_KIDS_TUI_ANSWERS
+  export GUM_CHOOSE_CURSOR_FOREGROUND="#custom"
+  unset GUM_INPUT_PROMPT_FOREGROUND
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  f="$(answers_file begin)"
+  OMARCHY_KIDS_TUI_ANSWERS="$f" tui_init >/dev/null 2>&1
+  echo "cursor=$GUM_CHOOSE_CURSOR_FOREGROUND"
+  if [[ -n "$GUM_INPUT_PROMPT_FOREGROUND" ]]; then echo "prompt=set"; else echo "prompt=unset"; fi
 )" </dev/null
 check_contains "$out" "cursor=#custom" "tui_init: an already-set GUM_* var from the theme is never overwritten"
 check_contains "$out" "prompt=set" "tui_init: an unset GUM_* var gets theme_color's own fallback"

@@ -21,36 +21,39 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT_DIR/bin/omarchy-kids-assert"
 
 pass() { echo "PASS  $*"; }
-fail() { echo "FAIL  $*"; rc=1; }
+fail() {
+  echo "FAIL  $*"
+  rc=1
+}
 rc=0
 
 check_contains() { # haystack needle label
-    if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2')"; fi
+  if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2')"; fi
 }
 check_eq() { # got want label
-    if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
+  if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
 }
 # line_status OUTPUT LOCK — the status word ("ok"/"fixed"/"FAIL"/"" if
 # absent) that OUTPUT's line for LOCK starts with.
 line_status() {
-    local out="$1" lock="$2" line
-    line="$(grep -E "^[A-Za-z-]+ +${lock}\$" <<<"$out" || true)"
-    [[ -n "$line" ]] && awk '{print $1}' <<<"$line"
+  local out="$1" lock="$2" line
+  line="$(grep -E "^[A-Za-z-]+ +${lock}\$" <<<"$out" || true)"
+  [[ -n "$line" ]] && awk '{print $1}' <<<"$line"
 }
 check_status() { # OUTPUT LOCK WANT LABEL
-    local got
-    got="$(line_status "$1" "$2")"
-    check_eq "$got" "$3" "$4"
+  local got
+  got="$(line_status "$1" "$2")"
+  check_eq "$got" "$3" "$4"
 }
 # only_this_lock_changed OUTPUT LOCK LABEL — every line in OUTPUT is "ok"
 # except LOCK, which must be "fixed". Confirms one broken lock doesn't
 # make assert touch (or misreport) any other lock.
 only_this_lock_changed() {
-    local out="$1" lock="$2" label="$3" bad
-    check_status "$out" "$lock" "fixed" "$label: $lock reports fixed"
-    bad="$(grep -Ev "^ok " <<<"$out" | grep -v "^fixed *${lock}\$" || true)"
-    [[ -z "$bad" ]] && pass "$label: no other lock line changed" \
-        || fail "$label: unexpected non-ok line(s):"$'\n'"$bad"
+  local out="$1" lock="$2" label="$3" bad
+  check_status "$out" "$lock" "fixed" "$label: $lock reports fixed"
+  bad="$(grep -Ev "^ok " <<<"$out" | grep -v "^fixed *${lock}\$" || true)"
+  [[ -z "$bad" ]] && pass "$label: no other lock line changed" ||
+    fail "$label: unexpected non-ok line(s):"$'\n'"$bad"
 }
 
 TMP="$(mktemp -d)"
@@ -60,21 +63,21 @@ trap 'rm -rf "$TMP"' EXIT
 
 ETC="$TMP/etc/omarchy-kids"
 SHARE="$TMP/share/omarchy-kids"
-SCRATCH_ROOT="$TMP/root"       # OMARCHY_KIDS_ROOT
-HOMEROOT="$TMP/homeroot"       # OMARCHY_KIDS_HOME_ROOT
+SCRATCH_ROOT="$TMP/root" # OMARCHY_KIDS_ROOT
+HOMEROOT="$TMP/homeroot" # OMARCHY_KIDS_HOME_ROOT
 STUBS="$TMP/stubs"
 LOG="$TMP/log"
 ARGV_LOG="$LOG/argv.log"
 
 mkdir -p "$ETC/kids" "$SHARE/hyprland" "$SHARE/avatars" "$SCRATCH_ROOT/usr/lib/pam.d" "$HOMEROOT" "$STUBS" "$LOG/groups" "$LOG/gecos"
-printf 'account include system-login\nsession include system-login\n' > "$SCRATCH_ROOT/usr/lib/pam.d/systemd-user"
+printf 'account include system-login\nsession include system-login\n' >"$SCRATCH_ROOT/usr/lib/pam.d/systemd-user"
 touch "$ARGV_LOG"
 
-cat > "$ETC/machine.conf" <<'EOF'
+cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
 EOF
 
-cat > "$ETC/kids/kid-ada.conf" <<'EOF'
+cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada Lovelace
 avatar=fox
 band=6-8
@@ -86,7 +89,7 @@ EOF
 # issue #53: a scratch system themes dir for theme_apply_for's own copy.
 OMARCHY_PATH="$TMP/omarchy"
 mkdir -p "$OMARCHY_PATH/themes/tokyo-night"
-echo 'background = "#1a1b26"' > "$OMARCHY_PATH/themes/tokyo-night/colors.toml"
+echo 'background = "#1a1b26"' >"$OMARCHY_PATH/themes/tokyo-night/colors.toml"
 
 cp "$ROOT_DIR"/share/hyprland/*.lua "$SHARE/hyprland/"
 cp "$ROOT_DIR"/share/avatars/*.svg "$SHARE/avatars/"
@@ -97,17 +100,17 @@ cp "$ROOT_DIR"/share/avatars/*.svg "$SHARE/avatars/"
 # helper, copied rather than shared (test/shell.d files are each
 # self-contained, matching every other file in this directory).
 stub() {
-    local name="$1" extra="${2:-}" f="$STUBS/$1"
-    cat > "$f" <<'EOF'
+  local name="$1" extra="${2:-}" f="$STUBS/$1"
+  cat >"$f" <<'EOF'
 #!/bin/bash
 { printf '%s' "__NAME__"; printf ' %s' "$@"; printf '\n'; } >> "__ARGVLOG__"
 EOF
-    [[ -n "$extra" ]] && printf '%s\n' "$extra" >> "$f"
-    echo 'exit 0' >> "$f"
-    sed -i.bak -e "s#__NAME__#$name#g" -e "s#__ARGVLOG__#$ARGV_LOG#g" -e "s#__LOG__#$LOG#g" \
-        -e "s#__HOMEROOT__#$HOMEROOT#g" "$f"
-    rm -f "$f.bak"
-    chmod +x "$f"
+  [[ -n "$extra" ]] && printf '%s\n' "$extra" >>"$f"
+  echo 'exit 0' >>"$f"
+  sed -i.bak -e "s#__NAME__#$name#g" -e "s#__ARGVLOG__#$ARGV_LOG#g" -e "s#__LOG__#$LOG#g" \
+    -e "s#__HOMEROOT__#$HOMEROOT#g" "$f"
+  rm -f "$f.bak"
+  chmod +x "$f"
 }
 
 # findmnt: reports noexec,nosuid,nodev when "$LOG/mounted-<acct>" exists
@@ -274,7 +277,7 @@ posture_add_namespace_lines kid-ada
 # after it, at the bottom, matching how a real stack is laid out (auth
 # block, then account/session).
 mkdir -p "$SCRATCH_ROOT/etc/pam.d"
-cat > "$SCRATCH_ROOT/etc/pam.d/sddm" <<'EOF'
+cat >"$SCRATCH_ROOT/etc/pam.d/sddm" <<'EOF'
 #%PAM-1.0
 auth        include     system-login
 -auth       optional    pam_kwallet5.so
@@ -285,7 +288,7 @@ session     include     system-login
 -session    optional    pam_gnome_keyring.so    auto_start
 -session    optional    pam_kwallet5.so         auto_start
 EOF
-cat > "$SCRATCH_ROOT/etc/pam.d/omarchy-lock-password" <<'EOF'
+cat >"$SCRATCH_ROOT/etc/pam.d/omarchy-lock-password" <<'EOF'
 #%PAM-1.0
 auth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120
 -auth      [success=2 default=ignore]  pam_systemd_home.so
@@ -297,7 +300,7 @@ auth       required                    pam_faillock.so authsucc
 account    include                     system-local-login
 EOF
 
-cat > "$SCRATCH_ROOT/etc/pam.d/sddm-autologin" <<'EOF'
+cat >"$SCRATCH_ROOT/etc/pam.d/sddm-autologin" <<'EOF'
 #%PAM-1.0
 auth        required    pam_env.so
 auth        required    pam_faillock.so preauth
@@ -321,7 +324,7 @@ posture_write_sddm_theme_dropin
 posture_write_accountsservice kid-ada fox
 posture_write_face_icon "$SHARE/avatars/fox.svg" kid-ada
 posture_write_portal_conf mark "$(printf 'kid-ada\tAda Lovelace\tfox')"
-printf '%s' 'Ada Lovelace' > "$LOG/gecos/kid-ada"
+printf '%s' 'Ada Lovelace' >"$LOG/gecos/kid-ada"
 posture_ensure_parent_unlock_line sddm
 posture_ensure_parent_unlock_line omarchy-lock-password
 
@@ -335,18 +338,18 @@ touch "$LOG/mounted-kid-ada"
 theme_apply_for kid-ada tokyo-night
 
 # groups: already a member of both
-echo "kid-ada omarchy-kids omarchy-kids-6-8" > "$LOG/groups/kid-ada"
+echo "kid-ada omarchy-kids omarchy-kids-6-8" >"$LOG/groups/kid-ada"
 
 # getty@tty2..6 already masked
 for n in 2 3 4 5 6; do
-    mkdir -p "$SCRATCH_ROOT/etc/systemd/system"
-    ln -sf /dev/null "$SCRATCH_ROOT/etc/systemd/system/getty@tty$n.service"
+  mkdir -p "$SCRATCH_ROOT/etc/systemd/system"
+  ln -sf /dev/null "$SCRATCH_ROOT/etc/systemd/system/getty@tty$n.service"
 done
 
 # package units already enabled
 for u in omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service; do
-    mkdir -p "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants"
-    ln -sf "/usr/lib/systemd/system/$u" "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/$u"
+  mkdir -p "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants"
+  ln -sf "/usr/lib/systemd/system/$u" "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/$u"
 done
 mkdir -p "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants"
 ln -sf /usr/lib/systemd/system/omarchy-kids-authd.socket "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants/omarchy-kids-authd.socket"
@@ -364,7 +367,7 @@ cp "$SHARE"/hyprland/*.lua "$ETC/hyprland/"
 # chromium policy: one band's file, already 0640
 mkdir -p "$SCRATCH_ROOT/etc/chromium/policies/managed"
 CHROMIUM_FILE="$SCRATCH_ROOT/etc/chromium/policies/managed/omarchy-kids-6-8.json"
-echo '{}' > "$CHROMIUM_FILE"
+echo '{}' >"$CHROMIUM_FILE"
 chmod 0640 "$CHROMIUM_FILE"
 
 # boot hook: the package's hook file present, a fake UKI to "check", and
@@ -374,33 +377,37 @@ touch "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock"
 # The bootloader locks are machine-level and report `warn` where the file
 # they assert does not exist (review S11), so the baseline tree has both.
 mkdir -p "$SCRATCH_ROOT/boot" "$SCRATCH_ROOT/etc/default"
-printf 'editor_enabled: no\ndefault_entry: 2\n' > "$SCRATCH_ROOT/boot/limine.conf"
-printf 'MAX_SNAPSHOT_ENTRIES=0\n' > "$SCRATCH_ROOT/etc/default/limine"
+printf 'editor_enabled: no\ndefault_entry: 2\n' >"$SCRATCH_ROOT/boot/limine.conf"
+printf 'MAX_SNAPSHOT_ENTRIES=0\n' >"$SCRATCH_ROOT/etc/default/limine"
 touch "$SCRATCH_ROOT/boot/EFI/Linux/arch-linux.efi"
-echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" > "$LOG/lsinitcpio-output"
+echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" >"$LOG/lsinitcpio-output"
 
 # --- --help / bad args ------------------------------------------------
 
-"$BIN" --help >/dev/null 2>&1; check_eq "$?" 0 "--help exits 0"
-"$BIN" --nonsense >/dev/null 2>&1; check_eq "$?" 2 "an unknown flag exits 2"
+"$BIN" --help >/dev/null 2>&1
+check_eq "$?" 0 "--help exits 0"
+"$BIN" --nonsense >/dev/null 2>&1
+check_eq "$?" 2 "an unknown flag exits 2"
 
 # --- everything already correct: first full run is all ok -------------
 
-out="$("$BIN")"; st=$?
+out="$("$BIN")"
+st=$?
 check_eq "$st" 0 "a fully-provisioned, untouched tree exits 0"
 for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
-    "accountsservice:kid-ada" "gecos:kid-ada" "face:kid-ada" "groups:kid-ada" "theme:kid-ada" "polkit-admin" "polkit-deny" \
-    "sddm-theme" "portal-conf" \
-    "pam:sddm" "pam:systemd-user" "pam:sddm-autologin" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
-    "getty:tty2" "getty:tty3" "getty:tty4" \
-    "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook" \
-    "limine-editor" "limine-snapshots"; do
-    check_status "$out" "$lock" "ok" "first run: $lock is ok"
+  "accountsservice:kid-ada" "gecos:kid-ada" "face:kid-ada" "groups:kid-ada" "theme:kid-ada" "polkit-admin" "polkit-deny" \
+  "sddm-theme" "portal-conf" \
+  "pam:sddm" "pam:systemd-user" "pam:sddm-autologin" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
+  "getty:tty2" "getty:tty3" "getty:tty4" \
+  "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook" \
+  "limine-editor" "limine-snapshots"; do
+  check_status "$out" "$lock" "ok" "first run: $lock is ok"
 done
 
 # --- --quiet on an all-ok tree prints nothing ---------------------------
 
-out="$("$BIN" --quiet)"; st=$?
+out="$("$BIN" --quiet)"
+st=$?
 check_eq "$st" 0 "--quiet on an all-ok tree exits 0"
 check_eq "$out" "" "--quiet on an all-ok tree prints nothing"
 
@@ -408,25 +415,27 @@ check_eq "$out" "" "--quiet on an all-ok tree prints nothing"
 #     the state is restored, and nothing else moves -----------------
 
 # fstab
-sed -i.bak '/kid-ada/d' "$SCRATCH_ROOT/etc/fstab"; rm -f "$SCRATCH_ROOT/etc/fstab.bak"
+sed -i.bak '/kid-ada/d' "$SCRATCH_ROOT/etc/fstab"
+rm -f "$SCRATCH_ROOT/etc/fstab.bak"
 out="$("$BIN")"
 only_this_lock_changed "$out" "fstab:kid-ada" "fstab"
 check_eq "$(grep -c "^/home/kid-ada /home/kid-ada none bind,nosuid,nodev,noexec 0 0\$" "$SCRATCH_ROOT/etc/fstab")" "1" \
-    "fstab: the line is back"
+  "fstab: the line is back"
 
 # mount
 rm -f "$LOG/mounted-kid-ada"
 out="$("$BIN")"
 only_this_lock_changed "$out" "mount:kid-ada" "mount"
 check_contains "$(cat "$ARGV_LOG")" "mount -o remount,bind,nosuid,nodev,noexec $HOMEROOT/home/kid-ada" \
-    "mount: the remount happened with the right options"
-[[ -f "$LOG/mounted-kid-ada" ]] && pass "mount: state is back (mounted noexec again)" \
-    || fail "mount: state was not restored"
-: > "$ARGV_LOG"
+  "mount: the remount happened with the right options"
+[[ -f "$LOG/mounted-kid-ada" ]] && pass "mount: state is back (mounted noexec again)" ||
+  fail "mount: state was not restored"
+: >"$ARGV_LOG"
 
 # namespace
 NSCONF="$SCRATCH_ROOT/etc/security/namespace.conf"
-sed -i.bak '/kid-ada/d' "$NSCONF"; rm -f "$NSCONF.bak"
+sed -i.bak '/kid-ada/d' "$NSCONF"
+rm -f "$NSCONF.bak"
 out="$("$BIN")"
 only_this_lock_changed "$out" "namespace:kid-ada" "namespace"
 check_eq "$(grep -c "kid-ada\$" "$NSCONF")" "2" "namespace.conf: both lines are back"
@@ -444,7 +453,7 @@ out="$("$BIN")"
 only_this_lock_changed "$out" "gecos:kid-ada" "gecos"
 check_eq "$(cat "$LOG/gecos/kid-ada" 2>/dev/null)" "Ada Lovelace" "gecos: the display name is back"
 check_contains "$(cat "$ARGV_LOG")" "usermod -c Ada Lovelace kid-ada" "gecos: usermod -c was called with the profile's name"
-: > "$ARGV_LOG"
+: >"$ARGV_LOG"
 
 # face (issue #39, live VM finding): the SDDM face icon file is deleted.
 FACE_ICON="$SCRATCH_ROOT/usr/share/sddm/faces/kid-ada.face.icon"
@@ -452,39 +461,40 @@ rm -f "$FACE_ICON"
 out="$("$BIN")"
 only_this_lock_changed "$out" "face:kid-ada" "face"
 if [[ -f "$FACE_ICON" ]] && cmp -s "$SHARE/avatars/fox.svg" "$FACE_ICON"; then
-    pass "face: the icon file is back, matching the fox avatar"
+  pass "face: the icon file is back, matching the fox avatar"
 else
-    fail "face: the icon file was not restored"
+  fail "face: the icon file was not restored"
 fi
 
 # groups
-echo "kid-ada omarchy-kids" > "$LOG/groups/kid-ada"  # band group missing
+echo "kid-ada omarchy-kids" >"$LOG/groups/kid-ada" # band group missing
 out="$("$BIN")"
 only_this_lock_changed "$out" "groups:kid-ada" "groups"
 check_contains "$(cat "$ARGV_LOG")" "usermod -aG omarchy-kids-6-8 kid-ada" \
-    "groups: usermod -aG was called with only the missing group"
+  "groups: usermod -aG was called with only the missing group"
 check_contains "$(cat "$LOG/groups/kid-ada")" "omarchy-kids-6-8" "groups: kid-ada is back in the band group"
-: > "$ARGV_LOG"
+: >"$ARGV_LOG"
 
 # theme (issue #53): kid-ada's own theme drifts to a different one (as if
 # they deleted/replaced .../current/theme themselves -- they own the
 # containing directory, lib/theme.sh's theme_apply_for header has why).
 KID_THEME_NAME_FILE="$HOMEROOT/home/kid-ada/.local/state/omarchy/current/theme.name"
-echo "some-other-theme" > "$KID_THEME_NAME_FILE"
+echo "some-other-theme" >"$KID_THEME_NAME_FILE"
 out="$("$BIN")"
 only_this_lock_changed "$out" "theme:kid-ada" "theme"
 check_eq "$(cat "$KID_THEME_NAME_FILE" 2>/dev/null)" "tokyo-night" "theme: kid-ada's theme.name is back to the profile's theme"
 check_eq "$(cat "$HOMEROOT/home/kid-ada/.local/state/omarchy/current/theme/colors.toml" 2>/dev/null)" \
-    "$(cat "$OMARCHY_PATH/themes/tokyo-night/colors.toml")" \
-    "theme: kid-ada's colors.toml is back to tokyo-night's own"
+  "$(cat "$OMARCHY_PATH/themes/tokyo-night/colors.toml")" \
+  "theme: kid-ada's colors.toml is back to tokyo-night's own"
 
 # theme: no override at all is "ok" (nothing to fix) -- a profile written
 # before issue #53, or a parent with no theme to copy at provision time.
-sed -i.bak '/^theme=/d' "$ETC/kids/kid-ada.conf"; rm -f "$ETC/kids/kid-ada.conf.bak"
+sed -i.bak '/^theme=/d' "$ETC/kids/kid-ada.conf"
+rm -f "$ETC/kids/kid-ada.conf.bak"
 out="$("$BIN")"
 check_status "$out" "theme:kid-ada" "ok" "theme: no override at all reports ok, not FAIL or a fix"
 # restore for the rest of this file's own idempotence checks below
-printf 'theme=tokyo-night\n' >> "$ETC/kids/kid-ada.conf"
+printf 'theme=tokyo-night\n' >>"$ETC/kids/kid-ada.conf"
 theme_apply_for kid-ada tokyo-night
 
 # polkit admin
@@ -532,8 +542,8 @@ out="$("$BIN")"
 check_status "$out" "pam:sddm" "fixed" "pam:sddm: reports fixed"
 check_status "$out" "parent-unlock:sddm" "FAIL" "pam:sddm: wiping the file also fails parent-unlock:sddm (no anchor left)"
 bad="$(grep -Ev '^ok |^fixed *pam:sddm$|^FAIL *parent-unlock:sddm$' <<<"$out" || true)"
-[[ -z "$bad" ]] && pass "pam:sddm: no other lock line changed" \
-    || fail "pam:sddm: unexpected non-ok line(s):"$'\n'"$bad"
+[[ -z "$bad" ]] && pass "pam:sddm: no other lock line changed" ||
+  fail "pam:sddm: unexpected non-ok line(s):"$'\n'"$bad"
 check_eq "$(grep -c '^session required pam_namespace.so$' "$PAMFILE_SDDM" 2>/dev/null)" "1" "pam:sddm: the line is back"
 
 # Wiping the whole file (above) also took the "auth include system-login"
@@ -550,16 +560,16 @@ EOF
 out="$("$BIN")"
 only_this_lock_changed "$out" "parent-unlock:sddm" "parent-unlock:sddm (after its anchor line is restored)"
 check_eq "$(grep -c '# omarchy-kids: parent-unlock verifier (R-SEC-2, R-SEC-3)' "$PAMFILE_SDDM")" "1" \
-    "parent-unlock:sddm: the marker is back"
+  "parent-unlock:sddm: the marker is back"
 
 # parent-unlock:omarchy-lock-password (exact resulting text, and idempotence)
 PAMFILE_LOCKPW="$SCRATCH_ROOT/etc/pam.d/omarchy-lock-password"
-posture_remove_parent_unlock_line omarchy-lock-password  # break it using the writer's own inverse, not hand-rolled sed
+posture_remove_parent_unlock_line omarchy-lock-password # break it using the writer's own inverse, not hand-rolled sed
 out="$("$BIN")"
 only_this_lock_changed "$out" "parent-unlock:omarchy-lock-password" "parent-unlock:omarchy-lock-password"
 expected_lockpw=$'#%PAM-1.0\nauth       required                    pam_faillock.so preauth silent deny=10 unlock_time=120\n# omarchy-kids: parent-unlock verifier (R-SEC-2, R-SEC-3)\nauth       [success=done default=ignore]  pam_exec.so quiet expose_authtok /usr/bin/omarchy-kids-parent-auth\n-auth      [success=2 default=ignore]  pam_systemd_home.so\nauth       [success=1 default=bad]     pam_unix.so try_first_pass nullok\nauth       [default=die]               pam_faillock.so authfail deny=10 unlock_time=120\nauth       optional                    pam_permit.so\nauth       required                    pam_env.so\nauth       required                    pam_faillock.so authsucc\naccount    include                     system-local-login'
 check_eq "$(cat "$PAMFILE_LOCKPW")" "$expected_lockpw" \
-    "parent-unlock:omarchy-lock-password: exact resulting file content (inserted after the leading preauth line)"
+  "parent-unlock:omarchy-lock-password: exact resulting file content (inserted after the leading preauth line)"
 out="$("$BIN")"
 check_status "$out" "parent-unlock:omarchy-lock-password" "ok" "parent-unlock:omarchy-lock-password: idempotent (a second run reports ok, not fixed)"
 check_eq "$(cat "$PAMFILE_LOCKPW")" "$expected_lockpw" "parent-unlock:omarchy-lock-password: unchanged by the idempotent run"
@@ -576,15 +586,15 @@ check_eq "$(grep -c 'include system-login' "$PAMFILE_SU")" "2" "pam:systemd-user
 rm -f "$SCRATCH_ROOT/etc/systemd/system/getty@tty4.service"
 out="$("$BIN")"
 only_this_lock_changed "$out" "getty:tty4" "getty:tty4"
-[[ -L "$SCRATCH_ROOT/etc/systemd/system/getty@tty4.service" ]] && pass "getty:tty4: the mask symlink is back" \
-    || fail "getty:tty4: the mask symlink was not restored"
+[[ -L "$SCRATCH_ROOT/etc/systemd/system/getty@tty4.service" ]] && pass "getty:tty4: the mask symlink is back" ||
+  fail "getty:tty4: the mask symlink was not restored"
 
 # hyprland configs (delete one of several)
 rm -f "$ETC/hyprland/L2.lua"
 out="$("$BIN")"
 only_this_lock_changed "$out" "hyprland-configs" "hyprland-configs"
-cmp -s "$SHARE/hyprland/L2.lua" "$ETC/hyprland/L2.lua" && pass "hyprland-configs: L2.lua is back, byte-for-byte" \
-    || fail "hyprland-configs: L2.lua was not restored correctly"
+cmp -s "$SHARE/hyprland/L2.lua" "$ETC/hyprland/L2.lua" && pass "hyprland-configs: L2.lua is back, byte-for-byte" ||
+  fail "hyprland-configs: L2.lua was not restored correctly"
 
 # chromium policy (wrong mode)
 chmod 0644 "$CHROMIUM_FILE"
@@ -594,38 +604,43 @@ mode="$(kids_file_mode "$CHROMIUM_FILE")"
 check_eq "$mode" "640" "chromium-policy:6-8: mode is back to 0640"
 
 # boot hook: lsinitcpio stops reporting the hook -> mkinitcpio -P is run
-echo "usr/lib/initcpio/hooks/some-other-hook" > "$LOG/lsinitcpio-output"
+echo "usr/lib/initcpio/hooks/some-other-hook" >"$LOG/lsinitcpio-output"
 out="$("$BIN")"
 only_this_lock_changed "$out" "boot-hook" "boot-hook"
 check_contains "$(cat "$ARGV_LOG")" "mkinitcpio -P" "boot-hook: mkinitcpio -P was run"
 check_contains "$(cat "$LOG/lsinitcpio-output")" "omarchy-kids-unlock" "boot-hook: the rebuilt image now reports the hook"
-: > "$ARGV_LOG"
+: >"$ARGV_LOG"
 
 # --- second run after every fix above: everything is ok again ----------
 
-out="$("$BIN")"; st=$?
+out="$("$BIN")"
+st=$?
 check_eq "$st" 0 "second run (everything fixed) exits 0"
 still_bad="$(grep -Ev '^ok ' <<<"$out" || true)"
-[[ -z "$still_bad" ]] && pass "second run: every lock reports ok" \
-    || fail "second run: still non-ok line(s):"$'\n'"$still_bad"
+[[ -z "$still_bad" ]] && pass "second run: every lock reports ok" ||
+  fail "second run: still non-ok line(s):"$'\n'"$still_bad"
 
 # --- --dry-run reports without writing ----------------------------------
 
-sed -i.bak '/kid-ada/d' "$SCRATCH_ROOT/etc/fstab"; rm -f "$SCRATCH_ROOT/etc/fstab.bak"
-out="$("$BIN" --dry-run)"; st=$?
+sed -i.bak '/kid-ada/d' "$SCRATCH_ROOT/etc/fstab"
+rm -f "$SCRATCH_ROOT/etc/fstab.bak"
+out="$("$BIN" --dry-run)"
+st=$?
 check_eq "$st" 0 "--dry-run still exits 0"
 check_status "$out" "fstab:kid-ada" "would-fix" "--dry-run: fstab:kid-ada reports would-fix"
 check_eq "$(grep -c "kid-ada" "$SCRATCH_ROOT/etc/fstab" 2>/dev/null)" "0" "--dry-run: fstab was not actually written"
-"$BIN" >/dev/null  # restore for the no-profiles section below, which reuses this tree's stubs but not its ETC
+"$BIN" >/dev/null # restore for the no-profiles section below, which reuses this tree's stubs but not its ETC
 
 # --- no profiles: silent no-op with --quiet -----------------------------
 
 EMPTY_ETC="$TMP/etc-empty/omarchy-kids"
 mkdir -p "$EMPTY_ETC/kids"
-out="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN" --quiet)"; st=$?
+out="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN" --quiet)"
+st=$?
 check_eq "$st" 0 "no profiles: exits 0"
 check_eq "$out" "" "no profiles: --quiet prints nothing"
-out2="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"; st2=$?
+out2="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"
+st2=$?
 check_eq "$st2" 0 "no profiles, not quiet: still exits 0"
 check_contains "$out2" "nothing else to assert" "no profiles, not quiet: names why"
 
@@ -638,12 +653,13 @@ check_status "$out2" "units" "ok" "no profiles: units is still checked (not skip
 
 BOOT_LOGIN_LINK="$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/omarchy-kids-boot-login.service"
 rm -f "$BOOT_LOGIN_LINK"
-out3="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"; st3=$?
+out3="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"
+st3=$?
 check_eq "$st3" 0 "no profiles, units broken: still exits 0 once fixed"
 check_status "$out3" "units" "fixed" "no profiles: units is fixed even though no kid is provisioned"
 check_contains "$out3" "nothing else to assert" "no profiles, units broken: the no-kids line still explains why nothing else ran"
-[[ -L "$BOOT_LOGIN_LINK" ]] && pass "no profiles: the boot-login unit's enable symlink is restored" \
-    || fail "no profiles: the boot-login unit's enable symlink was not restored"
+[[ -L "$BOOT_LOGIN_LINK" ]] && pass "no profiles: the boot-login unit's enable symlink is restored" ||
+  fail "no profiles: the boot-login unit's enable symlink was not restored"
 
 # idempotent: a second no-kids run with units already fixed is all ok again.
 out4="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"
@@ -651,30 +667,36 @@ check_status "$out4" "units" "ok" "no profiles: units is idempotent after being 
 
 # --- Limine editor lock (V6) -------------------------------------------------
 mkdir -p "$SCRATCH_ROOT/boot" "$ETC/kids"
-printf 'name=Ada\navatar=fox\nband=6-8\npassword=set\nonboarded=no\n' > "$ETC/kids/kid-ada.conf"  # a provisioned kid again, so machine locks run
-printf 'default_entry: 2\ninterface_branding: Omarchy Bootloader\n' > "$SCRATCH_ROOT/boot/limine.conf"  # no editor_enabled line
+printf 'name=Ada\navatar=fox\nband=6-8\npassword=set\nonboarded=no\n' >"$ETC/kids/kid-ada.conf"       # a provisioned kid again, so machine locks run
+printf 'default_entry: 2\ninterface_branding: Omarchy Bootloader\n' >"$SCRATCH_ROOT/boot/limine.conf" # no editor_enabled line
 out="$("$BIN" 2>&1)"
-if grep -q "fixed *limine-editor" <<<"$out" && head -1 "$SCRATCH_ROOT/boot/limine.conf" | grep -qx 'editor_enabled: no'; then echo "PASS  limine-editor: editor_enabled: no inserted at the top"; else echo "FAIL  limine-editor fix ($out)"; exit 1; fi
+if grep -q "fixed *limine-editor" <<<"$out" && head -1 "$SCRATCH_ROOT/boot/limine.conf" | grep -qx 'editor_enabled: no'; then echo "PASS  limine-editor: editor_enabled: no inserted at the top"; else
+  echo "FAIL  limine-editor fix ($out)"
+  exit 1
+fi
 out="$("$BIN" 2>&1)"
-if grep -q "ok *limine-editor" <<<"$out" && [[ "$(grep -c '^editor_enabled:' "$SCRATCH_ROOT/boot/limine.conf")" == "1" ]]; then echo "PASS  limine-editor: idempotent"; else echo "FAIL  limine-editor idempotence ($out)"; exit 1; fi
+if grep -q "ok *limine-editor" <<<"$out" && [[ "$(grep -c '^editor_enabled:' "$SCRATCH_ROOT/boot/limine.conf")" == "1" ]]; then echo "PASS  limine-editor: idempotent"; else
+  echo "FAIL  limine-editor idempotence ($out)"
+  exit 1
+fi
 
 # --- Limine snapshot entries lock (V6, issue #38) -----------------------
 
 LIMINE_DEFAULT="$SCRATCH_ROOT/etc/default/limine"
 mkdir -p "$SCRATCH_ROOT/etc/default"
-: > "$ARGV_LOG"
+: >"$ARGV_LOG"
 
 # hide (the default: no boot.snapshot_entries override yet) fixes a
 # pre-existing, non-zero MAX_SNAPSHOT_ENTRIES, remembering it in a comment.
-printf 'KERNEL_CMDLINE[default]="quiet"\nMAX_SNAPSHOT_ENTRIES=10\n' > "$LIMINE_DEFAULT"
+printf 'KERNEL_CMDLINE[default]="quiet"\nMAX_SNAPSHOT_ENTRIES=10\n' >"$LIMINE_DEFAULT"
 out="$("$BIN")"
 check_status "$out" "limine-snapshots" "fixed" "limine-snapshots (hide, default): reports fixed"
 check_eq "$(grep -c '^MAX_SNAPSHOT_ENTRIES=0$' "$LIMINE_DEFAULT")" "1" "limine-snapshots: MAX_SNAPSHOT_ENTRIES=0 is set"
 check_eq "$(grep -c '^# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=10$' "$LIMINE_DEFAULT")" "1" \
-    "limine-snapshots: the old value (10) is remembered"
+  "limine-snapshots: the old value (10) is remembered"
 check_contains "$(cat "$LIMINE_DEFAULT")" 'KERNEL_CMDLINE[default]="quiet"' "limine-snapshots: unrelated lines are kept"
 check_eq "$(grep -c "limine-snapper-sync" "$ARGV_LOG")" "0" \
-    "limine-snapshots: limine-snapper-sync is not run against a test root"
+  "limine-snapshots: limine-snapper-sync is not run against a test root"
 
 # idempotent: a second run is ok, and nothing doubles up.
 out="$("$BIN")"
@@ -700,19 +722,19 @@ check_eq "$(grep -c '^MAX_SNAPSHOT_ENTRIES=0$' "$LIMINE_DEFAULT")" "1" "limine-s
 check_eq "$(grep -c '^# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=10$' "$LIMINE_DEFAULT")" "1" "limine-snapshots: value re-recorded"
 
 # restore path with no remembered value at all: show just drops the line.
-printf 'MAX_SNAPSHOT_ENTRIES=0\n' > "$LIMINE_DEFAULT"  # our line present, but no "was" comment (e.g. after an upgrade)
+printf 'MAX_SNAPSHOT_ENTRIES=0\n' >"$LIMINE_DEFAULT" # our line present, but no "was" comment (e.g. after an upgrade)
 conf_set "$ETC/machine.conf" boot.snapshot_entries show
 out="$("$BIN")"
 check_status "$out" "limine-snapshots" "fixed" "limine-snapshots (show, no remembered value): reports fixed"
 check_eq "$(grep -c 'MAX_SNAPSHOT_ENTRIES' "$LIMINE_DEFAULT")" "0" \
-    "limine-snapshots: with nothing remembered, the line is simply removed"
+  "limine-snapshots: with nothing remembered, the line is simply removed"
 
 # no /etc/default/limine at all (no Limine, or a fresh test tree): nothing to assert.
 rm -f "$LIMINE_DEFAULT"
 conf_del "$ETC/machine.conf" boot.snapshot_entries
 out="$("$BIN")"
 check_status "$out" "limine-snapshots" "warn" \
-    "limine-snapshots: no /etc/default/limine reports warn, never a silent ok (review S11)"
+  "limine-snapshots: no /etc/default/limine reports warn, never a silent ok (review S11)"
 
 # --- review S5: limine-editor is machine-level, NOT nested under the hook ---
 #
@@ -721,20 +743,20 @@ check_status "$out" "limine-snapshots" "warn" \
 # mkinitcpio -P, hook removed, not Limine-plus-hook -- is exactly the box
 # where an unlocked Limine editor hands a kid init=/bin/bash.
 
-printf 'MAX_SNAPSHOT_ENTRIES=0\n' > "$LIMINE_DEFAULT"
-printf 'default_entry: 2\n' > "$SCRATCH_ROOT/boot/limine.conf"   # editor NOT disabled
+printf 'MAX_SNAPSHOT_ENTRIES=0\n' >"$LIMINE_DEFAULT"
+printf 'default_entry: 2\n' >"$SCRATCH_ROOT/boot/limine.conf" # editor NOT disabled
 mv "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock" "$SCRATCH_ROOT/hook.bak"
 
 out="$("$BIN" 2>&1)"
 if grep -qE '^(ok|fixed|warn|FAIL|would-fix) +boot-hook' <<<"$out"; then
-    fail "no hook file: boot-hook should not be reported at all"
+  fail "no hook file: boot-hook should not be reported at all"
 else
-    pass "no hook file: boot-hook is correctly skipped"
+  pass "no hook file: boot-hook is correctly skipped"
 fi
 check_status "$out" "limine-editor" "fixed" \
-    "no hook file: limine-editor is STILL asserted and fixed (review S5)"
+  "no hook file: limine-editor is STILL asserted and fixed (review S5)"
 check_eq "$(head -1 "$SCRATCH_ROOT/boot/limine.conf")" "editor_enabled: no" \
-    "no hook file: editor_enabled: no was actually written"
+  "no hook file: editor_enabled: no was actually written"
 
 out="$("$BIN" 2>&1)"
 check_status "$out" "limine-editor" "ok" "no hook file: limine-editor stays ok on the next run"
@@ -747,14 +769,14 @@ check_status "$out" "limine-editor" "ok" "no hook file: limine-editor stays ok o
 rm -f "$SCRATCH_ROOT/boot/limine.conf"
 out="$("$BIN" 2>&1)"
 check_status "$out" "limine-editor" "ok" \
-    "no limine.conf and no limine installed: nothing to lock, so ok (review S11)"
+  "no limine.conf and no limine installed: nothing to lock, so ok (review S11)"
 
 LIMINE_STUB="$(mktemp -d)"
 printf '#!/bin/bash\nexit 0\n' >"$LIMINE_STUB/limine"
 chmod +x "$LIMINE_STUB/limine"
 out="$(PATH="$LIMINE_STUB:$PATH" "$BIN" 2>&1)"
 check_status "$out" "limine-editor" "warn" \
-    "limine installed but no readable limine.conf: warn, never a silent ok (review S11)"
+  "limine installed but no readable limine.conf: warn, never a silent ok (review S11)"
 rm -rf "$LIMINE_STUB"
 
 mv "$SCRATCH_ROOT/hook.bak" "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock"

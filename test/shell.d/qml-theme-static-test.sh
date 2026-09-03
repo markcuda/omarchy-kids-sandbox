@@ -36,54 +36,54 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 pass() { echo "PASS  $*"; }
 fail() {
-    echo "FAIL  $*"
-    rc=1
+  echo "FAIL  $*"
+  rc=1
 }
 rc=0
 
 ALLOWED_FILES=(
-    "share/qml/KidsTheme.qml"
-    "share/sddm-theme/Main.qml"
+  "share/qml/KidsTheme.qml"
+  "share/sddm-theme/Main.qml"
 )
 
 is_allowed() {
-    local f="$1" a
-    for a in "${ALLOWED_FILES[@]}"; do
-        [[ "$f" == "$a" ]] && return 0
-    done
-    return 1
+  local f="$1" a
+  for a in "${ALLOWED_FILES[@]}"; do
+    [[ "$f" == "$a" ]] && return 0
+  done
+  return 1
 }
 
 found_any=0
 while IFS= read -r -d '' file; do
-    rel="${file#"$ROOT"/}"
-    is_allowed "$rel" && continue
-    found_any=1
-    hits="$(grep -noE '#[0-9A-Fa-f]{6,8}' "$file" || true)"
-    if [[ -n "$hits" ]]; then
-        fail "$rel: literal hex color(s) found (use theme.* / Color.*):"
-        while IFS= read -r hit; do fail "    $hit"; done <<<"$hits"
-    else
-        pass "$rel: no literal hex colors"
-    fi
+  rel="${file#"$ROOT"/}"
+  is_allowed "$rel" && continue
+  found_any=1
+  hits="$(grep -noE '#[0-9A-Fa-f]{6,8}' "$file" || true)"
+  if [[ -n "$hits" ]]; then
+    fail "$rel: literal hex color(s) found (use theme.* / Color.*):"
+    while IFS= read -r hit; do fail "    $hit"; done <<<"$hits"
+  else
+    pass "$rel: no literal hex colors"
+  fi
 done < <(find "$ROOT/share" -name '*.qml' -print0 | sort -z)
 
 if [[ "$found_any" != 1 ]]; then
-    fail "no share/**/*.qml files were found at all — check this test's own find(1) call"
+  fail "no share/**/*.qml files were found at all — check this test's own find(1) call"
 fi
 
 # The two exceptions really do still exist and really do carry hex, so a
 # rename or an accidental cleanup of either doesn't silently turn this
 # test into "checks nothing".
 for f in "${ALLOWED_FILES[@]}"; do
-    path="$ROOT/$f"
-    if [[ ! -f "$path" ]]; then
-        fail "$f: expected exception file is missing"
-    elif ! grep -qoE '#[0-9A-Fa-f]{6,8}' "$path"; then
-        fail "$f: expected to still contain literal hex (fallback palette) — has it changed?"
-    else
-        pass "$f: still the expected literal-hex exception"
-    fi
+  path="$ROOT/$f"
+  if [[ ! -f "$path" ]]; then
+    fail "$f: expected exception file is missing"
+  elif ! grep -qoE '#[0-9A-Fa-f]{6,8}' "$path"; then
+    fail "$f: expected to still contain literal hex (fallback palette) — has it changed?"
+  else
+    pass "$f: still the expected literal-hex exception"
+  fi
 done
 
 # Issue #57: Qt.lighter()/Qt.darker() with a literal numeric factor may
@@ -93,21 +93,21 @@ done
 THEME_FILE="share/qml/KidsTheme.qml"
 found_factor_call=0
 while IFS= read -r -d '' file; do
-    rel="${file#"$ROOT"/}"
-    [[ "$rel" == "$THEME_FILE" ]] && continue
-    hits="$(grep -noE 'Qt\.(lighter|darker)\([^,)]*,[[:space:]]*[0-9][0-9.]*' "$file" || true)"
-    if [[ -n "$hits" ]]; then
-        found_factor_call=1
-        fail "$rel: literal-factor Qt.lighter()/Qt.darker() call (use theme.cardFill / theme.tileFill / theme.inputFill / theme.errorFill / theme.dim instead):"
-        while IFS= read -r hit; do fail "    $hit"; done <<<"$hits"
-    fi
+  rel="${file#"$ROOT"/}"
+  [[ "$rel" == "$THEME_FILE" ]] && continue
+  hits="$(grep -noE 'Qt\.(lighter|darker)\([^,)]*,[[:space:]]*[0-9][0-9.]*' "$file" || true)"
+  if [[ -n "$hits" ]]; then
+    found_factor_call=1
+    fail "$rel: literal-factor Qt.lighter()/Qt.darker() call (use theme.cardFill / theme.tileFill / theme.inputFill / theme.errorFill / theme.dim instead):"
+    while IFS= read -r hit; do fail "    $hit"; done <<<"$hits"
+  fi
 done < <(find "$ROOT/share" -name '*.qml' -print0 | sort -z)
 [[ "$found_factor_call" == 0 ]] && pass "no share/**/*.qml file outside $THEME_FILE calls Qt.lighter()/Qt.darker() with a literal factor"
 
 if ! grep -qoE 'Qt\.(lighter|darker)\([^,)]*,[[:space:]]*[0-9][0-9.]*' "$ROOT/$THEME_FILE"; then
-    fail "$THEME_FILE: expected to still contain a literal-factor Qt.lighter()/Qt.darker() call (e.g. errorFill) — has it changed?"
+  fail "$THEME_FILE: expected to still contain a literal-factor Qt.lighter()/Qt.darker() call (e.g. errorFill) — has it changed?"
 else
-    pass "$THEME_FILE: still the expected literal-factor exception"
+  pass "$THEME_FILE: still the expected literal-factor exception"
 fi
 
 echo "qml-theme-static-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"

@@ -18,16 +18,16 @@ THEME_LIB="$ROOT/lib/theme.sh"
 
 pass() { echo "PASS  $*"; }
 fail() {
-    echo "FAIL  $*"
-    rc=1
+  echo "FAIL  $*"
+  rc=1
 }
 rc=0
 
 check_eq() { # got want label
-    if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
+  if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
 }
 check_contains() { # haystack needle label
-    if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2' in '$1')"; fi
+  if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2' in '$1')"; fi
 }
 
 TMP="$(mktemp -d)"
@@ -108,35 +108,35 @@ EOF
 # --- theme_dir --------------------------------------------------------------
 
 out="$(
-    HOME="$FIXTURE_HOME"
-    unset THEME_KIDS_HOME
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_dir
+  HOME="$FIXTURE_HOME"
+  unset THEME_KIDS_HOME
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_dir
 )"
 check_eq "$out" "$FIXTURE_THEME_DIR" "theme_dir: defaults to \$HOME/.local/state/omarchy/current/theme"
 
 out="$(
-    HOME="/somewhere/else"
-    THEME_KIDS_HOME="$FIXTURE_HOME"
-    export THEME_KIDS_HOME
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_dir
+  HOME="/somewhere/else"
+  THEME_KIDS_HOME="$FIXTURE_HOME"
+  export THEME_KIDS_HOME
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_dir
 )"
 check_eq "$out" "$FIXTURE_THEME_DIR" "theme_dir: THEME_KIDS_HOME overrides \$HOME"
 
 # --- theme_color: fixture theme dir, real-shaped omarchy-theme-color stub --
 
 run_with_fixture() { # NAME
-    (
-        PATH="$STUBS:$BASE_PATH"
-        THEME_KIDS_HOME="$FIXTURE_HOME"
-        export PATH THEME_KIDS_HOME
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        theme_color "$1"
-    )
+  (
+    PATH="$STUBS:$BASE_PATH"
+    THEME_KIDS_HOME="$FIXTURE_HOME"
+    export PATH THEME_KIDS_HOME
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_color "$1"
+  )
 }
 
 check_eq "$(run_with_fixture background)" "#111111" "theme_color background: reads colors.toml's own key"
@@ -152,14 +152,14 @@ check_eq "$(run_with_fixture highlight)" "#334455" "theme_color highlight: mappe
 # --- theme_color: fallback palette (no omarchy-theme-color on PATH) --------
 
 run_no_tool() { # NAME
-    (
-        PATH="$BASE_PATH" # deliberately no omarchy-theme-color
-        THEME_KIDS_HOME="$FIXTURE_HOME"
-        export PATH THEME_KIDS_HOME
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        theme_color "$1"
-    )
+  (
+    PATH="$BASE_PATH" # deliberately no omarchy-theme-color
+    THEME_KIDS_HOME="$FIXTURE_HOME"
+    export PATH THEME_KIDS_HOME
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_color "$1"
+  )
 }
 
 check_eq "$(run_no_tool background)" "#1a1b26" "theme_color background: falls back with no omarchy-theme-color on PATH"
@@ -171,23 +171,23 @@ check_eq "$(run_no_tool surface)" "#232838" "theme_color surface: fallback"
 # --- theme_color: tool present but this key isn't in the theme -------------
 
 out="$(
-    (
-        PATH="$STUBS:$BASE_PATH"
-        THEME_KIDS_HOME="$TMP/no-such-home"
-        export PATH THEME_KIDS_HOME
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        theme_color muted
-    )
+  (
+    PATH="$STUBS:$BASE_PATH"
+    THEME_KIDS_HOME="$TMP/no-such-home"
+    export PATH THEME_KIDS_HOME
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_color muted
+  )
 )"
 check_eq "$out" "#9aa5ce" "theme_color: falls back when the theme has no colors.toml at all"
 
 # --- theme_color: unknown name --------------------------------------------
 
 (
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_color nonsense >/dev/null 2>"$TMP/err"
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_color nonsense >/dev/null 2>"$TMP/err"
 )
 theme_color_status=$?
 check_eq "$theme_color_status" "1" "theme_color: unknown name exits 1"
@@ -196,20 +196,20 @@ check_eq "$(cat "$TMP/err")" "theme_color: unknown color 'nonsense'" "theme_colo
 # --- theme_font -------------------------------------------------------------
 
 out="$(
-    PATH="$STUBS:$BASE_PATH"
-    export PATH
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_font
+  PATH="$STUBS:$BASE_PATH"
+  export PATH
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_font
 )"
 check_eq "$out" "Comic Sans MS" "theme_font: reads fc-match's resolved family"
 
 out="$(
-    PATH="$BASE_PATH" # deliberately no fc-match
-    export PATH
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_font
+  PATH="$BASE_PATH" # deliberately no fc-match
+  export PATH
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_font
 )"
 check_eq "$out" "JetBrainsMono Nerd Font" "theme_font: falls back with no fc-match on PATH"
 
@@ -222,66 +222,66 @@ check_eq "$out" "JetBrainsMono Nerd Font" "theme_font: falls back with no fc-mat
 # since it needs no stubbed tool).
 
 out="$(
-    unset OMARCHY_PATH
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    printf '%s\n' "${OMARCHY_PATH:-<still unset>}"
+  unset OMARCHY_PATH
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  printf '%s\n' "${OMARCHY_PATH:-<still unset>}"
 )"
 check_eq "$out" "<still unset>" "sourcing lib/theme.sh: OMARCHY_PATH is untouched at source time (review 2.7)"
 
 out="$(
-    unset OMARCHY_PATH
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_dir >/dev/null
-    printf '%s\n' "$OMARCHY_PATH"
+  unset OMARCHY_PATH
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_dir >/dev/null
+  printf '%s\n' "$OMARCHY_PATH"
 )"
 check_eq "$out" "/usr/share/omarchy" "calling a theme_* function: OMARCHY_PATH defaults when unset"
 
 out="$(
-    OMARCHY_PATH=/some/other/path
-    export OMARCHY_PATH
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_dir >/dev/null
-    printf '%s\n' "$OMARCHY_PATH"
+  OMARCHY_PATH=/some/other/path
+  export OMARCHY_PATH
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_dir >/dev/null
+  printf '%s\n' "$OMARCHY_PATH"
 )"
 check_eq "$out" "/some/other/path" "calling a theme_* function: an already-set OMARCHY_PATH is left alone"
 
 out="$(
-    unset LANG
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    printf '%s\n' "${LANG:-<still unset>}"
+  unset LANG
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  printf '%s\n' "${LANG:-<still unset>}"
 )"
 check_eq "$out" "<still unset>" "sourcing lib/theme.sh: LANG is untouched at source time (review 2.7)"
 
 out="$(
-    unset LANG
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_dir >/dev/null
-    printf '%s\n' "$LANG"
+  unset LANG
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_dir >/dev/null
+  printf '%s\n' "$LANG"
 )"
 check_eq "$out" "C.UTF-8" "calling a theme_* function: LANG defaults to C.UTF-8 when unset"
 
 out="$(
-    LANG=C
-    export LANG
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_dir >/dev/null
-    printf '%s\n' "$LANG"
+  LANG=C
+  export LANG
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_dir >/dev/null
+  printf '%s\n' "$LANG"
 )"
 check_eq "$out" "C.UTF-8" "calling a theme_* function: LANG=C is also upgraded to C.UTF-8"
 
 out="$(
-    LANG=en_US.UTF-8
-    export LANG
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_dir >/dev/null
-    printf '%s\n' "$LANG"
+  LANG=en_US.UTF-8
+  export LANG
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_dir >/dev/null
+  printf '%s\n' "$LANG"
 )"
 check_eq "$out" "en_US.UTF-8" "calling a theme_* function: a real LANG is left alone"
 
@@ -296,142 +296,142 @@ check_eq "$out" "en_US.UTF-8" "calling a theme_* function: a real LANG is left a
 # reliably apply a redirect trailing a bare assignment to the command
 # substitution's own stderr; wrapping the assignment in a group does.
 {
-    out="$(
-        set -euo pipefail
-        PATH="$STUBS/broken-theme-color:$BASE_PATH"
-        THEME_KIDS_HOME="$FIXTURE_HOME"
-        export PATH THEME_KIDS_HOME
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        for name in background foreground accent muted error warning; do
-            theme_color "$name"
-        done
-        echo "survived rc=$?"
-    )"
-    rc_survived=$?
+  out="$(
+    set -euo pipefail
+    PATH="$STUBS/broken-theme-color:$BASE_PATH"
+    THEME_KIDS_HOME="$FIXTURE_HOME"
+    export PATH THEME_KIDS_HOME
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    for name in background foreground accent muted error warning; do
+      theme_color "$name"
+    done
+    echo "survived rc=$?"
+  )"
+  rc_survived=$?
 } 2>"$TMP/broken.err"
 check_eq "$rc_survived" "0" "theme_color: a broken omarchy-theme-color under set -e never aborts the caller"
 check_eq "$out" "$(printf '#1a1b26\n#ffffff\n#8fb8ff\n#9aa5ce\n#f7768e\n#ffd27a\nsurvived rc=0')" \
-    "theme_color: falls back to the palette for every name when the tool is broken"
+  "theme_color: falls back to the palette for every name when the tool is broken"
 check_eq "$(wc -l <"$TMP/broken.err" | tr -d ' ')" "1" \
-    "theme_color: a broken tool logs exactly one line, not once per color"
+  "theme_color: a broken tool logs exactly one line, not once per color"
 check_eq "$(cat "$TMP/broken.err")" \
-    "theme_color: omarchy-theme-color is missing or failed here — using the fallback palette (docs/theming.md)" \
-    "theme_color: the one log line explains what happened and where to read more"
+  "theme_color: omarchy-theme-color is missing or failed here — using the fallback palette (docs/theming.md)" \
+  "theme_color: the one log line explains what happened and where to read more"
 
 # --- issue #53: account_home, theme_current_name --------------------
 
 check_eq "$(
-    (
-        unset OMARCHY_KIDS_HOME_ROOT
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        account_home nosuchaccountxyz
-    )
+  (
+    unset OMARCHY_KIDS_HOME_ROOT
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    account_home nosuchaccountxyz
+  )
 )" "/home/nosuchaccountxyz" \
-    "account_home: falls back to /home/<account> for an unknown account"
+  "account_home: falls back to /home/<account> for an unknown account"
 
 check_eq "$(
-    (
-        OMARCHY_KIDS_HOME_ROOT="$TMP/scratchroot"
-        export OMARCHY_KIDS_HOME_ROOT
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        account_home kid-ada
-    )
+  (
+    OMARCHY_KIDS_HOME_ROOT="$TMP/scratchroot"
+    export OMARCHY_KIDS_HOME_ROOT
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    account_home kid-ada
+  )
 )" "$TMP/scratchroot/home/kid-ada" \
-    "account_home: OMARCHY_KIDS_HOME_ROOT prefixes the fallback path"
+  "account_home: OMARCHY_KIDS_HOME_ROOT prefixes the fallback path"
 
-echo tokyo-night > "$FIXTURE_HOME/.local/state/omarchy/current/theme.name"
+echo tokyo-night >"$FIXTURE_HOME/.local/state/omarchy/current/theme.name"
 check_eq "$(
-    (
-        THEME_KIDS_HOME="$FIXTURE_HOME"
-        export THEME_KIDS_HOME
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        theme_current_name
-    )
+  (
+    THEME_KIDS_HOME="$FIXTURE_HOME"
+    export THEME_KIDS_HOME
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_current_name
+  )
 )" "tokyo-night" "theme_current_name: reads .../current/theme.name beside theme_dir"
 
 check_eq "$(
-    (
-        THEME_KIDS_HOME="$TMP/no-such-home"
-        export THEME_KIDS_HOME
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        theme_current_name
-    )
+  (
+    THEME_KIDS_HOME="$TMP/no-such-home"
+    export THEME_KIDS_HOME
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_current_name
+  )
 )" "" "theme_current_name: empty (not an error) with no theme.name at all"
 
 # --- issue #53: theme_list_installed, theme_apply_for, theme_reload_if_live -
 
 OMARCHY_SHARE="$TMP/omarchy-share"
 mkdir -p "$OMARCHY_SHARE/themes/tokyo-night" "$OMARCHY_SHARE/themes/catppuccin-latte"
-cat > "$OMARCHY_SHARE/themes/tokyo-night/colors.toml" <<'EOF'
+cat >"$OMARCHY_SHARE/themes/tokyo-night/colors.toml" <<'EOF'
 background = "#1a1b26"
 foreground = "#c0caf5"
 EOF
 mkdir -p "$OMARCHY_SHARE/themes/tokyo-night/backgrounds"
-: > "$OMARCHY_SHARE/themes/tokyo-night/backgrounds/bg1.png"
-cat > "$OMARCHY_SHARE/themes/catppuccin-latte/colors.toml" <<'EOF'
+: >"$OMARCHY_SHARE/themes/tokyo-night/backgrounds/bg1.png"
+cat >"$OMARCHY_SHARE/themes/catppuccin-latte/colors.toml" <<'EOF'
 background = "#eff1f5"
 foreground = "#4c4f69"
 EOF
 
 check_eq "$(
-    (
-        OMARCHY_PATH="$OMARCHY_SHARE"
-        export OMARCHY_PATH
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        theme_list_installed
-    )
+  (
+    OMARCHY_PATH="$OMARCHY_SHARE"
+    export OMARCHY_PATH
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_list_installed
+  )
 )" "$(printf 'catppuccin-latte\ntokyo-night')" \
-    "theme_list_installed: every theme under \$OMARCHY_PATH/themes, sorted"
+  "theme_list_installed: every theme under \$OMARCHY_PATH/themes, sorted"
 
 check_eq "$(
-    (
-        OMARCHY_PATH="$TMP/no-such-omarchy-path"
-        export OMARCHY_PATH
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        theme_list_installed
-    )
+  (
+    OMARCHY_PATH="$TMP/no-such-omarchy-path"
+    export OMARCHY_PATH
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_list_installed
+  )
 )" "" "theme_list_installed: empty, not an error, with no themes dir at all"
 
 APPLY_HOME_ROOT="$TMP/apply-homeroot"
 mkdir -p "$APPLY_HOME_ROOT/home/kid-ada"
 (
-    OMARCHY_PATH="$OMARCHY_SHARE"
-    OMARCHY_KIDS_HOME_ROOT="$APPLY_HOME_ROOT"
-    export OMARCHY_PATH OMARCHY_KIDS_HOME_ROOT
-    # shellcheck source=/dev/null
-    source "$THEME_LIB"
-    theme_apply_for kid-ada tokyo-night
+  OMARCHY_PATH="$OMARCHY_SHARE"
+  OMARCHY_KIDS_HOME_ROOT="$APPLY_HOME_ROOT"
+  export OMARCHY_PATH OMARCHY_KIDS_HOME_ROOT
+  # shellcheck source=/dev/null
+  source "$THEME_LIB"
+  theme_apply_for kid-ada tokyo-night
 )
 apply_rc=$?
 check_eq "$apply_rc" "0" "theme_apply_for: exits 0 for a real theme"
 
 KID_THEME_DIR="$APPLY_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme"
 check_eq "$(cat "$KID_THEME_DIR/colors.toml" 2>/dev/null)" "$(cat "$OMARCHY_SHARE/themes/tokyo-night/colors.toml")" \
-    "theme_apply_for: colors.toml copied verbatim from the system theme"
-[[ -f "$KID_THEME_DIR/backgrounds/bg1.png" ]] && pass "theme_apply_for: copies the whole theme tree, not just colors.toml" \
-    || fail "theme_apply_for: backgrounds/ was not copied"
+  "theme_apply_for: colors.toml copied verbatim from the system theme"
+[[ -f "$KID_THEME_DIR/backgrounds/bg1.png" ]] && pass "theme_apply_for: copies the whole theme tree, not just colors.toml" ||
+  fail "theme_apply_for: backgrounds/ was not copied"
 check_eq "$(cat "$APPLY_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme.name" 2>/dev/null)" "tokyo-night" \
-    "theme_apply_for: writes theme.name beside the theme directory"
+  "theme_apply_for: writes theme.name beside the theme directory"
 
 mode="$(kids_file_mode "$KID_THEME_DIR/colors.toml")"
 check_eq "$mode" "644" "theme_apply_for: theme files are mode 0644"
 
 out="$(
-    (
-        OMARCHY_PATH="$OMARCHY_SHARE"
-        OMARCHY_KIDS_HOME_ROOT="$APPLY_HOME_ROOT"
-        export OMARCHY_PATH OMARCHY_KIDS_HOME_ROOT
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        theme_apply_for kid-ada no-such-theme
-    ) 2>&1
+  (
+    OMARCHY_PATH="$OMARCHY_SHARE"
+    OMARCHY_KIDS_HOME_ROOT="$APPLY_HOME_ROOT"
+    export OMARCHY_PATH OMARCHY_KIDS_HOME_ROOT
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_apply_for kid-ada no-such-theme
+  ) 2>&1
 )"
 apply_bad_rc=$?
 check_eq "$apply_bad_rc" "1" "theme_apply_for: exits 1 for an unknown theme name"
@@ -441,13 +441,13 @@ check_contains "$out" "no such theme 'no-such-theme'" "theme_apply_for: names th
 # process owned by it in this test environment) is a no-op with one line,
 # never a failure.
 out="$(
-    (
-        OMARCHY_KIDS_HOME_ROOT="$APPLY_HOME_ROOT"
-        export OMARCHY_KIDS_HOME_ROOT
-        # shellcheck source=/dev/null
-        source "$THEME_LIB"
-        theme_reload_if_live kid-ada
-    ) 2>&1
+  (
+    OMARCHY_KIDS_HOME_ROOT="$APPLY_HOME_ROOT"
+    export OMARCHY_KIDS_HOME_ROOT
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_reload_if_live kid-ada
+  ) 2>&1
 )"
 reload_rc=$?
 check_eq "$reload_rc" "0" "theme_reload_if_live: exits 0 with no live session"

@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -15,7 +16,10 @@ MODAL_QML="$SHARE/exit-modal/shell.qml"
 RUN="${OMARCHY_KIDS_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
 MODAL_PIDFILE="$RUN/exit-modal.pid"
 
-die() { echo "omarchy-kids-exit: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-exit: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
   cat <<EOF
@@ -84,9 +88,10 @@ cmd_open() {
 # Hyprland left owned by UID; 1 once spent (loginctl fallback only then).
 wait_for_hyprland_gone() {
   local uid="$1" waited=0 max="${OMARCHY_KIDS_EXIT_WAIT:-8}"
-  while (( waited < max )); do
+  while ((waited < max)); do
     pgrep -u "$uid" -x Hyprland >/dev/null 2>&1 || return 0
-    sleep 1; waited=$((waited + 1))
+    sleep 1
+    waited=$((waited + 1))
   done
   return 1
 }
@@ -151,13 +156,16 @@ action="--open"
 kid=""
 while (($#)); do
   case "$1" in
-    --open|--finish|--pause) action="$1" ;;
+    --open | --finish | --pause) action="$1" ;;
     --kid)
       shift
       [[ $# -gt 0 ]] || die "--kid needs an account (see --help)"
       kid="$1"
       ;;
-    -h|--help) usage; exit 0 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
     *)
       echo "omarchy-kids-exit: unknown argument '$1' (see --help)" >&2
       exit 2

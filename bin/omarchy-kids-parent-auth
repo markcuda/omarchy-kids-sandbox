@@ -5,7 +5,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/sock.sh
 source "$LIB/sock.sh"
 
@@ -35,14 +36,17 @@ while (($#)); do
   case "$1" in
     --socket)
       shift
-      [[ $# -gt 0 ]] || { echo "omarchy-kids-parent-auth: --socket needs a path" >&2; exit 1; }
+      [[ $# -gt 0 ]] || {
+        echo "omarchy-kids-parent-auth: --socket needs a path" >&2
+        exit 1
+      }
       socket_allowed "$1" || {
         echo "omarchy-kids-parent-auth: --socket is root-only" >&2
         exit 1
       }
       SOCK="$1"
       ;;
-    -h|--help)
+    -h | --help)
       cat <<EOF
 Usage: omarchy-kids-parent-auth [--socket PATH]
 
@@ -55,7 +59,10 @@ the kid owns (AGENTS.md, "The trust boundary").
 EOF
       exit 0
       ;;
-    *) echo "omarchy-kids-parent-auth: unknown argument '$1'" >&2; exit 1 ;;
+    *)
+      echo "omarchy-kids-parent-auth: unknown argument '$1'" >&2
+      exit 1
+      ;;
   esac
   shift
 done

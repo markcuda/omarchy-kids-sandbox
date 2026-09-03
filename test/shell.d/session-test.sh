@@ -19,11 +19,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
-BIN=""   # a copy in the scratch tree below; the compositor it execs is a
-         # build-time constant, so the stub is substituted in, not exported
+BIN="" # a copy in the scratch tree below; the compositor it execs is a
+# build-time constant, so the stub is substituted in, not exported
 
 pass() { echo "PASS  $*"; }
-fail() { echo "FAIL  $*"; rc=1; }
+fail() {
+  echo "FAIL  $*"
+  rc=1
+}
 rc=0
 
 check_contains() { # haystack needle label
@@ -65,7 +68,7 @@ TMP_OPTS_FILE="$TMP/tmp-opts"
 GETTY_STATE_FILE="$TMP/getty-state"
 
 write_profile() { # write_profile WEB
-  cat > "$PROFILE" <<EOF
+  cat >"$PROFILE" <<EOF
 name=Ada
 avatar=fox
 band=$BAND
@@ -75,7 +78,7 @@ EOF
 }
 
 # --- stub: pkcheck answers what the polkit deny rule would make it answer ---
-cat > "$STUBS/pkcheck" <<'PK'
+cat >"$STUBS/pkcheck" <<'PK'
 #!/bin/bash
 ans="$(cat "${PKCHECK_ANSWER_FILE:-/dev/null}" 2>/dev/null)"
 [[ -z "$ans" ]] && ans="Not authorized."
@@ -87,7 +90,7 @@ export PKCHECK_ANSWER_FILE="$TMP/pkcheck.answer"
 export VERIFY_FAIL_FILE="$TMP/verify.fail"
 # --- stub PATH: findmnt, systemctl, Hyprland --------------------------
 
-cat > "$STUBS/findmnt" <<'EOF'
+cat >"$STUBS/findmnt" <<'EOF'
 #!/bin/bash
 # Real usage this stub needs to answer: `findmnt -no OPTIONS <target>`.
 target="${*: -1}"
@@ -100,14 +103,14 @@ else
 fi
 EOF
 
-cat > "$STUBS/systemctl" <<'EOF'
+cat >"$STUBS/systemctl" <<'EOF'
 #!/bin/bash
 # Real usage this stub needs to answer:
 # `systemctl [--root=...] is-enabled getty@tty2.service`.
 cat "$OMARCHY_KIDS_TEST_GETTY_STATE"
 EOF
 
-cat > "$STUBS/Hyprland" <<'EOF'
+cat >"$STUBS/Hyprland" <<'EOF'
 #!/bin/bash
 # --verify-config: answer from a control file (missing = config verifies).
 if [[ " $* " == *" --verify-config "* ]]; then
@@ -151,16 +154,18 @@ export OMARCHY_KIDS_TEST_TMP_OPTS="$TMP_OPTS_FILE"
 export OMARCHY_KIDS_TEST_GETTY_STATE="$GETTY_STATE_FILE"
 export OMARCHY_KIDS_TEST_HYPRLAND_LOG="$HYPRLAND_LOG"
 
-reset_pass() { # everything set up so every check passes
-  rm -f "$PKCHECK_ANSWER_FILE" "$VERIFY_FAIL_FILE"  # stubs answer "all good" again
+reset_pass() {                                     # everything set up so every check passes
+  rm -f "$PKCHECK_ANSWER_FILE" "$VERIFY_FAIL_FILE" # stubs answer "all good" again
   write_profile garden
-  rm -f "$POLICY"; : > "$POLICY"; chmod 644 "$POLICY"
-  : > "$POLKIT_ADMIN"
-  : > "$POLKIT_DENY"
-  : > "$LEVEL_CONF"
-  echo "rw,nosuid,nodev,noexec,relatime" > "$HOME_OPTS_FILE"
-  echo "rw,nosuid,nodev,noexec,relatime" > "$TMP_OPTS_FILE"
-  echo "masked" > "$GETTY_STATE_FILE"
+  rm -f "$POLICY"
+  : >"$POLICY"
+  chmod 644 "$POLICY"
+  : >"$POLKIT_ADMIN"
+  : >"$POLKIT_DENY"
+  : >"$LEVEL_CONF"
+  echo "rw,nosuid,nodev,noexec,relatime" >"$HOME_OPTS_FILE"
+  echo "rw,nosuid,nodev,noexec,relatime" >"$TMP_OPTS_FILE"
+  echo "masked" >"$GETTY_STATE_FILE"
   rm -f "$LOG_FILE" "$HYPRLAND_LOG"
 }
 
@@ -170,7 +175,8 @@ reset_pass() { # everything set up so every check passes
 
 reset_pass
 rm -f "$PROFILE"
-out="$("$BIN" 2>&1)"; st=$?
+out="$("$BIN" 2>&1)"
+st=$?
 check_eq "$st" 1 "no profile: exits 1"
 check_contains "$out" "profile present" "no profile: names the failed check"
 check_contains "$out" "Ask a grown-up" "no profile: shows the ask-grownup message"
@@ -187,7 +193,8 @@ run_fail_case() { # run_fail_case LABEL BREAK_FN CHECK_ID HUMAN_NAME
   local label="$1" break_fn="$2" check_id="$3" human="$4"
   reset_pass
   "$break_fn"
-  out="$("$BIN" 2>&1)"; st=$?
+  out="$("$BIN" 2>&1)"
+  st=$?
   check_eq "$st" 1 "$label: exits 1"
   check_contains "$out" "$human" "$label: names '$human' in the ask-grownup output"
   [[ -e "$HYPRLAND_LOG" ]] && fail "$label: must not start Hyprland" || pass "$label: did not start Hyprland"
@@ -204,17 +211,17 @@ break_policy_unreadable() { chmod 000 "$POLICY"; }
 run_fail_case "policy unreadable (web=garden)" break_policy_unreadable policy "browser policy readable"
 
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"
-break_polkit() { printf "Authorization requires authentication\n" > "$PKCHECK_ANSWER_FILE"; }
+break_polkit() { printf "Authorization requires authentication\n" >"$PKCHECK_ANSWER_FILE"; }
 run_fail_case "polkit deny rule missing" break_polkit polkit "polkit rules present"
 break_verify() { touch "$VERIFY_FAIL_FILE"; }
 run_fail_case "level config fails verification" break_verify level_config "level config present"
 
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"
-break_home() { echo "rw,nosuid,nodev,relatime" > "$HOME_OPTS_FILE"; }
+break_home() { echo "rw,nosuid,nodev,relatime" >"$HOME_OPTS_FILE"; }
 run_fail_case "home not noexec" break_home home_noexec "home noexec"
 
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"
-break_getty() { echo "enabled" > "$GETTY_STATE_FILE"; }
+break_getty() { echo "enabled" >"$GETTY_STATE_FILE"; }
 run_fail_case "getty@tty2 not masked" break_getty consoles_masked "consoles masked"
 
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"
@@ -227,8 +234,9 @@ run_fail_case "level config missing" break_level_conf level_config "level config
 # =====================================================================
 
 reset_pass
-echo "rw,nosuid,nodev,relatime" > "$TMP_OPTS_FILE"
-out="$("$BIN" 2>&1)"; st=$?
+echo "rw,nosuid,nodev,relatime" >"$TMP_OPTS_FILE"
+out="$("$BIN" 2>&1)"
+st=$?
 check_eq "$st" 0 "/tmp not noexec: still starts (warning, not fail-closed)"
 check_contains "$out" "WARN" "/tmp not noexec: warns"
 [[ -e "$HYPRLAND_LOG" ]] && pass "/tmp not noexec: Hyprland still started" || fail "/tmp not noexec: Hyprland did not start"
@@ -243,7 +251,8 @@ check_contains "$(cat "$LOG_FILE" 2>/dev/null)" "check=tmp_noexec name=\"private
 reset_pass
 write_profile none
 rm -f "$POLICY"
-out="$("$BIN" 2>&1)"; st=$?
+out="$("$BIN" 2>&1)"
+st=$?
 check_eq "$st" 0 "web=none: starts even with no policy file"
 [[ -e "$HYPRLAND_LOG" ]] && pass "web=none: Hyprland started" || fail "web=none: Hyprland did not start"
 check_contains "$(cat "$LOG_FILE" 2>/dev/null)" "check=policy" "web=none: policy check still logged"
@@ -255,7 +264,8 @@ check_contains "$(cat "$LOG_FILE" 2>/dev/null)" "result=PASS" "web=none: policy 
 # =====================================================================
 
 reset_pass
-out="$("$BIN" 2>&1)"; st=$?
+out="$("$BIN" 2>&1)"
+st=$?
 check_eq "$st" 0 "all pass: exits 0 (exec of the Hyprland stub succeeded)"
 argv="$(cat "$HYPRLAND_LOG" 2>/dev/null)"
 check_contains "$argv" "HYPRLAND --config $LEVEL_CONF" "all pass: Hyprland stub got --config $LEVEL_CONF"
@@ -270,7 +280,8 @@ check_contains "$argv" "HYPRLAND_DIR=$ETC/hyprland" "all pass: OMARCHY_KIDS_HYPR
 # =====================================================================
 
 reset_pass
-out="$("$BIN" --check 2>&1)"; st=$?
+out="$("$BIN" --check 2>&1)"
+st=$?
 check_eq "$st" 0 "--check (all pass): exits 0"
 check_contains "$out" "profile present" "--check (all pass): table names the profile check"
 check_contains "$out" "PASS" "--check (all pass): table shows PASS"
@@ -278,7 +289,8 @@ check_contains "$out" "PASS" "--check (all pass): table shows PASS"
 
 reset_pass
 break_polkit
-out="$("$BIN" --check 2>&1)"; st=$?
+out="$("$BIN" --check 2>&1)"
+st=$?
 check_eq "$st" 1 "--check (polkit missing): exits 1"
 check_contains "$out" "polkit rules present" "--check (polkit missing): table names the polkit check"
 check_contains "$out" "FAIL" "--check (polkit missing): table shows FAIL"
@@ -293,12 +305,13 @@ check_contains "$out" "level config present" "--check (polkit missing): still ru
 INSTALL_SHARE="$TMP/install-share"
 INSTALL_ETC="$TMP/install-etc"
 mkdir -p "$INSTALL_SHARE/hyprland"
-printf -- '-- L1\n' > "$INSTALL_SHARE/hyprland/L1.lua"
-printf -- '-- L2\n' > "$INSTALL_SHARE/hyprland/L2.lua"
-printf -- '-- L3\n' > "$INSTALL_SHARE/hyprland/L3.lua"
-printf 'not a lua file\n' > "$INSTALL_SHARE/hyprland/README"
+printf -- '-- L1\n' >"$INSTALL_SHARE/hyprland/L1.lua"
+printf -- '-- L2\n' >"$INSTALL_SHARE/hyprland/L2.lua"
+printf -- '-- L3\n' >"$INSTALL_SHARE/hyprland/L3.lua"
+printf 'not a lua file\n' >"$INSTALL_SHARE/hyprland/README"
 
-out="$(OMARCHY_KIDS_ETC="$INSTALL_ETC" OMARCHY_KIDS_SHARE="$INSTALL_SHARE" "$BIN" --install-configs 2>&1)"; st=$?
+out="$(OMARCHY_KIDS_ETC="$INSTALL_ETC" OMARCHY_KIDS_SHARE="$INSTALL_SHARE" "$BIN" --install-configs 2>&1)"
+st=$?
 check_eq "$st" 0 "--install-configs: exits 0"
 for n in L1 L2 L3; do
   f="$INSTALL_ETC/hyprland/$n.lua"
@@ -310,12 +323,13 @@ for n in L1 L2 L3; do
     fail "--install-configs: $n.lua was not installed"
   fi
 done
-[[ -e "$INSTALL_ETC/hyprland/README" ]] && fail "--install-configs: must only copy *.lua files" \
-  || pass "--install-configs: non-.lua files left alone"
+[[ -e "$INSTALL_ETC/hyprland/README" ]] && fail "--install-configs: must only copy *.lua files" ||
+  pass "--install-configs: non-.lua files left alone"
 
 # --- --help / -h -------------------------------------------------------
 
-out="$("$BIN" --help 2>&1)"; st=$?
+out="$("$BIN" --help 2>&1)"
+st=$?
 check_eq "$st" 0 "--help exits 0"
 check_contains "$out" "Usage: omarchy-kids-session" "--help prints usage"
 

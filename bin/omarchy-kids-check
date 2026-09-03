@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/conf.sh
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh
@@ -20,7 +21,7 @@ ASSERT_BIN="$(kids_bin assert "$DIR")"
 PROC_ROOT="${OMARCHY_KIDS_PROC_ROOT:-/proc}"
 
 usage() {
-    cat <<'EOF'
+  cat <<'EOF'
 Usage: omarchy-kids-check [--json] [--live] [--help]
 
 Read-only "is it safe?" report (SPEC.md R-TRUST-2): every provisioned
@@ -48,31 +49,40 @@ EOF
 JSON=0
 LIVE=0
 for arg in "$@"; do
-    case "$arg" in
-        --json) JSON=1 ;;
-        --live) LIVE=1 ;;
-        -h|--help) usage; exit 0 ;;
-        *)
-            echo "omarchy-kids-check: unknown argument '$arg'" >&2
-            usage >&2
-            exit 2
-            ;;
-    esac
+  case "$arg" in
+    --json) JSON=1 ;;
+    --live) LIVE=1 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "omarchy-kids-check: unknown argument '$arg'" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
 done
 
-[[ -r "$ASSERT_BIN" ]] || { echo "omarchy-kids-check: cannot find omarchy-kids-assert at $ASSERT_BIN" >&2; exit 2; }
+[[ -r "$ASSERT_BIN" ]] || {
+  echo "omarchy-kids-check: cannot find omarchy-kids-assert at $ASSERT_BIN" >&2
+  exit 2
+}
 
 # source_assert — pulls in every lock's *_ok/*_fix and its ETC/SHARE/etc
 # vars. Called from a function so "$@" is empty, not --json/--live (docs/check.md).
 source_assert() {
-    # shellcheck source=bin/omarchy-kids-assert
-    source "$ASSERT_BIN"
+  # shellcheck source=bin/omarchy-kids-assert
+  source "$ASSERT_BIN"
 }
 source_assert
 
-G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; N=$'\033[0m'
+G=$'\033[32m'
+R=$'\033[31m'
+Y=$'\033[33m'
+N=$'\033[0m'
 
-RESULTS=()          # "section\x1fid\x1fstatus\x1fdetail" — status: pass/warn/fail/skip
+RESULTS=() # "section\x1fid\x1fstatus\x1fdetail" — status: pass/warn/fail/skip
 SECTION_ORDER=()
 CHECK_ANY_FAIL=0
 CHECK_ANY_WARN=0
@@ -80,49 +90,49 @@ CHECK_ANY_WARN=0
 # add_result SECTION ID STATUS DETAIL — STATUS pass/warn/fail/skip; skip
 # never affects the verdict.
 add_result() {
-    local section="$1" id="$2" status="$3" detail="$4"
-    is_in "$section" "${SECTION_ORDER[@]+"${SECTION_ORDER[@]}"}" || SECTION_ORDER+=("$section")
-    RESULTS+=("$section"$'\x1f'"$id"$'\x1f'"$status"$'\x1f'"$detail")
-    case "$status" in
-        fail) CHECK_ANY_FAIL=1 ;;
-        warn) CHECK_ANY_WARN=1 ;;
-    esac
+  local section="$1" id="$2" status="$3" detail="$4"
+  is_in "$section" "${SECTION_ORDER[@]+"${SECTION_ORDER[@]}"}" || SECTION_ORDER+=("$section")
+  RESULTS+=("$section"$'\x1f'"$id"$'\x1f'"$status"$'\x1f'"$detail")
+  case "$status" in
+    fail) CHECK_ANY_FAIL=1 ;;
+    warn) CHECK_ANY_WARN=1 ;;
+  esac
 }
 
 # lock_check ID CHECK_FN [ARGS...] — reports via the *_ok functions only,
 # never calls *_fix (docs/assert.md has what each lock proves).
 lock_check() {
-    local id="$1" fn="$2" rc
-    shift 2
-    "$fn" "$@" && rc=0 || rc=$?
-    if [[ "$rc" -eq 0 ]]; then
-        add_result Locks "lock:$id" pass "matches what omarchy-kids-assert expects"
-    elif [[ "$rc" -eq 2 ]]; then
-        # Exit 2 ("I could not look", review S11) reports warn, not pass.
-        add_result Locks "lock:$id" warn "could not be verified on this machine — see 'omarchy-kids-assert' output for '$id'"
-    else
-        add_result Locks "lock:$id" fail "does not match what omarchy-kids-assert expects — run 'omarchy-kids-assert' to restore it (docs/assert.md's lock table has what '$id' proves)"
-    fi
+  local id="$1" fn="$2" rc
+  shift 2
+  "$fn" "$@" && rc=0 || rc=$?
+  if [[ "$rc" -eq 0 ]]; then
+    add_result Locks "lock:$id" pass "matches what omarchy-kids-assert expects"
+  elif [[ "$rc" -eq 2 ]]; then
+    # Exit 2 ("I could not look", review S11) reports warn, not pass.
+    add_result Locks "lock:$id" warn "could not be verified on this machine — see 'omarchy-kids-assert' output for '$id'"
+  else
+    add_result Locks "lock:$id" fail "does not match what omarchy-kids-assert expects — run 'omarchy-kids-assert' to restore it (docs/assert.md's lock table has what '$id' proves)"
+  fi
 }
 
 # lock_check_warn — same shape as lock_check, for the SDDM face icon
 # (issue #39), cosmetic only, no security consequence (docs/check.md).
 lock_check_warn() {
-    local id="$1" fn="$2"
-    shift 2
-    if "$fn" "$@"; then
-        add_result Locks "lock:$id" pass "matches what omarchy-kids-assert expects"
-    else
-        add_result Locks "lock:$id" warn "does not match what omarchy-kids-assert expects (cosmetic only, no security consequence) — run 'omarchy-kids-assert' to restore it"
-    fi
+  local id="$1" fn="$2"
+  shift 2
+  if "$fn" "$@"; then
+    add_result Locks "lock:$id" pass "matches what omarchy-kids-assert expects"
+  else
+    add_result Locks "lock:$id" warn "does not match what omarchy-kids-assert expects (cosmetic only, no security consequence) — run 'omarchy-kids-assert' to restore it"
+  fi
 }
 
 kid_conf_count() {
-    local n=0 acct
-    while IFS= read -r acct; do
-        [[ -n "$acct" ]] && n=$((n + 1))
-    done < <(kids_list "$KIDS_DIR")
-    printf '%s' "$n"
+  local n=0 acct
+  while IFS= read -r acct; do
+    [[ -n "$acct" ]] && n=$((n + 1))
+  done < <(kids_list "$KIDS_DIR")
+  printf '%s' "$n"
 }
 
 # shellcheck source=lib/check-accounts.sh
@@ -159,15 +169,17 @@ run_live_section
 VERDICT=pass
 EXIT_CODE=0
 if [[ "$CHECK_ANY_FAIL" == 1 ]]; then
-    VERDICT=fail; EXIT_CODE=2
+  VERDICT=fail
+  EXIT_CODE=2
 elif [[ "$CHECK_ANY_WARN" == 1 ]]; then
-    VERDICT=warn; EXIT_CODE=1
+  VERDICT=warn
+  EXIT_CODE=1
 fi
 
 if [[ "$JSON" == 1 ]]; then
-    render_json
+  render_json
 else
-    render_human
+  render_human
 fi
 
 exit "$EXIT_CODE"

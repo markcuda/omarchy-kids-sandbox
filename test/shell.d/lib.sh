@@ -17,12 +17,12 @@
 # prints something that is not a mode at all (issue #49; lib/kids.sh's
 # file_stat has the same ordering for the same reason).
 kids_file_mode() {
-    if stat --version >/dev/null 2>&1; then stat -c '%a' "$1"; else stat -f '%Lp' "$1"; fi
+  if stat --version >/dev/null 2>&1; then stat -c '%a' "$1"; else stat -f '%Lp' "$1"; fi
 }
 
 # kids_file_mtime FILE — FILE's mtime in seconds, same GNU-first rule.
 kids_file_mtime() {
-    if stat --version >/dev/null 2>&1; then stat -c '%Y' "$1"; else stat -f '%m' "$1"; fi
+  if stat --version >/dev/null 2>&1; then stat -c '%Y' "$1"; else stat -f '%m' "$1"; fi
 }
 
 # KIDS_BASE_TOOLS — bash plus the coreutils/text tools bin/ and lib/ use.
@@ -30,10 +30,10 @@ kids_file_mtime() {
 # lsblk, socat, limine, every omarchy-* and omarchy-kids-* command. Name
 # those explicitly when a test wants them.
 KIDS_BASE_TOOLS=(
-    awk base64 basename bash cat chgrp chmod chown cmp comm cp cut date
-    diff dirname du env expr find grep gzip head id install jq ln ls mkdir
-    mktemp mv od ps python3 readlink realpath rm rmdir sed seq sh sleep
-    sort stat tail tar tee timeout touch tr uname uniq wc xargs
+  awk base64 basename bash cat chgrp chmod chown cmp comm cp cut date
+  diff dirname du env expr find grep gzip head id install jq ln ls mkdir
+  mktemp mv od ps python3 readlink realpath rm rmdir sed seq sh sleep
+  sort stat tail tar tee timeout touch tr uname uniq wc xargs
 )
 
 # kids_base_path DIR [TOOL...] — fill DIR with symlinks to KIDS_BASE_TOOLS
@@ -41,12 +41,12 @@ KIDS_BASE_TOOLS=(
 # an installed package can never turn "not installed yet" into "installed".
 # Resolve it before a test puts its own stubs on PATH.
 kids_base_path() {
-    local dir="$1" tool src
-    shift
-    mkdir -p "$dir"
-    for tool in "${KIDS_BASE_TOOLS[@]}" "$@"; do
-        src="$(type -P "$tool")" || continue
-        [[ -n "$src" ]] && ln -sf "$src" "$dir/$tool"
-    done
-    printf '%s\n' "$dir"
+  local dir="$1" tool src
+  shift
+  mkdir -p "$dir"
+  for tool in "${KIDS_BASE_TOOLS[@]}" "$@"; do
+    src="$(type -P "$tool")" || continue
+    [[ -n "$src" ]] && ln -sf "$src" "$dir/$tool"
+  done
+  printf '%s\n' "$dir"
 }

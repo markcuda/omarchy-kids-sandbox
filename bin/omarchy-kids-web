@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
@@ -20,11 +21,13 @@ SYSROOT=""
 
 DRY_RUN="${DRY_RUN:-1}"
 
-
-die() { echo "omarchy-kids-web: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-web: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
-    cat <<'EOF'
+  cat <<'EOF'
 Usage: omarchy-kids-web render <band> [--allow FILE] [--out FILE]
        omarchy-kids-web install <band> [--allow FILE] [--apply]
        omarchy-kids-web launch [URL]
@@ -64,132 +67,152 @@ real too -- it starts a browser, not something that touches /etc.
 EOF
 }
 
-
 # band_web_mode BAND — none|garden|filtered, via omarchy-kids-conf, not a
 # second hardcoded mapping.
 band_web_mode() {
-    local band="$1" out
-    out="$("$CONF_BIN" band "$band" 2>/dev/null)" || die "could not read band '$band' defaults from $CONF_BIN (see docs/conf.md)"
-    first_field web "$out"
+  local band="$1" out
+  out="$("$CONF_BIN" band "$band" 2>/dev/null)" || die "could not read band '$band' defaults from $CONF_BIN (see docs/conf.md)"
+  first_field web "$out"
 }
 
 # list_domains FILE — one host per line, '#' comments/blanks stripped.
 # Missing file -> nothing, not an error.
 list_domains() {
-    local file="$1"
-    [[ -f "$file" ]] || return 0
-    sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$file"
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$file"
 }
 
 # render_policy_json BAND [ALLOW_FILE] — prints the final managed-policy
 # JSON on stdout, or dies with a one-line reason.
 render_policy_json() {
-    local band="$1" allow_file="${2:-}"
-    local policy_file="$SHARE/policy/$band.json"
-    local list_file="$SHARE/policy/lists/$band.txt"
+  local band="$1" allow_file="${2:-}"
+  local policy_file="$SHARE/policy/$band.json"
+  local list_file="$SHARE/policy/lists/$band.txt"
 
-    [[ -f "$policy_file" ]] || die "no policy template for band '$band' ($policy_file)"
-    jq -e '.' "$policy_file" >/dev/null 2>&1 || die "invalid JSON in $policy_file"
+  [[ -f "$policy_file" ]] || die "no policy template for band '$band' ($policy_file)"
+  jq -e '.' "$policy_file" >/dev/null 2>&1 || die "invalid JSON in $policy_file"
 
-    local mode
-    mode="$(band_web_mode "$band")"
+  local mode
+  mode="$(band_web_mode "$band")"
 
-    case "$mode" in
-        garden)
-            local domains allow_json
-            domains="$( { list_domains "$list_file"; [[ -n "$allow_file" ]] && list_domains "$allow_file"; } | sort -u )"
-            allow_json="$(printf '%s\n' "$domains" | jq -R -s 'split("\n") | map(select(length > 0))')"
-            jq --argjson allow "$allow_json" '.URLAllowlist = $allow' "$policy_file" \
-                || die "failed to merge the allowlist for band '$band'"
-            ;;
-        none|filtered)
-            [[ -z "$allow_file" ]] || die "band '$band' is '$mode' (R-WEB-3): it takes no allowlist, so --allow is not accepted"
-            jq '.' "$policy_file"
-            ;;
-        *)
-            die "band '$band' has an unrecognized web mode '$mode' (share/bands/bands.toml)"
-            ;;
-    esac
+  case "$mode" in
+    garden)
+      local domains allow_json
+      domains="$({
+        list_domains "$list_file"
+        [[ -n "$allow_file" ]] && list_domains "$allow_file"
+      } | sort -u)"
+      allow_json="$(printf '%s\n' "$domains" | jq -R -s 'split("\n") | map(select(length > 0))')"
+      jq --argjson allow "$allow_json" '.URLAllowlist = $allow' "$policy_file" ||
+        die "failed to merge the allowlist for band '$band'"
+      ;;
+    none | filtered)
+      [[ -z "$allow_file" ]] || die "band '$band' is '$mode' (R-WEB-3): it takes no allowlist, so --allow is not accepted"
+      jq '.' "$policy_file"
+      ;;
+    *)
+      die "band '$band' has an unrecognized web mode '$mode' (share/bands/bands.toml)"
+      ;;
+  esac
 }
 
 # install_policy_file BAND [ALLOW_FILE] — renders, then writes the policy
 # file at 0640 root:omarchy-kids-<band> (R-WEB-1), temp-file-then-rename.
 # Ownership best-effort, docs/assert.md's chromium_fix.
 install_policy_file() {
-    local band="$1" allow_file="${2:-}"
-    local dir="$SYSROOT/etc/chromium/policies/managed"
-    local file="$dir/omarchy-kids-$band.json"
-    local json group stage
+  local band="$1" allow_file="${2:-}"
+  local dir="$SYSROOT/etc/chromium/policies/managed"
+  local file="$dir/omarchy-kids-$band.json"
+  local json group stage
 
-    json="$(render_policy_json "$band" "$allow_file")" || return 1
+  json="$(render_policy_json "$band" "$allow_file")" || return 1
 
-    install -d -m 0755 "$dir"
-    stage="$(mktemp "$dir/.omarchy-kids-$band.json.XXXXXX")"
-    printf '%s\n' "$json" > "$stage"
-    chmod 0640 "$stage"
-    mv -f "$stage" "$file"
+  install -d -m 0755 "$dir"
+  stage="$(mktemp "$dir/.omarchy-kids-$band.json.XXXXXX")"
+  printf '%s\n' "$json" >"$stage"
+  chmod 0640 "$stage"
+  mv -f "$stage" "$file"
 
-    group="$(group_for_band "$band")" || die "unknown band: '$band'"
-    if ! chown "root:$group" "$file" >/dev/null 2>&1; then
-        echo "  (could not chown $file to root:$group -- fine outside a real root run; omarchy-kids-assert fixes this on the target)" >&2
-    fi
-    echo "  installed $file (root:$group 0640)"
+  group="$(group_for_band "$band")" || die "unknown band: '$band'"
+  if ! chown "root:$group" "$file" >/dev/null 2>&1; then
+    echo "  (could not chown $file to root:$group -- fine outside a real root run; omarchy-kids-assert fixes this on the target)" >&2
+  fi
+  echo "  installed $file (root:$group 0640)"
 }
 
 # --- render --------------------------------------------------------------
 
 cmd_render() {
-    local band="" allow_file="" out_file=""
-    while (($#)); do
-        case "$1" in
-            --allow) allow_file="${2:?--allow needs a value}"; shift 2 ;;
-            --out) out_file="${2:?--out needs a value}"; shift 2 ;;
-            -h|--help) usage; exit 0 ;;
-            --) shift ;;
-            -*) die "render: unknown option '$1'" ;;
-            *)
-                if [[ -z "$band" ]]; then band="$1"; else die "render: unexpected argument '$1'"; fi
-                shift
-                ;;
-        esac
-    done
+  local band="" allow_file="" out_file=""
+  while (($#)); do
+    case "$1" in
+      --allow)
+        allow_file="${2:?--allow needs a value}"
+        shift 2
+        ;;
+      --out)
+        out_file="${2:?--out needs a value}"
+        shift 2
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      --) shift ;;
+      -*) die "render: unknown option '$1'" ;;
+      *)
+        if [[ -z "$band" ]]; then band="$1"; else die "render: unexpected argument '$1'"; fi
+        shift
+        ;;
+    esac
+  done
 
-    [[ -n "$band" ]] || die "render: needs a band"
-    is_valid_band "$band" || die "render: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
+  [[ -n "$band" ]] || die "render: needs a band"
+  is_valid_band "$band" || die "render: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
 
-    local json
-    json="$(render_policy_json "$band" "$allow_file")"
+  local json
+  json="$(render_policy_json "$band" "$allow_file")"
 
-    if [[ -n "$out_file" ]]; then
-        printf '%s\n' "$json" > "$out_file"
-    else
-        printf '%s\n' "$json"
-    fi
+  if [[ -n "$out_file" ]]; then
+    printf '%s\n' "$json" >"$out_file"
+  else
+    printf '%s\n' "$json"
+  fi
 }
 
 # --- install ---------------------------------------------------------------
 
 cmd_install() {
-    local band="" allow_file=""
-    while (($#)); do
-        case "$1" in
-            --allow) allow_file="${2:?--allow needs a value}"; shift 2 ;;
-            --apply) DRY_RUN=0; shift ;;
-            -h|--help) usage; exit 0 ;;
-            --) shift ;;
-            -*) die "install: unknown option '$1'" ;;
-            *)
-                if [[ -z "$band" ]]; then band="$1"; else die "install: unexpected argument '$1'"; fi
-                shift
-                ;;
-        esac
-    done
+  local band="" allow_file=""
+  while (($#)); do
+    case "$1" in
+      --allow)
+        allow_file="${2:?--allow needs a value}"
+        shift 2
+        ;;
+      --apply)
+        DRY_RUN=0
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      --) shift ;;
+      -*) die "install: unknown option '$1'" ;;
+      *)
+        if [[ -z "$band" ]]; then band="$1"; else die "install: unexpected argument '$1'"; fi
+        shift
+        ;;
+    esac
+  done
 
-    [[ -n "$band" ]] || die "install: needs a band"
-    is_valid_band "$band" || die "install: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
+  [[ -n "$band" ]] || die "install: needs a band"
+  is_valid_band "$band" || die "install: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
 
-    echo "Installing Chromium policy for band $band"
-    run install_policy_file "$band" "$allow_file"
+  echo "Installing Chromium policy for band $band"
+  run install_policy_file "$band" "$allow_file"
 }
 
 # --- launch ------------------------------------------------------------
@@ -197,97 +220,107 @@ cmd_install() {
 # resolve_band — from the root-owned profile, never the environment
 # (R-WEB-4, review §3.8).
 resolve_band() {
-    local account band
-    account="$(id -un)"
-    band="$("$CONF_BIN" get "$account" band 2>/dev/null)" \
-        || die "launch: could not resolve a band for '$account' (see docs/conf.md)"
-    printf '%s\n' "$band"
+  local account band
+  account="$(id -un)"
+  band="$("$CONF_BIN" get "$account" band 2>/dev/null)" ||
+    die "launch: could not resolve a band for '$account' (see docs/conf.md)"
+  printf '%s\n' "$band"
 }
 
 # start_url_for_band BAND — first RestoreOnStartupURLs entry, if any.
 # Always empty today (no band template sets it) -- issue #44, docs/web.md.
 start_url_for_band() {
-    local band="$1" rendered
-    rendered="$(render_policy_json "$band")" || return 1
-    jq -r '(.RestoreOnStartupURLs // [])[0] // empty' <<<"$rendered"
+  local band="$1" rendered
+  rendered="$(render_policy_json "$band")" || return 1
+  jq -r '(.RestoreOnStartupURLs // [])[0] // empty' <<<"$rendered"
 }
 
 cmd_launch() {
-    local url=""
-    while (($#)); do
-        case "$1" in
-            -h|--help) usage; exit 0 ;;
-            --) shift ;;
-            -*) die "launch: unknown option '$1'" ;;
-            *)
-                if [[ -z "$url" ]]; then url="$1"; else die "launch: unexpected argument '$1'"; fi
-                shift
-                ;;
-        esac
-    done
+  local url=""
+  while (($#)); do
+    case "$1" in
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      --) shift ;;
+      -*) die "launch: unknown option '$1'" ;;
+      *)
+        if [[ -z "$url" ]]; then url="$1"; else die "launch: unexpected argument '$1'"; fi
+        shift
+        ;;
+    esac
+  done
 
-    local band
-    band="$(resolve_band)"
-    is_valid_band "$band" || die "launch: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
+  local band
+  band="$(resolve_band)"
+  is_valid_band "$band" || die "launch: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
 
-    # R-WEB-4 defense in depth: never start Chromium unless the policy is live.
-    local policy="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-$band.json"
-    [[ -r "$policy" ]] || die "launch: policy file not readable for band '$band' ($policy) -- refusing to start Chromium unmanaged (R-WEB-4)" 1
+  # R-WEB-4 defense in depth: never start Chromium unless the policy is live.
+  local policy="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-$band.json"
+  [[ -r "$policy" ]] || die "launch: policy file not readable for band '$band' ($policy) -- refusing to start Chromium unmanaged (R-WEB-4)" 1
 
-    if [[ -z "$url" ]]; then
-        url="$(start_url_for_band "$band")" || true
-    fi
+  if [[ -z "$url" ]]; then
+    url="$(start_url_for_band "$band")" || true
+  fi
 
-    local -a flags=()
-    local flag
-    while IFS= read -r flag; do
-        [[ -n "$flag" ]] && flags+=("$flag")
-    done < <(list_domains "$SHARE/policy/chromium-flags.conf")
+  local -a flags=()
+  local flag
+  while IFS= read -r flag; do
+    [[ -n "$flag" ]] && flags+=("$flag")
+  done < <(list_domains "$SHARE/policy/chromium-flags.conf")
 
-    local chromium_bin=/usr/lib/chromium/chromium
-    local -a argv=(
-        "$chromium_bin"
-        "${flags[@]+"${flags[@]}"}"
-        --no-first-run
-        --no-default-browser-check
-        --hide-crash-restore-bubble
-        --disable-session-crashed-bubble
-    )
-    [[ -n "$url" ]] && argv+=("$url")
+  local chromium_bin=/usr/lib/chromium/chromium
+  local -a argv=(
+    "$chromium_bin"
+    "${flags[@]+"${flags[@]}"}"
+    --no-first-run
+    --no-default-browser-check
+    --hide-crash-restore-bubble
+    --disable-session-crashed-bubble
+  )
+  [[ -n "$url" ]] && argv+=("$url")
 
-    if [[ "${OMARCHY_KIDS_WEB_NO_EXEC:-0}" == "1" ]]; then
-        printf '%s\n' "${argv[@]}"
-        return 0
-    fi
+  if [[ "${OMARCHY_KIDS_WEB_NO_EXEC:-0}" == "1" ]]; then
+    printf '%s\n' "${argv[@]}"
+    return 0
+  fi
 
-    exec "${argv[@]}"
+  exec "${argv[@]}"
 }
 
 # --- main --------------------------------------------------------------
 
 main() {
-    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
-    local cmd="$1"; shift
-    case "$cmd" in
-        -h|--help) usage; exit 0 ;;
-    esac
+  [[ $# -ge 1 ]] || {
+    usage >&2
+    exit 2
+  }
+  local cmd="$1"
+  shift
+  case "$cmd" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+  esac
 
-    local -a rest=()
-    local arg
-    for arg in "$@"; do
-        if [[ "$arg" == "--apply" ]]; then
-            DRY_RUN=0
-        else
-            rest+=("$arg")
-        fi
-    done
+  local -a rest=()
+  local arg
+  for arg in "$@"; do
+    if [[ "$arg" == "--apply" ]]; then
+      DRY_RUN=0
+    else
+      rest+=("$arg")
+    fi
+  done
 
-    case "$cmd" in
-        render) cmd_render "${rest[@]+"${rest[@]}"}" ;;
-        install) cmd_install "${rest[@]+"${rest[@]}"}" ;;
-        launch) cmd_launch "${rest[@]+"${rest[@]}"}" ;;
-        *) die "unknown command: '$cmd' (see --help)" ;;
-    esac
+  case "$cmd" in
+    render) cmd_render "${rest[@]+"${rest[@]}"}" ;;
+    install) cmd_install "${rest[@]+"${rest[@]}"}" ;;
+    launch) cmd_launch "${rest[@]+"${rest[@]}"}" ;;
+    *) die "unknown command: '$cmd' (see --help)" ;;
+  esac
 }
 
 main "$@"

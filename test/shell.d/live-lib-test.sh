@@ -24,10 +24,16 @@ source "$DIR/test/live/lib.sh"
 
 fail=0
 check() { # got want label
-    if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want '$2', got '$1')"
+    fail=1
+  fi
 }
 check_status() { # got_status want_status label
-    if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want exit $2, got $1)"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want exit $2, got $1)"
+    fail=1
+  fi
 }
 
 # --- portal_kid_index / portal_kid_count -----------------------------------------------------
@@ -59,28 +65,37 @@ expected_header="| Scenario | Result | Screenshots |
 check "$(report_header)" "$expected_header" "report_header: the fixed Markdown table header"
 
 check "$(report_row 10-cold-boot-kid PASS 10-cold-boot-kid.png)" \
-    "| 10-cold-boot-kid | PASS | 10-cold-boot-kid.png |" \
-    "report_row: name, result, one screenshot"
+  "| 10-cold-boot-kid | PASS | 10-cold-boot-kid.png |" \
+  "report_row: name, result, one screenshot"
 
 check "$(report_row 30-portal-login-and-finish PASS 30-launcher.png,30-after-finish.png)" \
-    "| 30-portal-login-and-finish | PASS | 30-launcher.png,30-after-finish.png |" \
-    "report_row: multiple screenshots stay comma-joined"
+  "| 30-portal-login-and-finish | PASS | 30-launcher.png,30-after-finish.png |" \
+  "report_row: multiple screenshots stay comma-joined"
 
 check "$(report_row 90-remove FAIL "")" \
-    "| 90-remove | FAIL | — |" \
-    "report_row: no screenshots falls back to an em dash"
+  "| 90-remove | FAIL | — |" \
+  "report_row: no screenshots falls back to an em dash"
 
 # --- ok / fail / scenario_result's PASS/FAIL line contract -------------------------------------
 # (scenario_result itself calls `exit`, so it's exercised as a subshell here rather than called
 # directly — the same reason test/shell.d never calls a command's own `exit` inline either.)
 
-out="$(LIVE_FAIL=0; ok "a check"; scenario_result some-scenario)"
+out="$(
+  LIVE_FAIL=0
+  ok "a check"
+  scenario_result some-scenario
+)"
 status=$?
 check "$out" "ok   a check
 PASS some-scenario" "scenario_result: an all-ok run prints PASS"
 check_status "$status" "0" "scenario_result: an all-ok run exits 0"
 
-out="$(LIVE_FAIL=0; ok "a check"; fail "a broken check"; scenario_result some-scenario)"
+out="$(
+  LIVE_FAIL=0
+  ok "a check"
+  fail "a broken check"
+  scenario_result some-scenario
+)"
 status=$?
 check "$out" "ok   a check
 FAIL a broken check

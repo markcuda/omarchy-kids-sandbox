@@ -28,26 +28,29 @@ set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
-BIN=""  # a copy in a scratch tree: the panel resolves every sibling
-        # command beside itself now, so the fakes are placed there.
+BIN="" # a copy in a scratch tree: the panel resolves every sibling
+# command beside itself now, so the fakes are placed there.
 
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "SKIP panel-test.sh: python3 not found (needed by omarchy-kids-conf/-ask)"
-    exit 0
+  echo "SKIP panel-test.sh: python3 not found (needed by omarchy-kids-conf/-ask)"
+  exit 0
 fi
 
 pass() { echo "PASS  $*"; }
-fail() { echo "FAIL  $*"; rc=1; }
+fail() {
+  echo "FAIL  $*"
+  rc=1
+}
 rc=0
 
 check_contains() { # haystack needle label
-    if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2' in '$1')"; fi
+  if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2' in '$1')"; fi
 }
 check_not_contains() { # haystack needle label
-    if [[ "$1" != *"$2"* ]]; then pass "$3"; else fail "$3 (did not want to find '$2' in '$1')"; fi
+  if [[ "$1" != *"$2"* ]]; then pass "$3"; else fail "$3 (did not want to find '$2' in '$1')"; fi
 }
 check_status() { # got want label
-    if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want exit $2, got $1)"; fi
+  if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want exit $2, got $1)"; fi
 }
 
 TMP="$(mktemp -d)"
@@ -81,19 +84,19 @@ band=6-8
 EOF
 
 answers_file() { # writes $@ (one per line) to a fresh file, prints its path
-    local f="$TMP/answers.$RANDOM"
-    printf '%s\n' "$@" >"$f"
-    printf '%s' "$f"
+  local f="$TMP/answers.$RANDOM"
+  printf '%s\n' "$@" >"$f"
+  printf '%s' "$f"
 }
 
 # run_panel ANSWERS_FILE [FLAGS...] -> stdout+stderr in $out, exit in
 # $PANEL_STATUS. The answers-file harness has no terminal, so the panel's
 # own default here is a preview; every call below says which it wants.
 run_panel() {
-    local answers="$1"
-    shift
-    out="$(OMARCHY_KIDS_TUI_ANSWERS="$answers" "$BIN" "$@" 2>&1)"
-    PANEL_STATUS=$?
+  local answers="$1"
+  shift
+  out="$(OMARCHY_KIDS_TUI_ANSWERS="$answers" "$BIN" "$@" 2>&1)"
+  PANEL_STATUS=$?
 }
 
 # --- dry-run: exact "[dry-run] sudo ..." lines, nothing on PATH stubbed
@@ -111,39 +114,39 @@ answers="$(answers_file "kid:kid-ada" time grant 15 back back quit)"
 run_panel "$answers" --dry-run
 check_status "$PANEL_STATUS" 0 "dry-run grant exits 0"
 check_contains "$out" "sudo $TREE_BIN/omarchy-kids-time grant kid-ada 15" \
-    "dry-run: 'give more minutes' prints the exact grant command"
+  "dry-run: 'give more minutes' prints the exact grant command"
 
 answers="$(answers_file "kid:kid-ada" time budget 45 back back quit)"
 run_panel "$answers"
 check_contains "$out" "sudo $TREE_BIN/omarchy-kids-conf set kid-ada budget_min 45" \
-    "dry-run: changing the budget prints the exact conf-set command"
+  "dry-run: changing the budget prints the exact conf-set command"
 
 answers="$(answers_file "kid:kid-ada" apps gcompris back back quit)"
 run_panel "$answers"
 check_contains "$out" "sudo $TREE_BIN/omarchy-kids-apps hide kid-ada gcompris" \
-    "dry-run: hiding an app prints the exact hide command"
+  "dry-run: hiding an app prints the exact hide command"
 
 # issue #53: the Desktop screen's two rows, level and theme.
 answers="$(answers_file "kid:kid-ada" desktop level 2 back back quit)"
 run_panel "$answers"
 check_contains "$out" "sudo $TREE_BIN/omarchy-kids-conf set kid-ada level 2" \
-    "dry-run: Desktop -> Desktop level prints the exact conf-set command"
+  "dry-run: Desktop -> Desktop level prints the exact conf-set command"
 
 answers="$(answers_file "kid:kid-ada" desktop theme catppuccin-latte back back quit)"
 run_panel "$answers"
 check_contains "$out" "sudo $TREE_BIN/omarchy-kids-conf set kid-ada theme catppuccin-latte" \
-    "dry-run: Desktop -> Theme prints the exact conf-set command"
+  "dry-run: Desktop -> Theme prints the exact conf-set command"
 
 answers="$(answers_file "kid:kid-ada" remove NotAda back quit)"
 run_panel "$answers"
 check_not_contains "$out" "omarchy-kids-provision remove" \
-    "dry-run: a wrong confirmation name never even prints a remove command"
+  "dry-run: a wrong confirmation name never even prints a remove command"
 check_contains "$out" "didn't match" "dry-run: a wrong confirmation name says so"
 
 answers="$(answers_file "kid:kid-ada" remove Ada back quit)"
 run_panel "$answers"
 check_contains "$out" "sudo $TREE_BIN/omarchy-kids-provision remove kid-ada --apply" \
-    "dry-run: the right confirmation name prints the exact remove command"
+  "dry-run: the right confirmation name prints the exact remove command"
 
 answers="$(answers_file quit)"
 run_panel "$answers"
@@ -161,8 +164,8 @@ check_contains "$out" "Remove Kids Mode" "Home offers the Remove Kids Mode row"
 # for that header line, matching loosely on purpose: where gum is really
 # installed (the vm, not the mac) the header is drawn inside a border.
 facts_in_screen() {
-    local facts="$1" nth="$2" row="$3" label="$4" verdict
-    verdict="$(awk -v facts="$facts" -v nth="$nth" -v row="$row" '
+  local facts="$1" nth="$2" row="$3" label="$4" verdict
+  verdict="$(awk -v facts="$facts" -v nth="$nth" -v row="$row" '
         index($0, facts) && !seen { if (++n == nth) { seen = 1; next } }
         seen && !done && index($0, "Kids Mode") { verdict = "a header sits between the facts and the rows"; done = 1 }
         seen && !done && index($0, row) { verdict = "ok"; done = 1 }
@@ -171,7 +174,7 @@ facts_in_screen() {
             else if (!done) verdict = "no row rendered after the facts"
             print verdict
         }' <<<"$out")"
-    if [[ "$verdict" == ok ]]; then pass "$label"; else fail "$label ($verdict)"; fi
+  if [[ "$verdict" == ok ]]; then pass "$label"; else fail "$label ($verdict)"; fi
 }
 
 answers="$(answers_file "kid:kid-ada" back quit)"
@@ -179,14 +182,14 @@ run_panel "$answers"
 check_contains "$out" "Ada — band 6-8" "the Kid screen shows the kid's name and band"
 check_contains "$out" "Open requests: 0" "the Kid screen shows the open-request count"
 facts_in_screen "Ada — band 6-8" 1 "1) Screen time" \
-    "the Kid screen's facts are its own screen body, above its rows"
+  "the Kid screen's facts are its own screen body, above its rows"
 
 # The screen-time screen's status lines are its body too. Its own copy of
 # `omarchy-kids-time status` is the second: the Kid screen shows one first.
 answers="$(answers_file "kid:kid-ada" time back back quit)"
 run_panel "$answers"
 facts_in_screen "min used" 2 "1) Give more minutes today" \
-    "Screen time's status lines are its own screen body, above its rows"
+  "Screen time's status lines are its own screen body, above its rows"
 
 answers="$(answers_file "@esc")"
 run_panel "$answers"
@@ -225,13 +228,13 @@ chmod +x "$STUBS/sudo"
 # the same argv (so the real behavior -- and the real command's own exit
 # status -- still happen, against this file's scratch trees).
 spy() {
-    local name="$1" real="$2" f="$STUBS/$1"
-    cat >"$f" <<EOF
+  local name="$1" real="$2" f="$STUBS/$1"
+  cat >"$f" <<EOF
 #!/bin/bash
 { printf '%s' "$name"; printf ' %s' "\$@"; printf '\n'; } >> "$ARGV_LOG"
 exec "$real" "\$@"
 EOF
-    chmod +x "$f"
+  chmod +x "$f"
 }
 spy omarchy-kids-conf "$ROOT_DIR/bin/omarchy-kids-conf"
 spy omarchy-kids-time "$ROOT_DIR/bin/omarchy-kids-time"
@@ -257,7 +260,7 @@ chmod +x "$STUBS/omarchy-kids-provision"
 export PATH="$STUBS:$PATH"
 
 for fake in omarchy-kids-conf omarchy-kids-time omarchy-kids-ask \
-            omarchy-kids-apps omarchy-kids-web omarchy-kids-provision; do
+  omarchy-kids-apps omarchy-kids-web omarchy-kids-provision; do
   [[ -f "$STUBS/$fake" ]] && cp "$STUBS/$fake" "$TMP/tree/bin/$fake"
 done
 
@@ -273,7 +276,7 @@ answers="$(answers_file "kid:kid-ada" time grant 15 back back quit)"
 run_panel "$answers" --apply
 check_status "$PANEL_STATUS" 0 "real grant exits 0"
 check_contains "$(cat "$ARGV_LOG")" "omarchy-kids-time grant kid-ada 15" \
-    "real: 'give more minutes' actually calls the grant command"
+  "real: 'give more minutes' actually calls the grant command"
 
 # --- real: change the daily budget, and it's really written ------------
 
@@ -282,9 +285,9 @@ answers="$(answers_file "kid:kid-ada" time budget 45 back back quit)"
 run_panel "$answers" --apply
 check_status "$PANEL_STATUS" 0 "real budget change exits 0"
 check_contains "$(cat "$ARGV_LOG")" "omarchy-kids-conf set kid-ada budget_min 45" \
-    "real: changing the budget actually calls conf set"
+  "real: changing the budget actually calls conf set"
 check_contains "$(cat "$ETC/kids/kid-ada.conf")" "budget_min=45" \
-    "real: the budget override is really on disk afterward"
+  "real: the budget override is really on disk afterward"
 
 # --- real: hide an app, and it's really written -------------------------
 
@@ -293,23 +296,23 @@ answers="$(answers_file "kid:kid-ada" apps gcompris back back quit)"
 run_panel "$answers" --apply
 check_status "$PANEL_STATUS" 0 "real hide exits 0"
 check_contains "$(cat "$ARGV_LOG")" "omarchy-kids-apps hide kid-ada gcompris" \
-    "real: hiding an app actually calls apps hide"
+  "real: hiding an app actually calls apps hide"
 check_contains "$(cat "$ETC/kids/kid-ada.conf")" "apps.hidden=gcompris" \
-    "real: the hidden app is really on disk afterward"
+  "real: the hidden app is really on disk afterward"
 
 # --- real: approve a request, and it's really marked approved ----------
 
 : >"$ARGV_LOG"
 req_id="$(python3 "$ROOT_DIR/lib/ask.py" write "$QUEUE_DIR" --kid kid-ada --kind time \
-    --what 15 --minutes 15)"
+  --what 15 --minutes 15)"
 req_id="${req_id%.json}"
 answers="$(answers_file requests "$req_id" approve back quit)"
 run_panel "$answers" --apply
 check_status "$PANEL_STATUS" 0 "real approve exits 0"
 check_contains "$(cat "$ARGV_LOG")" "omarchy-kids-ask approve $req_id --apply" \
-    "real: approving a request actually calls ask approve"
+  "real: approving a request actually calls ask approve"
 check_contains "$(cat "$QUEUE_DIR/$req_id.json")" '"state": "approved"' \
-    "real: the request is really marked approved afterward"
+  "real: the request is really marked approved afterward"
 
 # --- real: remove a kid, wrong confirmation -> nothing runs -------------
 
@@ -318,9 +321,9 @@ answers="$(answers_file "kid:kid-ada" remove "NotAda" back quit)"
 run_panel "$answers" --apply
 check_status "$PANEL_STATUS" 0 "real wrong-confirmation exits 0"
 check_not_contains "$(cat "$ARGV_LOG")" "omarchy-kids-provision remove" \
-    "real: a wrong confirmation name never calls provision remove"
+  "real: a wrong confirmation name never calls provision remove"
 [[ -e "$ETC/kids/kid-ada.conf" ]] && pass "real: kid-ada's profile is untouched after a wrong confirmation" ||
-    fail "real: kid-ada's profile is untouched after a wrong confirmation"
+  fail "real: kid-ada's profile is untouched after a wrong confirmation"
 
 # --- real: remove a kid, right confirmation -> the exact command runs --
 
@@ -329,7 +332,7 @@ answers="$(answers_file "kid:kid-ada" remove "Ada" quit)"
 run_panel "$answers" --apply
 check_status "$PANEL_STATUS" 0 "real right-confirmation exits 0"
 check_contains "$(cat "$ARGV_LOG")" "omarchy-kids-provision remove kid-ada --apply" \
-    "real: the right confirmation name actually calls provision remove"
+  "real: the right confirmation name actually calls provision remove"
 
 # --- --help works with no terminal and no answers file needed ----------
 
@@ -354,7 +357,7 @@ out="$(OMARCHY_KIDS_TUI_ANSWERS="$answers" OMARCHY_KIDS_LAUNCHED_BY=desktop "$BI
 check_status $? 0 "launched from the app entry: exits 0"
 check_not_contains "$out" "[dry-run]" "launched from the app entry: no preview, this is a real run"
 check_contains "$(cat "$ETC/kids/kid-ada.conf")" "budget_min=55" \
-    "launched from the app entry: the change is really on disk (review §1.5)"
+  "launched from the app entry: the change is really on disk (review §1.5)"
 
 # ...and --dry-run still wins, even from the app entry.
 : >"$ARGV_LOG"
@@ -373,7 +376,7 @@ check_contains "$(cat "$ETC/kids/kid-ada.conf")" "budget_min=55" "no tty: wrote 
 # The desktop entry really does set the marker the panel keys on.
 DESKTOP="$ROOT_DIR/desktop/omarchy-kids.desktop"
 check_contains "$(cat "$DESKTOP")" "OMARCHY_KIDS_LAUNCHED_BY=desktop" \
-    "desktop/omarchy-kids.desktop marks itself as a human launch"
+  "desktop/omarchy-kids.desktop marks itself as a human launch"
 
 echo "panel-test.sh: done"
 exit $rc

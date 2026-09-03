@@ -4,6 +4,9 @@
 # Everything here is a static/text check or a syntax-only parse: nothing
 # runs makepkg, pacman, or root-only commands, so this passes on macOS too.
 set -uo pipefail
+
+# shellcheck source=test/shell.d/tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 pass() { echo "PASS  $*"; }
 fail() {
   echo "FAIL  $*"
@@ -164,8 +167,21 @@ if [[ -x "$session" ]]; then
   # default 15s hold -- issue #11 built the real thing behind these flags,
   # this file only checks it still fails closed with no profile.
   session_tmp="$(mktemp -d)"
-  OMARCHY_KIDS_ETC="$session_tmp/etc" OMARCHY_KIDS_RUN_DIR="$session_tmp/run" \
-    OMARCHY_KIDS_BLOCKED_SLEEP=0 "$session" >/dev/null 2>&1
+  session_tree="$session_tmp/tree"
+  mkdir -p "$session_tmp/bin"
+  kids_tree "$session_tree" "$ROOT"
+  kids_set_const "$session_tree/bin/omarchy-kids-session" ETC "$session_tmp/etc"
+  kids_set_const "$session_tree/bin/omarchy-kids-session" SHARE "$session_tmp/share"
+  kids_set_const "$session_tree/bin/omarchy-kids-session" SYSROOT "$session_tmp/root"
+  kids_set_const "$session_tree/bin/omarchy-kids-session" RUNTIME_DIR "$session_tmp/run"
+  kids_set_const "$session_tree/bin/omarchy-kids-session" RUN_DIR "$session_tmp/run"
+  kids_stub "$session_tmp" getent <<EOF
+#!/bin/bash
+[[ "\${1:-}" == passwd ]] || exit 1
+printf 'fixture:x:1000:1000::%s:/bin/bash\\n' "$session_tmp/home"
+EOF
+  OMARCHY_KIDS_BLOCKED_SLEEP=0 PATH="$session_tmp/bin:$PATH" \
+    "$session_tree/bin/omarchy-kids-session" >/dev/null 2>&1
   session_rc=$?
   rm -rf "$session_tmp"
   if [[ $session_rc -eq 1 ]]; then

@@ -61,10 +61,11 @@ ETC="$TMP/etc"
 SHARE="$TMP/share"
 ROOT="$TMP/root" # OMARCHY_KIDS_ROOT
 STUBS="$TMP/stubs"
+ROOT_ID_STUBS="$TMP/root-stubs"
 ARGV_LOG="$TMP/argv.log"
 QUEUE_DIR="$ROOT/var/lib/omarchy-kids/queue"
 
-mkdir -p "$ETC/kids" "$SHARE/bands" "$SHARE/packs" "$SHARE/avatars" "$STUBS" "$QUEUE_DIR"
+mkdir -p "$ETC/kids" "$SHARE/bands" "$SHARE/packs" "$SHARE/avatars" "$STUBS" "$ROOT_ID_STUBS" "$QUEUE_DIR"
 cp "$ROOT_DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$ROOT_DIR"/share/packs/*.toml "$SHARE/packs/"
 : >"$ARGV_LOG"
@@ -76,6 +77,18 @@ BIN="$TMP/tree/bin/omarchy-kids-panel"
 # The commands the panel prints are resolved from its own `readlink -f`,
 # so the expected paths are the resolved ones (on macOS /var is a symlink).
 TREE_BIN="$(cd "$TMP/tree/bin" && pwd -P)"
+
+# The kid-facing helpers have fixed paths; give the panel's real spies their
+# own copied tree so this test never relies on a runtime path override.
+kids_tree "$TMP/real-tree" "$ROOT_DIR"
+for helper_tree in "$TMP/tree" "$TMP/real-tree"; do
+  for helper in ask time; do
+    kids_set_const "$helper_tree/bin/omarchy-kids-$helper" ETC "$ETC"
+    kids_set_const "$helper_tree/bin/omarchy-kids-$helper" SHARE "$SHARE"
+    kids_set_const "$helper_tree/bin/omarchy-kids-$helper" SYSROOT "$ROOT"
+    kids_set_const "$helper_tree/bin/omarchy-kids-$helper" RUN "$ROOT/run/user/$(id -u)/omarchy-kids"
+  done
+done
 
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada
@@ -232,13 +245,26 @@ spy() {
   cat >"$f" <<EOF
 #!/bin/bash
 { printf '%s' "$name"; printf ' %s' "\$@"; printf '\n'; } >> "$ARGV_LOG"
+if [[ "$name" == omarchy-kids-ask ]]; then
+  PATH="$ROOT_ID_STUBS:\$PATH" exec "$real" "\$@"
+fi
 exec "$real" "\$@"
 EOF
   chmod +x "$f"
 }
+
+cat >"$ROOT_ID_STUBS/id" <<'EOF'
+#!/bin/bash
+case "${1:-}" in
+  -u) echo 0 ;;
+  -un) echo root ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$ROOT_ID_STUBS/id"
 spy omarchy-kids-conf "$ROOT_DIR/bin/omarchy-kids-conf"
-spy omarchy-kids-time "$ROOT_DIR/bin/omarchy-kids-time"
-spy omarchy-kids-ask "$ROOT_DIR/bin/omarchy-kids-ask"
+spy omarchy-kids-time "$TMP/real-tree/bin/omarchy-kids-time"
+spy omarchy-kids-ask "$TMP/real-tree/bin/omarchy-kids-ask"
 spy omarchy-kids-apps "$ROOT_DIR/bin/omarchy-kids-apps"
 spy omarchy-kids-web "$ROOT_DIR/bin/omarchy-kids-web"
 

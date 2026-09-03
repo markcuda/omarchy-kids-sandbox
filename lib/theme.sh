@@ -24,7 +24,7 @@ theme_dir() {
 }
 
 # _theme_kids_fallback NAME -- matches share/sddm-theme/theme.conf's own
-# hardcoded defaults. Plain case, not an associative array (bash 3.2).
+# hardcoded defaults.
 _theme_kids_fallback() {
     case "$1" in
         background) printf '#1a1b26\n' ;;

@@ -96,21 +96,17 @@ _tui_next_answer() {
 }
 
 # _tui_array_copy DEST SRC_ARRAYNAME -- copies the array named
-# SRC_ARRAYNAME into DEST. eval, not a `local -n` nameref (bash 4.3+),
-# since test/all also runs under macOS's bash 3.2 -- docs/tui.md.
+# SRC_ARRAYNAME into DEST.
 _tui_array_copy() {
-    local __tui_dest="$1" __tui_src="$2"
-    # shellcheck disable=SC1087 # $__tui_src[@] is the array-name being
-    # built for eval, not an expansion shellcheck can see through
-    eval "$__tui_dest=(\"\${$__tui_src[@]+\"\${$__tui_src[@]}\"}\")"
+    local -n __tui_dest="$1"
+    local -n __tui_src="$2"
+    __tui_dest=("${__tui_src[@]+"${__tui_src[@]}"}")
 }
 
 # _tui_gum_env_default NAME VALUE -- exports NAME=VALUE only when unset.
-# eval, not `${!name}`, for the same bash-3.2 reason as _tui_array_copy.
 _tui_gum_env_default() {
-    local __tui_name="$1" __tui_val="$2" __tui_current
-    __tui_current="$(eval "printf '%s' \"\${$__tui_name:-}\"")"
-    if [[ -z "$__tui_current" ]]; then
+    local __tui_name="$1" __tui_val="$2"
+    if [[ -z "${!__tui_name:-}" ]]; then
         export "$__tui_name=$__tui_val"
     fi
 }

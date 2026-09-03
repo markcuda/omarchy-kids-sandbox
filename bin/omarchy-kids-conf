@@ -39,8 +39,7 @@ PACK_KEYS=(allowlist sites)
 # file and tool as everything else. See docs/conf.md for what each means.
 EXT_KEYS=(apps.extra apps.hidden apps.show_missing)
 
-# global_default KEY — the Appendix B global default, or exit 1. A plain
-# case, not an associative array, so this still runs on bash 3.2.
+# global_default KEY — the Appendix B global default, or exit 1.
 global_default() {
     case "$1" in
         dns) echo cloudflare-family ;;

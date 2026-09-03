@@ -71,7 +71,6 @@ LAUNCHER_JSON="$RUN/launcher-$UID_NUM.json"
 # Case-insensitive substring heuristic (docs/levels.md "The launcher's tile
 # list"); falls back to the pack id as a literal command in resolve_tile.
 find_desktop_file() {
-  # tr, not bash 4's ${var,,}: stays portable to test/all's own bash.
   local id="$1" pkg="$2" dir f base needle_id needle_pkg base_lc
   needle_id="$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')"
   needle_pkg="${pkg#aur:}"

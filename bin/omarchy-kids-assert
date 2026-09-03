@@ -151,7 +151,13 @@ profile_field() { conf_get "$KIDS_DIR/$1.conf" "$2" 2>/dev/null || true; }
 
 home_dir_for() { printf '%s/home/%s' "$HOME_ROOT" "$1"; }
 
-file_mode() { stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null || true; }
+# GNU first: on Linux `stat -f` means "filesystem status" and prints that (with a non-zero
+# exit for the odd operand), so the BSD-first form tainted the result and the chromium lock
+# re-fixed a correct file on every run (seen live 2026-09-02).
+file_mode() {
+    if stat --version >/dev/null 2>&1; then stat -c '%a' "$1" 2>/dev/null || true
+    else stat -f '%Lp' "$1" 2>/dev/null || true; fi
+}
 
 # --- per-kid locks ----------------------------------------------------------
 

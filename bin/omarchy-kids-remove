@@ -1,0 +1,619 @@
+#!/bin/bash
+# omarchy-kids-remove -- "Remove Kids Mode" (SPEC.md R-TRUST-1, R-TRUST-4,
+# R-FND-6, section 5.2's Remove flow): the parent's undo button. Reverses
+# every lock omarchy-kids-provision and the rest of the package ever wrote,
+# removes every kid account and its LUKS slot, but never a kid's files --
+# each kid's home is kept, moved to "<parent home>/Kids Mode/<name>/"
+# (R-FND-6, same convention `omarchy-kids-provision remove` already uses
+# for a single kid) unless --delete-homes, offers the pre-removal Snapper
+# snapshot, and ends by
+# printing (never running) the pacman command that actually uninstalls the
+# package. See docs/remove.md for the exact order, per-step reasoning, and
+# what is deliberately left behind.
+#
+# Usage:
+#   omarchy-kids-remove [--yes] [--dry-run] [--delete-homes]
+#                        [--parent-password-stdin] [--no-snapshot]
+#   omarchy-kids-remove --help
+#
+# Also reachable as `omarchy-kids remove-kids-mode` (see bin/omarchy-kids).
+#
+# Always prints the plan first: every step, "skipped" (nothing to do) or
+# "would-remove". --dry-run stops right there and writes nothing. Without
+# --yes, a parent has to type "yes" before anything real happens. The real
+# pass then reports "removed"/"skipped"/"FAILED" per step -- one bad step
+# never stops the rest, matching omarchy-kids-assert's own contract: the
+# whole point of Remove Kids Mode is to get as much of the machine back to
+# stock as it can, not to stop at the first thing that goes wrong.
+# Idempotent: a second run finds nothing left to do and reports "skipped"
+# for everything (see docs/remove.md's "Judgment calls" for the one
+# deliberate exception -- the snapshot offer).
+#
+# Every path is overridable for tests, the same convention every other
+# command in this repo uses:
+#   OMARCHY_KIDS_ETC          default /etc/omarchy-kids (profiles, luks-slots)
+#   OMARCHY_KIDS_LIB          default lib/ beside bin/, else /usr/lib/omarchy-kids
+#   OMARCHY_KIDS_ROOT         scratch prefix for every real machine path this
+#                             touches: lib/posture.sh's own list, plus
+#                             /etc/systemd/system (getty, package units),
+#                             /etc/chromium/policies/managed,
+#                             /etc/mkinitcpio.conf.d, /etc/default/limine,
+#                             and /root (the pre-delete tarball)
+#   OMARCHY_KIDS_HOME_ROOT    scratch prefix for /home/<account> itself
+#   OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS auto-detection; remove has no
+#                             --luks-device flag, same as
+#                             omarchy-kids-provision remove
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/conf.sh
+source "$LIB/conf.sh"
+# shellcheck source=lib/posture.sh
+source "$LIB/posture.sh"
+
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
+HOME_ROOT="${OMARCHY_KIDS_HOME_ROOT:-}"
+KIDS_DIR="$ETC/kids"
+SLOTS_FILE="$ETC/luks-slots"
+
+YES=0
+REAL_DRY_RUN=0
+DELETE_HOMES=0
+NO_SNAPSHOT=0
+PARENT_PW_STDIN=0
+PARENT_PASSWORD=""
+DRY_RUN=0
+ANY_FAIL=0
+
+die() { echo "omarchy-kids-remove: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<'EOF'
+Usage: omarchy-kids-remove [--yes] [--dry-run] [--delete-homes]
+                            [--parent-password-stdin] [--no-snapshot]
+       omarchy-kids-remove --help
+
+Remove Kids Mode (SPEC.md R-TRUST-4): reverses every lock, removes every
+kid account and its LUKS slot, and keeps every kid's files -- each kid's
+home moves to "<parent home>/Kids Mode/<name>/" (same convention
+`omarchy-kids-provision remove` already uses) unless --delete-homes, in
+which case "userdel -r" deletes it instead. Offers a Snapper snapshot first (skip
+with --no-snapshot). Always prints the plan; --dry-run stops there and
+writes nothing. Without --yes, asks for confirmation before doing
+anything for real. Ends by printing the "pacman -R" command that removes
+the package itself -- this command never runs it.
+
+  --yes                     Skip the "type yes" confirmation.
+  --dry-run                 Print the plan; change nothing.
+  --delete-homes            Delete each kid's home (userdel -r) instead
+                            of keeping it.
+  --parent-password-stdin   Read the parent's password, one line, from
+                            stdin, before any other input this run reads.
+                            Passed to cryptsetup as each kid's LUKS slot
+                            is killed, for an authenticated deletion; not
+                            required (root can kill a slot without one,
+                            same as omarchy-kids-provision remove -- see
+                            docs/remove.md).
+  --no-snapshot             Skip the Snapper snapshot offer outright.
+  -h, --help                Show this help and exit.
+EOF
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help) usage; exit 0 ;;
+    esac
+done
+
+for arg in "$@"; do
+    case "$arg" in
+        --yes) YES=1 ;;
+        --dry-run) REAL_DRY_RUN=1 ;;
+        --delete-homes) DELETE_HOMES=1 ;;
+        --parent-password-stdin) PARENT_PW_STDIN=1 ;;
+        --no-snapshot) NO_SNAPSHOT=1 ;;
+        *)
+            echo "omarchy-kids-remove: unknown argument '$arg'" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+# --- small helpers -----------------------------------------------------
+
+home_dir_for() { printf '%s/home/%s' "$HOME_ROOT" "$1"; }
+
+list_kids() {
+    [[ -d "$KIDS_DIR" ]] || return 0
+    local f
+    for f in "$KIDS_DIR"/*.conf; do
+        [[ -e "$f" ]] || continue
+        basename "$f" .conf
+    done
+}
+
+# report STATUS DESC -- one line per step.
+report() { printf '%-12s %s\n' "$1" "$2"; }
+
+# plan_one DESC CHECK_FN FIX_FN [ARGS...] -- the same check/fix shape
+# omarchy-kids-assert's assert_one uses, inverted for removal: if CHECK_FN
+# "$@" says there's nothing left to undo, "skipped"; else, under the
+# forced plan pass (DRY_RUN=1), "would-remove" and stop; else run FIX_FN
+# "$@" and report "removed" or "FAILED" (never stops the rest -- see the
+# header comment).
+plan_one() {
+    local desc="$1" check="$2" fix="$3"
+    shift 3
+    if ! "$check" "$@"; then
+        report skipped "$desc"
+        return 0
+    fi
+    if [[ "$DRY_RUN" -eq 1 ]]; then
+        report would-remove "$desc"
+        return 0
+    fi
+    if "$fix" "$@"; then
+        report removed "$desc"
+    else
+        report FAILED "$desc"
+        ANY_FAIL=1
+    fi
+    return 0
+}
+
+file_present() { [[ -e "$1" ]]; }
+file_remove() { rm -f "$1"; }
+
+# --- luks-slots parsing (duplicated from bin/omarchy-kids-provision,
+# which is a script with its own main "$@", not a library -- same
+# reasoning bin/omarchy-kids-assert already documents for group_for_band
+# in docs/assert.md's Judgment calls) -----------------------------------
+
+luks_slots_parent_line() {
+    local file="$1" line
+    [[ -r "$file" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in
+            ''|'#'*) continue ;;
+            0=*) printf '%s\n' "$line"; return 0 ;;
+        esac
+    done < "$file"
+}
+
+luks_slots_kid_entries() {
+    local file="$1" line key
+    [[ -r "$file" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in ''|'#'*) continue ;; esac
+        key="${line%%=*}"
+        [[ "$key" == "0" ]] && continue
+        printf '%s\n' "$line"
+    done < "$file"
+}
+
+luks_slot_for_account() {
+    local file="$1" account="$2" line key val acct
+    [[ -r "$file" ]] || return 0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in ''|'#'*) continue ;; esac
+        key="${line%%=*}"; val="${line#*=}"
+        acct="${val%%:*}"
+        if [[ "$acct" == "$account" ]]; then
+            printf '%s\n' "$key"
+            return 0
+        fi
+    done < "$file"
+}
+
+detect_luks_device() {
+    if [[ -n "${OMARCHY_KIDS_LUKS_DEVICE:-}" ]]; then printf '%s\n' "$OMARCHY_KIDS_LUKS_DEVICE"; return 0; fi
+    if command -v lsblk >/dev/null 2>&1; then
+        local dev
+        dev="$(lsblk -rno NAME,FSTYPE 2>/dev/null | awk '$2=="crypto_LUKS"{print "/dev/"$1; exit}')"
+        if [[ -n "$dev" ]]; then printf '%s\n' "$dev"; return 0; fi
+    fi
+    return 1
+}
+
+# --- per-kid steps -------------------------------------------------------
+
+mount_present() {
+    local home; home="$(home_dir_for "$1")"
+    findmnt -no OPTIONS "$home" >/dev/null 2>&1
+}
+mount_remove() {
+    local account="$1" home unit
+    home="$(home_dir_for "$account")"
+    # The mount unit if any: /home/<account> is fstab-driven, so systemd
+    # may hold a transient unit generated from that line; best-effort only
+    # -- a missing systemd-escape, or no such unit, is not a failure.
+    if command -v systemd-escape >/dev/null 2>&1; then
+        unit="$(systemd-escape --path --suffix=mount "$home" 2>/dev/null || true)"
+        [[ -n "$unit" ]] && systemctl stop "$unit" >/dev/null 2>&1
+    fi
+    umount "$home"
+}
+
+fstab_present() { grep -qxF "$(posture_fstab_line "$1")" "$(posture_fstab)" 2>/dev/null; }
+fstab_remove() { posture_remove_fstab_line "$1"; }
+
+luks_present() { [[ -n "$(luks_slot_for_account "$SLOTS_FILE" "$1" || true)" ]]; }
+luks_remove() {
+    local account="$1" slot device
+    slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+    if device="$(detect_luks_device)"; then
+        if [[ -n "$PARENT_PASSWORD" ]]; then
+            cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$PARENT_PASSWORD") "$device" "$slot" || return 1
+        else
+            cryptsetup luksKillSlot --batch-mode "$device" "$slot" || return 1
+        fi
+    else
+        echo "warning: no LUKS device found; slot $slot for $account was not killed on disk (luks-slots is rewritten anyway)" >&2
+    fi
+    local parent_line entries=() line acct
+    parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        acct="${line#*=}"; acct="${acct%%:*}"
+        [[ "$acct" == "$account" ]] && continue
+        entries+=("$line")
+    done < <(luks_slots_kid_entries "$SLOTS_FILE")
+    posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}"
+}
+
+namespace_present() {
+    local file; file="$(posture_namespace_conf)"
+    [[ -f "$file" ]] || return 1
+    grep -qxF "$(posture_namespace_line_tmp "$1")" "$file" || grep -qxF "$(posture_namespace_line_shm "$1")" "$file"
+}
+namespace_remove() { posture_remove_namespace_lines "$1"; }
+
+accountsservice_present() { [[ -f "$(posture_accountsservice_dir)/$1" ]]; }
+accountsservice_remove() { posture_remove_accountsservice "$1"; }
+
+# face (issue #39): the SDDM face-icon file, distinct from the
+# AccountsService Icon= line above (lib/posture.sh's own header comment
+# on posture_write_face_icon has the UserModel.cpp citation for why both
+# exist).
+face_present() { [[ -f "$(posture_sddm_faces_dir)/$1.face.icon" ]]; }
+face_remove() { posture_remove_face_icon "$1"; }
+
+account_present() { id "$1" >/dev/null 2>&1; }
+account_remove() {
+    if [[ "$DELETE_HOMES" -eq 1 ]]; then
+        userdel -r "$1"
+    else
+        userdel "$1"
+    fi
+}
+
+profile_present() { [[ -e "$KIDS_DIR/$1.conf" ]]; }
+profile_remove() { rm -f "$KIDS_DIR/$1.conf"; }
+
+# parent_home_dir -- duplicated from bin/omarchy-kids-provision's own
+# function of the same name (that file is a script with its own
+# main "$@", not a library -- same reasoning docs/assert.md already gives
+# for group_for_band). $MACHINE_CONF's "parent=" names the account;
+# `getent` gives its real home if this box has one, else the same scratch
+# $HOME_ROOT prefix every other path in this file already honors.
+parent_home_dir() {
+    local parent home
+    parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    if command -v getent >/dev/null 2>&1; then
+        home="$(getent passwd "$parent" 2>/dev/null | cut -d: -f6)"
+        [[ -n "$home" ]] && { printf '%s\n' "$home"; return 0; }
+    fi
+    printf '%s\n' "$(home_dir_for "$parent")"
+}
+
+# home: only ever reached with something to do when --delete-homes was
+# NOT given -- "userdel -r" above already took the home away otherwise,
+# so home_present is simply false by the time this runs (see
+# docs/remove.md). Kept exactly the way R-FND-6 and
+# `omarchy-kids-provision remove` already keep a single kid's home: moved
+# to "<parent home>/Kids Mode/<display name>/", not left as a sibling of
+# the still-existing account homes -- a parent's own home is the one
+# place obviously theirs to browse, and a kid's account and uid are gone
+# by this point anyway. The folder itself is 0700 and chowned to the
+# parent (the files inside stay however the kid's own account left them,
+# same as `omarchy-kids-provision remove` -- `mv` never touches them);
+# `chown` is best-effort, same reasoning `docs/assert.md`'s Chromium
+# policy lock already documents: a real run is always root, at which
+# point it always succeeds, and a non-root context (every test here,
+# AGENTS.md rule 8) is expected to fail it harmlessly.
+home_present() { [[ -e "$(home_dir_for "$1")" ]]; }
+home_remove() {
+    local account="$1" display_name="$2" home parent_home dest parent
+    home="$(home_dir_for "$account")"
+    parent_home="$(parent_home_dir)" || return 1
+    parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+    dest="$parent_home/Kids Mode/$display_name"
+    install -d -m 0700 "$parent_home/Kids Mode" || return 1
+    mv "$home" "$dest" || return 1
+    [[ -n "$parent" ]] && chown -R "$parent" "$dest" >/dev/null 2>&1
+    return 0
+}
+
+remove_kid() {
+    local account="$1" display_name
+    display_name="$(conf_get "$KIDS_DIR/$account.conf" name 2>/dev/null || true)"
+    [[ -n "$display_name" ]] || display_name="$account"
+    plan_one "mount:$account" mount_present mount_remove "$account"
+    plan_one "fstab:$account" fstab_present fstab_remove "$account"
+    plan_one "luks:$account" luks_present luks_remove "$account"
+    plan_one "namespace:$account" namespace_present namespace_remove "$account"
+    plan_one "accountsservice:$account" accountsservice_present accountsservice_remove "$account"
+    plan_one "face:$account" face_present face_remove "$account"
+    plan_one "account:$account" account_present account_remove "$account"
+    plan_one "profile:$account" profile_present profile_remove "$account"
+    plan_one "home:$account" home_present home_remove "$account" "$display_name"
+}
+
+# --- machine-level steps -------------------------------------------------
+
+polkit_admin_present() { [[ -f "$(posture_polkit_dir)/40-omarchy-kids.rules" ]]; }
+polkit_admin_remove() { rm -f "$(posture_polkit_dir)/40-omarchy-kids.rules"; }
+
+polkit_deny_present() { [[ -f "$(posture_polkit_dir)/41-omarchy-kids-deny.rules" ]]; }
+polkit_deny_remove() { rm -f "$(posture_polkit_dir)/41-omarchy-kids-deny.rules"; }
+
+getty_unit_path() { printf '%s/etc/systemd/system/getty@tty%s.service' "$(posture_root)" "$1"; }
+getty_present() {
+    local link; link="$(getty_unit_path "$1")"
+    [[ -L "$link" ]] && [[ "$(readlink "$link")" == "/dev/null" ]]
+}
+getty_remove() {
+    local root_args=()
+    [[ -n "$(posture_root)" ]] && root_args=(--root="$(posture_root)")
+    systemctl "${root_args[@]}" unmask "getty@tty$1.service"
+}
+
+sddm_theme_present() { [[ -f "$(posture_sddm_conf_dir)/zz-omarchy-kids-theme.conf" ]]; }
+sddm_theme_remove() { posture_remove_sddm_theme_dropin; }
+
+# portal-conf (issue #39): theme.conf.user, rebuilt from whatever's
+# actually left under $KIDS_DIR right now -- by the time this runs, every
+# kid's own profile has already been removed in remove_kid above, so a
+# full-teardown run rebuilds it down to just the parent, same
+# "recompute the whole thing" shape luks-slots and this file's other
+# rebuilds already use. portal_conf_entries is duplicated from
+# bin/omarchy-kids-provision (its own EXCLUDE-taking version); this one
+# needs no EXCLUDE argument since the account it would have excluded is
+# already gone from $KIDS_DIR by the time remove_body gets here.
+portal_conf_entries() {
+    local f account name avatar
+    [[ -d "$KIDS_DIR" ]] || return 0
+    for f in "$KIDS_DIR"/*.conf; do
+        [[ -e "$f" ]] || continue
+        account="$(basename "$f" .conf)"
+        name="$(conf_get "$f" name 2>/dev/null || true)"
+        avatar="$(conf_get "$f" avatar 2>/dev/null || true)"
+        printf '%s\t%s\t%s\n' "$account" "$name" "$avatar"
+    done
+}
+portal_conf_expected() {
+    local parent entries=() line
+    parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries)
+    posture_portal_conf_text "$parent" "${entries[@]+"${entries[@]}"}"
+}
+portal_conf_present() {
+    local expected file
+    expected="$(portal_conf_expected)" || return 1
+    file="$(posture_sddm_theme_dir)/theme.conf.user"
+    [[ -f "$file" ]] && [[ "$(cat "$file")" != "$expected" ]]
+}
+portal_conf_remove() {
+    local parent entries=() line
+    parent="$(conf_get "$ETC/machine.conf" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    while IFS= read -r line; do [[ -n "$line" ]] && entries+=("$line"); done < <(portal_conf_entries)
+    posture_write_portal_conf "$parent" "${entries[@]+"${entries[@]}"}"
+}
+
+parent_unlock_present() {
+    local file; file="$(posture_pam_dir)/$1"
+    [[ -f "$file" ]] && grep -qxF "$(posture_parent_unlock_marker)" "$file"
+}
+parent_unlock_remove() { posture_remove_parent_unlock_line "$1"; }
+
+chromium_dir() { printf '%s/etc/chromium/policies/managed' "$(posture_root)"; }
+
+# limine snapshot-hiding restore (V6, issue #38): the mirror image of
+# bin/omarchy-kids-assert's limine_snapshots_fix "show" branch --
+# duplicated rather than shared for the same reason as group_for_band
+# (docs/assert.md); see docs/remove.md's Judgment calls. Unlike assert,
+# this always restores, regardless of machine.conf's boot.snapshot_entries
+# -- Remove Kids Mode is retiring the whole feature, so the parent's
+# choice there no longer applies.
+LIMINE_SNAPSHOTS_MARKER='# omarchy-kids: was MAX_SNAPSHOT_ENTRIES='
+limine_default() { printf '%s/etc/default/limine' "$(posture_root)"; }
+limine_snapshots_present() {
+    local f; f="$(limine_default)"
+    [[ -f "$f" ]] || return 1
+    grep -qF "$LIMINE_SNAPSHOTS_MARKER" "$f" || grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$f"
+}
+limine_snapshots_remove() {
+    local f old tmp; f="$(limine_default)"
+    old="$(grep -F "$LIMINE_SNAPSHOTS_MARKER" "$f" 2>/dev/null | tail -n1 || true)"
+    old="${old#"$LIMINE_SNAPSHOTS_MARKER"}"
+    tmp="$(mktemp)" || return 1
+    {
+        grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${LIMINE_SNAPSHOTS_MARKER}" "$f" || true
+        [[ -n "$old" ]] && printf 'MAX_SNAPSHOT_ENTRIES=%s\n' "$old"
+        true
+    } > "$tmp" || { rm -f "$tmp"; return 1; }
+    cat "$tmp" > "$f" || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
+    if [[ -z "$(posture_root)" ]] && command -v limine-snapper-sync >/dev/null 2>&1; then
+        limine-snapper-sync
+    fi
+    return 0
+}
+
+# editor_enabled is left as-is on purpose (the parent chose it); only our
+# own MAX_SNAPSHOT_ENTRIES line/comment above is ours to restore.
+
+mkinitcpio_dropin() { printf '%s/etc/mkinitcpio.conf.d/omarchy_kids.conf' "$(posture_root)"; }
+mkinitcpio_dropin_present() { [[ -f "$(mkinitcpio_dropin)" ]]; }
+mkinitcpio_dropin_remove() {
+    rm -f "$(mkinitcpio_dropin)" || return 1
+    mkinitcpio -P
+}
+
+autologin_dropin() { printf '%s/zz-omarchy-kids-autologin.conf' "$(posture_sddm_conf_dir)"; }
+autologin_present() { [[ -f "$(autologin_dropin)" ]]; }
+autologin_remove() { rm -f "$(autologin_dropin)"; }
+
+# KIDS_UNITS/KIDS_SOCKETS list every unit this package's own
+# omarchy-kids-assert enables via multi-user.target/sockets.target
+# (docs/assert.md's "units" lock); KIDS_TIMERS adds the screen-time
+# ledger's timer (issue #23, timers.target -- not yet wired into
+# omarchy-kids-assert's own "units" lock as of this checkout, but this
+# command tears down every unit the package ships regardless, belt and
+# suspenders). KIDS_EXTRA_UNITS are activated-by-the-above units with no
+# [Install] section of their own (no .wants symlink to check), so they're
+# only ever stopped, never checked for "is this enabled".
+KIDS_UNITS=(omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service)
+KIDS_SOCKETS=(omarchy-kids-authd.socket)
+KIDS_TIMERS=(omarchy-kids-time.timer)
+KIDS_EXTRA_UNITS=(omarchy-kids-authd.service omarchy-kids-time-ledger.service)
+unit_link() { printf '%s/etc/systemd/system/%s.wants/%s' "$(posture_root)" "$1" "$2"; }
+units_present() {
+    local u
+    for u in "${KIDS_UNITS[@]}"; do [[ -L "$(unit_link multi-user.target "$u")" ]] && return 0; done
+    for u in "${KIDS_SOCKETS[@]}"; do [[ -L "$(unit_link sockets.target "$u")" ]] && return 0; done
+    for u in "${KIDS_TIMERS[@]}"; do [[ -L "$(unit_link timers.target "$u")" ]] && return 0; done
+    return 1
+}
+units_remove() {
+    local root_args=() now_args=()
+    if [[ -n "$(posture_root)" ]]; then
+        root_args=(--root="$(posture_root)")
+    else
+        now_args=(--now)
+    fi
+    systemctl "${root_args[@]}" disable "${now_args[@]+"${now_args[@]}"}" \
+        "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" "${KIDS_EXTRA_UNITS[@]}"
+}
+
+varlib_dir() { printf '%s/var/lib/omarchy-kids' "$(posture_root)"; }
+purge_present() { [[ -d "$ETC" ]] || [[ -d "$(varlib_dir)" ]]; }
+purge_remove() {
+    local base varlib stamp tar_dir tarball paths=()
+    base="$(posture_root)"; [[ -n "$base" ]] || base="/"
+    varlib="$(varlib_dir)"
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    tar_dir="$base/root"
+    install -d -m 0700 "$tar_dir" || return 1
+    tarball="$tar_dir/omarchy-kids-removed-$stamp.tar.gz"
+    [[ -d "$ETC" ]] && paths+=("$ETC")
+    [[ -d "$varlib" ]] && paths+=("$varlib")
+    if [[ ${#paths[@]} -gt 0 ]]; then
+        tar czf "$tarball" "${paths[@]}" || return 1
+    fi
+    rm -rf "$ETC"
+    rm -rf "$varlib"
+}
+
+print_uninstall_hint() {
+    echo
+    echo "Kids Mode itself is not removed yet. When ready:"
+    echo "  sudo pacman -R omarchy-kids"
+}
+
+confirm_or_abort() {
+    local reply=""
+    printf 'Type "yes" to continue, anything else cancels: '
+    IFS= read -r reply || true
+    if [[ "$reply" != "yes" ]]; then
+        echo "omarchy-kids-remove: cancelled, nothing changed" >&2
+        exit 1
+    fi
+}
+
+snapshot_present() { [[ "$NO_SNAPSHOT" -eq 0 ]] && command -v snapper >/dev/null 2>&1; }
+snapshot_take() { snapper -c root create -d "before Remove Kids Mode"; }
+
+# --- one full pass, at whichever $DRY_RUN is currently set to -----------
+
+run_body() {
+    local kids=() k
+    while IFS= read -r k; do
+        [[ -n "$k" ]] && kids+=("$k")
+    done < <(list_kids)
+
+    plan_one "snapshot" snapshot_present snapshot_take
+
+    local account
+    for account in "${kids[@]+"${kids[@]}"}"; do
+        remove_kid "$account"
+    done
+
+    plan_one "polkit-admin" polkit_admin_present polkit_admin_remove
+    plan_one "polkit-deny" polkit_deny_present polkit_deny_remove
+
+    local n
+    for n in 2 3 4 5 6; do
+        plan_one "getty:tty$n" getty_present getty_remove "$n"
+    done
+
+    plan_one "sddm-theme" sddm_theme_present sddm_theme_remove
+    plan_one "portal-conf" portal_conf_present portal_conf_remove
+
+    local lock_stack
+    lock_stack="$(posture_parent_unlock_lock_stack)"
+    plan_one "parent-unlock:sddm" parent_unlock_present parent_unlock_remove sddm
+    plan_one "parent-unlock:$lock_stack" parent_unlock_present parent_unlock_remove "$lock_stack"
+
+    local dir f band_token
+    dir="$(chromium_dir)"
+    if [[ -d "$dir" ]]; then
+        for f in "$dir"/omarchy-kids-*.json; do
+            [[ -e "$f" ]] || continue
+            band_token="$(basename "$f")"; band_token="${band_token#omarchy-kids-}"; band_token="${band_token%.json}"
+            plan_one "chromium-policy:$band_token" file_present file_remove "$f"
+        done
+    fi
+
+    plan_one "limine-snapshots" limine_snapshots_present limine_snapshots_remove
+    plan_one "mkinitcpio-hook" mkinitcpio_dropin_present mkinitcpio_dropin_remove
+    plan_one "sddm-autologin" autologin_present autologin_remove
+    plan_one "units" units_present units_remove
+    plan_one "etc-and-varlib" purge_present purge_remove
+}
+
+# --- main --------------------------------------------------------------
+
+main() {
+    if (( PARENT_PW_STDIN )) && (( ! REAL_DRY_RUN )); then
+        IFS= read -r PARENT_PASSWORD || die "--parent-password-stdin needs a line on stdin"
+    fi
+
+    echo "Plan:"
+    DRY_RUN=1
+    run_body
+
+    if (( REAL_DRY_RUN )); then
+        print_uninstall_hint
+        exit 0
+    fi
+
+    (( YES )) || confirm_or_abort
+
+    echo
+    echo "Removing:"
+    DRY_RUN=0
+    ANY_FAIL=0
+    run_body
+
+    print_uninstall_hint
+    (( ANY_FAIL == 0 )) || exit 1
+    exit 0
+}
+
+main

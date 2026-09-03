@@ -5,26 +5,39 @@
 # at least one kid exists, `omarchy-kids` alone opens the panel (not built
 # yet -- separate issue) and `omarchy-kids wizard` always opens the wizard
 # (R-WIZ-7's "add a kid" runs the same per-kid screens).
+#
+# One more subcommand exists ahead of the panel it will eventually live
+# behind: `remove-kids-mode`, a thin, no-argv-surprises dispatch to
+# bin/omarchy-kids-remove (R-TRUST-4) -- see docs/remove.md.
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WIZARD_BIN="${OMARCHY_KIDS_WIZARD_BIN:-$DIR/bin/omarchy-kids-wizard}"; [[ -x "$WIZARD_BIN" ]] || WIZARD_BIN=omarchy-kids-wizard
+REMOVE_BIN="${OMARCHY_KIDS_REMOVE_BIN:-$DIR/bin/omarchy-kids-remove}"; [[ -x "$REMOVE_BIN" ]] || REMOVE_BIN=omarchy-kids-remove
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
 
+if [[ "${1:-}" == "remove-kids-mode" ]]; then
+  shift
+  exec "$REMOVE_BIN" "$@"
+fi
+
 usage() {
   cat <<EOF
 Usage: omarchy-kids [wizard] [--dry-run] [--help]
+       omarchy-kids remove-kids-mode [--yes] [--dry-run] [--delete-homes]
 
 Opens Kids Mode. With no kid provisioned yet, this is the parent wizard
 (SPEC.md R-WIZ). Once a kid exists, this opens the panel -- not built yet,
 see a later issue -- and 'omarchy-kids wizard' always opens the wizard, to
 add another kid.
 
-  wizard      Always open the parent wizard, even if kids already exist.
-  --dry-run   Passed through to the wizard's Apply step (see its --help).
-  -h, --help  Show this help and exit.
+  wizard            Always open the parent wizard, even if kids already exist.
+  remove-kids-mode  Remove Kids Mode (R-TRUST-4); see
+                    omarchy-kids-remove --help for its own flags.
+  --dry-run         Passed through to the wizard's Apply step (see its --help).
+  -h, --help        Show this help and exit.
 EOF
 }
 

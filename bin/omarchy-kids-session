@@ -45,7 +45,7 @@ exits 1 -- fail closed (I-4, I-9). \$HOME/.config/hypr is never read
                       omarchy-kids-assert (R-TRUST-5).
   -h, --help          Show this help and exit.
 
-Env (see this script's header comment for the full list):
+Env (docs/session.md has every one):
   OMARCHY_KIDS_ETC, OMARCHY_KIDS_SHARE, OMARCHY_KIDS_ROOT,
   OMARCHY_KIDS_RUN_DIR
 EOF

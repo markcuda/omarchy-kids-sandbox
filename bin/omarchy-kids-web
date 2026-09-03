@@ -52,8 +52,7 @@ launch  Execs /usr/lib/chromium/chromium (the real binary, not Arch's
         --disable-session-crashed-bubble, then URL if given, else the
         band's RestoreOnStartupURLs[0] if its policy defines one.
         Refuses (exit 1) if the band's installed managed-policy file
-        isn't readable (R-WEB-4). See --help's own header comment in
-        this script for issue #44's full story.
+        isn't readable (R-WEB-4). docs/web.md has issue #44's full story.
 
 DRY_RUN=1 is the default for "install" (see AGENTS.md rule 8): it only
 prints what it would do. Pass --apply, or set DRY_RUN=0, to make it

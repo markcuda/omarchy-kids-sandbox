@@ -11,7 +11,7 @@ Usage: omarchy-kids-blocked "<check name>"
 
 Prints a full-screen "Ask a grown-up" message naming the failed check
 (SPEC.md R-DESK-2), then holds it on screen for a while and exits.
-Placeholder for the real graphical modal -- see this script's header.
+Placeholder for the real graphical modal -- see docs/session.md.
 
   -h, --help  Show this help and exit.
 

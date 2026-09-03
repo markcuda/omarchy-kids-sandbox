@@ -76,18 +76,9 @@ verified live, what is open, and which decisions are still waiting.
 
 ## What is here now
 
-| File | Note |
-| --- | --- |
-| `bin/omarchy-kids-check` | Green/red self-test, still the right shape |
-| `test/verify-phase1.sh` | Collects facts for the hub's Phase 1 unknowns |
-| `docs/` | Test-laptop runbook and a T2 MacBook note |
-
-## Open pull request
-
-[#1](https://github.com/markcuda/omarchy-kids-sandbox/pull/1), a one-uid kid session with a
-namespaced home, is fine work for the installer path and is not being merged here; the sandbox
-path needs one account per kid. Its Wi-Fi helper and filtered system bus are being borrowed with
-credit. See the hub's installer page.
+Twenty-six `bin/omarchy-kids-*` commands, each with a `--help` and a `docs/<command>.md`; the
+shared shell under `lib/`; the data, policies, Hyprland levels, and Quickshell surfaces under
+`share/`; and `test/all`. [`AGENTS.md`](AGENTS.md)'s Layout table is the map.
 
 ## Rules
 

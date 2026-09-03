@@ -180,3 +180,6 @@ root:omarchy-kids-6-8) is loaded and the walled garden holds. Two warts found an
 #44: Omarchy's wrapper adds `--load-extension` for its bundled extensions, which the policy
 rightly refuses with a modal error every launch, and a "Chromium didn't shut down correctly"
 bubble appears after a Finish. DoH and the 9-12/13+ filtered mode are not yet checked live.
+Same night, after #44: the Web tile launched `/usr/lib/chromium/chromium` with the kids flags
+(basic password store, no extension flags, crash bubble hidden) and opened a clean new-tab page
+with no dialog of any kind; the launcher listed only the installed tiles (#42).

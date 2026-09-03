@@ -19,10 +19,16 @@ QML="$DIR/share/launcher/shell.qml"
 
 fail=0
 check() { # got want label
-  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want '$2', got '$1')"
+    fail=1
+  fi
 }
 check_contains() { # haystack needle label
-  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (want to find '$2' in '$1')"; fail=1; fi
+  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want to find '$2' in '$1')"
+    fail=1
+  fi
 }
 
 if [[ -f "$JS" ]]; then

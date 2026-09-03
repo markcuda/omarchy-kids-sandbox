@@ -40,7 +40,10 @@ fi
 
 fail=0
 pass() { echo "ok   $*"; }
-fail_() { echo "FAIL $*"; fail=1; }
+fail_() {
+  echo "FAIL $*"
+  fail=1
+}
 check() { # got want label
   if [[ "$1" == "$2" ]]; then pass "$3"; else fail_ "$3 (want '$2', got '$1')"; fi
 }
@@ -57,7 +60,7 @@ trap cleanup EXIT
 
 ETC="$TMP/etc"
 SHARE="$TMP/share"
-ROOT="$TMP/root"        # OMARCHY_KIDS_ROOT (the apps-queue file lives under here)
+ROOT="$TMP/root" # OMARCHY_KIDS_ROOT (the apps-queue file lives under here)
 RUN="$TMP/run"
 APPDIR="$TMP/applications"
 STUBS="$TMP/stubs"
@@ -174,15 +177,15 @@ rm -f "$LAUNCHER_JSON"
 check "$?" "0" "session-start (apps.show_missing=yes): exits 0"
 
 kt="$(tile ktuberling)"
-[[ -n "$kt" ]] && pass "show_missing=yes: ktuberling tile is present" \
-  || fail_ "show_missing=yes: ktuberling tile is present (got nothing)"
+[[ -n "$kt" ]] && pass "show_missing=yes: ktuberling tile is present" ||
+  fail_ "show_missing=yes: ktuberling tile is present (got nothing)"
 check "$(echo "$kt" | jq -r '.installed')" "false" "show_missing=yes: ktuberling is installed:false"
 check "$(echo "$kt" | jq -r '.caption')" "not installed yet" \
   "show_missing=yes: ktuberling's caption is 'not installed yet' (unqueued)"
 
 bl="$(tile blinken)"
-[[ -n "$bl" ]] && pass "show_missing=yes: blinken tile is present" \
-  || fail_ "show_missing=yes: blinken tile is present (got nothing)"
+[[ -n "$bl" ]] && pass "show_missing=yes: blinken tile is present" ||
+  fail_ "show_missing=yes: blinken tile is present (got nothing)"
 check "$(echo "$bl" | jq -r '.installed')" "false" "show_missing=yes: blinken is installed:false"
 check "$(echo "$bl" | jq -r '.caption')" "installing..." \
   "show_missing=yes: blinken's caption is 'installing...' (queued)"

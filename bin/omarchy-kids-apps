@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
@@ -24,11 +25,13 @@ HIDE_MARKER="X-OmarchyKidsHideFromMine=true"
 
 DRY_RUN="${DRY_RUN:-1}"
 
-
-die() { echo "omarchy-kids-apps: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-apps: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
-    cat <<'EOF'
+  cat <<'EOF'
 Usage: omarchy-kids-apps list <band|kid> [--json]
        omarchy-kids-apps install <band> [--now] [--apply]
        omarchy-kids-apps install-queued
@@ -81,13 +84,13 @@ pkg_resolves() { pacman -Si "$1" >/dev/null 2>&1; }
 # band of the kid account ARG names (via omarchy-kids-conf, so this
 # never reads a kid's profile directly).
 resolve_band() {
-    local arg="$1"
-    if is_valid_band "$arg"; then
-        printf '%s\n' "$arg"
-        return 0
-    fi
-    "$CONF_BIN" get "$arg" band 2>/dev/null \
-        || die "'$arg' is neither a band (${VALID_BANDS[*]}) nor a kid with a band set"
+  local arg="$1"
+  if is_valid_band "$arg"; then
+    printf '%s\n' "$arg"
+    return 0
+  fi
+  "$CONF_BIN" get "$arg" band 2>/dev/null ||
+    die "'$arg' is neither a band (${VALID_BANDS[*]}) nor a kid with a band set"
 }
 
 pack_file() { printf '%s/%s.toml' "$PACKS_DIR" "$1"; }
@@ -96,12 +99,12 @@ pack_file() { printf '%s/%s.toml' "$PACKS_DIR" "$1"; }
 # pack ids, in file order (empty if the pack has none).
 PACK_IDS=()
 pack_ids_array() {
-    local band="$1" pack ids
-    pack="$(pack_file "$band")"
-    [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
-    ids="$("$KIDS_PY" "$PYHELPER" pack-ids "$pack")"
-    PACK_IDS=()
-    IFS=',' read -ra PACK_IDS <<<"$ids"
+  local band="$1" pack ids
+  pack="$(pack_file "$band")"
+  [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
+  ids="$("$KIDS_PY" "$PYHELPER" pack-ids "$pack")"
+  PACK_IDS=()
+  IFS=',' read -ra PACK_IDS <<<"$ids"
 }
 
 # pack_app_meta PACK ID -> sets LABEL, PKG (globals) for one app id, or
@@ -109,9 +112,9 @@ pack_ids_array() {
 LABEL=""
 PKG=""
 pack_app_meta() {
-    local pack="$1" id="$2" meta
-    meta="$("$KIDS_PY" "$PYHELPER" pack-app "$pack" "$id")" || die "no such app id '$id' in $pack"
-    IFS=$'\t' read -r LABEL PKG _web <<<"$meta"
+  local pack="$1" id="$2" meta
+  meta="$("$KIDS_PY" "$PYHELPER" pack-app "$pack" "$id")" || die "no such app id '$id' in $pack"
+  IFS=$'\t' read -r LABEL PKG _web <<<"$meta"
 }
 
 # --- allowlist math -----------------------------------------------------
@@ -120,75 +123,75 @@ pack_app_meta() {
 # BASE's ids in order, then any of EXTRA's ids not already present (in
 # their own order), minus every id named in HIDDEN. Pure string work.
 combine_allowlist() {
-    local base="$1" extra="$2" hidden="$3"
-    local -a base_arr=() extra_arr=() hidden_arr=() out=()
-    IFS=',' read -ra base_arr <<<"$base"
-    IFS=',' read -ra extra_arr <<<"$extra"
-    IFS=',' read -ra hidden_arr <<<"$hidden"
+  local base="$1" extra="$2" hidden="$3"
+  local -a base_arr=() extra_arr=() hidden_arr=() out=()
+  IFS=',' read -ra base_arr <<<"$base"
+  IFS=',' read -ra extra_arr <<<"$extra"
+  IFS=',' read -ra hidden_arr <<<"$hidden"
 
-    local id
-    for id in "${base_arr[@]+"${base_arr[@]}"}"; do
-        [[ -n "$id" ]] || continue
-        is_in "$id" "${hidden_arr[@]+"${hidden_arr[@]}"}" && continue
-        out+=("$id")
-    done
-    for id in "${extra_arr[@]+"${extra_arr[@]}"}"; do
-        [[ -n "$id" ]] || continue
-        is_in "$id" "${hidden_arr[@]+"${hidden_arr[@]}"}" && continue
-        is_in "$id" "${out[@]+"${out[@]}"}" && continue
-        out+=("$id")
-    done
+  local id
+  for id in "${base_arr[@]+"${base_arr[@]}"}"; do
+    [[ -n "$id" ]] || continue
+    is_in "$id" "${hidden_arr[@]+"${hidden_arr[@]}"}" && continue
+    out+=("$id")
+  done
+  for id in "${extra_arr[@]+"${extra_arr[@]}"}"; do
+    [[ -n "$id" ]] || continue
+    is_in "$id" "${hidden_arr[@]+"${hidden_arr[@]}"}" && continue
+    is_in "$id" "${out[@]+"${out[@]}"}" && continue
+    out+=("$id")
+  done
 
-    local IFS=,
-    printf '%s\n' "${out[*]+"${out[*]}"}"
+  local IFS=,
+  printf '%s\n' "${out[*]+"${out[*]}"}"
 }
 
 # allowlist_value KID -> the kid's effective allowlist (see combine_allowlist).
 allowlist_value() {
-    local kid="$1" base extra hidden
-    base="$("$CONF_BIN" get "$kid" allowlist)"
-    extra="$("$CONF_BIN" get "$kid" apps.extra)"
-    hidden="$("$CONF_BIN" get "$kid" apps.hidden)"
-    combine_allowlist "$base" "$extra" "$hidden"
+  local kid="$1" base extra hidden
+  base="$("$CONF_BIN" get "$kid" allowlist)"
+  extra="$("$CONF_BIN" get "$kid" apps.extra)"
+  hidden="$("$CONF_BIN" get "$kid" apps.hidden)"
+  combine_allowlist "$base" "$extra" "$hidden"
 }
 
 # --- list ----------------------------------------------------------------
 
 cmd_list() {
-    local arg="${1:?omarchy-kids-apps list <band|kid>}" json=0 band pack id pkgname state
-    [[ "${2:-}" == --json ]] && json=1
-    band="$(resolve_band "$arg")"
-    pack="$(pack_file "$band")"
-    [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
-    pack_ids_array "$band"
+  local arg="${1:?omarchy-kids-apps list <band|kid>}" json=0 band pack id pkgname state
+  [[ "${2:-}" == --json ]] && json=1
+  band="$(resolve_band "$arg")"
+  pack="$(pack_file "$band")"
+  [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
+  pack_ids_array "$band"
+  if ((json)); then
+    command -v jq >/dev/null 2>&1 || die "list --json: needs jq (not found on PATH)"
+  fi
+
+  local -a tsv_rows=()
+  ((json)) || printf '%-16s %-24s %-28s %s\n' ID LABEL PKG STATE
+  for id in "${PACK_IDS[@]+"${PACK_IDS[@]}"}"; do
+    [[ -n "$id" ]] || continue
+    pack_app_meta "$pack" "$id"
+    pkgname="${PKG#aur:}"
+    if pacman -Q "$pkgname" >/dev/null 2>&1; then
+      state=installed
+    else
+      state=missing
+    fi
     if ((json)); then
-        command -v jq >/dev/null 2>&1 || die "list --json: needs jq (not found on PATH)"
+      tsv_rows+=("$id"$'\t'"$LABEL"$'\t'"$PKG"$'\t'"$state")
+    else
+      printf '%-16s %-24s %-28s %s\n' "$id" "$LABEL" "$PKG" "$state"
     fi
+  done
 
-    local -a tsv_rows=()
-    ((json)) || printf '%-16s %-24s %-28s %s\n' ID LABEL PKG STATE
-    for id in "${PACK_IDS[@]+"${PACK_IDS[@]}"}"; do
-        [[ -n "$id" ]] || continue
-        pack_app_meta "$pack" "$id"
-        pkgname="${PKG#aur:}"
-        if pacman -Q "$pkgname" >/dev/null 2>&1; then
-            state=installed
-        else
-            state=missing
-        fi
-        if ((json)); then
-            tsv_rows+=("$id"$'\t'"$LABEL"$'\t'"$PKG"$'\t'"$state")
-        else
-            printf '%-16s %-24s %-28s %s\n' "$id" "$LABEL" "$PKG" "$state"
-        fi
-    done
-
-    ((json)) || return 0
-    if ((${#tsv_rows[@]} == 0)); then
-        printf '[]\n'
-        return 0
-    fi
-    printf '%s\n' "${tsv_rows[@]}" | jq -R -s '
+  ((json)) || return 0
+  if ((${#tsv_rows[@]} == 0)); then
+    printf '[]\n'
+    return 0
+  fi
+  printf '%s\n' "${tsv_rows[@]}" | jq -R -s '
         split("\n") | map(select(length > 0) | split("\t")) |
         map({id: .[0], label: .[1], pkg: .[2], state: .[3]})
     '
@@ -197,78 +200,96 @@ cmd_list() {
 # --- install / install-queued --------------------------------------------
 
 enqueue_apps() { # enqueue_apps PKG...
-    local dir; dir="$(dirname "$QUEUE_FILE")"
-    install -d -m 0755 "$dir"
-    local tmp; tmp="$(mktemp "$QUEUE_FILE.XXXXXX")"
-    { [[ -f "$QUEUE_FILE" ]] && cat "$QUEUE_FILE"; printf '%s\n' "$@"; } \
-        | awk 'NF && !seen[$0]++' >"$tmp"
-    chmod 0644 "$tmp"
-    mv -f "$tmp" "$QUEUE_FILE"
+  local dir
+  dir="$(dirname "$QUEUE_FILE")"
+  install -d -m 0755 "$dir"
+  local tmp
+  tmp="$(mktemp "$QUEUE_FILE.XXXXXX")"
+  {
+    [[ -f "$QUEUE_FILE" ]] && cat "$QUEUE_FILE"
+    printf '%s\n' "$@"
+  } |
+    awk 'NF && !seen[$0]++' >"$tmp"
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$QUEUE_FILE"
 }
 
 start_install_service() { systemctl start --no-block omarchy-kids-apps-install.service; }
 
 cmd_install() {
-    local band="" now=0
-    while (($#)); do
-        case "$1" in
-            --now) now=1; shift ;;
-            --apply) DRY_RUN=0; shift ;;
-            -h|--help) usage; exit 0 ;;
-            --) shift ;;
-            -*) die "install: unknown option '$1'" ;;
-            *) if [[ -z "$band" ]]; then band="$1"; else die "install: unexpected argument '$1'"; fi; shift ;;
-        esac
-    done
-    [[ -n "$band" ]] || die "install: needs a band"
-    is_valid_band "$band" || die "install: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
+  local band="" now=0
+  while (($#)); do
+    case "$1" in
+      --now)
+        now=1
+        shift
+        ;;
+      --apply)
+        DRY_RUN=0
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      --) shift ;;
+      -*) die "install: unknown option '$1'" ;;
+      *)
+        if [[ -z "$band" ]]; then band="$1"; else die "install: unexpected argument '$1'"; fi
+        shift
+        ;;
+    esac
+  done
+  [[ -n "$band" ]] || die "install: needs a band"
+  is_valid_band "$band" || die "install: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
 
-    local pack; pack="$(pack_file "$band")"
-    [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
-    pack_ids_array "$band"
+  local pack
+  pack="$(pack_file "$band")"
+  [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
+  pack_ids_array "$band"
 
-    local -a missing=() aur_skipped=() unresolved=()
-    local id pkgname
-    for id in "${PACK_IDS[@]+"${PACK_IDS[@]}"}"; do
-        [[ -n "$id" ]] || continue
-        pack_app_meta "$pack" "$id"
-        case "$PKG" in
-            aur:*)
-                pkgname="${PKG#aur:}"
-                pacman -Q "$pkgname" >/dev/null 2>&1 || aur_skipped+=("$pkgname")
-                ;;
-            *)
-                if pacman -Q "$PKG" >/dev/null 2>&1; then
-                    :
-                elif pkg_resolves "$PKG"; then
-                    missing+=("$PKG")
-                else
-                    unresolved+=("$PKG")
-                fi
-                ;;
-        esac
-    done
+  local -a missing=() aur_skipped=() unresolved=()
+  local id pkgname
+  for id in "${PACK_IDS[@]+"${PACK_IDS[@]}"}"; do
+    [[ -n "$id" ]] || continue
+    pack_app_meta "$pack" "$id"
+    case "$PKG" in
+      aur:*)
+        pkgname="${PKG#aur:}"
+        pacman -Q "$pkgname" >/dev/null 2>&1 || aur_skipped+=("$pkgname")
+        ;;
+      *)
+        if pacman -Q "$PKG" >/dev/null 2>&1; then
+          :
+        elif pkg_resolves "$PKG"; then
+          missing+=("$PKG")
+        else
+          unresolved+=("$PKG")
+        fi
+        ;;
+    esac
+  done
 
-    if [[ ${#aur_skipped[@]} -gt 0 ]]; then
-        echo "omarchy-kids-apps: skipping AUR package(s), not yet automated (R-APPS-1): ${aur_skipped[*]}" >&2
-    fi
-    if [[ ${#unresolved[@]} -gt 0 ]]; then
-        echo "omarchy-kids-apps: not found in the synced repos, skipping (pack.toml or mirror gap, issue #52): ${unresolved[*]}" >&2
-    fi
+  if [[ ${#aur_skipped[@]} -gt 0 ]]; then
+    echo "omarchy-kids-apps: skipping AUR package(s), not yet automated (R-APPS-1): ${aur_skipped[*]}" >&2
+  fi
+  if [[ ${#unresolved[@]} -gt 0 ]]; then
+    echo "omarchy-kids-apps: not found in the synced repos, skipping (pack.toml or mirror gap, issue #52): ${unresolved[*]}" >&2
+  fi
 
-    if [[ ${#missing[@]} -eq 0 ]]; then
-        echo "omarchy-kids-apps: band '$band' has nothing left to install"
-        return 0
-    fi
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    echo "omarchy-kids-apps: band '$band' has nothing left to install"
+    return 0
+  fi
 
-    if [[ "$now" -eq 1 ]]; then
-        echo "omarchy-kids-apps: installing now for band '$band': ${missing[*]}"
-        run pacman -S --needed --noconfirm "${missing[@]}"
-    else
-        echo "omarchy-kids-apps: queuing for band '$band': ${missing[*]}"
-        run enqueue_apps "${missing[@]}"
-        run start_install_service
-    fi
+  if [[ "$now" -eq 1 ]]; then
+    echo "omarchy-kids-apps: installing now for band '$band': ${missing[*]}"
+    run pacman -S --needed --noconfirm "${missing[@]}"
+  else
+    echo "omarchy-kids-apps: queuing for band '$band': ${missing[*]}"
+    run enqueue_apps "${missing[@]}"
+    run start_install_service
+  fi
 }
 
 # install-queued: the queue's own worker. Always runs for real (see
@@ -278,83 +299,83 @@ cmd_install() {
 # needs --apply to do its one job. Never removes a package, never
 # reboots. Idempotent: an empty or already-installed queue is a no-op.
 cmd_install_queued() {
-    if [[ ! -s "$QUEUE_FILE" ]]; then
-        echo "omarchy-kids-apps: install-queued: queue is empty"
-        return 0
-    fi
+  if [[ ! -s "$QUEUE_FILE" ]]; then
+    echo "omarchy-kids-apps: install-queued: queue is empty"
+    return 0
+  fi
 
-    local -a queued=() still_missing=() unresolved=()
-    local line
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        [[ -n "$line" ]] && queued+=("$line")
-    done <"$QUEUE_FILE"
+  local -a queued=() still_missing=() unresolved=()
+  local line
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -n "$line" ]] && queued+=("$line")
+  done <"$QUEUE_FILE"
 
-    # Resolve against the sync db before ever handing pacman a
-    # transaction (issue #52) -- a queued entry that no longer resolves
-    # (mirror gap, or a mismarked pack) is reported and dropped, never
-    # retried forever.
-    local p
-    for p in "${queued[@]+"${queued[@]}"}"; do
-        if pacman -Q "$p" >/dev/null 2>&1; then
-            continue
-        elif pkg_resolves "$p"; then
-            still_missing+=("$p")
-        else
-            unresolved+=("$p")
-        fi
-    done
-
-    if [[ ${#unresolved[@]} -gt 0 ]]; then
-        echo "omarchy-kids-apps: install-queued: not found in the synced repos, dropping from the queue: ${unresolved[*]}" >&2
-    fi
-
-    if [[ ${#still_missing[@]} -eq 0 ]]; then
-        echo "omarchy-kids-apps: install-queued: nothing left in the queue to install"
+  # Resolve against the sync db before ever handing pacman a
+  # transaction (issue #52) -- a queued entry that no longer resolves
+  # (mirror gap, or a mismarked pack) is reported and dropped, never
+  # retried forever.
+  local p
+  for p in "${queued[@]+"${queued[@]}"}"; do
+    if pacman -Q "$p" >/dev/null 2>&1; then
+      continue
+    elif pkg_resolves "$p"; then
+      still_missing+=("$p")
     else
-        echo "omarchy-kids-apps: install-queued: installing ${still_missing[*]}"
-        if ! pacman -S --needed --noconfirm "${still_missing[@]}"; then
-            echo "omarchy-kids-apps: install-queued: pacman failed; leaving the queue for the next run" >&2
-            return 1
-        fi
-        echo "omarchy-kids-apps: install-queued: done"
+      unresolved+=("$p")
     fi
-    : >"$QUEUE_FILE"
+  done
+
+  if [[ ${#unresolved[@]} -gt 0 ]]; then
+    echo "omarchy-kids-apps: install-queued: not found in the synced repos, dropping from the queue: ${unresolved[*]}" >&2
+  fi
+
+  if [[ ${#still_missing[@]} -eq 0 ]]; then
+    echo "omarchy-kids-apps: install-queued: nothing left in the queue to install"
+  else
+    echo "omarchy-kids-apps: install-queued: installing ${still_missing[*]}"
+    if ! pacman -S --needed --noconfirm "${still_missing[@]}"; then
+      echo "omarchy-kids-apps: install-queued: pacman failed; leaving the queue for the next run" >&2
+      return 1
+    fi
+    echo "omarchy-kids-apps: install-queued: done"
+  fi
+  : >"$QUEUE_FILE"
 }
 
 # --- allowlist / hide / show ----------------------------------------------
 
 cmd_allowlist() {
-    local kid="${1:?omarchy-kids-apps allowlist <kid>}"
-    allowlist_value "$kid"
+  local kid="${1:?omarchy-kids-apps allowlist <kid>}"
+  allowlist_value "$kid"
 }
 
 # edit_hidden KID ACTION(add|remove) APP — rewrites apps.hidden through
 # omarchy-kids-conf (docs/conf.md: nothing else touches a kid's .conf
 # file directly), de-duplicated either way.
 edit_hidden() {
-    local kid="$1" action="$2" app="$3" hidden
-    hidden="$("$CONF_BIN" get "$kid" apps.hidden)"
-    local -a arr=() out=()
-    IFS=',' read -ra arr <<<"$hidden"
-    local id
-    for id in "${arr[@]+"${arr[@]}"}"; do
-        [[ -n "$id" && "$id" != "$app" ]] && out+=("$id")
-    done
-    [[ "$action" == add ]] && out+=("$app")
-    local IFS=,
-    "$CONF_BIN" set "$kid" apps.hidden "${out[*]+"${out[*]}"}" >/dev/null
+  local kid="$1" action="$2" app="$3" hidden
+  hidden="$("$CONF_BIN" get "$kid" apps.hidden)"
+  local -a arr=() out=()
+  IFS=',' read -ra arr <<<"$hidden"
+  local id
+  for id in "${arr[@]+"${arr[@]}"}"; do
+    [[ -n "$id" && "$id" != "$app" ]] && out+=("$id")
+  done
+  [[ "$action" == add ]] && out+=("$app")
+  local IFS=,
+  "$CONF_BIN" set "$kid" apps.hidden "${out[*]+"${out[*]}"}" >/dev/null
 }
 
 cmd_hide() {
-    local kid="${1:?omarchy-kids-apps hide <kid> <app>}" app="${2:?omarchy-kids-apps hide <kid> <app>}"
-    edit_hidden "$kid" add "$app"
-    echo "$kid: hid '$app'"
+  local kid="${1:?omarchy-kids-apps hide <kid> <app>}" app="${2:?omarchy-kids-apps hide <kid> <app>}"
+  edit_hidden "$kid" add "$app"
+  echo "$kid: hid '$app'"
 }
 
 cmd_show_app() {
-    local kid="${1:?omarchy-kids-apps show <kid> <app>}" app="${2:?omarchy-kids-apps show <kid> <app>}"
-    edit_hidden "$kid" remove "$app"
-    echo "$kid: unhid '$app'"
+  local kid="${1:?omarchy-kids-apps show <kid> <app>}" app="${2:?omarchy-kids-apps show <kid> <app>}"
+  edit_hidden "$kid" remove "$app"
+  echo "$kid: unhid '$app'"
 }
 
 # --- hide-from-mine / show-in-mine ----------------------------------------
@@ -366,22 +387,22 @@ cmd_show_app() {
 # id (hide-from-mine also has to cover apps.extra ids that were never in
 # any pack, so it has no `pkg` to also match against).
 find_desktop_file_by_id() {
-    local id="$1" needle dir f base base_lc
-    needle="$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')"
-    IFS=':' read -ra dirs <<<"$APPLICATIONS_DIRS"
-    for dir in "${dirs[@]+"${dirs[@]}"}"; do
-        [[ -d "$dir" ]] || continue
-        for f in "$dir"/*.desktop; do
-            [[ -e "$f" ]] || continue
-            base="$(basename "$f" .desktop)"
-            base_lc="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
-            if [[ "$base_lc" == *"$needle"* ]]; then
-                printf '%s\t%s\n' "$base" "$dir"
-                return 0
-            fi
-        done
+  local id="$1" needle dir f base base_lc
+  needle="$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')"
+  IFS=':' read -ra dirs <<<"$APPLICATIONS_DIRS"
+  for dir in "${dirs[@]+"${dirs[@]}"}"; do
+    [[ -d "$dir" ]] || continue
+    for f in "$dir"/*.desktop; do
+      [[ -e "$f" ]] || continue
+      base="$(basename "$f" .desktop)"
+      base_lc="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
+      if [[ "$base_lc" == *"$needle"* ]]; then
+        printf '%s\t%s\n' "$base" "$dir"
+        return 0
+      fi
     done
-    return 1
+  done
+  return 1
 }
 
 # write_override SRC DEST — copies SRC to DEST with NoDisplay=true and
@@ -390,108 +411,128 @@ find_desktop_file_by_id() {
 # literal "Hidden=true" -- Hidden means "deleted", a stronger claim than
 # "not in my menu". See docs/apps.md's "Judgment calls".
 write_override() {
-    local src="$1" dest="$2" dir
-    dir="$(dirname "$dest")"
-    install -d -m 0755 "$dir"
-    local tmp; tmp="$(mktemp "$dir/.omarchy-kids-apps.XXXXXX")"
-    awk -v marker="$HIDE_MARKER" '
+  local src="$1" dest="$2" dir
+  dir="$(dirname "$dest")"
+  install -d -m 0755 "$dir"
+  local tmp
+  tmp="$(mktemp "$dir/.omarchy-kids-apps.XXXXXX")"
+  awk -v marker="$HIDE_MARKER" '
         /^\[Desktop Entry\]/ && !done { print; print "NoDisplay=true"; print marker; done=1; next }
         /^NoDisplay=/ && done { next }
         { print }
     ' "$src" >"$tmp"
-    chmod 0644 "$tmp"
-    mv -f "$tmp" "$dest"
-    echo "  wrote $dest (NoDisplay=true)"
+  chmod 0644 "$tmp"
+  mv -f "$tmp" "$dest"
+  echo "  wrote $dest (NoDisplay=true)"
 }
 
 cmd_hide_from_mine() {
-    while (($#)); do
-        case "$1" in
-            --apply) DRY_RUN=0; shift ;;
-            -h|--help) usage; exit 0 ;;
-            *) die "hide-from-mine: unexpected argument '$1'" ;;
-        esac
-    done
+  while (($#)); do
+    case "$1" in
+      --apply)
+        DRY_RUN=0
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *) die "hide-from-mine: unexpected argument '$1'" ;;
+    esac
+  done
 
-    local -a kids=()
-    local k
-    while IFS= read -r k; do [[ -n "$k" ]] && kids+=("$k"); done < <(kids_list "$KIDS_DIR")
-    if [[ ${#kids[@]} -eq 0 ]]; then
-        echo "omarchy-kids-apps: no kids provisioned; nothing to hide"
-        return 0
+  local -a kids=()
+  local k
+  while IFS= read -r k; do [[ -n "$k" ]] && kids+=("$k"); done < <(kids_list "$KIDS_DIR")
+  if [[ ${#kids[@]} -eq 0 ]]; then
+    echo "omarchy-kids-apps: no kids provisioned; nothing to hide"
+    return 0
+  fi
+
+  local -a ids=()
+  local kid list id
+  for kid in "${kids[@]}"; do
+    list="$(allowlist_value "$kid")"
+    local -a one=()
+    IFS=',' read -ra one <<<"$list"
+    for id in "${one[@]+"${one[@]}"}"; do
+      [[ -n "$id" ]] || continue
+      is_in "$id" "${ids[@]+"${ids[@]}"}" || ids+=("$id")
+    done
+  done
+
+  if [[ ${#ids[@]} -eq 0 ]]; then
+    echo "omarchy-kids-apps: no allowlisted apps to hide"
+    return 0
+  fi
+
+  local desktop_line base dir
+  for id in "${ids[@]}"; do
+    if desktop_line="$(find_desktop_file_by_id "$id")"; then
+      IFS=$'\t' read -r base dir <<<"$desktop_line"
+      run write_override "$dir/$base.desktop" "$TARGET_HOME/.local/share/applications/$base.desktop"
+    else
+      echo "  no .desktop file found for '$id'; skipped (I-6: nothing to honestly hide)" >&2
     fi
-
-    local -a ids=()
-    local kid list id
-    for kid in "${kids[@]}"; do
-        list="$(allowlist_value "$kid")"
-        local -a one=()
-        IFS=',' read -ra one <<<"$list"
-        for id in "${one[@]+"${one[@]}"}"; do
-            [[ -n "$id" ]] || continue
-            is_in "$id" "${ids[@]+"${ids[@]}"}" || ids+=("$id")
-        done
-    done
-
-    if [[ ${#ids[@]} -eq 0 ]]; then
-        echo "omarchy-kids-apps: no allowlisted apps to hide"
-        return 0
-    fi
-
-    local desktop_line base dir
-    for id in "${ids[@]}"; do
-        if desktop_line="$(find_desktop_file_by_id "$id")"; then
-            IFS=$'\t' read -r base dir <<<"$desktop_line"
-            run write_override "$dir/$base.desktop" "$TARGET_HOME/.local/share/applications/$base.desktop"
-        else
-            echo "  no .desktop file found for '$id'; skipped (I-6: nothing to honestly hide)" >&2
-        fi
-    done
+  done
 }
 
 cmd_show_in_mine() {
-    while (($#)); do
-        case "$1" in
-            --apply) DRY_RUN=0; shift ;;
-            -h|--help) usage; exit 0 ;;
-            *) die "show-in-mine: unexpected argument '$1'" ;;
-        esac
-    done
+  while (($#)); do
+    case "$1" in
+      --apply)
+        DRY_RUN=0
+        shift
+        ;;
+      -h | --help)
+        usage
+        exit 0
+        ;;
+      *) die "show-in-mine: unexpected argument '$1'" ;;
+    esac
+  done
 
-    local dir="$TARGET_HOME/.local/share/applications"
-    if [[ ! -d "$dir" ]]; then
-        echo "omarchy-kids-apps: nothing to restore ($dir doesn't exist)"
-        return 0
-    fi
+  local dir="$TARGET_HOME/.local/share/applications"
+  if [[ ! -d "$dir" ]]; then
+    echo "omarchy-kids-apps: nothing to restore ($dir doesn't exist)"
+    return 0
+  fi
 
-    local f removed=0
-    for f in "$dir"/*.desktop; do
-        [[ -e "$f" ]] || continue
-        grep -qxF "$HIDE_MARKER" "$f" || continue
-        run rm -f "$f"
-        removed=$((removed + 1))
-    done
-    echo "omarchy-kids-apps: removed $removed override(s) from $dir"
+  local f removed=0
+  for f in "$dir"/*.desktop; do
+    [[ -e "$f" ]] || continue
+    grep -qxF "$HIDE_MARKER" "$f" || continue
+    run rm -f "$f"
+    removed=$((removed + 1))
+  done
+  echo "omarchy-kids-apps: removed $removed override(s) from $dir"
 }
 
 # --- main ------------------------------------------------------------------
 
 main() {
-    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
-    local cmd="$1"; shift
+  [[ $# -ge 1 ]] || {
+    usage >&2
+    exit 2
+  }
+  local cmd="$1"
+  shift
 
-    case "$cmd" in
-        -h|--help) usage; exit 0 ;;
-        list) cmd_list "$@" ;;
-        install) cmd_install "$@" ;;
-        install-queued) cmd_install_queued "$@" ;;
-        allowlist) cmd_allowlist "$@" ;;
-        hide) cmd_hide "$@" ;;
-        show) cmd_show_app "$@" ;;
-        hide-from-mine) cmd_hide_from_mine "$@" ;;
-        show-in-mine) cmd_show_in_mine "$@" ;;
-        *) die "unknown command: '$cmd' (see --help)" ;;
-    esac
+  case "$cmd" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    list) cmd_list "$@" ;;
+    install) cmd_install "$@" ;;
+    install-queued) cmd_install_queued "$@" ;;
+    allowlist) cmd_allowlist "$@" ;;
+    hide) cmd_hide "$@" ;;
+    show) cmd_show_app "$@" ;;
+    hide-from-mine) cmd_hide_from_mine "$@" ;;
+    show-in-mine) cmd_show_in_mine "$@" ;;
+    *) die "unknown command: '$cmd' (see --help)" ;;
+  esac
 }
 
 main "$@"

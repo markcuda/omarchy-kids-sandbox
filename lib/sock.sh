@@ -9,11 +9,11 @@
 # write side down, prints whatever comes back. Returns non-zero when
 # there is no way to speak the protocol at all.
 kids_sock_request() {
-    local sock="$1" payload="$2" timeout="${3:-5}"
-    if command -v socat >/dev/null 2>&1; then
-        printf '%s' "$payload" | socat -T"$timeout" - "UNIX-CONNECT:$sock" 2>/dev/null
-    elif command -v python3 >/dev/null 2>&1; then
-        printf '%s' "$payload" | python3 -c '
+  local sock="$1" payload="$2" timeout="${3:-5}"
+  if command -v socat >/dev/null 2>&1; then
+    printf '%s' "$payload" | socat -T"$timeout" - "UNIX-CONNECT:$sock" 2>/dev/null
+  elif command -v python3 >/dev/null 2>&1; then
+    printf '%s' "$payload" | python3 -c '
 import socket, sys
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.settimeout(float(sys.argv[2]))
@@ -31,7 +31,7 @@ try:
 except OSError:
     pass
 ' "$sock" "$timeout" 2>/dev/null
-    else
-        return 1
-    fi
+  else
+    return 1
+  fi
 }

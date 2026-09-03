@@ -7,20 +7,20 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=test/live/lib.sh
 source "$DIR/lib.sh"
 
-build_install && ok "package installed and pacman -Qkk clean" \
-    || fail "package build/install/Qkk gate failed"
+build_install && ok "package installed and pacman -Qkk clean" ||
+  fail "package build/install/Qkk gate failed"
 
 if boot_with "$LIVE_KID1_PASSWORD" "$LIVE_KID1_ACCOUNT"; then
-    ok "vm booted with ${LIVE_KID1_ACCOUNT}'s disk password"
+  ok "vm booted with ${LIVE_KID1_ACCOUNT}'s disk password"
 else
-    fail "vm never came up on ${LIVE_KID1_ACCOUNT}'s disk password"
+  fail "vm never came up on ${LIVE_KID1_ACCOUNT}'s disk password"
 fi
 
 if assert_session "$LIVE_KID1_ACCOUNT" 60; then
-    ok "$LIVE_KID1_ACCOUNT's session is live"
+  ok "$LIVE_KID1_ACCOUNT's session is live"
 else
-    fail "$LIVE_KID1_ACCOUNT's session never appeared"
-    state
+  fail "$LIVE_KID1_ACCOUNT's session never appeared"
+  state
 fi
 
 shot 10-cold-boot-kid || fail "screenshot failed"

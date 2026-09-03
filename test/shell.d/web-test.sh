@@ -17,7 +17,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
-BIN=""   # a substituted copy in the scratch tree, set up below
+BIN="" # a substituted copy in the scratch tree, set up below
 SESSION_START="$DIR/bin/omarchy-kids-session-start"
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -61,16 +61,28 @@ export PATH="$STUBS:$PATH"
 
 fail=0
 check() { # got want label
-  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want '$2', got '$1')"
+    fail=1
+  fi
 }
 check_contains() { # haystack needle label
-  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (want to find '$2' in '$1')"; fail=1; fi
+  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want to find '$2' in '$1')"
+    fail=1
+  fi
 }
 check_not_contains() { # haystack needle label
-  if [[ "$1" != *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (did not want to find '$2' in '$1')"; fail=1; fi
+  if [[ "$1" != *"$2"* ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (did not want to find '$2' in '$1')"
+    fail=1
+  fi
 }
 check_status() { # got_status want_status label
-  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want exit $2, got $1)"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want exit $2, got $1)"
+    fail=1
+  fi
 }
 
 # =====================================================================
@@ -78,7 +90,8 @@ check_status() { # got_status want_status label
 # =====================================================================
 
 for band in 3-5 6-8 9-12 13+; do
-  out="$("$BIN" render "$band")"; st=$?
+  out="$("$BIN" render "$band")"
+  st=$?
   check_status "$st" 0 "render $band: exits 0"
   check "$(jq -r '.DnsOverHttpsMode' <<<"$out")" "secure" "render $band: DnsOverHttpsMode=secure"
   check "$(jq -r '.DnsOverHttpsTemplates' <<<"$out")" "https://family.cloudflare-dns.com/dns-query" \
@@ -104,7 +117,8 @@ check "$(jq -c '.URLBlocklist' <<<"$out")" '["*"]' "render 3-5: URLBlocklist=[\"
 check "$(jq -r 'has("URLAllowlist")' <<<"$out")" "false" "render 3-5: no URLAllowlist key at all"
 check "$(jq -r '.PasswordManagerEnabled' <<<"$out")" "false" "render 3-5: PasswordManagerEnabled=false"
 
-out="$("$BIN" render 3-5 --allow /dev/null 2>&1)"; st=$?
+out="$("$BIN" render 3-5 --allow /dev/null 2>&1)"
+st=$?
 check_status "$st" 2 "render 3-5 --allow: refuses (exit 2)"
 check_contains "$out" "takes no allowlist" "render 3-5 --allow: names the reason"
 
@@ -114,8 +128,11 @@ for band in 6-8 9-12; do
   check "$(jq -c '.URLBlocklist' <<<"$out")" '["*"]' "render $band: URLBlocklist=[\"*\"]"
   check_contains "$(jq -c '.URLAllowlist' <<<"$out")" "pbskids.org" "render $band: allowlist includes pbskids.org from the starter list"
   n="$(jq -r '.URLAllowlist | length' <<<"$out")"
-  [[ "$n" -gt 0 ]] && echo "ok   render $band: allowlist is non-empty ($n hosts)" \
-    || { echo "FAIL render $band: allowlist is empty"; fail=1; }
+  [[ "$n" -gt 0 ]] && echo "ok   render $band: allowlist is non-empty ($n hosts)" ||
+    {
+      echo "FAIL render $band: allowlist is empty"
+      fail=1
+    }
 done
 check "$(jq -r '.PasswordManagerEnabled' <<<"$("$BIN" render 6-8)")" "false" "render 6-8: PasswordManagerEnabled=false (young band)"
 check "$(jq -r 'has("PasswordManagerEnabled")' <<<"$("$BIN" render 9-12)")" "false" "render 9-12: PasswordManagerEnabled left unset"
@@ -137,7 +154,8 @@ out="$("$BIN" render 13+)"
 check "$(jq -r 'has("URLBlocklist")' <<<"$out")" "false" "render 13+: no URLBlocklist key (R-WEB-3: filtered adds neither)"
 check "$(jq -r 'has("URLAllowlist")' <<<"$out")" "false" "render 13+: no URLAllowlist key"
 
-out="$("$BIN" render 13+ --allow /dev/null 2>&1)"; st=$?
+out="$("$BIN" render 13+ --allow /dev/null 2>&1)"
+st=$?
 check_status "$st" 2 "render 13+ --allow: refuses (exit 2)"
 check_contains "$out" "R-WEB-3" "render 13+ --allow: cites R-WEB-3"
 
@@ -150,10 +168,12 @@ OUT_FILE="$TMP/out.json"
 if [[ -f "$OUT_FILE" ]] && jq -e '.' "$OUT_FILE" >/dev/null 2>&1; then
   echo "ok   render --out: wrote valid JSON to the named file"
 else
-  echo "FAIL render --out: no valid JSON at $OUT_FILE"; fail=1
+  echo "FAIL render --out: no valid JSON at $OUT_FILE"
+  fail=1
 fi
 
-out="$("$BIN" render nope 2>&1)"; st=$?
+out="$("$BIN" render nope 2>&1)"
+st=$?
 check_status "$st" 2 "render with an unknown band: exits 2"
 check_contains "$out" "unknown band" "render with an unknown band: names the reason"
 
@@ -167,13 +187,18 @@ kids_set_const "$BIN" SYSROOT "$SYSROOT"
 
 POLICY_FILE="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-6-8.json"
 
-out="$(DRY_RUN=1 "$BIN" install 6-8 2>&1)"; st=$?
+out="$(DRY_RUN=1 "$BIN" install 6-8 2>&1)"
+st=$?
 check_status "$st" 0 "install (dry-run): exits 0"
 check_contains "$out" "[dry-run]" "install (dry-run): prints a dry-run line"
-[[ -e "$POLICY_FILE" ]] && { echo "FAIL install (dry-run): must not write $POLICY_FILE"; fail=1; } \
-  || echo "ok   install (dry-run): wrote nothing"
+[[ -e "$POLICY_FILE" ]] && {
+  echo "FAIL install (dry-run): must not write $POLICY_FILE"
+  fail=1
+} ||
+  echo "ok   install (dry-run): wrote nothing"
 
-out="$("$BIN" install 6-8 --apply 2>&1)"; st=$?
+out="$("$BIN" install 6-8 --apply 2>&1)"
+st=$?
 check_status "$st" 0 "install --apply: exits 0"
 if [[ -f "$POLICY_FILE" ]]; then
   echo "ok   install --apply: wrote $POLICY_FILE"
@@ -181,15 +206,20 @@ if [[ -f "$POLICY_FILE" ]]; then
   check "$mode" "640" "install --apply: mode is 0640 (R-WEB-1)"
   check "$(jq -r '.DnsOverHttpsMode' "$POLICY_FILE")" "secure" "install --apply: content is the rendered policy"
 else
-  echo "FAIL install --apply: did not write $POLICY_FILE"; fail=1
+  echo "FAIL install --apply: did not write $POLICY_FILE"
+  fail=1
 fi
 
 # 13+ installs cleanly too (no allowlist to merge).
-out="$("$BIN" install 13+ --apply 2>&1)"; st=$?
+out="$("$BIN" install 13+ --apply 2>&1)"
+st=$?
 check_status "$st" 0 "install 13+ --apply: exits 0"
-[[ -f "$SYSROOT/etc/chromium/policies/managed/omarchy-kids-13+.json" ]] \
-  && echo "ok   install 13+ --apply: wrote omarchy-kids-13+.json" \
-  || { echo "FAIL install 13+ --apply: file missing"; fail=1; }
+[[ -f "$SYSROOT/etc/chromium/policies/managed/omarchy-kids-13+.json" ]] &&
+  echo "ok   install 13+ --apply: wrote omarchy-kids-13+.json" ||
+  {
+    echo "FAIL install 13+ --apply: file missing"
+    fail=1
+  }
 
 # =====================================================================
 # launch: exact exec argv (issue #44) -- Omarchy's own Wayland/password-
@@ -214,30 +244,37 @@ EXPECTED_LAUNCH_ARGV=(
 )
 expected_joined="$(printf '%s\n' "${EXPECTED_LAUNCH_ARGV[@]}")"
 
-argv_out="$(OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"; st=$?
+argv_out="$(OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"
+st=$?
 check_status "$st" 0 "launch: exits 0"
 check "$argv_out" "$expected_joined" "launch: exact exec argv, no URL"
 check_not_contains "$argv_out" "--load-extension" "launch: never --load-extension (issue #44)"
 
-argv_out_url="$(OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch https://pbskids.org 2>&1)"; st=$?
+argv_out_url="$(OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch https://pbskids.org 2>&1)"
+st=$?
 check_status "$st" 0 "launch URL: exits 0"
 check "$argv_out_url" "$expected_joined"$'\n'"https://pbskids.org" "launch URL: exact exec argv with the URL appended last"
 
-out="$(KIDS_TEST_ACCOUNT=kid-bo OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"; st=$?
+out="$(KIDS_TEST_ACCOUNT=kid-bo OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"
+st=$?
 check_status "$st" 1 "launch: refuses when the band's policy isn't installed (exit 1)"
 check_contains "$out" "R-WEB-4" "launch: refusal cites R-WEB-4"
 
 # The browser this execs is a constant, not an override: a kid's session
 # must not be able to name the program that opens with their policy.
-grep -q '^    local chromium_bin=/usr/lib/chromium/chromium$' "$DIR/bin/omarchy-kids-web" \
-  && echo "ok   launch: the Chromium path is a hardcoded constant, not an env override" \
-  || { echo "FAIL launch: the Chromium path is no longer a hardcoded constant"; fail=1; }
+grep -q '^ *local chromium_bin=/usr/lib/chromium/chromium$' "$DIR/bin/omarchy-kids-web" &&
+  echo "ok   launch: the Chromium path is a hardcoded constant, not an env override" ||
+  {
+    echo "FAIL launch: the Chromium path is no longer a hardcoded constant"
+    fail=1
+  }
 
 # =====================================================================
 # --help
 # =====================================================================
 
-out="$("$BIN" --help 2>&1)"; st=$?
+out="$("$BIN" --help 2>&1)"
+st=$?
 check_status "$st" 0 "--help exits 0"
 check_contains "$out" "Usage: omarchy-kids-web" "--help prints usage"
 
@@ -257,12 +294,13 @@ EOF
 
 out="$(
   OMARCHY_KIDS_ETC="$ETC" \
-  OMARCHY_KIDS_SHARE="$SHARE" \
-  OMARCHY_KIDS_RUN="$RUN" \
-  OMARCHY_KIDS_ACCOUNT="kid-ada" \
-  OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
-  bash "$SESSION_START" 2>&1
-)"; st=$?
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_RUN="$RUN" \
+    OMARCHY_KIDS_ACCOUNT="kid-ada" \
+    OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
+    bash "$SESSION_START" 2>&1
+)"
+st=$?
 check_status "$st" 0 "session-start with no policy file: still exits 0 (own preflight is bin/omarchy-kids-session's job)"
 
 json_path="$RUN/launcher-$(id -u).json"
@@ -270,7 +308,8 @@ if [[ -f "$json_path" ]]; then
   check "$(jq -r '.tiles | map(select(.id == "chromium")) | length' "$json_path")" "0" \
     "session-start: no chromium tile when the policy file is missing"
 else
-  echo "FAIL session-start: no launcher JSON written at $json_path"; fail=1
+  echo "FAIL session-start: no launcher JSON written at $json_path"
+  fail=1
 fi
 
 log_content="$(cat "$RUN/session-$(id -u).log" 2>/dev/null || true)"

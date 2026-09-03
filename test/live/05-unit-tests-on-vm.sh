@@ -20,10 +20,10 @@ WIFI_B_SKIP='SKIP wifi-test.sh section B: SO_PEERCRED not available on this plat
 # This scenario needs no package installed — it runs the checkout's own tests — so it only needs
 # the VM up, and boots it (owner's password: no kid session wanted here) if a prior run left it off.
 if vm true 2>/dev/null; then
-    ok "vm is already up"
+  ok "vm is already up"
 else
-    boot_with "$LIVE_OWNER_PASSWORD" "$LIVE_OWNER_ACCOUNT" \
-        && ok "vm booted" || fail "vm never came up"
+  boot_with "$LIVE_OWNER_PASSWORD" "$LIVE_OWNER_ACCOUNT" &&
+    ok "vm booted" || fail "vm never came up"
 fi
 
 # Ship the working checkout, not air's git HEAD (build_install's `git pull`): the point is to test
@@ -31,58 +31,57 @@ fi
 # passwords) all stay behind.
 rm -f "$LOCAL_TAR"
 if tar -czf "$LOCAL_TAR" -C "$LIVE_REPO_ROOT" \
-        --exclude=.git --exclude=test/live/out --exclude=test/live/config.env . 2>/dev/null \
-    && scp -q -F "$LIVE_SSH_CFG" "$LOCAL_TAR" "vm:$REMOTE_TAR" \
-    && vm "rm -rf $REMOTE_DIR && mkdir -p $REMOTE_DIR && tar -xzf $REMOTE_TAR -C $REMOTE_DIR && rm -f $REMOTE_TAR"
-then
-    ok "checkout copied to $REMOTE_DIR on the vm"
-    ready=1
+  --exclude=.git --exclude=test/live/out --exclude=test/live/config.env . 2>/dev/null &&
+  scp -q -F "$LIVE_SSH_CFG" "$LOCAL_TAR" "vm:$REMOTE_TAR" &&
+  vm "rm -rf $REMOTE_DIR && mkdir -p $REMOTE_DIR && tar -xzf $REMOTE_TAR -C $REMOTE_DIR && rm -f $REMOTE_TAR"; then
+  ok "checkout copied to $REMOTE_DIR on the vm"
+  ready=1
 else
-    fail "could not copy the checkout to the vm"
-    ready=0
+  fail "could not copy the checkout to the vm"
+  ready=0
 fi
 
 # `vm` is the unprivileged owner account, never root — assert it rather than assume it, because a
 # suite run as root would silently pass the very peer-uid checks it is here to exercise.
 uid="$(vm 'id -u' 2>/dev/null | tr -d '[:space:]')"
 if [[ -n "$uid" && "$uid" != "0" ]]; then
-    ok "test/all will run as a normal user (uid $uid)"
+  ok "test/all will run as a normal user (uid $uid)"
 else
-    fail "refusing to run test/all as uid '$uid' on the vm"
-    ready=0
+  fail "refusing to run test/all as uid '$uid' on the vm"
+  ready=0
 fi
 
-if (( ready )); then
-    vm "cd $REMOTE_DIR && bash test/all" >"$LOG" 2>&1
-    status=$?
-    echo "test/all output: $LOG"
-    if (( status == 0 )); then
-        ok "test/all passed on the vm"
-    else
-        fail "test/all failed on the vm (exit $status)"
-        tail -20 "$LOG"
-    fi
+if ((ready)); then
+  vm "cd $REMOTE_DIR && bash test/all" >"$LOG" 2>&1
+  status=$?
+  echo "test/all output: $LOG"
+  if ((status == 0)); then
+    ok "test/all passed on the vm"
+  else
+    fail "test/all failed on the vm (exit $status)"
+    tail -20 "$LOG"
+  fi
 else
-    : >"$LOG"
+  : >"$LOG"
 fi
 
 while IFS= read -r line; do
-    echo "note remote skip: $line"
+  echo "note remote skip: $line"
 done < <(grep -E '^ *SKIP' "$LOG" 2>/dev/null)
 
 if [[ ! -s "$LOG" ]]; then
-    fail "no test/all output captured -- neither skip gate could be checked"
+  fail "no test/all output captured -- neither skip gate could be checked"
 else
-    if grep -qF "$AUTHD_SKIP" "$LOG"; then
-        fail "authd-test.sh's live password checks still skipped on the vm"
-    else
-        ok "authd-test.sh's live password checks ran on the vm"
-    fi
-    if grep -qF "$WIFI_B_SKIP" "$LOG"; then
-        fail "wifi-test.sh section B (SO_PEERCRED) still skipped on the vm"
-    else
-        ok "wifi-test.sh section B ran on the vm"
-    fi
+  if grep -qF "$AUTHD_SKIP" "$LOG"; then
+    fail "authd-test.sh's live password checks still skipped on the vm"
+  else
+    ok "authd-test.sh's live password checks ran on the vm"
+  fi
+  if grep -qF "$WIFI_B_SKIP" "$LOG"; then
+    fail "wifi-test.sh section B (SO_PEERCRED) still skipped on the vm"
+  else
+    ok "wifi-test.sh section B ran on the vm"
+  fi
 fi
 
 scenario_result 05-unit-tests-on-vm

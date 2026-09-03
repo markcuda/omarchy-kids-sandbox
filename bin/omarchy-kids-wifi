@@ -7,7 +7,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/sock.sh
 source "$LIB/sock.sh"
 # shellcheck source=lib/kids.sh
@@ -22,10 +23,13 @@ TOAST_QML="$SHARE/time/toast.qml"
 SOCK=/run/omarchy-kids/wifi.sock
 TIMEOUT="${OMARCHY_KIDS_WIFID_TIMEOUT:-10}"
 
-die() { echo "omarchy-kids-wifi: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-wifi: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
-    cat <<EOF
+  cat <<EOF
 Usage: $(basename "$0") list
        $(basename "$0") join <ssid> [--password-stdin]
        $(basename "$0") status
@@ -48,32 +52,32 @@ account() { id -un; }
 # wifi_mode ACCOUNT — the resolved Appendix B `wifi` value, empty (non-zero
 # return) if unreadable.
 wifi_mode() {
-    "$CONF_BIN" get "$1" wifi 2>/dev/null
+  "$CONF_BIN" get "$1" wifi 2>/dev/null
 }
 
 # require_helper — the friendly, non-authoritative half of the wifi=helper
 # gate (docs/wifi.md; wifid is the real gate). Exits 3 if not "helper".
 require_helper() {
-    local who mode
-    who="$(account)"
-    if ! mode="$(wifi_mode "$who")"; then
-        die "could not read '$who's Wi-Fi setting (see docs/conf.md)" 1
-    fi
-    if [[ "$mode" != "helper" ]]; then
-        die "Wi-Fi needs a grown-up for '$who' (wifi=${mode:-unset}). Ask a parent to join it for you." 3
-    fi
+  local who mode
+  who="$(account)"
+  if ! mode="$(wifi_mode "$who")"; then
+    die "could not read '$who's Wi-Fi setting (see docs/conf.md)" 1
+  fi
+  if [[ "$mode" != "helper" ]]; then
+    die "Wi-Fi needs a grown-up for '$who' (wifi=${mode:-unset}). Ask a parent to join it for you." 3
+  fi
 }
 
 # show_toast TEXT — same overlay bin/omarchy-kids-time uses; falls back
 # to stderr if Quickshell isn't on PATH.
 show_toast() {
-    local text="$1"
-    if command -v quickshell >/dev/null 2>&1 && [[ -f "$TOAST_QML" ]]; then
-        OMARCHY_KIDS_TOAST_TEXT="$text" quickshell -p "$TOAST_QML" >/dev/null 2>&1 &
-        disown 2>/dev/null || true
-    else
-        echo "omarchy-kids-wifi: $text" >&2
-    fi
+  local text="$1"
+  if command -v quickshell >/dev/null 2>&1 && [[ -f "$TOAST_QML" ]]; then
+    OMARCHY_KIDS_TOAST_TEXT="$text" quickshell -p "$TOAST_QML" >/dev/null 2>&1 &
+    disown 2>/dev/null || true
+  else
+    echo "omarchy-kids-wifi: $text" >&2
+  fi
 }
 
 # --- wire client (bin/omarchy-kids-wifid) -----------------------------------
@@ -81,114 +85,135 @@ show_toast() {
 # wifid_request HEADER [BODY] — sends "HEADER\n[BODY\n]", prints the reply
 # or nothing on timeout. Same socat-else-python3 shape as parent-auth (docs/authd.md).
 wifid_request() {
-    local header="$1" body="${2:-}" payload
-    if [[ -n "$body" ]]; then
-        payload="$header"$'\n'"$body"$'\n'
-    else
-        payload="$header"$'\n'
-    fi
-    kids_sock_request "$SOCK" "$payload" "$TIMEOUT"
+  local header="$1" body="${2:-}" payload
+  if [[ -n "$body" ]]; then
+    payload="$header"$'\n'"$body"$'\n'
+  else
+    payload="$header"$'\n'
+  fi
+  kids_sock_request "$SOCK" "$payload" "$TIMEOUT"
 }
 
 # call_wifid HEADER [BODY] — prints payload on OK; else a one-line reason
 # to stderr (3 REFUSED, 1 ERROR/no reply).
 call_wifid() {
-    local reply status
-    # "no reply" is a real answer (socat exits non-zero when the socket is
-    # gone), so it must not abort this command's own set -e.
-    reply="$(wifid_request "$@")" || reply=""
-    if [[ -z "$reply" ]]; then
-        echo "omarchy-kids-wifi: no reply from omarchy-kids-wifid (is it running? see systemctl status omarchy-kids-wifid.socket)" >&2
-        return 1
-    fi
-    status="${reply%%$'\n'*}"
-    case "$status" in
-        OK)
-            printf '%s' "${reply#*$'\n'}"
-            return 0
-            ;;
-        REFUSED*)
-            echo "omarchy-kids-wifi: ${status#REFUSED }" >&2
-            return 3
-            ;;
-        ERROR*)
-            echo "omarchy-kids-wifi: ${status#ERROR }" >&2
-            return 1
-            ;;
-        *)
-            echo "omarchy-kids-wifi: unexpected reply from omarchy-kids-wifid: $status" >&2
-            return 1
-            ;;
-    esac
+  local reply status
+  # "no reply" is a real answer (socat exits non-zero when the socket is
+  # gone), so it must not abort this command's own set -e.
+  reply="$(wifid_request "$@")" || reply=""
+  if [[ -z "$reply" ]]; then
+    echo "omarchy-kids-wifi: no reply from omarchy-kids-wifid (is it running? see systemctl status omarchy-kids-wifid.socket)" >&2
+    return 1
+  fi
+  status="${reply%%$'\n'*}"
+  case "$status" in
+    OK)
+      printf '%s' "${reply#*$'\n'}"
+      return 0
+      ;;
+    REFUSED*)
+      echo "omarchy-kids-wifi: ${status#REFUSED }" >&2
+      return 3
+      ;;
+    ERROR*)
+      echo "omarchy-kids-wifi: ${status#ERROR }" >&2
+      return 1
+      ;;
+    *)
+      echo "omarchy-kids-wifi: unexpected reply from omarchy-kids-wifid: $status" >&2
+      return 1
+      ;;
+  esac
 }
 
 # --- subcommands -------------------------------------------------------
 
 cmd_list() {
-    require_helper
-    call_wifid "LIST"
+  require_helper
+  call_wifid "LIST"
 }
 
 cmd_status() {
-    require_helper
-    call_wifid "STATUS"
+  require_helper
+  call_wifid "STATUS"
 }
 
 cmd_forget() {
-    local ssid="${1:?omarchy-kids-wifi forget <ssid>}"
-    require_helper
-    call_wifid "FORGET $ssid"
+  local ssid="${1:?omarchy-kids-wifi forget <ssid>}"
+  require_helper
+  call_wifid "FORGET $ssid"
 }
 
 cmd_join() {
-    local ssid="${1:?omarchy-kids-wifi join <ssid> [--password-stdin]}"
-    shift
-    local password_stdin=0 arg
-    for arg in "$@"; do
-        case "$arg" in
-            --password-stdin) password_stdin=1 ;;
-            *) die "join: unknown argument '$arg'" ;;
-        esac
-    done
-    require_helper
-    local password=""
-    if [[ "$password_stdin" == 1 ]]; then
-        IFS= read -r password || true
-    fi
-    call_wifid "JOIN $ssid" "$password"
+  local ssid="${1:?omarchy-kids-wifi join <ssid> [--password-stdin]}"
+  shift
+  local password_stdin=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --password-stdin) password_stdin=1 ;;
+      *) die "join: unknown argument '$arg'" ;;
+    esac
+  done
+  require_helper
+  local password=""
+  if [[ "$password_stdin" == 1 ]]; then
+    IFS= read -r password || true
+  fi
+  call_wifid "JOIN $ssid" "$password"
 }
 
 # cmd_picker — bound unconditionally to Super+Shift+W at every level; this
 # command is what actually decides whether anything happens (docs/wifi.md).
 cmd_picker() {
-    local who mode
-    who="$(account)"
-    if ! mode="$(wifi_mode "$who")"; then
-        show_toast "Wi-Fi isn't set up yet. Ask a grown-up."
-        exit 1
-    fi
-    if [[ "$mode" != "helper" ]]; then
-        show_toast "Wi-Fi needs a grown-up. Ask them to turn it on for you."
-        exit 3
-    fi
-    export OMARCHY_KIDS_ACCOUNT="$who"
-    exec quickshell -p "$WIFI_QML"
+  local who mode
+  who="$(account)"
+  if ! mode="$(wifi_mode "$who")"; then
+    show_toast "Wi-Fi isn't set up yet. Ask a grown-up."
+    exit 1
+  fi
+  if [[ "$mode" != "helper" ]]; then
+    show_toast "Wi-Fi needs a grown-up. Ask them to turn it on for you."
+    exit 3
+  fi
+  export OMARCHY_KIDS_ACCOUNT="$who"
+  exec quickshell -p "$WIFI_QML"
 }
 
 # --- main --------------------------------------------------------------
 
 main() {
-    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
-    local cmd="$1"
-    case "$cmd" in
-        -h|--help) usage; exit 0 ;;
-        list) shift; cmd_list "$@" ;;
-        join) shift; cmd_join "$@" ;;
-        status) shift; cmd_status "$@" ;;
-        forget) shift; cmd_forget "$@" ;;
-        picker) shift; cmd_picker "$@" ;;
-        *) die "unknown command: '$cmd' (see --help)" ;;
-    esac
+  [[ $# -ge 1 ]] || {
+    usage >&2
+    exit 2
+  }
+  local cmd="$1"
+  case "$cmd" in
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    list)
+      shift
+      cmd_list "$@"
+      ;;
+    join)
+      shift
+      cmd_join "$@"
+      ;;
+    status)
+      shift
+      cmd_status "$@"
+      ;;
+    forget)
+      shift
+      cmd_forget "$@"
+      ;;
+    picker)
+      shift
+      cmd_picker "$@"
+      ;;
+    *) die "unknown command: '$cmd' (see --help)" ;;
+  esac
 }
 
 main "$@"

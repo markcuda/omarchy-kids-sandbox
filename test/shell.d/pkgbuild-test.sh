@@ -5,7 +5,10 @@
 # runs makepkg, pacman, or root-only commands, so this passes on macOS too.
 set -uo pipefail
 pass() { echo "PASS  $*"; }
-fail() { echo "FAIL  $*"; rc=1; }
+fail() {
+  echo "FAIL  $*"
+  rc=1
+}
 rc=0
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -177,9 +180,9 @@ fi
 # The app entry point has no dash suffix; the glob alone would skip it
 # (found in the VM). This used to sit after `exit $rc` and never ran.
 if grep -qE 'install -m755 bin/omarchy-kids bin/omarchy-kids-\*' "$ROOT/PKGBUILD"; then
-    pass "PKGBUILD installs bin/omarchy-kids itself"
+  pass "PKGBUILD installs bin/omarchy-kids itself"
 else
-    fail "PKGBUILD must install bin/omarchy-kids (no dash suffix)"
+  fail "PKGBUILD must install bin/omarchy-kids (no dash suffix)"
 fi
 
 # --- review S4: the shipped verifier has no build-time test escape hatch ---
@@ -188,56 +191,56 @@ fi
 # when the path lies under a build-time TEST_SOCKET_ROOT. That must be
 # empty in every copy this package installs.
 if grep -qx 'TEST_SOCKET_ROOT=""' "$ROOT/bin/omarchy-kids-parent-auth"; then
-    pass "parent-auth ships with an empty build-time test socket root"
+  pass "parent-auth ships with an empty build-time test socket root"
 else
-    fail "parent-auth's TEST_SOCKET_ROOT is not empty in the committed file (review S4)"
+  fail "parent-auth's TEST_SOCKET_ROOT is not empty in the committed file (review S4)"
 fi
 
 # --- the build-time constants, and only those (AGENTS.md, "The trust
 #     boundary"): the committed files carry the checkout's value, and
 #     PKGBUILD rewrites the one that has to be absolute in a package.
 if grep -qx 'KIDS_PY=python3' "$ROOT/lib/kids.sh"; then
-    pass "lib/kids.sh ships the checkout's KIDS_PY (PATH-resolved python3)"
+  pass "lib/kids.sh ships the checkout's KIDS_PY (PATH-resolved python3)"
 else
-    fail "lib/kids.sh's KIDS_PY is no longer the checkout constant"
+  fail "lib/kids.sh's KIDS_PY is no longer the checkout constant"
 fi
 # -F: the sed script is a literal, and GNU and BSD grep disagree about
 # what a backslash-escaped ^ or $ means mid-pattern.
 if grep -qF 's|^KIDS_PY=python3$|KIDS_PY=/usr/bin/python3|' "$PKGBUILD"; then
-    pass "package() bakes the absolute interpreter path into the installed lib/kids.sh"
+  pass "package() bakes the absolute interpreter path into the installed lib/kids.sh"
 else
-    fail "PKGBUILD no longer substitutes KIDS_PY at package time"
+  fail "PKGBUILD no longer substitutes KIDS_PY at package time"
 fi
 if grep -qx 'SYSROOT=""' "$ROOT/bin/omarchy-kids-web"; then
-    pass "omarchy-kids-web ships with an empty build-time sysroot (R-WEB-4 reads the real /etc)"
+  pass "omarchy-kids-web ships with an empty build-time sysroot (R-WEB-4 reads the real /etc)"
 else
-    fail "omarchy-kids-web's SYSROOT is not empty in the committed file (review §3.8)"
+  fail "omarchy-kids-web's SYSROOT is not empty in the committed file (review §3.8)"
 fi
 
 # --- review §6: the tui demo is not a user command (issue #56) ------------
 if [[ -x "$ROOT/scripts/omarchy-kids-tui-demo" && ! -e "$ROOT/bin/omarchy-kids-tui-demo" ]]; then
-    pass "omarchy-kids-tui-demo lives in scripts/, not bin/"
+  pass "omarchy-kids-tui-demo lives in scripts/, not bin/"
 else
-    fail "omarchy-kids-tui-demo is missing from scripts/ or still present in bin/"
+  fail "omarchy-kids-tui-demo is missing from scripts/ or still present in bin/"
 fi
 if grep -q 'bin/omarchy-kids bin/omarchy-kids-\*' "$PKGBUILD" && ! grep -q '^scripts/' "$PKGBUILD"; then
-    pass "package() installs only bin/, never scripts/, so the demo is never shipped"
+  pass "package() installs only bin/, never scripts/, so the demo is never shipped"
 else
-    fail "PKGBUILD's package() may now ship scripts/ (review §6)"
+  fail "PKGBUILD's package() may now ship scripts/ (review §6)"
 fi
 
 # --- review §1.5: the app entry marks itself as a human launch ------------
 if grep -q 'Exec=env OMARCHY_KIDS_LAUNCHED_BY=desktop omarchy-kids' "$ROOT/desktop/omarchy-kids.desktop"; then
-    pass "desktop entry marks itself so the panel and wizard run for real"
+  pass "desktop entry marks itself so the panel and wizard run for real"
 else
-    fail "desktop/omarchy-kids.desktop must set OMARCHY_KIDS_LAUNCHED_BY (review §1.5)"
+  fail "desktop/omarchy-kids.desktop must set OMARCHY_KIDS_LAUNCHED_BY (review §1.5)"
 fi
 
 # --- lib/sock.sh ships: three commands source it now ----------------------
 if grep -qE 'install -m644 lib/\*\.sh' "$ROOT/PKGBUILD"; then
-    pass "PKGBUILD installs lib/*.sh (covers the new lib/sock.sh)"
+  pass "PKGBUILD installs lib/*.sh (covers the new lib/sock.sh)"
 else
-    fail "PKGBUILD does not install lib/*.sh -- lib/sock.sh would be missing"
+  fail "PKGBUILD does not install lib/*.sh -- lib/sock.sh would be missing"
 fi
 
 echo "pkgbuild-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"

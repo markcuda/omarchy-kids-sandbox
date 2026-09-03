@@ -30,7 +30,10 @@ fi
 
 fail=0
 pass() { echo "ok   $*"; }
-fail_() { echo "FAIL $*"; fail=1; }
+fail_() {
+  echo "FAIL $*"
+  fail=1
+}
 check() { # got want label
   if [[ "$1" == "$2" ]]; then pass "$3"; else fail_ "$3 (want '$2', got '$1')"; fi
 }
@@ -56,8 +59,8 @@ trap cleanup EXIT
 
 ETC="$TMP/etc"
 SHARE="$TMP/share"
-ROOT="$TMP/root"      # OMARCHY_KIDS_ROOT
-HOMES="$TMP/home"     # OMARCHY_KIDS_HOMES_BASE
+ROOT="$TMP/root"  # OMARCHY_KIDS_ROOT
+HOMES="$TMP/home" # OMARCHY_KIDS_HOMES_BASE
 STUBS="$TMP/stubs"
 # The kid's uid is this test user's own: lib/data.py's fold step opens
 # the runtime log O_NOFOLLOW and refuses it unless the open descriptor is
@@ -142,13 +145,17 @@ PY
 # --help
 # =========================================================================
 
-out="$("$DATA" --help 2>&1)"; st=$?
+out="$("$DATA" --help 2>&1)"
+st=$?
 check_status "$st" 0 "--help exits 0"
 check_contains "$out" "Usage: omarchy-kids-data" "--help prints usage"
-"$DATA" >/dev/null 2>&1; check_status "$?" 2 "no command exits 2"
-"$DATA" launches >/dev/null 2>&1; check_status "$?" 2 "launches with no kid exits 2"
+"$DATA" >/dev/null 2>&1
+check_status "$?" 2 "no command exits 2"
+"$DATA" launches >/dev/null 2>&1
+check_status "$?" 2 "launches with no kid exits 2"
 
-out="$("$LAUNCHER_CTL" --help 2>&1)"; st=$?
+out="$("$LAUNCHER_CTL" --help 2>&1)"
+st=$?
 check_status "$st" 0 "launcher-ctl --help exits 0"
 check_contains "$out" "log ID" "launcher-ctl --help documents log"
 
@@ -356,15 +363,15 @@ printf '2024-01-01T09:00:00 oldapp\n' >>"$ROOT_LOG"
 
 QUEUE_DIR="$ROOT/var/lib/omarchy-kids/queue"
 mkdir -p "$QUEUE_DIR"
-OLD_TS=1700000000   # 2023-11-14, well past 90 days before this suite's "now"
-NEW_TS=1893000000   # near this suite's fixture "now" (2026-09-02-ish)
+OLD_TS=1700000000 # 2023-11-14, well past 90 days before this suite's "now"
+NEW_TS=1893000000 # near this suite's fixture "now" (2026-09-02-ish)
 echo '{"kid":"kid-ada"}' >"$QUEUE_DIR/${OLD_TS}-kid-ada-time.json"
 echo '{"kid":"kid-ada"}' >"$QUEUE_DIR/${NEW_TS}-kid-ada-time.json"
 
 "$DATA" retention >/dev/null 2>&1
 check_status "$?" 1 "retention: refuses without root"
 
-export KIDS_TEST_UID=0   # the rest of this section is the root-only retention path
+export KIDS_TEST_UID=0 # the rest of this section is the root-only retention path
 NOW="2026-09-02 10:00:00"
 
 out="$(OMARCHY_KIDS_NOW="$NOW" "$DATA" retention)"
@@ -372,7 +379,8 @@ check_contains "$out" "2024-01-01" "retention (dry-run): names the stale usage d
 check_contains "$out" "launches.log" "retention (dry-run): names the launches log it would rewrite"
 check_file "$USAGE_DIR/2024-01-01" "retention (dry-run): nothing was actually removed"
 check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "7" "retention (dry-run): launches.log untouched"
-nreq=0; for f in "$QUEUE_DIR"/*.json; do [[ -e "$f" ]] && nreq=$((nreq + 1)); done
+nreq=0
+for f in "$QUEUE_DIR"/*.json; do [[ -e "$f" ]] && nreq=$((nreq + 1)); done
 check "$nreq" "2" "retention (dry-run): queue untouched"
 
 OMARCHY_KIDS_NOW="$NOW" "$DATA" retention --apply >/dev/null

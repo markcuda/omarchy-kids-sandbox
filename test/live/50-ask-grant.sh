@@ -8,18 +8,18 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=test/live/lib.sh
 source "$DIR/lib.sh"
 
-build_install && ok "package installed and pacman -Qkk clean" \
-    || fail "package build/install/Qkk gate failed"
+build_install && ok "package installed and pacman -Qkk clean" ||
+  fail "package build/install/Qkk gate failed"
 
-boot_with "$LIVE_OWNER_PASSWORD" "$LIVE_OWNER_ACCOUNT" \
-    && ok "vm booted" || fail "vm never came up"
+boot_with "$LIVE_OWNER_PASSWORD" "$LIVE_OWNER_ACCOUNT" &&
+  ok "vm booted" || fail "vm never came up"
 
 portal_reset 30 && ok "greeter is up" || fail "greeter never appeared"
 
 if portal_login "$LIVE_KID1_ACCOUNT" "$LIVE_KID1_PASSWORD"; then
-    ok "logged in as $LIVE_KID1_ACCOUNT"
+  ok "logged in as $LIVE_KID1_ACCOUNT"
 else
-    fail "portal login for $LIVE_KID1_ACCOUNT failed"
+  fail "portal login for $LIVE_KID1_ACCOUNT failed"
 fi
 
 before="$(vmroot "omarchy-kids-time status $LIVE_KID1_ACCOUNT | head -1")"
@@ -35,8 +35,8 @@ for v in WAYLAND_DISPLAY XDG_RUNTIME_DIR HYPRLAND_INSTANCE_SIGNATURE XDG_SESSION
 done
 setsid omarchy-kids-ask time 15 >/tmp/live-ask.log 2>&1 < /dev/null &
 EOS
-chmod 755 /tmp/live-ask.sh; runuser -u $LIVE_KID1_ACCOUNT -- bash /tmp/live-ask.sh" \
-    && ok "asked for 15 more minutes" || fail "could not start the ask modal"
+chmod 755 /tmp/live-ask.sh; runuser -u $LIVE_KID1_ACCOUNT -- bash /tmp/live-ask.sh" &&
+  ok "asked for 15 more minutes" || fail "could not start the ask modal"
 
 sleep 5
 shot 50-ask-modal || fail "screenshot failed"
@@ -48,20 +48,20 @@ sleep 5
 waited=0
 granted=0
 status="$before"
-while (( waited < 90 )); do
-    status="$(vmroot "omarchy-kids-time status $LIVE_KID1_ACCOUNT | head -1")"
-    if [[ -n "$status" && "$status" != "$before" ]]; then
-        granted=1
-        break
-    fi
-    sleep 5
-    waited=$((waited + 5))
+while ((waited < 90)); do
+  status="$(vmroot "omarchy-kids-time status $LIVE_KID1_ACCOUNT | head -1")"
+  if [[ -n "$status" && "$status" != "$before" ]]; then
+    granted=1
+    break
+  fi
+  sleep 5
+  waited=$((waited + 5))
 done
 
-if (( granted )); then
-    ok "ledger shows the grant ('$before' -> '$status')"
+if ((granted)); then
+  ok "ledger shows the grant ('$before' -> '$status')"
 else
-    fail "ledger never reflected the +15 grant (still: '$before')"
+  fail "ledger never reflected the +15 grant (still: '$before')"
 fi
 
 scenario_result 50-ask-grant

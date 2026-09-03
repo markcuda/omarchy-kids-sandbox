@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 # shellcheck source=lib/time.sh
@@ -20,10 +21,13 @@ KIDS_DIR="$ETC/kids"
 RUN_DIR="$SYSROOT/run/omarchy-kids"
 STATUS_JSON="$RUN_DIR/status.json"
 
-die() { echo "omarchy-kids-time-ledger: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-time-ledger: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
-    cat <<'EOF'
+  cat <<'EOF'
 Usage: omarchy-kids-time-ledger tick
 
 Adds one minute to today's ledger for every kid whose session is
@@ -40,89 +44,97 @@ EOF
 # Filters for "PROP=" rather than trusting single-line output, so a test
 # stub printing every property regardless of -p still works.
 session_prop() {
-    local id="$1" prop="$2" out
-    out="$(loginctl show-session "$id" -p "$prop" 2>/dev/null)" || return 1
-    first_field "$prop" "$out"
+  local id="$1" prop="$2" out
+  out="$(loginctl show-session "$id" -p "$prop" 2>/dev/null)" || return 1
+  first_field "$prop" "$out"
 }
 
 # active_kid_sessions — one account per line, deduplicated, for every kid
 # with a session Active=yes/LockedHint=no right now.
 active_kid_sessions() {
-    local line id user active locked seen=$'\n'
-    while IFS= read -r line; do
-        [[ -n "$line" ]] || continue
-        # loginctl list-sessions --no-legend: "SESSION UID USER SEAT [TTY]".
-        id="$(awk '{print $1}' <<<"$line")"
-        user="$(awk '{print $3}' <<<"$line")"
-        [[ -n "$id" && -n "$user" ]] || continue
-        is_known_kid "$KIDS_DIR" "$user" || continue
-        [[ "$seen" == *$'\n'"$user"$'\n'* ]] && continue
-        active="$(session_prop "$id" Active || true)"
-        locked="$(session_prop "$id" LockedHint || true)"
-        [[ "$active" == yes && "$locked" == no ]] || continue
-        seen+="$user"$'\n'
-        printf '%s\n' "$user"
-    done < <(loginctl list-sessions --no-legend 2>/dev/null)
+  local line id user active locked seen=$'\n'
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    # loginctl list-sessions --no-legend: "SESSION UID USER SEAT [TTY]".
+    id="$(awk '{print $1}' <<<"$line")"
+    user="$(awk '{print $3}' <<<"$line")"
+    [[ -n "$id" && -n "$user" ]] || continue
+    is_known_kid "$KIDS_DIR" "$user" || continue
+    [[ "$seen" == *$'\n'"$user"$'\n'* ]] && continue
+    active="$(session_prop "$id" Active || true)"
+    locked="$(session_prop "$id" LockedHint || true)"
+    [[ "$active" == yes && "$locked" == no ]] || continue
+    seen+="$user"$'\n'
+    printf '%s\n' "$user"
+  done < <(loginctl list-sessions --no-legend 2>/dev/null)
 }
 
 # write_status_json — R-BAR-3, best-effort: never fails the tick.
 write_status_json() {
-    local now day weekend hm kid remaining paused live rows active
-    now="$(time_now)"; hm="$(time_hm "$now")"
-    IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || return 0
-    command -v jq >/dev/null 2>&1 || return 0
-    install -d -m 0755 "$RUN_DIR" 2>/dev/null || return 0
-    rows="$(mktemp)" || return 0
-    # One loginctl scan for every kid below, not one per kid.
-    active="$(active_kid_sessions)"
-    while IFS= read -r kid; do
-        [[ -n "$kid" ]] || continue
-        remaining="$(time_remaining_minutes "$kid" "$day" "$weekend" 2>/dev/null || echo 0)"
-        paused="false"; time_is_paused "$kid" && paused="true"
-        live="false"
-        while IFS= read -r live_kid; do
-            [[ "$live_kid" == "$kid" ]] && live="true"
-        done <<<"$active"
-        jq -n --arg kid "$kid" --argjson minutes_left "$remaining" \
-            --argjson paused "$paused" --argjson live "$live" \
-            '{kid: $kid, minutes_left: $minutes_left, paused: $paused, live: $live}' \
-            >>"$rows"
-    done < <(kids_list "$KIDS_DIR")
-    jq -s '{generated_at: (now | todate), kids: .}' "$rows" >"$STATUS_JSON.tmp" 2>/dev/null \
-        && mv "$STATUS_JSON.tmp" "$STATUS_JSON" && chmod 0640 "$STATUS_JSON"
-    chgrp omarchy-parents "$STATUS_JSON" 2>/dev/null || true
-    rm -f "$rows" "$STATUS_JSON.tmp"
+  local now day weekend hm kid remaining paused live rows active
+  now="$(time_now)"
+  hm="$(time_hm "$now")"
+  IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || return 0
+  command -v jq >/dev/null 2>&1 || return 0
+  install -d -m 0755 "$RUN_DIR" 2>/dev/null || return 0
+  rows="$(mktemp)" || return 0
+  # One loginctl scan for every kid below, not one per kid.
+  active="$(active_kid_sessions)"
+  while IFS= read -r kid; do
+    [[ -n "$kid" ]] || continue
+    remaining="$(time_remaining_minutes "$kid" "$day" "$weekend" 2>/dev/null || echo 0)"
+    paused="false"
+    time_is_paused "$kid" && paused="true"
+    live="false"
+    while IFS= read -r live_kid; do
+      [[ "$live_kid" == "$kid" ]] && live="true"
+    done <<<"$active"
+    jq -n --arg kid "$kid" --argjson minutes_left "$remaining" \
+      --argjson paused "$paused" --argjson live "$live" \
+      '{kid: $kid, minutes_left: $minutes_left, paused: $paused, live: $live}' \
+      >>"$rows"
+  done < <(kids_list "$KIDS_DIR")
+  jq -s '{generated_at: (now | todate), kids: .}' "$rows" >"$STATUS_JSON.tmp" 2>/dev/null &&
+    mv "$STATUS_JSON.tmp" "$STATUS_JSON" && chmod 0640 "$STATUS_JSON"
+  chgrp omarchy-parents "$STATUS_JSON" 2>/dev/null || true
+  rm -f "$rows" "$STATUS_JSON.tmp"
 }
 
 cmd_tick() {
-    if ! is_root; then
-        die "tick must run as root (it is meant to be run by systemd/omarchy-kids-time.timer)" 1
+  if ! is_root; then
+    die "tick must run as root (it is meant to be run by systemd/omarchy-kids-time.timer)" 1
+  fi
+  local now day weekend kid
+  now="$(time_now)"
+  IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
+  while IFS= read -r kid; do
+    [[ -n "$kid" ]] || continue
+    if time_is_paused "$kid"; then
+      continue
     fi
-    local now day weekend kid
-    now="$(time_now)"
-    IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
-    while IFS= read -r kid; do
-        [[ -n "$kid" ]] || continue
-        if time_is_paused "$kid"; then
-            continue
-        fi
-        time_ledger_add "$kid" "$day" 1
-    done < <(active_kid_sessions)
-    write_status_json
-    fold_all_launches
+    time_ledger_add "$kid" "$day" 1
+  done < <(active_kid_sessions)
+  write_status_json
+  fold_all_launches
 }
 
 # fold_all_launches — R-DATA-1, every known kid, best-effort.
 fold_all_launches() {
-    while IFS= read -r kid; do
-        [[ -n "$kid" ]] || continue
-        data_fold_launches "$kid" 2>/dev/null || true
-    done < <(kids_list "$KIDS_DIR")
+  while IFS= read -r kid; do
+    [[ -n "$kid" ]] || continue
+    data_fold_launches "$kid" 2>/dev/null || true
+  done < <(kids_list "$KIDS_DIR")
 }
 
-[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+[[ $# -ge 1 ]] || {
+  usage >&2
+  exit 2
+}
 case "$1" in
-    -h|--help) usage; exit 0 ;;
-    tick) cmd_tick ;;
-    *) die "unknown command '$1' (see --help)" ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  tick) cmd_tick ;;
+  *) die "unknown command '$1' (see --help)" ;;
 esac

@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
@@ -56,8 +57,15 @@ for arg in "$@"; do
   case "$arg" in
     --check) MODE=check ;;
     --install-configs) MODE=install-configs ;;
-    -h|--help) usage; exit 0 ;;
-    *) echo "omarchy-kids-session: unknown argument: '$arg'" >&2; usage >&2; exit 2 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "omarchy-kids-session: unknown argument: '$arg'" >&2
+      usage >&2
+      exit 2
+      ;;
   esac
 done
 
@@ -88,30 +96,36 @@ WEB=""
 
 check_profile() {
   if [[ ! -f "$PROFILE" ]]; then
-    RESULT=FAIL; DETAIL="no profile at $PROFILE -- '$ACCOUNT' is not a Kids Mode kid"
+    RESULT=FAIL
+    DETAIL="no profile at $PROFILE -- '$ACCOUNT' is not a Kids Mode kid"
     return 1
   fi
-  if LEVEL="$("$CONF_BIN" get "$ACCOUNT" level 2>/dev/null)" \
-      && BAND="$("$CONF_BIN" get "$ACCOUNT" band 2>/dev/null)" \
-      && WEB="$("$CONF_BIN" get "$ACCOUNT" web 2>/dev/null)"; then
-    RESULT=PASS; DETAIL="level=$LEVEL band=$BAND web=$WEB"
+  if LEVEL="$("$CONF_BIN" get "$ACCOUNT" level 2>/dev/null)" &&
+    BAND="$("$CONF_BIN" get "$ACCOUNT" band 2>/dev/null)" &&
+    WEB="$("$CONF_BIN" get "$ACCOUNT" web 2>/dev/null)"; then
+    RESULT=PASS
+    DETAIL="level=$LEVEL band=$BAND web=$WEB"
     return 0
   fi
-  RESULT=FAIL; DETAIL="profile exists but level/band/web could not be resolved"
+  RESULT=FAIL
+  DETAIL="profile exists but level/band/web could not be resolved"
   return 1
 }
 
 check_policy() {
   if [[ "$WEB" == "none" ]]; then
-    RESULT=PASS; DETAIL="web=none, no browser policy required (R-WEB-4)"
+    RESULT=PASS
+    DETAIL="web=none, no browser policy required (R-WEB-4)"
     return 0
   fi
   local policy="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-$BAND.json"
   if [[ -n "$BAND" && -r "$policy" ]]; then
-    RESULT=PASS; DETAIL="$policy is readable"
+    RESULT=PASS
+    DETAIL="$policy is readable"
     return 0
   fi
-  RESULT=FAIL; DETAIL="$policy missing or not readable by '$ACCOUNT' (R-WEB-4)"
+  RESULT=FAIL
+  DETAIL="$policy missing or not readable by '$ACCOUNT' (R-WEB-4)"
   return 1
 }
 
@@ -121,18 +135,32 @@ check_polkit() {
   # denied action is refused outright; without it the default policy asks for admin authentication.
   local out
   if ! command -v pkcheck >/dev/null 2>&1; then
-    RESULT=FAIL; DETAIL="pkcheck not available to verify the deny rule"; return 1
+    RESULT=FAIL
+    DETAIL="pkcheck not available to verify the deny rule"
+    return 1
   fi
   out="$(pkcheck --action-id org.freedesktop.systemd1.manage-units --process "$$" 2>&1 || true)"
   case "$out" in
-    *"Not authorized"*|*"not authorized"*)
-      RESULT=PASS; DETAIL="polkit refuses a denied action outright (deny rule active; admin identity is root's job via omarchy-kids-assert)"; return 0 ;;
-    *"requires authentication"*|*"Authorization requires"*)
-      RESULT=FAIL; DETAIL="polkit would prompt for a denied action: the deny rule is not active"; return 1 ;;
+    *"Not authorized"* | *"not authorized"*)
+      RESULT=PASS
+      DETAIL="polkit refuses a denied action outright (deny rule active; admin identity is root's job via omarchy-kids-assert)"
+      return 0
+      ;;
+    *"requires authentication"* | *"Authorization requires"*)
+      RESULT=FAIL
+      DETAIL="polkit would prompt for a denied action: the deny rule is not active"
+      return 1
+      ;;
     "")
-      RESULT=FAIL; DETAIL="polkit authorized a denied action: the deny rule is not active"; return 1 ;;
+      RESULT=FAIL
+      DETAIL="polkit authorized a denied action: the deny rule is not active"
+      return 1
+      ;;
     *)
-      RESULT=FAIL; DETAIL="unexpected pkcheck answer: ${out%%$'\n'*}"; return 1 ;;
+      RESULT=FAIL
+      DETAIL="unexpected pkcheck answer: ${out%%$'\n'*}"
+      return 1
+      ;;
   esac
 }
 
@@ -140,10 +168,12 @@ check_home_noexec() {
   local opts
   opts="$(findmnt -no OPTIONS "$HOME" 2>/dev/null || true)"
   if [[ "$opts" == *noexec* ]]; then
-    RESULT=PASS; DETAIL="\$HOME ($HOME) mounted noexec"
+    RESULT=PASS
+    DETAIL="\$HOME ($HOME) mounted noexec"
     return 0
   fi
-  RESULT=FAIL; DETAIL="\$HOME ($HOME) is not mounted noexec (options: ${opts:-none found})"
+  RESULT=FAIL
+  DETAIL="\$HOME ($HOME) is not mounted noexec (options: ${opts:-none found})"
   return 1
 }
 
@@ -154,10 +184,12 @@ check_tmp_noexec() {
   local opts
   opts="$(findmnt -no OPTIONS /tmp 2>/dev/null || true)"
   if [[ "$opts" == *noexec* ]]; then
-    RESULT=PASS; DETAIL="/tmp mounted noexec"
+    RESULT=PASS
+    DETAIL="/tmp mounted noexec"
     return 0
   fi
-  RESULT=WARN; DETAIL="/tmp is not a private noexec mount yet (options: ${opts:-none found}) -- R-FND-2a, warning only for now"
+  RESULT=WARN
+  DETAIL="/tmp is not a private noexec mount yet (options: ${opts:-none found}) -- R-FND-2a, warning only for now"
   return 0
 }
 
@@ -167,31 +199,40 @@ check_consoles_masked() {
   local state
   state="$(systemctl "${sysctl_root[@]+"${sysctl_root[@]}"}" is-enabled getty@tty2.service 2>/dev/null || true)"
   if [[ "$state" == "masked" ]]; then
-    RESULT=PASS; DETAIL="getty@tty2.service is masked"
+    RESULT=PASS
+    DETAIL="getty@tty2.service is masked"
     return 0
   fi
-  RESULT=FAIL; DETAIL="getty@tty2.service is not masked (state: ${state:-unknown})"
+  RESULT=FAIL
+  DETAIL="getty@tty2.service is not masked (state: ${state:-unknown})"
   return 1
 }
 
 check_level_config() {
   local conf="$HYPRLAND_DIR/L$LEVEL.lua" out
   if [[ -z "$LEVEL" || ! -f "$conf" ]]; then
-    RESULT=FAIL; DETAIL="$conf missing"
+    RESULT=FAIL
+    DETAIL="$conf missing"
     return 1
   fi
   # A config error puts Hyprland in emergency mode, which binds a terminal: fail closed instead.
   # Hyprland aborts without XDG_RUNTIME_DIR even in verify mode; a real session has it, --check from
   # a plain shell may not.
-  local rt="${XDG_RUNTIME_DIR:-}"; local tmp_rt=""
-  if [[ -z "$rt" || ! -d "$rt" ]]; then tmp_rt="$(mktemp -d)"; rt="$tmp_rt"; fi
+  local rt="${XDG_RUNTIME_DIR:-}"
+  local tmp_rt=""
+  if [[ -z "$rt" || ! -d "$rt" ]]; then
+    tmp_rt="$(mktemp -d)"
+    rt="$tmp_rt"
+  fi
   if ! out="$(XDG_RUNTIME_DIR="$rt" "$HYPRLAND_BIN" --config "$conf" --verify-config 2>&1)"; then
     [[ -n "$tmp_rt" ]] && rm -rf "$tmp_rt"
-    RESULT=FAIL; DETAIL="$conf has errors: ${out%%$'\n'*}"
+    RESULT=FAIL
+    DETAIL="$conf has errors: ${out%%$'\n'*}"
     return 1
   fi
   [[ -n "$tmp_rt" ]] && rm -rf "$tmp_rt"
-  RESULT=PASS; DETAIL="$conf present and verifies"
+  RESULT=PASS
+  DETAIL="$conf present and verifies"
   return 0
 }
 
@@ -261,7 +302,10 @@ do_start() {
         exit 1
         ;;
     esac
-    [[ $rc -eq 0 ]] || { echo "omarchy-kids-session: internal error running check '$id'" >&2; exit 1; }
+    [[ $rc -eq 0 ]] || {
+      echo "omarchy-kids-session: internal error running check '$id'" >&2
+      exit 1
+    }
   done
 
   export OMARCHY_KIDS_ACCOUNT="$ACCOUNT"

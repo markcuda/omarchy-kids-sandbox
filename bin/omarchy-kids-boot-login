@@ -13,7 +13,7 @@ ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 DROPIN="$SDDM_DIR/zz-omarchy-kids-autologin.conf"
 
 usage() {
-    cat <<EOF
+  cat <<EOF
 Usage: $(basename "$0") [--cleanup] [--help]
 
 Writes $DROPIN with the [Autologin] section for whichever account's LUKS
@@ -30,93 +30,93 @@ EOF
 # session_for ACCOUNT — default session, decided by the profile registry,
 # never a `kid-*` username heuristic (found live, docs/boot.md).
 session_for() {
-    if [[ -f "$ETC/kids/$1.conf" ]]; then
-        echo "omarchy-kids.desktop"
-    else
-        echo "omarchy.desktop"
-    fi
+  if [[ -f "$ETC/kids/$1.conf" ]]; then
+    echo "omarchy-kids.desktop"
+  else
+    echo "omarchy.desktop"
+  fi
 }
 
 # lookup_slot SLOT — "account session" on a match, nothing otherwise.
 # luks-slots format: "slot=account[:session]" (docs/boot.md).
 lookup_slot() {
-    local slot="$1" line key val account session
-    [[ -r "$SLOTS_FILE" ]] || return 0
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        case "$line" in
-            ''|'#'*) continue ;;
-        esac
-        key="${line%%=*}"
-        val="${line#*=}"
-        [[ "$key" == "$slot" ]] || continue
-        account="${val%%:*}"
-        if [[ "$val" == *:* ]]; then
-            session="${val#*:}"
-        else
-            session=""
-        fi
-        [[ -n "$account" ]] || return 0
-        [[ -n "$session" ]] || session="$(session_for "$account")"
-        # SDDM names sessions by their .desktop file (Omarchy writes Session=omarchy.desktop).
-        [[ "$session" == *.desktop ]] || session="${session}.desktop"
-        printf '%s %s\n' "$account" "$session"
-        return 0
-    done < "$SLOTS_FILE"
+  local slot="$1" line key val account session
+  [[ -r "$SLOTS_FILE" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      '' | '#'*) continue ;;
+    esac
+    key="${line%%=*}"
+    val="${line#*=}"
+    [[ "$key" == "$slot" ]] || continue
+    account="${val%%:*}"
+    if [[ "$val" == *:* ]]; then
+      session="${val#*:}"
+    else
+      session=""
+    fi
+    [[ -n "$account" ]] || return 0
+    [[ -n "$session" ]] || session="$(session_for "$account")"
+    # SDDM names sessions by their .desktop file (Omarchy writes Session=omarchy.desktop).
+    [[ "$session" == *.desktop ]] || session="${session}.desktop"
+    printf '%s %s\n' "$account" "$session"
+    return 0
+  done <"$SLOTS_FILE"
 }
 
 # write_dropin ACCOUNT [SESSION] — ACCOUNT="" writes an empty User= (portal).
 write_dropin() {
-    local account="$1" session="${2:-}"
-    install -d -m 0755 "$SDDM_DIR"
-    {
-        printf '[Autologin]\n'
-        printf 'User=%s\n' "$account"
-        [[ -n "$session" ]] && printf 'Session=%s\n' "$session"
-    } > "$DROPIN"
-    chmod 0644 "$DROPIN"
+  local account="$1" session="${2:-}"
+  install -d -m 0755 "$SDDM_DIR"
+  {
+    printf '[Autologin]\n'
+    printf 'User=%s\n' "$account"
+    [[ -n "$session" ]] && printf 'Session=%s\n' "$session"
+  } >"$DROPIN"
+  chmod 0644 "$DROPIN"
 }
 
 cleanup() {
-    rm -f "$DROPIN"
+  rm -f "$DROPIN"
 }
 
 main() {
-    case "${1:-}" in
-        --help|-h)
-            usage
-            exit 0
-            ;;
-        --cleanup)
-            cleanup
-            exit 0
-            ;;
-        "")
-            ;;
-        *)
-            echo "omarchy-kids-boot-login: unknown argument '$1'" >&2
-            usage >&2
-            exit 1
-            ;;
-    esac
+  case "${1:-}" in
+    --help | -h)
+      usage
+      exit 0
+      ;;
+    --cleanup)
+      cleanup
+      exit 0
+      ;;
+    "")
+      ;;
+    *)
+      echo "omarchy-kids-boot-login: unknown argument '$1'" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
 
-    if [[ ! -r "$RUN_DIR/boot-slot" ]]; then
-        # Fail safe to the portal rather than guess (ConditionPathExists normally guards this).
-        write_dropin ""
-        return 0
-    fi
+  if [[ ! -r "$RUN_DIR/boot-slot" ]]; then
+    # Fail safe to the portal rather than guess (ConditionPathExists normally guards this).
+    write_dropin ""
+    return 0
+  fi
 
-    local slot result account session
-    slot="$(<"$RUN_DIR/boot-slot")"
-    slot="${slot//[[:space:]]/}"
+  local slot result account session
+  slot="$(<"$RUN_DIR/boot-slot")"
+  slot="${slot//[[:space:]]/}"
 
-    result="$(lookup_slot "$slot")" || true
-    if [[ -n "$result" ]]; then
-        account="${result%% *}"
-        session="${result#* }"
-        write_dropin "$account" "$session"
-    else
-        write_dropin ""
-    fi
+  result="$(lookup_slot "$slot")" || true
+  if [[ -n "$result" ]]; then
+    account="${result%% *}"
+    session="${result#* }"
+    write_dropin "$account" "$session"
+  else
+    write_dropin ""
+  fi
 }
 
 main "$@"

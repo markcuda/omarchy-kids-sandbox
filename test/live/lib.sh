@@ -21,10 +21,10 @@ LIVE_REPO_ROOT="$(cd "$LIVE_LIB_DIR/../.." && pwd)"
 # config.env.example is the checked-in template) — a CI job can just export every LIVE_* var
 # instead and skip the file entirely. -------------------------------------------------------
 if [[ -f "$LIVE_LIB_DIR/config.env" ]]; then
-    set -a
-    # shellcheck source=/dev/null
-    source "$LIVE_LIB_DIR/config.env"
-    set +a
+  set -a
+  # shellcheck source=/dev/null
+  source "$LIVE_LIB_DIR/config.env"
+  set +a
 fi
 
 LIVE_SSH_CFG="${LIVE_SSH_CFG:-$HOME/.ssh/omarchy-kids-vm-config}"
@@ -67,7 +67,7 @@ vm_tty() { ssh -tt -F "$LIVE_SSH_CFG" -o ConnectTimeout=5 vm "$@"; }
 # so it never ends up mixed into CMD's output. `printf '%q'` quotes CMD once for the remote
 # `bash -c`, the same shape docs/vm.md's own reference drivers use.
 vmroot() {
-    vm "printf '%s\n' $(printf '%q' "$LIVE_OWNER_PASSWORD") | sudo -S -p '' bash -c $(printf '%q' "$1")"
+  vm "printf '%s\n' $(printf '%q' "$LIVE_OWNER_PASSWORD") | sudo -S -p '' bash -c $(printf '%q' "$1")"
 }
 
 # qmp ARGS... — talks to the VM's QEMU monitor via scripts/vm-qmp.sh on air: shot/type/enter/
@@ -79,17 +79,17 @@ qmp() { air "cd ~/$LIVE_REMOTE_REPO && bash scripts/vm-qmp.sh $*"; }
 # screenshot column, and callers can do `shot foo || fail "..."` for the same reason every other
 # helper here returns non-zero rather than dying on its own.
 shot() {
-    local name="$1"
-    qmp shot "/home/omarky-air/vm/$name.png" >/dev/null || return 1
-    scp -q -F "$LIVE_SSH_CFG" "air:/home/omarky-air/vm/$name.png" "$LIVE_OUT_DIR/$name.png" || return 1
-    echo "$name.png"
+  local name="$1"
+  qmp shot "/home/omarky-air/vm/$name.png" >/dev/null || return 1
+  scp -q -F "$LIVE_SSH_CFG" "air:/home/omarky-air/vm/$name.png" "$LIVE_OUT_DIR/$name.png" || return 1
+  echo "$name.png"
 }
 
 # state — a one-screen debug snapshot of what's live in the VM right now: sessions other than the
 # ssh/console owner's own, any greeter process, the last few SDDM journal lines. Not an assertion
 # — scenarios call this around a failing step so the log shows what was actually going on.
 state() {
-    vmroot "loginctl list-sessions --no-legend | grep -v ' $LIVE_OWNER_ACCOUNT ' 2>/dev/null; pgrep -af 'sddm-greeter-qt[6]' | cut -c1-80; journalctl -b --no-pager -o cat -u sddm 2>/dev/null | tail -3 | cut -c1-150"
+  vmroot "loginctl list-sessions --no-legend | grep -v ' $LIVE_OWNER_ACCOUNT ' 2>/dev/null; pgrep -af 'sddm-greeter-qt[6]' | cut -c1-80; journalctl -b --no-pager -o cat -u sddm 2>/dev/null | tail -3 | cut -c1-150"
 }
 
 # --- boot / portal -----------------------------------------------------------------------
@@ -100,49 +100,52 @@ state() {
 # ssh with a deadline rather than a fixed sleep for however long the actual boot after unlock
 # takes. Returns 1 if ssh never answers within LIVE_BOOT_DEADLINE seconds.
 boot_with() {
-    local password="$1" label="${2:-boot}" waited=0
-    air "cd ~/$LIVE_REMOTE_REPO && bash scripts/vm-run.sh stop; sleep 2; bash scripts/vm-run.sh boot" >/dev/null 2>&1
-    sleep 35
-    qmp type "$password" >/dev/null
-    qmp enter >/dev/null
-    while (( waited < LIVE_BOOT_DEADLINE )); do
-        vm true 2>/dev/null && { echo "vm ssh reachable after $((waited + 35))s ($label)"; return 0; }
-        sleep 5
-        waited=$((waited + 5))
-    done
-    echo "vm never came up booting with $label's password" >&2
-    return 1
+  local password="$1" label="${2:-boot}" waited=0
+  air "cd ~/$LIVE_REMOTE_REPO && bash scripts/vm-run.sh stop; sleep 2; bash scripts/vm-run.sh boot" >/dev/null 2>&1
+  sleep 35
+  qmp type "$password" >/dev/null
+  qmp enter >/dev/null
+  while ((waited < LIVE_BOOT_DEADLINE)); do
+    vm true 2>/dev/null && {
+      echo "vm ssh reachable after $((waited + 35))s ($label)"
+      return 0
+    }
+    sleep 5
+    waited=$((waited + 5))
+  done
+  echo "vm never came up booting with $label's password" >&2
+  return 1
 }
 
 # portal_kid_index KIDS_CSV ACCOUNT — pure, no ssh: KIDS_CSV is theme.conf.user's "kids=" value
 # (share/sddm-theme's own posture_portal_conf_text), "account:name:avatar,account:name:avatar,...".
 # Prints ACCOUNT's 0-based position among the kid tiles, or fails (exit 1) if it isn't listed.
 portal_kid_index() {
-    local csv="$1" acct="$2" i=0 entry a old_ifs=$IFS
-    IFS=','
-    # shellcheck disable=SC2086 # word-splitting on the comma is the point
-    set -- $csv
-    IFS=$old_ifs
-    for entry in "$@"; do
-        a="${entry%%:*}"
-        if [[ "$a" == "$acct" ]]; then
-            echo "$i"
-            return 0
-        fi
-        i=$((i + 1))
-    done
-    return 1
+  local csv="$1" acct="$2" i=0 entry a old_ifs=$IFS
+  IFS=','
+  # shellcheck disable=SC2086 # word-splitting on the comma is the point
+  set -- $csv
+  IFS=$old_ifs
+  for entry in "$@"; do
+    a="${entry%%:*}"
+    if [[ "$a" == "$acct" ]]; then
+      echo "$i"
+      return 0
+    fi
+    i=$((i + 1))
+  done
+  return 1
 }
 
 # portal_kid_count KIDS_CSV — pure, no ssh: how many kid tiles KIDS_CSV lists (the parent tile is
 # always one more than this — share/sddm-theme/Main.qml's finishLoadingUsers() appends it last).
 portal_kid_count() {
-    local csv="$1" old_ifs=$IFS
-    IFS=','
-    # shellcheck disable=SC2086
-    set -- $csv
-    IFS=$old_ifs
-    echo "$#"
+  local csv="$1" old_ifs=$IFS
+  IFS=','
+  # shellcheck disable=SC2086
+  set -- $csv
+  IFS=$old_ifs
+  echo "$#"
 }
 
 # portal_login KID PASSWORD [DEADLINE] — at the portal (the greeter showing the kid tiles),
@@ -159,45 +162,48 @@ portal_kid_count() {
 # matter where SDDM's own `userModel.lastUser` preselection left the highlight. Read from the QML
 # source, not yet confirmed live against more than two kid tiles — see docs/live-tests.md.
 portal_login() {
-    local kid="$1" password="$2" deadline="${3:-90}"
-    local tiles index total waited=0 i
-    # SDDM's UserModel lists every account with uid in [MinimumUid, MaximumUid], sorted by name,
-    # so the tile order is the sorted account list, not theme.conf.user's kids= order (seen live:
-    # a non-kid test account sorts first and the parent last).
-    tiles="$(vmroot "getent passwd | awk -F: '\$3>=1000 && \$3<65534 {print \$1}' | sort")"
-    index="$(portal_tile_index "$tiles" "$kid")" || {
-        echo "portal_login: $kid is not among the greeter's accounts ($(echo "$tiles" | tr '\n' ' '))" >&2
-        return 1
-    }
-    total="$(echo "$tiles" | grep -c .)"
-
-    qmp key esc >/dev/null        # close a password field left open by an earlier attempt
-    sleep 0.5
-    for ((i = 0; i < total; i++)); do qmp key left >/dev/null; done   # Left clamps at the first tile
-    for ((i = 0; i < index; i++)); do qmp key right >/dev/null; done
-    qmp enter >/dev/null
-    sleep 1
-    qmp type "$password" >/dev/null
-    qmp enter >/dev/null
-
-    while (( waited < deadline )); do
-        assert_session "$kid" 0 && return 0
-        sleep 5
-        waited=$((waited + 5))
-    done
+  local kid="$1" password="$2" deadline="${3:-90}"
+  local tiles index total waited=0 i
+  # SDDM's UserModel lists every account with uid in [MinimumUid, MaximumUid], sorted by name,
+  # so the tile order is the sorted account list, not theme.conf.user's kids= order (seen live:
+  # a non-kid test account sorts first and the parent last).
+  tiles="$(vmroot "getent passwd | awk -F: '\$3>=1000 && \$3<65534 {print \$1}' | sort")"
+  index="$(portal_tile_index "$tiles" "$kid")" || {
+    echo "portal_login: $kid is not among the greeter's accounts ($(echo "$tiles" | tr '\n' ' '))" >&2
     return 1
+  }
+  total="$(echo "$tiles" | grep -c .)"
+
+  qmp key esc >/dev/null # close a password field left open by an earlier attempt
+  sleep 0.5
+  for ((i = 0; i < total; i++)); do qmp key left >/dev/null; done # Left clamps at the first tile
+  for ((i = 0; i < index; i++)); do qmp key right >/dev/null; done
+  qmp enter >/dev/null
+  sleep 1
+  qmp type "$password" >/dev/null
+  qmp enter >/dev/null
+
+  while ((waited < deadline)); do
+    assert_session "$kid" 0 && return 0
+    sleep 5
+    waited=$((waited + 5))
+  done
+  return 1
 }
 
 # portal_tile_index LIST ACCOUNT — 0-based position of ACCOUNT in LIST (one account per line, in
 # the greeter's sorted order). Pure; unit-tested in test/shell.d/live-lib-test.sh.
 portal_tile_index() {
-    local list="$1" acct="$2" i=0 a
-    while IFS= read -r a; do
-        [[ -z "$a" ]] && continue
-        if [[ "$a" == "$acct" ]]; then echo "$i"; return 0; fi
-        i=$((i + 1))
-    done <<<"$list"
-    return 1
+  local list="$1" acct="$2" i=0 a
+  while IFS= read -r a; do
+    [[ -z "$a" ]] && continue
+    if [[ "$a" == "$acct" ]]; then
+      echo "$i"
+      return 0
+    fi
+    i=$((i + 1))
+  done <<<"$list"
+  return 1
 }
 
 # portal_reset [DEADLINE] — gets a fresh greeter on screen the only way SDDM 0.21 on Omarchy 4.0.2
@@ -206,22 +212,25 @@ portal_tile_index() {
 # input devices; a hard terminate leaves SDDM with no greeter at all. If nothing is on seat0 (a
 # black screen), restart SDDM (the owner's stock autologin fires) and exit that session cleanly.
 portal_reset() {
-    local deadline="${1:-45}" who
-    who="$(vmroot "loginctl list-sessions --no-legend | awk '\$4==\"seat0\"{print \$3}' | head -1" 2>/dev/null | tr -d '[:space:]')"
-    case "$who" in
-        sddm) : ;;  # the greeter is already up
-        "")   vmroot "systemctl restart sddm; sleep 16"
-              who="$LIVE_OWNER_ACCOUNT"; portal_clean_exit "$who" ;;
-        *)    portal_clean_exit "$who" ;;
-    esac
-    assert_greeter "$deadline"
+  local deadline="${1:-45}" who
+  who="$(vmroot "loginctl list-sessions --no-legend | awk '\$4==\"seat0\"{print \$3}' | head -1" 2>/dev/null | tr -d '[:space:]')"
+  case "$who" in
+    sddm) : ;; # the greeter is already up
+    "")
+      vmroot "systemctl restart sddm; sleep 16"
+      who="$LIVE_OWNER_ACCOUNT"
+      portal_clean_exit "$who"
+      ;;
+    *) portal_clean_exit "$who" ;;
+  esac
+  assert_greeter "$deadline"
 }
 
 # portal_clean_exit ACCOUNT — asks ACCOUNT's Hyprland to exit through the Lua dispatcher, from
 # root, with the instance signature read off /run/user/<uid>/hypr/ (docs/exit.md).
 portal_clean_exit() {
-    local acct="$1"
-    vmroot "uid=\$(id -u '$acct'); sig=\$(ls -t /run/user/\$uid/hypr/ 2>/dev/null | head -1); [ -n \"\$sig\" ] && runuser -u '$acct' -- env XDG_RUNTIME_DIR=/run/user/\$uid HYPRLAND_INSTANCE_SIGNATURE=\$sig hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1; true"
+  local acct="$1"
+  vmroot "uid=\$(id -u '$acct'); sig=\$(ls -t /run/user/\$uid/hypr/ 2>/dev/null | head -1); [ -n \"\$sig\" ] && runuser -u '$acct' -- env XDG_RUNTIME_DIR=/run/user/\$uid HYPRLAND_INSTANCE_SIGNATURE=\$sig hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1; true"
 }
 
 # --- build / install ---------------------------------------------------------------------
@@ -233,15 +242,27 @@ portal_clean_exit() {
 # own exit code — pacman -Qk exits non-zero if any installed file fails its content/mtime/
 # permission check, a cheaper and more reliable "did this land intact" signal than parsing text.
 build_install() {
-    air "cd ~/$LIVE_REMOTE_REPO && git pull -q && rm -rf pkg src omarchy-kids-*.pkg.tar.zst && makepkg -sf --noconfirm >/dev/null 2>&1" \
-        || { echo "build_install: makepkg failed on air" >&2; return 1; }
-    scp -q -F "$LIVE_SSH_CFG" "air:~/$LIVE_REMOTE_REPO/omarchy-kids-*.pkg.tar.zst" "$LIVE_OUT_DIR/" \
-        || { echo "build_install: could not fetch the built package" >&2; return 1; }
-    scp -q -F "$LIVE_SSH_CFG" "$LIVE_OUT_DIR"/omarchy-kids-*.pkg.tar.zst vm:/tmp/ \
-        || { echo "build_install: could not copy the package to the vm" >&2; return 1; }
-    vmroot 'pacman -U --noconfirm /tmp/omarchy-kids-*.pkg.tar.zst >/tmp/live-pacman-U.log 2>&1; sync' \
-        || { echo "build_install: pacman -U failed" >&2; return 1; }
-    vmroot 'pacman -Qkk omarchy-kids >/tmp/live-pacman-Qkk.log 2>&1'
+  air "cd ~/$LIVE_REMOTE_REPO && git pull -q && rm -rf pkg src omarchy-kids-*.pkg.tar.zst && makepkg -sf --noconfirm >/dev/null 2>&1" ||
+    {
+      echo "build_install: makepkg failed on air" >&2
+      return 1
+    }
+  scp -q -F "$LIVE_SSH_CFG" "air:~/$LIVE_REMOTE_REPO/omarchy-kids-*.pkg.tar.zst" "$LIVE_OUT_DIR/" ||
+    {
+      echo "build_install: could not fetch the built package" >&2
+      return 1
+    }
+  scp -q -F "$LIVE_SSH_CFG" "$LIVE_OUT_DIR"/omarchy-kids-*.pkg.tar.zst vm:/tmp/ ||
+    {
+      echo "build_install: could not copy the package to the vm" >&2
+      return 1
+    }
+  vmroot 'pacman -U --noconfirm /tmp/omarchy-kids-*.pkg.tar.zst >/tmp/live-pacman-U.log 2>&1; sync' ||
+    {
+      echo "build_install: pacman -U failed" >&2
+      return 1
+    }
+  vmroot 'pacman -Qkk omarchy-kids >/tmp/live-pacman-Qkk.log 2>&1'
 }
 
 # --- assertions --------------------------------------------------------------------------
@@ -250,35 +271,35 @@ build_install() {
 
 # assert_session KID [DEADLINE=60] — KID has a live loginctl session within DEADLINE seconds.
 assert_session() {
-    local kid="$1" deadline="${2:-60}" waited=0
-    while :; do
-        vmroot "loginctl list-sessions --no-legend | grep -qw '$kid'" 2>/dev/null && return 0
-        (( waited >= deadline )) && return 1
-        sleep 5
-        waited=$((waited + 5))
-    done
+  local kid="$1" deadline="${2:-60}" waited=0
+  while :; do
+    vmroot "loginctl list-sessions --no-legend | grep -qw '$kid'" 2>/dev/null && return 0
+    ((waited >= deadline)) && return 1
+    sleep 5
+    waited=$((waited + 5))
+  done
 }
 
 # assert_no_session KID [DEADLINE=30] — KID has no live loginctl session within DEADLINE seconds.
 assert_no_session() {
-    local kid="$1" deadline="${2:-30}" waited=0
-    while :; do
-        vmroot "loginctl list-sessions --no-legend | grep -qw '$kid'" 2>/dev/null || return 0
-        (( waited >= deadline )) && return 1
-        sleep 5
-        waited=$((waited + 5))
-    done
+  local kid="$1" deadline="${2:-30}" waited=0
+  while :; do
+    vmroot "loginctl list-sessions --no-legend | grep -qw '$kid'" 2>/dev/null || return 0
+    ((waited >= deadline)) && return 1
+    sleep 5
+    waited=$((waited + 5))
+  done
 }
 
 # assert_greeter [DEADLINE=60] — an sddm-greeter process is running within DEADLINE seconds.
 assert_greeter() {
-    local deadline="${1:-60}" waited=0
-    while :; do
-        vmroot "pgrep -f 'sddm-greeter-qt[6]' >/dev/null 2>&1" && return 0
-        (( waited >= deadline )) && return 1
-        sleep 5
-        waited=$((waited + 5))
-    done
+  local deadline="${1:-60}" waited=0
+  while :; do
+    vmroot "pgrep -f 'sddm-greeter-qt[6]' >/dev/null 2>&1" && return 0
+    ((waited >= deadline)) && return 1
+    sleep 5
+    waited=$((waited + 5))
+  done
 }
 
 # --- reporting: PASS/FAIL lines and the Markdown table ------------------------------------
@@ -289,34 +310,37 @@ assert_greeter() {
 LIVE_FAIL=0
 
 ok() { echo "ok   $1"; }
-fail() { echo "FAIL $1"; LIVE_FAIL=1; }
+fail() {
+  echo "FAIL $1"
+  LIVE_FAIL=1
+}
 
 # check GOT WANT LABEL
 check() {
-    if [[ "$1" == "$2" ]]; then ok "$3"; else fail "$3 (want '$2', got '$1')"; fi
+  if [[ "$1" == "$2" ]]; then ok "$3"; else fail "$3 (want '$2', got '$1')"; fi
 }
 
 # scenario_result NAME — call this last, exactly once, in every test/live/NN-*.sh. Prints the
 # scenario's final PASS/FAIL line and exits with the matching status.
 scenario_result() {
-    local name="$1"
-    if [[ "$LIVE_FAIL" -eq 0 ]]; then
-        echo "PASS $name"
-        exit 0
-    else
-        echo "FAIL $name"
-        exit 1
-    fi
+  local name="$1"
+  if [[ "$LIVE_FAIL" -eq 0 ]]; then
+    echo "PASS $name"
+    exit 0
+  else
+    echo "FAIL $name"
+    exit 1
+  fi
 }
 
 # report_header — the fixed Markdown table header test/live/all's report starts with.
 report_header() {
-    printf '| Scenario | Result | Screenshots |\n| --- | --- | --- |'
+  printf '| Scenario | Result | Screenshots |\n| --- | --- | --- |'
 }
 
 # report_row NAME RESULT SHOTS_CSV — one Markdown table row. SHOTS_CSV is a comma-joined list of
 # screenshot filenames, or empty (rendered as an em dash — no screenshots for this scenario).
 report_row() {
-    local name="$1" result="$2" shots="${3:-}"
-    printf '| %s | %s | %s |' "$name" "$result" "${shots:-—}"
+  local name="$1" result="$2" shots="${3:-}"
+  printf '| %s | %s | %s |' "$name" "$result" "${shots:-—}"
 }

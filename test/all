@@ -5,17 +5,22 @@
 # hid four skipped suites -- among them the only tests of the password
 # verifier and of the Wi-Fi daemon's authorization boundary -- was worse
 # than no suite at all (the 2026-09-03 review's "On the tests").
-exec </dev/null  # a test that reads stdin must never block on the caller's terminal or tool
+exec </dev/null # a test that reads stdin must never block on the caller's terminal or tool
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
-fail=0; n=0
+fail=0
+n=0
 skipped=()
 for t in test/shell.d/*-test.sh; do
   [[ -f $t ]] || continue
-  n=$((n+1))
-  out="$(bash "$t" 2>&1)"; status=$?
+  n=$((n + 1))
+  out="$(bash "$t" 2>&1)"
+  status=$?
   printf '%s\n' "$out"
-  if ((status == 0)); then echo "ok   $t"; else echo "FAIL $t"; fail=1; fi
+  if ((status == 0)); then echo "ok   $t"; else
+    echo "FAIL $t"
+    fail=1
+  fi
   while IFS= read -r line; do
     skipped+=("$t: ${line#SKIP}")
   done < <(printf '%s\n' "$out" | grep -E '^ *SKIP' || true)

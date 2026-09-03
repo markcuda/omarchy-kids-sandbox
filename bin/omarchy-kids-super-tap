@@ -5,7 +5,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 
@@ -37,8 +38,14 @@ EOF
 
 for arg in "$@"; do
   case "$arg" in
-    -h|--help) usage; exit 0 ;;
-    *) echo "omarchy-kids-super-tap: unknown argument '$arg' (see --help)" >&2; exit 2 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "omarchy-kids-super-tap: unknown argument '$arg' (see --help)" >&2
+      exit 2
+      ;;
   esac
 done
 
@@ -52,7 +59,7 @@ now_ms() {
   local raw
   raw="$(date +%s%N 2>/dev/null || true)"
   if [[ "$raw" =~ ^[0-9]+$ && ${#raw} -gt 10 ]]; then
-    printf '%s\n' $(( raw / 1000000 ))
+    printf '%s\n' $((raw / 1000000))
   else
     printf '%s000\n' "$(date +%s)"
   fi
@@ -65,14 +72,14 @@ kept=()
 if [[ -f "$FILE" ]]; then
   while IFS= read -r ts || [[ -n "$ts" ]]; do
     [[ "$ts" =~ ^[0-9]+$ ]] || continue
-    (( now - ts <= WINDOW_MS )) && kept+=("$ts")
-  done < "$FILE"
+    ((now - ts <= WINDOW_MS)) && kept+=("$ts")
+  done <"$FILE"
 fi
 kept+=("$now")
 
-if (( ${#kept[@]} >= 3 )); then
-  : > "$FILE"  # reset: the next three taps start a fresh count
+if ((${#kept[@]} >= 3)); then
+  : >"$FILE" # reset: the next three taps start a fresh count
   exec "$EXIT_BIN"
 fi
 
-printf '%s\n' "${kept[@]}" > "$FILE"
+printf '%s\n' "${kept[@]}" >"$FILE"

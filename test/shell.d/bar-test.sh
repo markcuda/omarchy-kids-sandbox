@@ -15,8 +15,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
-BAR=""     # a copy in a scratch tree, so the stub omarchy-kids-time /
-LEDGER=""  # -exit sit beside it: no *_BIN env override exists any more.
+BAR=""    # a copy in a scratch tree, so the stub omarchy-kids-time /
+LEDGER="" # -exit sit beside it: no *_BIN env override exists any more.
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "SKIP bar-test.sh: jq not found"
@@ -25,7 +25,10 @@ fi
 
 fail=0
 pass() { echo "ok   $*"; }
-fail_() { echo "FAIL $*"; fail=1; }
+fail_() {
+  echo "FAIL $*"
+  fail=1
+}
 check() { # got want label
   if [[ "$1" == "$2" ]]; then pass "$3"; else fail_ "$3 (want '$2', got '$1')"; fi
 }
@@ -295,7 +298,7 @@ name=Ada
 avatar=fox
 band=6-8
 EOF
-  export OMARCHY_KIDS_SHARE="$SHARE"  # harmless: conf.sh only reads bands/packs it needs
+  export OMARCHY_KIDS_SHARE="$SHARE" # harmless: conf.sh only reads bands/packs it needs
   mkdir -p "$SHARE/bands" "$SHARE/packs"
   cp "$DIR/share/bands/bands.toml" "$SHARE/bands/" 2>/dev/null || true
   cp "$DIR"/share/packs/*.toml "$SHARE/packs/" 2>/dev/null || true
@@ -319,16 +322,16 @@ EOF
   else
     echo "SKIP status.json checks: jq missing or the ledger didn't write it (see time-test.sh for the same tick, tested there)"
   fi
-  grep -q 'chgrp omarchy-parents' "$LEDGER" && pass "the ledger's write_status_json chgrps omarchy-parents (best-effort)" \
-    || fail_ "expected bin/omarchy-kids-time-ledger to chgrp omarchy-parents"
+  grep -q 'chgrp omarchy-parents' "$LEDGER" && pass "the ledger's write_status_json chgrps omarchy-parents (best-effort)" ||
+    fail_ "expected bin/omarchy-kids-time-ledger to chgrp omarchy-parents"
 else
   echo "SKIP status.json checks: python3 not found (lib/time.sh needs it)"
 fi
 
 # --- KidsModule.qml renders nothing when the file is missing --------------
-grep -q 'root.hasFile = false' "$SHARE/bar/KidsModule.qml" && \
-  grep -q 'visible: root.hasFile' "$SHARE/bar/KidsModule.qml" && \
-  pass "KidsModule.qml is visible only when status.json parsed (renders nothing when missing)" || \
+grep -q 'root.hasFile = false' "$SHARE/bar/KidsModule.qml" &&
+  grep -q 'visible: root.hasFile' "$SHARE/bar/KidsModule.qml" &&
+  pass "KidsModule.qml is visible only when status.json parsed (renders nothing when missing)" ||
   fail_ "expected KidsModule.qml's visible binding to gate on hasFile"
 
 # --- shellcheck (the harness runs this too, but a direct check here keeps

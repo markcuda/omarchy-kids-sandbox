@@ -24,10 +24,16 @@ SESSION_START="$DIR/bin/omarchy-kids-session-start"
 
 fail=0
 check() { # got want label
-  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want '$2', got '$1')"
+    fail=1
+  fi
 }
 check_contains() { # haystack needle label
-  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (want to find '$2' in '$1')"; fail=1; fi
+  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want to find '$2' in '$1')"
+    fail=1
+  fi
 }
 # bind_combos FILE -> each o.bind(...)'s first (key-combo) argument, one
 # per line, in file order.
@@ -129,9 +135,9 @@ check_contains "$l3_content" 'require("default.hypr.omarchy")' "L3.lua requires 
 check_contains "$l3_content" 'hl.unbind("SUPER + RETURN")' "L3.lua unbinds the (assumed) terminal bind"
 check_contains "$l3_content" 'o.bind("SUPER + SHIFT + K"' "L3.lua adds the Appendix E exit-modal bind"
 check_contains "$l3_content" 'o.bind("SUPER + SHIFT + W", "Kids Mode: Wi-Fi", "omarchy-kids-wifi picker")' \
-    "L3.lua adds the Wi-Fi picker bind"
+  "L3.lua adds the Wi-Fi picker bind"
 check_contains "$l3_content" 'o.bind("SUPER + SUPER_L", "Kids Mode: exit (tap Super three times)", "omarchy-kids-super-tap", { release = true })' \
-    "L3.lua adds the triple-tap release bind"
+  "L3.lua adds the triple-tap release bind"
 
 # --- session-start writes the expected launcher JSON ---------------------
 
@@ -210,12 +216,12 @@ EOF
 
   out="$(
     PATH="$STUBS:$BASE_PATH" \
-    OMARCHY_KIDS_ETC="$ETC" \
-    OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_RUN="$RUN" \
-    OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
-    OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
-    bash "$SESSION_START"
+      OMARCHY_KIDS_ETC="$ETC" \
+      OMARCHY_KIDS_SHARE="$SHARE" \
+      OMARCHY_KIDS_RUN="$RUN" \
+      OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
+      OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
+      bash "$SESSION_START"
   )"
   check "$out" "quickshell -p $SHARE/launcher/shell.qml" "session-start prints the Level 1 exec line"
 
@@ -261,13 +267,13 @@ EOF
   # Level 2/3 exec the real Omarchy shell command.
   out2="$(
     PATH="$STUBS:$BASE_PATH" \
-    KIDS_TEST_ACCOUNT=kid-two \
-    OMARCHY_KIDS_ETC="$ETC" \
-    OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_RUN="$RUN" \
-    OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
-    OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
-    bash "$SESSION_START"
+      KIDS_TEST_ACCOUNT=kid-two \
+      OMARCHY_KIDS_ETC="$ETC" \
+      OMARCHY_KIDS_SHARE="$SHARE" \
+      OMARCHY_KIDS_RUN="$RUN" \
+      OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
+      OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
+      bash "$SESSION_START"
   )"
   check "$out2" "/usr/bin/omarchy-launch-shell" "session-start prints the Level 2/3 exec line"
 
@@ -275,13 +281,13 @@ EOF
   # that would always show empty (I-6).
   out3="$(
     PATH="$STUBS:$BASE_PATH" \
-    KIDS_TEST_ACCOUNT=kid-tot \
-    OMARCHY_KIDS_ETC="$ETC" \
-    OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_RUN="$RUN" \
-    OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
-    OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
-    bash "$SESSION_START"
+      KIDS_TEST_ACCOUNT=kid-tot \
+      OMARCHY_KIDS_ETC="$ETC" \
+      OMARCHY_KIDS_SHARE="$SHARE" \
+      OMARCHY_KIDS_RUN="$RUN" \
+      OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
+      OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
+      bash "$SESSION_START"
   )"
   check "$out3" "quickshell -p $SHARE/launcher/shell.qml" "session-start (band 3-5) still prints the Level 1 exec line"
   check "$(jq -r '.tiles | map(select(.id == "more-apps")) | length' "$json_path")" "0" \

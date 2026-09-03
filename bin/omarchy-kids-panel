@@ -8,7 +8,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/tui.sh
 source "$LIB/tui.sh"
 # shellcheck source=lib/kids.sh
@@ -37,15 +38,18 @@ QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
 # is a real run (review §1.5, docs/panel.md; AGENTS.md rule 8 still holds
 # for every non-interactive caller).
 if launched_by_a_human; then
-    DRY_RUN="${DRY_RUN:-0}"
+  DRY_RUN="${DRY_RUN:-0}"
 else
-    DRY_RUN="${DRY_RUN:-1}"
+  DRY_RUN="${DRY_RUN:-1}"
 fi
 
-die() { echo "omarchy-kids-panel: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-panel: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
-    cat <<'EOF'
+  cat <<'EOF'
 Usage: omarchy-kids-panel [--dry-run] [--apply] [--help]
 
 Everything after the first kid (SPEC.md R-WIZ-7, R-WIZ-8): Home lists every
@@ -72,41 +76,41 @@ EOF
 }
 
 for arg in "$@"; do
-    case "$arg" in
-        --dry-run) DRY_RUN=1 ;;
-        --apply) DRY_RUN=0 ;;
-        -h | --help)
-            usage
-            exit 0
-            ;;
-        *) die "unknown argument '$arg' (see --help)" ;;
-    esac
+  case "$arg" in
+    --dry-run) DRY_RUN=1 ;;
+    --apply) DRY_RUN=0 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *) die "unknown argument '$arg' (see --help)" ;;
+  esac
 done
 
 # --- root, once, on first write ------------------------------------------
 
 SUDO_WARMED=0
 warm_sudo() {
-    ((SUDO_WARMED)) && return 0
-    SUDO_WARMED=1
-    if [[ "$DRY_RUN" == "1" ]]; then
-        printf '  [dry-run] sudo -v   # one password prompt, warmed here, before the first real write\n'
-        return 0
-    fi
-    echo "Kids Mode needs your password once, to make this change."
-    sudo -v
+  ((SUDO_WARMED)) && return 0
+  SUDO_WARMED=1
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '  [dry-run] sudo -v   # one password prompt, warmed here, before the first real write\n'
+    return 0
+  fi
+  echo "Kids Mode needs your password once, to make this change."
+  sudo -v
 }
 
 # run_priv CMD... — print (DRY_RUN=1) or run under sudo. docs/panel.md.
 run_priv() {
-    warm_sudo || return 1
-    if [[ "$DRY_RUN" == "1" ]]; then
-        printf '  [dry-run] sudo'
-        printf ' %q' "$@"
-        printf '\n'
-    else
-        sudo "$@"
-    fi
+  warm_sudo || return 1
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '  [dry-run] sudo'
+    printf ' %q' "$@"
+    printf '\n'
+  else
+    sudo "$@"
+  fi
 }
 
 # read_priv CMD... — root-only read (issue #27's Data screen); always
@@ -115,96 +119,102 @@ run_priv() {
 # prompt in its own shell first, the way the Web screen warms warm_sudo.
 SUDO_READ_WARMED=0
 warm_sudo_read() {
-    ((SUDO_READ_WARMED)) && return 0
-    SUDO_READ_WARMED=1
-    echo "Kids Mode needs your password once, to read this."
-    sudo -v
+  ((SUDO_READ_WARMED)) && return 0
+  SUDO_READ_WARMED=1
+  echo "Kids Mode needs your password once, to read this."
+  sudo -v
 }
 
 read_priv() {
-    warm_sudo_read || return 1
-    sudo "$@"
+  warm_sudo_read || return 1
+  sudo "$@"
 }
 
 # write_root_file FILE — stdin -> FILE as root (sudo tee), dir created
 # first. Web screen's allow-list editor only (docs/conf.md).
 write_root_file() {
-    local file="$1" content
-    content="$(cat)"
-    warm_sudo || return 1
-    if [[ "$DRY_RUN" == "1" ]]; then
-        printf '  [dry-run] sudo install -d -m 0755 %q\n' "$(dirname "$file")"
-        printf '  [dry-run] sudo tee %q\n' "$file"
-    else
-        sudo install -d -m 0755 "$(dirname "$file")" &&
-            printf '%s' "$content" | sudo tee "$file" >/dev/null
-    fi
+  local file="$1" content
+  content="$(cat)"
+  warm_sudo || return 1
+  if [[ "$DRY_RUN" == "1" ]]; then
+    printf '  [dry-run] sudo install -d -m 0755 %q\n' "$(dirname "$file")"
+    printf '  [dry-run] sudo tee %q\n' "$file"
+  else
+    sudo install -d -m 0755 "$(dirname "$file")" &&
+      printf '%s' "$content" | sudo tee "$file" >/dev/null
+  fi
 }
 
 # --- small helpers ---------------------------------------------------------
 
 is_in_csv() { # NEEDLE CSV
-    local needle="$1" csv="$2" x
-    local IFS=,
-    for x in $csv; do [[ "$x" == "$needle" ]] && return 0; done
-    return 1
+  local needle="$1" csv="$2" x
+  local IFS=,
+  for x in $csv; do [[ "$x" == "$needle" ]] && return 0; done
+  return 1
 }
 
 human_age() { # SECONDS -> "just now" / "Nm ago" / "Nh ago" / "Nd ago"
-    local s="$1"
-    ((s < 0)) && s=0
-    if ((s < 60)); then
-        echo "just now"
-    elif ((s < 3600)); then
-        echo "$((s / 60))m ago"
-    elif ((s < 86400)); then
-        echo "$((s / 3600))h ago"
-    else
-        echo "$((s / 86400))d ago"
-    fi
+  local s="$1"
+  ((s < 0)) && s=0
+  if ((s < 60)); then
+    echo "just now"
+  elif ((s < 3600)); then
+    echo "$((s / 60))m ago"
+  elif ((s < 86400)); then
+    echo "$((s / 3600))h ago"
+  else
+    echo "$((s / 86400))d ago"
+  fi
 }
 
 validate_positive_minutes() {
-    [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1)) && return 0
-    echo "A whole number of minutes, at least 1."
-    return 1
+  [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1)) && return 0
+  echo "A whole number of minutes, at least 1."
+  return 1
 }
 
 validate_hostname() {
-    [[ -n "$1" ]] || { echo "Type a hostname, like example.com."; return 1; }
-    [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || {
-        echo "Letters, digits, dots, and hyphens only."
-        return 1
-    }
-    return 0
+  [[ -n "$1" ]] || {
+    echo "Type a hostname, like example.com."
+    return 1
+  }
+  [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || {
+    echo "Letters, digits, dots, and hyphens only."
+    return 1
+  }
+  return 0
 }
 
 kid_conf_get() { "$CONF_BIN" get "$1" "$2" 2>/dev/null; }
 
 # count_open_requests [KID] — how many open requests, all kids or one.
 count_open_requests() {
-    local -a args=(list-open "$QUEUE_DIR")
-    [[ -n "${1:-}" ]] && args+=(--kid "$1")
-    local rows
-    rows="$("$KIDS_PY" "$ASK_PY" "${args[@]}" 2>/dev/null)"
-    [[ -z "$rows" ]] && { echo 0; return 0; }
-    printf '%s\n' "$rows" | grep -c '.'
+  local -a args=(list-open "$QUEUE_DIR")
+  [[ -n "${1:-}" ]] && args+=(--kid "$1")
+  local rows
+  rows="$("$KIDS_PY" "$ASK_PY" "${args[@]}" 2>/dev/null)"
+  [[ -z "$rows" ]] && {
+    echo 0
+    return 0
+  }
+  printf '%s\n' "$rows" | grep -c '.'
 }
 
 ask_field() { "$KIDS_PY" "$ASK_PY" show "$1" --field "$2" 2>/dev/null; } # PATH FIELD
 
 # kid_home_line NAME BAND STATUS_OUT NREQ — one Home-screen line. docs/panel.md.
 kid_home_line() {
-    local name="$1" band="$2" status_out="$3" nreq="$4"
-    local used left line paused=0
-    used="$(grep -oE '[0-9]+ min used' <<<"$status_out" | grep -oE '^[0-9]+')"
-    left="$(grep -oE '[0-9]+ min left' <<<"$status_out" | grep -oE '^[0-9]+')"
-    grep -q '^paused:' <<<"$status_out" && paused=1
-    line="$name · $band"
-    ((paused)) && line+=" · paused"
-    [[ -n "$used" && -n "$left" ]] && line+=" · ${used}m used / ${left}m left today"
-    ((nreq > 0)) && line+=" · $nreq request$([[ $nreq == 1 ]] || echo s)"
-    printf '%s' "$line"
+  local name="$1" band="$2" status_out="$3" nreq="$4"
+  local used left line paused=0
+  used="$(grep -oE '[0-9]+ min used' <<<"$status_out" | grep -oE '^[0-9]+')"
+  left="$(grep -oE '[0-9]+ min left' <<<"$status_out" | grep -oE '^[0-9]+')"
+  grep -q '^paused:' <<<"$status_out" && paused=1
+  line="$name · $band"
+  ((paused)) && line+=" · paused"
+  [[ -n "$used" && -n "$left" ]] && line+=" · ${used}m used / ${left}m left today"
+  ((nreq > 0)) && line+=" · $nreq request$([[ $nreq == 1 ]] || echo s)"
+  printf '%s' "$line"
 }
 
 # --- thin dispatch: one lib/panel-<screen>.sh per Appendix A group ---------
@@ -227,12 +237,12 @@ screen_home
 rc=$?
 set -e
 case "$rc" in
-    130)
-        echo "Left Kids Mode." >&2
-        exit 130
-        ;;
-    *)
-        echo "Left Kids Mode."
-        exit 0
-        ;;
+  130)
+    echo "Left Kids Mode." >&2
+    exit 130
+    ;;
+  *)
+    echo "Left Kids Mode."
+    exit 0
+    ;;
 esac

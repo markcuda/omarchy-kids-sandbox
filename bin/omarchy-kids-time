@@ -6,7 +6,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
@@ -21,10 +22,13 @@ TOAST_PIDFILE="$RUN/toast.pid"
 TIMESUP_PIDFILE="$RUN/timesup.pid"
 POLL_INTERVAL="${OMARCHY_KIDS_TIME_POLL_INTERVAL:-30}"
 
-die() { echo "omarchy-kids-time: $1" >&2; exit "${2:-2}"; }
+die() {
+  echo "omarchy-kids-time: $1" >&2
+  exit "${2:-2}"
+}
 
 usage() {
-    cat <<'EOF'
+  cat <<'EOF'
 Usage: omarchy-kids-time daemon
        omarchy-kids-time status [<kid>]
        omarchy-kids-time grant <kid> <minutes>
@@ -47,42 +51,43 @@ log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/
 # --- status ----------------------------------------------------------------
 
 cmd_status() {
-    local kid="${1:-$(id -un)}"
-    local now hm day weekend used granted budget remaining kind at
-    now="$(time_now)"; hm="$(time_hm "$now")"
-    IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
-    used="$(time_used_minutes "$kid" "$day")"
-    granted="$(time_granted_minutes "$kid" "$day")"
-    budget="$(time_budget_minutes "$kid" "$weekend")" || die "no budget configured for '$kid'"
-    remaining="$(time_remaining_minutes "$kid" "$day" "$weekend")"
-    read -r kind at <<<"$(time_next_boundary "$kid" "$day" "$weekend" "$hm")"
-    printf '%s: %d min used, %d min left today (budget %d' "$kid" "$used" "$remaining" "$budget"
-    (( granted > 0 )) && printf ' + %d granted' "$granted"
-    printf ')\n'
-    if [[ "$kind" == lights-out ]]; then
-        printf 'lights-out at %s\n' "$at"
-    else
-        printf 'budget runs out at %s\n' "$at"
-    fi
-    if time_is_paused "$kid"; then
-        printf 'paused: time is not counting for %s right now\n' "$kid"
-    fi
+  local kid="${1:-$(id -un)}"
+  local now hm day weekend used granted budget remaining kind at
+  now="$(time_now)"
+  hm="$(time_hm "$now")"
+  IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
+  used="$(time_used_minutes "$kid" "$day")"
+  granted="$(time_granted_minutes "$kid" "$day")"
+  budget="$(time_budget_minutes "$kid" "$weekend")" || die "no budget configured for '$kid'"
+  remaining="$(time_remaining_minutes "$kid" "$day" "$weekend")"
+  read -r kind at <<<"$(time_next_boundary "$kid" "$day" "$weekend" "$hm")"
+  printf '%s: %d min used, %d min left today (budget %d' "$kid" "$used" "$remaining" "$budget"
+  ((granted > 0)) && printf ' + %d granted' "$granted"
+  printf ')\n'
+  if [[ "$kind" == lights-out ]]; then
+    printf 'lights-out at %s\n' "$at"
+  else
+    printf 'budget runs out at %s\n' "$at"
+  fi
+  if time_is_paused "$kid"; then
+    printf 'paused: time is not counting for %s right now\n' "$kid"
+  fi
 }
 
 # --- grant -------------------------------------------------------------
 
 cmd_grant() {
-    local kid="${1:-}" minutes="${2:-}" now day weekend
-    [[ -n "$kid" && -n "$minutes" ]] || die "grant: needs <kid> <minutes> (see --help)"
-    [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -gt 0 ]] || die "grant: <minutes> must be a positive integer, got '$minutes'"
-    if ! is_root; then
-        die "grant: must run as root (a parent action, R-TIME-4 -- see docs/time.md)" 1
-    fi
-    now="$(time_now)"
-    IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
-    time_grant_add "$kid" "$day" "$minutes"
-    printf '%s: granted %d more minute(s) for today (now %d granted today)\n' \
-        "$kid" "$minutes" "$(time_granted_minutes "$kid" "$day")"
+  local kid="${1:-}" minutes="${2:-}" now day weekend
+  [[ -n "$kid" && -n "$minutes" ]] || die "grant: needs <kid> <minutes> (see --help)"
+  [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -gt 0 ]] || die "grant: <minutes> must be a positive integer, got '$minutes'"
+  if ! is_root; then
+    die "grant: must run as root (a parent action, R-TIME-4 -- see docs/time.md)" 1
+  fi
+  now="$(time_now)"
+  IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
+  time_grant_add "$kid" "$day" "$minutes"
+  printf '%s: granted %d more minute(s) for today (now %d granted today)\n' \
+    "$kid" "$minutes" "$(time_granted_minutes "$kid" "$day")"
 }
 
 # --- daemon ----------------------------------------------------------------
@@ -90,106 +95,124 @@ cmd_grant() {
 # The overlays are tracked by lib/kids.sh's pidfile pair, not `pgrep -f`
 # (a kid with a terminal could spoof that match -- review §2.6).
 show_toast() {
-    local text="$1"
-    modal_already_open "$TOAST_PIDFILE" && return 0
-    install -d -m 0700 "$RUN"
-    OMARCHY_KIDS_TOAST_TEXT="$text" quickshell -p "$TOAST_QML" >/dev/null 2>&1 &
-    modal_write_pid "$TOAST_PIDFILE" "$!"
-    disown 2>/dev/null || true
-    log "toast: $text"
+  local text="$1"
+  modal_already_open "$TOAST_PIDFILE" && return 0
+  install -d -m 0700 "$RUN"
+  OMARCHY_KIDS_TOAST_TEXT="$text" quickshell -p "$TOAST_QML" >/dev/null 2>&1 &
+  modal_write_pid "$TOAST_PIDFILE" "$!"
+  disown 2>/dev/null || true
+  log "toast: $text"
 }
 
 show_timesup() {
-    modal_already_open "$TIMESUP_PIDFILE" && return 0
-    local kid name avatar_id
-    kid="$(id -un)"
-    name="$("$CONF_BIN" get "$kid" name 2>/dev/null || echo "$kid")"
-    avatar_id="$("$CONF_BIN" get "$kid" avatar 2>/dev/null || echo owl)"  # the owl when a kid has none (docs/parent-card.md)
-    install -d -m 0700 "$RUN"
-    OMARCHY_KIDS_ACCOUNT="$kid" OMARCHY_KIDS_NAME="$name" \
-        OMARCHY_KIDS_AVATAR="$SHARE/avatars/$avatar_id.svg" \
-        quickshell -p "$TIMESUP_QML" >/dev/null 2>&1 &
-    modal_write_pid "$TIMESUP_PIDFILE" "$!"
-    disown 2>/dev/null || true
-    log "time's up shown for '$kid'"
+  modal_already_open "$TIMESUP_PIDFILE" && return 0
+  local kid name avatar_id
+  kid="$(id -un)"
+  name="$("$CONF_BIN" get "$kid" name 2>/dev/null || echo "$kid")"
+  avatar_id="$("$CONF_BIN" get "$kid" avatar 2>/dev/null || echo owl)" # the owl when a kid has none (docs/parent-card.md)
+  install -d -m 0700 "$RUN"
+  OMARCHY_KIDS_ACCOUNT="$kid" OMARCHY_KIDS_NAME="$name" \
+    OMARCHY_KIDS_AVATAR="$SHARE/avatars/$avatar_id.svg" \
+    quickshell -p "$TIMESUP_QML" >/dev/null 2>&1 &
+  modal_write_pid "$TIMESUP_PIDFILE" "$!"
+  disown 2>/dev/null || true
+  log "time's up shown for '$kid'"
 }
 
 dismiss_timesup() {
-    modal_already_open "$TIMESUP_PIDFILE" || return 0
-    modal_close "$TIMESUP_PIDFILE"
-    log "time's up dismissed (more time granted)"
+  modal_already_open "$TIMESUP_PIDFILE" || return 0
+  modal_close "$TIMESUP_PIDFILE"
+  log "time's up dismissed (more time granted)"
 }
 
 # session_active_unlocked — 0 if this process's own session
 # ($XDG_SESSION_ID) is Active=yes and LockedHint=no right now.
 session_active_unlocked() {
-    [[ -n "${XDG_SESSION_ID:-}" ]] || return 1
-    local out active locked
-    out="$(loginctl show-session "$XDG_SESSION_ID" -p Active -p LockedHint 2>/dev/null)" || return 1
-    active="$(sed -n 's/^Active=//p' <<<"$out")"
-    locked="$(sed -n 's/^LockedHint=//p' <<<"$out")"
-    [[ "$active" == yes && "$locked" == no ]]
+  [[ -n "${XDG_SESSION_ID:-}" ]] || return 1
+  local out active locked
+  out="$(loginctl show-session "$XDG_SESSION_ID" -p Active -p LockedHint 2>/dev/null)" || return 1
+  active="$(sed -n 's/^Active=//p' <<<"$out")"
+  locked="$(sed -n 's/^LockedHint=//p' <<<"$out")"
+  [[ "$active" == yes && "$locked" == no ]]
 }
 
 # toast_label THRESHOLD — "1 minute left" / "N minutes left", the text
 # show_toast gets for a fired threshold (singular only at 1).
 toast_label() {
-    local t="$1"
-    if [[ "$t" == 1 ]]; then printf '1 minute left\n'; else printf '%s minutes left\n' "$t"; fi
+  local t="$1"
+  if [[ "$t" == 1 ]]; then printf '1 minute left\n'; else printf '%s minutes left\n' "$t"; fi
 }
 
 cmd_daemon() {
-    local kid; kid="$(id -un)"
-    # Highest first: time_toast_thresholds fires each once per downward
-    # crossing (R-TIME-3, issue #40) -- docs/time.md.
-    local thresholds="10 5 1"
-    local prev="" fired="" shown=0
-    local now hm day weekend remaining lo decision to_fire
-    local -a fire_arr
+  local kid
+  kid="$(id -un)"
+  # Highest first: time_toast_thresholds fires each once per downward
+  # crossing (R-TIME-3, issue #40) -- docs/time.md.
+  local thresholds="10 5 1"
+  local prev="" fired="" shown=0
+  local now hm day weekend remaining lo decision to_fire
+  local -a fire_arr
 
-    while true; do
-        if session_active_unlocked && ! time_is_paused "$kid"; then
-            now="$(time_now)"; hm="$(time_hm "$now")"
-            IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")"
-            remaining="$(time_remaining_minutes "$kid" "$day" "$weekend")"
-            lo="$(time_is_lights_out "$kid" "$weekend" "$hm")"
+  while true; do
+    if session_active_unlocked && ! time_is_paused "$kid"; then
+      now="$(time_now)"
+      hm="$(time_hm "$now")"
+      IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")"
+      remaining="$(time_remaining_minutes "$kid" "$day" "$weekend")"
+      lo="$(time_is_lights_out "$kid" "$weekend" "$hm")"
 
-            if (( remaining <= 0 )) || [[ "$lo" == yes ]]; then
-                show_timesup
-                shown=1
-            else
-                if (( shown == 1 )); then
-                    dismiss_timesup
-                    shown=0; fired=""
-                fi
-                decision="$(time_toast_thresholds "$prev" "$remaining" "$thresholds" "$fired")"
-                to_fire="$(sed -n '1p' <<<"$decision")"
-                fired="$(sed -n '2p' <<<"$decision")"
-                log "toast-check: kid='$kid' previous=${prev:-none} current=$remaining fired={${fired:-none}} firing={${to_fire:-none}}"
-                if [[ -n "$to_fire" ]]; then
-                    # Only the most urgent (last word) shows if a lagging
-                    # tick crossed more than one threshold at once (docs/time.md).
-                    read -r -a fire_arr <<<"$to_fire"
-                    show_toast "$(toast_label "${fire_arr[${#fire_arr[@]}-1]}")"
-                fi
-                prev="$remaining"
-            fi
+      if ((remaining <= 0)) || [[ "$lo" == yes ]]; then
+        show_timesup
+        shown=1
+      else
+        if ((shown == 1)); then
+          dismiss_timesup
+          shown=0
+          fired=""
         fi
-
-        if [[ "${OMARCHY_KIDS_TIME_DAEMON_ONESHOT:-0}" == "1" ]]; then
-            return 0
+        decision="$(time_toast_thresholds "$prev" "$remaining" "$thresholds" "$fired")"
+        to_fire="$(sed -n '1p' <<<"$decision")"
+        fired="$(sed -n '2p' <<<"$decision")"
+        log "toast-check: kid='$kid' previous=${prev:-none} current=$remaining fired={${fired:-none}} firing={${to_fire:-none}}"
+        if [[ -n "$to_fire" ]]; then
+          # Only the most urgent (last word) shows if a lagging
+          # tick crossed more than one threshold at once (docs/time.md).
+          read -r -a fire_arr <<<"$to_fire"
+          show_toast "$(toast_label "${fire_arr[${#fire_arr[@]} - 1]}")"
         fi
-        sleep "$POLL_INTERVAL"
-    done
+        prev="$remaining"
+      fi
+    fi
+
+    if [[ "${OMARCHY_KIDS_TIME_DAEMON_ONESHOT:-0}" == "1" ]]; then
+      return 0
+    fi
+    sleep "$POLL_INTERVAL"
+  done
 }
 
 # --- dispatch ----------------------------------------------------------
 
-[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+[[ $# -ge 1 ]] || {
+  usage >&2
+  exit 2
+}
 case "$1" in
-    -h|--help) usage; exit 0 ;;
-    daemon) shift; cmd_daemon "$@" ;;
-    status) shift; cmd_status "$@" ;;
-    grant) shift; cmd_grant "$@" ;;
-    *) die "unknown command '$1' (see --help)" ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  daemon)
+    shift
+    cmd_daemon "$@"
+    ;;
+  status)
+    shift
+    cmd_status "$@"
+    ;;
+  grant)
+    shift
+    cmd_grant "$@"
+    ;;
+  *) die "unknown command '$1' (see --help)" ;;
 esac

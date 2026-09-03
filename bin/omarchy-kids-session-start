@@ -5,7 +5,8 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"
+[[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
@@ -48,8 +49,14 @@ EOF
 
 for arg in "$@"; do
   case "$arg" in
-    -h|--help) usage; exit 0 ;;
-    *) echo "omarchy-kids-session-start: unknown argument: '$arg'" >&2; exit 2 ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "omarchy-kids-session-start: unknown argument: '$arg'" >&2
+      exit 2
+      ;;
   esac
 done
 
@@ -82,7 +89,7 @@ find_desktop_file() {
       [[ -e "$f" ]] || continue
       base="$(basename "$f" .desktop)"
       base_lc="$(printf '%s' "$base" | tr '[:upper:]' '[:lower:]')"
-      if [[ "$base_lc" == *"$needle_id"* || ( -n "$needle_pkg" && "$base_lc" == *"$needle_pkg"* ) ]]; then
+      if [[ "$base_lc" == *"$needle_id"* || (-n "$needle_pkg" && "$base_lc" == *"$needle_pkg"*) ]]; then
         printf '%s\t%s\n' "$base" "$dir"
         return 0
       fi
@@ -210,14 +217,14 @@ jq -s '{account: $account, band: $band, level: $level, tiles: .}' \
 mv "$LAUNCHER_JSON.tmp" "$LAUNCHER_JSON"
 chmod 0644 "$LAUNCHER_JSON"
 
-: > "$RUN/launcher-control"  # the launcher polls this file; create it so the poll never warns
+: >"$RUN/launcher-control" # the launcher polls this file; create it so the poll never warns
 export OMARCHY_KIDS_LAUNCHER_JSON="$LAUNCHER_JSON" OMARCHY_KIDS_LAUNCHER_CONTROL="$RUN/launcher-control"
 
 case "$LEVEL" in
   1)
     EXEC_LINE=(quickshell -p "$SHARE/launcher/shell.qml")
     ;;
-  2|3)
+  2 | 3)
     # $RUN/allowlist.json (R-DESK-4, issue #24) -- docs/apps.md.
     jq -n --arg account "$ACCOUNT" --arg band "$BAND" --arg allowlist "$ALLOWLIST" \
       '{account: $account, band: $band, allowlist: ($allowlist | split(",") | map(select(length > 0)))}' \

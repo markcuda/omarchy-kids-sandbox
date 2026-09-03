@@ -33,8 +33,8 @@ cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
 # scratch home root so that copy never touches this box's real /home.
 OMARCHY_PATH="$TMP/omarchy"
 mkdir -p "$OMARCHY_PATH/themes/tokyo-night" "$OMARCHY_PATH/themes/catppuccin-latte"
-echo 'background = "#1a1b26"' > "$OMARCHY_PATH/themes/tokyo-night/colors.toml"
-echo 'background = "#eff1f5"' > "$OMARCHY_PATH/themes/catppuccin-latte/colors.toml"
+echo 'background = "#1a1b26"' >"$OMARCHY_PATH/themes/tokyo-night/colors.toml"
+echo 'background = "#eff1f5"' >"$OMARCHY_PATH/themes/catppuccin-latte/colors.toml"
 OMARCHY_KIDS_HOME_ROOT="$TMP/homeroot"
 mkdir -p "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada"
 
@@ -51,13 +51,22 @@ export OMARCHY_KIDS_HOME_ROOT
 
 fail=0
 check() { # got want label
-  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want '$2', got '$1')"
+    fail=1
+  fi
 }
 check_contains() { # haystack needle label
-  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (want to find '$2' in '$1')"; fail=1; fi
+  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want to find '$2' in '$1')"
+    fail=1
+  fi
 }
 check_status() { # got_status want_status label
-  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want exit $2, got $1)"; fail=1; fi
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
+    echo "FAIL $3 (want exit $2, got $1)"
+    fail=1
+  fi
 }
 
 # --- bands / band ---------------------------------------------------------
@@ -156,9 +165,9 @@ check "$("$CONF" get kid-ada theme)" "catppuccin-latte" "set: a real installed t
 
 KID_THEME_DIR="$OMARCHY_KIDS_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme"
 check "$(cat "$KID_THEME_DIR/colors.toml" 2>/dev/null)" "$(cat "$OMARCHY_PATH/themes/catppuccin-latte/colors.toml")" \
-    "set theme: theme_apply_for actually copied the new theme's colors.toml to disk"
+  "set theme: theme_apply_for actually copied the new theme's colors.toml to disk"
 check "$(cat "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme.name" 2>/dev/null)" "catppuccin-latte" \
-    "set theme: theme.name on disk matches what was just set"
+  "set theme: theme.name on disk matches what was just set"
 
 # put kid-ada back on tokyo-night for the rest of this file's fixtures
 "$CONF" set kid-ada theme tokyo-night >/dev/null
@@ -211,7 +220,8 @@ check "$mode" "644" "profile file is mode 0644"
 #     both have a parent to check against) -----------------------------
 
 MACHINE_CONF="$ETC/machine.conf"
-out="$("$CONF" machine set parent mark)"; st=$?
+out="$("$CONF" machine set parent mark)"
+st=$?
 check "$st" "0" "machine set parent exits 0"
 check "$out" "machine: parent=mark" "machine set parent echoes what it wrote"
 check "$(cat "$MACHINE_CONF" 2>/dev/null)" "parent=mark" "machine set parent creates machine.conf with the right line"

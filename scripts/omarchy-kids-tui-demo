@@ -15,9 +15,9 @@ DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 source "$DIR/lib/tui.sh"
 
 for arg in "$@"; do
-    case "$arg" in
-        -h | --help)
-            cat <<'EOF'
+  case "$arg" in
+    -h | --help)
+      cat <<'EOF'
 Usage: omarchy-kids-tui-demo
 
 Walks three sample screens (Welcome, a choice screen, Done) so a human can
@@ -27,9 +27,9 @@ docs/tui.md).
 
   -h, --help  Show this help and exit.
 EOF
-            exit 0
-            ;;
-    esac
+      exit 0
+      ;;
+  esac
 done
 
 tui_init || exit $?
@@ -43,63 +43,63 @@ set +e
 # shellcheck disable=SC2034 # read by tui_screen_choose via nameref (by name)
 welcome_choices=("begin|Begin|")
 tui_screen_choose \
-    "Welcome" 1 3 1 \
-    "Hi, I'm Omy. Kids Mode turns this computer into one your kids can use on their own." \
-    welcome_choices "begin" "$TUI_FOOTER_FIRST"
+  "Welcome" 1 3 1 \
+  "Hi, I'm Omy. Kids Mode turns this computer into one your kids can use on their own." \
+  welcome_choices "begin" "$TUI_FOOTER_FIRST"
 rc=$?
 case $rc in
-    130)
-        echo "Left setup. Nothing changed."
-        exit 130
-        ;;
-    1)
-        echo "Nothing to go back to from the first screen."
-        exit 1
-        ;;
+  130)
+    echo "Left setup. Nothing changed."
+    exit 130
+    ;;
+  1)
+    echo "Nothing to go back to from the first screen."
+    exit 1
+    ;;
 esac
 
 # --- Screen 2: a choice screen (shaped like A7, Web) -----------------------
 # shellcheck disable=SC2034 # read by tui_screen_choose via nameref (by name)
 web_choices=(
-    "garden|Only sites you choose|A short list you can grow. Best for younger kids."
-    "filtered|Filtered open web|Adult content blocked, safe search on."
+  "garden|Only sites you choose|A short list you can grow. Best for younger kids."
+  "filtered|Filtered open web|Adult content blocked, safe search on."
 )
 tui_screen_choose \
-    "What can <K> see on the web?" 2 3 0 "" \
-    web_choices "garden"
+  "What can <K> see on the web?" 2 3 0 "" \
+  web_choices "garden"
 rc=$?
 case $rc in
-    130)
-        echo "Left setup. Nothing changed."
-        exit 130
-        ;;
-    1)
-        echo "(back to Welcome — this demo just stops here)"
-        exit 0
-        ;;
+  130)
+    echo "Left setup. Nothing changed."
+    exit 130
+    ;;
+  1)
+    echo "(back to Welcome — this demo just stops here)"
+    exit 0
+    ;;
 esac
 web_choice="$TUI_REPLY"
 
 # --- Screen 3: Done (A14) — Omy speaks again, a choice between two desks --
 # shellcheck disable=SC2034 # read by tui_screen_choose via nameref (by name)
 done_choices=(
-    "parent|Return to my desktop|"
-    "kid|Open <Kp> desktop|"
+  "parent|Return to my desktop|"
+  "kid|Open <Kp> desktop|"
 )
 tui_screen_choose \
-    "Done" 3 3 1 \
-    "<K>'s desktop is ready. Next time the computer starts, <K> can just type their password." \
-    done_choices "parent"
+  "Done" 3 3 1 \
+  "<K>'s desktop is ready. Next time the computer starts, <K> can just type their password." \
+  done_choices "parent"
 rc=$?
 case $rc in
-    130)
-        echo "Left setup. Nothing changed."
-        exit 130
-        ;;
-    1)
-        echo "(back to the web screen — this demo just stops here)"
-        exit 0
-        ;;
+  130)
+    echo "Left setup. Nothing changed."
+    exit 130
+    ;;
+  1)
+    echo "(back to the web screen — this demo just stops here)"
+    exit 0
+    ;;
 esac
 
 echo

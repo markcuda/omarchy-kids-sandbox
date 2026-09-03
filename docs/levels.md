@@ -149,13 +149,20 @@ empty, and ten tiles only filled the top third, with names but no icons. Now:
   platform default; the highlight ring on the current tile is the theme accent colour
   (`theme.accent`); the greyed, captioned look for an `installed: false` tile (issue #42) is
   unchanged.
-- The clock stays top-right, its own top/right inset now the same shared `margin` the grid's top
-  edge uses, so the two align.
+- The clock stays top-right (`root.margin` top/right inset), in its own band above the grid: the
+  grid's top margin is `root.margin + clockText.height + root.margin` (clock bottom + one more
+  margin), not the same flat `root.margin` the clock uses. **Live review fix**: a shared flat
+  `root.margin` for both put the clock and the grid in the same horizontal band, and a live
+  1280x800/nine-tile screenshot showed the clock overlapping the fifth tile of row one — a
+  centred five-wide grid reaches close enough to the right edge to pass under a top-right clock
+  at any width past some threshold. Giving the clock its own band removes that threshold
+  entirely, regardless of tile count or screen width.
 
 `test/shell.d/launcher-grid-test.sh` statically checks all of the above against `shell.qml`'s
-source (the grid's anchors, the derived cell-size math, the `Quickshell.iconPath()` call and its
-rounded-initial fallback, `font.family: theme.fontFamily` on every label, no literal hex colour) —
-see that file's own header for exactly what it can and can't check without a real Quickshell.
+source (the grid's anchors, the derived cell-size math, the clock/grid vertical relationship, the
+`Quickshell.iconPath()` call and its rounded-initial fallback, `font.family: theme.fontFamily` on
+every label, no literal hex colour) — see that file's own header for exactly what it can and
+can't check without a real Quickshell.
 
 **Issue #43: key navigation must use the layout's own column count.** Seen live in the VM with
 ten tiles rendered five per row: Down from row1/col4 highlighted row2/col3 instead of row2/col4,

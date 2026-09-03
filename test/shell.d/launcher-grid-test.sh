@@ -60,8 +60,6 @@ check_contains "$qml_content" 'anchors.horizontalCenter: parent.horizontalCenter
   "grid is horizontally centred, not left-anchored"
 check_contains "$qml_content" 'anchors.top: parent.top' \
   "grid is top-anchored (not anchors.fill, so it sits in the upper part of the screen)"
-check "$(grep -c 'anchors.topMargin: root.margin' "$QML" || true)" "2" \
-  "both the grid and the clock use the same shared root.margin for their top inset (so they align)"
 check_contains "$qml_content" 'readonly property int minTileWidth: 160' \
   "tile width has a 160px floor"
 check_contains "$qml_content" 'readonly property int targetColumns: 5' \
@@ -84,6 +82,23 @@ check_contains "$qml_content" 'radius: width / 2' \
   "the icon fallback is a rounded (circular) initial badge"
 check_contains "$qml_content" 'color: theme.accent' \
   "the icon fallback badge uses the theme accent colour"
+check_contains "$qml_content" 'font.pixelSize: 32' \
+  "the icon fallback initial is sized to roughly match a real 64px icon glyph"
+
+# --- Live review fix: the clock must never overlap the grid -----------
+# A live 1280x800/nine-tile screenshot showed the clock (top-right, same
+# flat root.margin top inset as the grid) overlapping the fifth tile of
+# row one -- a centred five-wide grid reaches close enough to the right
+# edge to pass under a top-right clock. Fixed by giving the clock its
+# own band above the grid: grid top = clock bottom + margin, i.e. the
+# grid's own topMargin must read off clockText's real height, not just
+# a flat root.margin shared with the clock (the old, overlapping shape).
+check_contains "$qml_content" 'id: clockText' \
+  "the clock has an id the grid's own layout can bind to"
+check_contains "$qml_content" 'anchors.topMargin: root.margin + clockText.height + root.margin' \
+  "grid top = clock bottom (clockText's own root.margin inset + its height) + one more root.margin gap"
+check "$(grep -c '^[[:space:]]*anchors.topMargin: root.margin$' "$QML" || true)" "1" \
+  "only the clock uses a flat root.margin top inset now -- the grid's own topMargin must be derived from the clock, not equal to it"
 
 # Labels in the theme font (docs/theming.md) -- every Text element in the
 # tile delegate and the clock must set font.family, not rely on Qt's

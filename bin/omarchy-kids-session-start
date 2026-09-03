@@ -4,13 +4,18 @@
 # L2.lua, and L3.lua (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E).
 #
 # Writes the Level 1/2 launcher's tile list to
-# $XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json from the kid's resolved
-# allowlist (omarchy-kids-conf) and pack metadata (share/packs/<band>.toml),
-# then starts the right thing for the level:
+# $XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json from the kid's
+# effective allowlist (`omarchy-kids-apps allowlist`, R-APPS-4: the
+# band's pack plus apps.extra minus apps.hidden -- not the raw
+# `omarchy-kids-conf get <kid> allowlist`, so a hide/show lands here too)
+# and pack metadata (share/packs/<band>.toml), then starts the right
+# thing for the level:
 #   Level 1 -> the standalone big-tile launcher (quickshell -p ...), the
 #              *only* thing running (R-DESK-5: not a shell plugin).
 #   Level 2/3 -> Omarchy's own shell, the same way Omarchy's own
-#              default.hypr.autostart does (`omarchy-launch-shell`).
+#              default.hypr.autostart does (`omarchy-launch-shell`), after
+#              also writing the same allowlist to $RUN/allowlist.json
+#              (docs/apps.md) for the trimmed-menu extension to read.
 #
 # Not yet started: the exit overlay and notifications this file's header
 # comment promises -- those are bin/omarchy-kids-exit (a stub, R-EXIT-1)
@@ -28,6 +33,9 @@
 #   OMARCHY_KIDS_APPLICATIONS_DIRS  colon-separated .desktop dirs to search
 #                                   for a pack app's launcher entry
 #                                   (default /usr/share/applications:/usr/local/share/applications)
+#   OMARCHY_KIDS_APPS_BIN  path to omarchy-kids-apps, used to resolve the
+#                                   effective allowlist (default: resolved
+#                                   beside this script, else /usr/bin)
 #   OMARCHY_KIDS_SESSION_START_NO_EXEC=1  write the JSON, print the exec
 #                                   line that would run, and return 0
 #                                   instead of exec'ing it (test hook)
@@ -36,6 +44,7 @@ set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+APPS_BIN="${OMARCHY_KIDS_APPS_BIN:-$DIR/bin/omarchy-kids-apps}"; [[ -x "$APPS_BIN" ]] || APPS_BIN=/usr/bin/omarchy-kids-apps
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 PYHELPER="$LIB/conf.py"
 
@@ -86,7 +95,7 @@ export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE"
 ACCOUNT="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
 LEVEL="${OMARCHY_KIDS_LEVEL:-$("$CONF_BIN" get "$ACCOUNT" level)}"
 BAND="${OMARCHY_KIDS_BAND:-$("$CONF_BIN" get "$ACCOUNT" band)}"
-ALLOWLIST="$("$CONF_BIN" get "$ACCOUNT" allowlist)"
+ALLOWLIST="$("$APPS_BIN" allowlist "$ACCOUNT")"
 WEB="$("$CONF_BIN" get "$ACCOUNT" web)"
 
 PACK="$SHARE/packs/$BAND.toml"
@@ -213,6 +222,18 @@ case "$LEVEL" in
     EXEC_LINE=(quickshell -p "$SHARE/launcher/shell.qml")
     ;;
   2|3)
+    # $RUN/allowlist.json (docs/apps.md): the same effective allowlist
+    # as the tile file above, for Omarchy's own trimmed menu extension
+    # to read at these levels (Levels 2/3 run Omarchy's shell, not the
+    # Level 1 launcher, so there is no tile grid here to read instead --
+    # R-DESK-4, issue #24). Written unconditionally, whether or not any
+    # menu extension actually reads it yet (I-6: this is just data, not
+    # a control claimed to be enforced by itself).
+    jq -n --arg account "$ACCOUNT" --arg band "$BAND" --arg allowlist "$ALLOWLIST" \
+      '{account: $account, band: $band, allowlist: ($allowlist | split(",") | map(select(length > 0)))}' \
+      >"$RUN/allowlist.json.tmp"
+    mv "$RUN/allowlist.json.tmp" "$RUN/allowlist.json"
+    chmod 0644 "$RUN/allowlist.json"
     # The exact command Omarchy's own default.hypr.autostart uses.
     EXEC_LINE=(omarchy-launch-shell)
     ;;

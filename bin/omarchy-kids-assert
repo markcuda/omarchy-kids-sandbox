@@ -22,7 +22,6 @@ source "$LIB/kids.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
-HOME_ROOT="${OMARCHY_KIDS_HOME_ROOT:-}"
 KIDS_DIR="$ETC/kids"
 MACHINE_CONF="$ETC/machine.conf"
 

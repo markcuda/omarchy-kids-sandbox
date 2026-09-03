@@ -365,8 +365,8 @@ posture_remove_sddm_theme_dropin() {
 # Full design, the design this replaced, and the live-VM finding: docs/portal.md.
 
 # posture_parent_home PARENT — thin name for lib/theme.sh's
-# theme_account_home (AGENTS.md: no duplicated helpers).
-posture_parent_home() { theme_account_home "$1"; }
+# account_home (AGENTS.md: no duplicated helpers).
+posture_parent_home() { account_home "$1"; }
 
 # posture_theme_conf_lines PARENT — the nine [General] color/font keys,
 # resolved from PARENT's own theme. Subshell so THEME_KIDS_HOME doesn't

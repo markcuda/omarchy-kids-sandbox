@@ -293,17 +293,17 @@ check_eq "$(cat "$TMP/broken.err")" \
     "theme_color: omarchy-theme-color is missing or failed here — using the fallback palette (docs/theming.md)" \
     "theme_color: the one log line explains what happened and where to read more"
 
-# --- issue #53: theme_account_home, theme_current_name --------------------
+# --- issue #53: account_home, theme_current_name --------------------
 
 check_eq "$(
     (
         unset OMARCHY_KIDS_HOME_ROOT
         # shellcheck source=/dev/null
         source "$THEME_LIB"
-        theme_account_home nosuchaccountxyz
+        account_home nosuchaccountxyz
     )
 )" "/home/nosuchaccountxyz" \
-    "theme_account_home: falls back to /home/<account> for an unknown account"
+    "account_home: falls back to /home/<account> for an unknown account"
 
 check_eq "$(
     (
@@ -311,10 +311,10 @@ check_eq "$(
         export OMARCHY_KIDS_HOME_ROOT
         # shellcheck source=/dev/null
         source "$THEME_LIB"
-        theme_account_home kid-ada
+        account_home kid-ada
     )
 )" "$TMP/scratchroot/home/kid-ada" \
-    "theme_account_home: OMARCHY_KIDS_HOME_ROOT prefixes the fallback path"
+    "account_home: OMARCHY_KIDS_HOME_ROOT prefixes the fallback path"
 
 echo tokyo-night > "$FIXTURE_HOME/.local/state/omarchy/current/theme.name"
 check_eq "$(

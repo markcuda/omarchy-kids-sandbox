@@ -56,18 +56,24 @@ group_for_band() {
 
 # home_dir_for ACCOUNT -- ACCOUNT's home under $HOME_ROOT (a scratch
 # prefix in tests, empty by default).
-home_dir_for() { printf '%s/home/%s\n' "$HOME_ROOT" "$1"; }
+home_dir_for() { printf '%s/home/%s\n' "${OMARCHY_KIDS_HOME_ROOT:-}" "$1"; }
 
-# parent_home_dir MACHINE_CONF -- the parent's real home via getent, else home_dir_for's guess.
-parent_home_dir() {
-    local machine_conf="$1" parent home
-    parent="$(conf_get "$machine_conf" parent 2>/dev/null || true)"
-    [[ -n "$parent" ]] || return 1
+# account_home ACCOUNT -- the real home via getent, else home_dir_for's guess.
+account_home() {
+    local home
     if command -v getent >/dev/null 2>&1; then
-        home="$(getent passwd "$parent" 2>/dev/null | cut -d: -f6)"
+        home="$(getent passwd "$1" 2>/dev/null | cut -d: -f6)"
         [[ -n "$home" ]] && { printf '%s\n' "$home"; return 0; }
     fi
-    home_dir_for "$parent"
+    home_dir_for "$1"
+}
+
+# parent_home_dir MACHINE_CONF -- the parent's home, or 1 when no parent is recorded.
+parent_home_dir() {
+    local parent
+    parent="$(conf_get "$1" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 1
+    account_home "$parent"
 }
 
 # detect_luks_device [EXPLICIT] -- EXPLICIT wins, then

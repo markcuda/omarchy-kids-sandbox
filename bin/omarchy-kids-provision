@@ -21,7 +21,6 @@ DRY_RUN="${DRY_RUN:-1}"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
-HOME_ROOT="${OMARCHY_KIDS_HOME_ROOT:-}"
 KIDS_DIR="$ETC/kids"
 SLOTS_FILE="$ETC/luks-slots"
 MACHINE_CONF="$ETC/machine.conf"

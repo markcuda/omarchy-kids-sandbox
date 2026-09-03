@@ -5,6 +5,9 @@
 # a root-owned caller (lib/posture.sh). Not meant to be executed directly.
 # See docs/theming.md for the ground-truth citations against v4.0.2.
 
+# shellcheck source=./kids.sh
+source "$(dirname "${BASH_SOURCE[0]}")/kids.sh"  # account_home
+
 # Default $OMARCHY_PATH/$LANG before any Omarchy tool runs (issue #48) --
 # unset in a session with no Omarchy env (SSH, CI). A tool that still
 # fails never aborts the caller, see _theme_kids_tool_ready.
@@ -103,19 +106,6 @@ theme_current_name() {
     [[ -r "$f" ]] && cat "$f" || true
 }
 
-# theme_account_home ACCOUNT -- getent passwd lookup, falling back to
-# OMARCHY_KIDS_HOME_ROOT-prefixed /home/<account>. Generalizes what
-# lib/posture.sh's posture_parent_home used to do only for the parent
-# (AGENTS.md: no duplicated helpers) -- docs/theming.md issue #53.
-theme_account_home() {
-    local account="$1" home
-    if command -v getent >/dev/null 2>&1; then
-        home="$(getent passwd "$account" 2>/dev/null | cut -d: -f6)"
-        [[ -n "$home" ]] && { printf '%s\n' "$home"; return 0; }
-    fi
-    printf '%s/home/%s\n' "${OMARCHY_KIDS_HOME_ROOT:-}" "$account"
-}
-
 # theme_list_installed -- every name under $OMARCHY_PATH/themes, sorted.
 # The wizard/panel Desktop screens offer only these, never a user-installed
 # ~/.config/omarchy/themes/<name> -- docs/theming.md issue #53.
@@ -138,7 +128,7 @@ theme_list_installed() {
 # to upstream and the ownership rationale.
 theme_apply_for() {
     local account="$1" name="$2" home src current next tmp
-    home="$(theme_account_home "$account")"
+    home="$(account_home "$account")"
     src="$OMARCHY_PATH/themes/$name"
     if [[ ! -d "$src" ]]; then
         echo "theme_apply_for: no such theme '$name' under $OMARCHY_PATH/themes" >&2
@@ -183,7 +173,7 @@ theme_reload_if_live() {
         echo "theme_reload_if_live: no live session for '$account' -- the new theme applies at next login" >&2
         return 0
     fi
-    current="$(theme_account_home "$account")/.local/state/omarchy/current/theme"
+    current="$(account_home "$account")/.local/state/omarchy/current/theme"
     [[ -f "$current/colors.toml" ]] && colors_b64="$(base64 -w 0 "$current/colors.toml" 2>/dev/null || true)"
     [[ -f "$current/shell.toml" ]] && shell_b64="$(base64 -w 0 "$current/shell.toml" 2>/dev/null || true)"
     if command -v runuser >/dev/null 2>&1; then

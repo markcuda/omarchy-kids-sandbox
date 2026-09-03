@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- koala: gray head, big round ears, big oval nose -->
+  <circle cx="26" cy="56" r="24" fill="#9c9c9c"/>
+  <circle cx="102" cy="56" r="24" fill="#9c9c9c"/>
+  <circle cx="64" cy="74" r="42" fill="#b0b0b0"/>
+  <circle cx="50" cy="66" r="6" fill="#28282a"/>
+  <circle cx="78" cy="66" r="6" fill="#28282a"/>
+  <ellipse cx="64" cy="90" rx="14" ry="10" fill="#28282a"/>
+</svg>

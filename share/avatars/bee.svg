@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- bee: yellow body, black stripes, round wings, antennae -->
+  <ellipse cx="40" cy="56" rx="20" ry="24" fill="#e8e8e8" opacity="0.85"/>
+  <ellipse cx="88" cy="56" rx="20" ry="24" fill="#e8e8e8" opacity="0.85"/>
+  <circle cx="64" cy="72" r="42" fill="#f4c430"/>
+  <path d="M 22 60 A 42 42 0 0 0 30 96" fill="#221a06"/>
+  <rect x="40" y="34" width="10" height="76" fill="#221a06"/>
+  <rect x="78" y="34" width="10" height="76" fill="#221a06"/>
+  <circle cx="52" cy="60" r="5" fill="#221a06"/>
+  <circle cx="76" cy="60" r="5" fill="#221a06"/>
+  <line x1="56" y1="30" x2="48" y2="16" stroke="#221a06" stroke-width="3" stroke-linecap="round"/>
+  <line x1="72" y1="30" x2="80" y2="16" stroke="#221a06" stroke-width="3" stroke-linecap="round"/>
+</svg>

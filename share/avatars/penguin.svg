@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- penguin: black head/body, white face patch, orange beak -->
+  <ellipse cx="64" cy="70" rx="40" ry="48" fill="#1b1b1e"/>
+  <ellipse cx="64" cy="80" rx="24" ry="32" fill="#f5f5f5"/>
+  <circle cx="54" cy="58" r="5" fill="#1b1b1e"/>
+  <circle cx="74" cy="58" r="5" fill="#1b1b1e"/>
+  <polygon points="64,66 56,78 72,78" fill="#f4a13a"/>
+</svg>

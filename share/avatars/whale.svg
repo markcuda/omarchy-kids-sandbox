@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- whale: blue rounded body, small eye, spout -->
+  <ellipse cx="64" cy="76" rx="48" ry="38" fill="#3a6ea5"/>
+  <rect x="60" y="16" width="6" height="18" rx="3" fill="#3a6ea5"/>
+  <circle cx="40" cy="66" r="6" fill="#0f2438"/>
+  <path d="M 30 96 Q 64 116 98 96" stroke="#0f2438" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <ellipse cx="64" cy="76" rx="48" ry="14" fill="#c9e3f5" opacity="0.55"/>
+</svg>

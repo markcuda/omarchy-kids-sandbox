@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- tiger: orange head, black stripes, white muzzle patch -->
+  <circle cx="64" cy="72" r="46" fill="#e8791c"/>
+  <polygon points="28,32 46,50 20,54" fill="#e8791c"/>
+  <polygon points="100,32 82,50 108,54" fill="#e8791c"/>
+  <ellipse cx="64" cy="86" rx="24" ry="18" fill="#fdf3e2"/>
+  <rect x="24" y="40" width="8" height="24" transform="rotate(-20 28 52)" fill="#241a12"/>
+  <rect x="96" y="40" width="8" height="24" transform="rotate(20 100 52)" fill="#241a12"/>
+  <rect x="44" y="24" width="8" height="20" transform="rotate(-12 48 34)" fill="#241a12"/>
+  <rect x="76" y="24" width="8" height="20" transform="rotate(12 80 34)" fill="#241a12"/>
+  <circle cx="50" cy="66" r="6" fill="#241a12"/>
+  <circle cx="78" cy="66" r="6" fill="#241a12"/>
+  <ellipse cx="64" cy="82" rx="5" ry="4" fill="#241a12"/>
+</svg>

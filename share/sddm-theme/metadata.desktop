@@ -1,0 +1,11 @@
+[SddmGreeterTheme]
+Name=Omarchy Kids
+Description=One tile per kid plus a smaller parent tile, arrow-key navigation, no session picker (SPEC.md R-LOGIN)
+Author=Omarchy Kids Mode
+Copyright=CC0
+Type=sddm-theme
+Version=1.0
+Website=https://github.com/markcuda/omarchy-kids-sandbox
+MainScript=Main.qml
+ConfigFile=theme.conf
+QtVersion=6

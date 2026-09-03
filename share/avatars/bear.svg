@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- bear: brown head, round ears, lighter snout patch -->
+  <circle cx="64" cy="72" r="46" fill="#7a5230"/>
+  <circle cx="30" cy="34" r="15" fill="#7a5230"/>
+  <circle cx="98" cy="34" r="15" fill="#7a5230"/>
+  <ellipse cx="64" cy="86" rx="22" ry="16" fill="#c79f72"/>
+  <circle cx="48" cy="66" r="6" fill="#291d10"/>
+  <circle cx="80" cy="66" r="6" fill="#291d10"/>
+  <ellipse cx="64" cy="82" rx="6" ry="5" fill="#291d10"/>
+</svg>

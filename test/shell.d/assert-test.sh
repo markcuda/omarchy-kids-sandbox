@@ -192,6 +192,7 @@ posture_ensure_pam_namespace sddm
 posture_ensure_pam_namespace systemd-user
 posture_write_polkit_admin_rule mark
 posture_write_polkit_deny_rule
+posture_write_sddm_theme_dropin
 posture_write_accountsservice kid-ada fox
 
 # mount: already mounted noexec (the findmnt stub's marker file)
@@ -236,6 +237,7 @@ out="$("$BIN")"; st=$?
 check_eq "$st" 0 "a fully-provisioned, untouched tree exits 0"
 for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
     "accountsservice:kid-ada" "groups:kid-ada" "polkit-admin" "polkit-deny" \
+    "sddm-theme" \
     "pam:sddm" "pam:systemd-user" "getty:tty2" "getty:tty3" "getty:tty4" \
     "getty:tty5" "getty:tty6" "hyprland-configs" "chromium-policy:6-8" "boot-hook"; do
     check_status "$out" "$lock" "ok" "first run: $lock is ok"
@@ -303,6 +305,13 @@ rm -f "$DENY_RULE"
 out="$("$BIN")"
 only_this_lock_changed "$out" "polkit-deny" "polkit-deny"
 check_contains "$(cat "$DENY_RULE" 2>/dev/null)" "polkit.Result.NO" "polkit-deny: the rule is back"
+
+# sddm-theme
+THEME_DROPIN="$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-theme.conf"
+rm -f "$THEME_DROPIN"
+out="$("$BIN")"
+only_this_lock_changed "$out" "sddm-theme" "sddm-theme"
+check_contains "$(cat "$THEME_DROPIN" 2>/dev/null)" "Current=omarchy-kids" "sddm-theme: the drop-in is back"
 
 # pam:sddm
 PAMFILE_SDDM="$SCRATCH_ROOT/etc/pam.d/sddm"

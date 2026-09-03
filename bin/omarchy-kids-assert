@@ -21,7 +21,8 @@
 #   OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
 #   OMARCHY_KIDS_ROOT       scratch prefix for every real machine path this
 #                           touches: /etc/polkit-1, /etc/security, /etc/pam.d,
-#                           /etc/fstab, /var/lib/AccountsService (lib/posture.sh),
+#                           /etc/fstab, /var/lib/AccountsService,
+#                           /etc/sddm.conf.d (lib/posture.sh),
 #                           plus /etc/systemd/system (getty masks),
 #                           /etc/chromium/policies/managed (kids policy files),
 #                           /usr/lib/initcpio/hooks and /boot (the boot hook)
@@ -57,10 +58,11 @@ Usage: omarchy-kids-assert [--quiet] [--dry-run]
 Re-asserts every Kids Mode lock for every provisioned kid, and every
 machine-level lock, idempotently (SPEC.md I-4, R-TRUST-5): fstab bind
 lines and noexec mounts, pam_namespace lines, the AccountsService pin,
-group membership, the polkit admin/deny rules, pam_namespace on sddm and
-systemd-user, masked getty@tty2..6, the /etc/omarchy-kids/hyprland/*.lua
-copies, per-band Chromium policy file permissions, and the boot hook
-(R-BOOT-5). See docs/assert.md for the full lock list and exit codes.
+group membership, the polkit admin/deny rules, the SDDM portal theme
+selection (R-LOGIN), pam_namespace on sddm and systemd-user, masked
+getty@tty2..6, the /etc/omarchy-kids/hyprland/*.lua copies, per-band
+Chromium policy file permissions, and the boot hook (R-BOOT-5). See
+docs/assert.md for the full lock list and exit codes.
 
 Applies fixes for real by default -- this is the command the pacman hook
 and the boot unit call with no other flags, so it must self-heal without
@@ -240,6 +242,16 @@ polkit_deny_ok() {
 }
 polkit_deny_fix() { posture_write_polkit_deny_rule; }
 
+# sddm-theme (R-LOGIN, issue #14): the portal's conf.d drop-in, exact
+# content match (same idempotence check posture_write_sddm_theme_dropin
+# itself uses). Machine-level like the polkit rules above.
+sddm_theme_ok() {
+    local file
+    file="$(posture_sddm_conf_dir)/zz-omarchy-kids-theme.conf"
+    [[ -f "$file" ]] && [[ "$(cat "$file")" == "$(posture_sddm_theme_dropin_text)" ]]
+}
+sddm_theme_fix() { posture_write_sddm_theme_dropin; }
+
 pam_ok() {
     local file
     file="$(posture_pam_dir)/$1"
@@ -395,6 +407,7 @@ main() {
 
     assert_one "polkit-admin" polkit_admin_ok polkit_admin_fix
     assert_one "polkit-deny" polkit_deny_ok polkit_deny_fix
+    assert_one "sddm-theme" sddm_theme_ok sddm_theme_fix
     assert_one "pam:sddm" pam_ok pam_fix sddm
     assert_one "pam:systemd-user" pam_ok pam_fix systemd-user
 

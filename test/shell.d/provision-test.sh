@@ -214,6 +214,9 @@ ASFILE="$SCRATCH_ROOT/var/lib/AccountsService/users/$SLUG"
 check_contains "$(cat "$ASFILE" 2>/dev/null)" "Session=omarchy-kids" "AccountsService pins the kid session"
 check_contains "$(cat "$ASFILE" 2>/dev/null)" "Icon=/usr/share/omarchy-kids/avatars/fox.svg" "AccountsService icon path"
 
+THEME_DROPIN="$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-theme.conf"
+check_contains "$(cat "$THEME_DROPIN" 2>/dev/null)" "Current=omarchy-kids" "add: SDDM portal theme selected (R-LOGIN)"
+
 check_contains "$argv" "mount --bind $OMARCHY_KIDS_HOME_ROOT/home/$SLUG $OMARCHY_KIDS_HOME_ROOT/home/$SLUG" "add: bind mount created before the noexec remount"
 check_contains "$argv" "runuser -l $SLUG -c omarchy-provision-user --first-install" "add: omarchy-provision-user --first-install runs as the kid via runuser"
 check_contains "$argv" "groupadd -f omarchy-kids" "add: groups are created defensively"

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- otter: brown head, lighter muzzle patch, whiskers -->
+  <circle cx="64" cy="72" r="44" fill="#8a6642"/>
+  <ellipse cx="64" cy="88" rx="26" ry="20" fill="#d8c19c"/>
+  <circle cx="50" cy="64" r="6" fill="#2a1c0d"/>
+  <circle cx="78" cy="64" r="6" fill="#2a1c0d"/>
+  <ellipse cx="64" cy="80" rx="6" ry="4" fill="#2a1c0d"/>
+  <line x1="18" y1="84" x2="44" y2="88" stroke="#2a1c0d" stroke-width="3" stroke-linecap="round"/>
+  <line x1="18" y1="96" x2="44" y2="96" stroke="#2a1c0d" stroke-width="3" stroke-linecap="round"/>
+  <line x1="110" y1="84" x2="84" y2="88" stroke="#2a1c0d" stroke-width="3" stroke-linecap="round"/>
+  <line x1="110" y1="96" x2="84" y2="96" stroke="#2a1c0d" stroke-width="3" stroke-linecap="round"/>
+</svg>

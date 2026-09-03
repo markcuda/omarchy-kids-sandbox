@@ -23,6 +23,7 @@ posture_namespace_conf() { printf '%s/etc/security/namespace.conf' "$(posture_ro
 posture_pam_dir() { printf '%s/etc/pam.d' "$(posture_root)"; }
 posture_fstab() { printf '%s/etc/fstab' "$(posture_root)"; }
 posture_accountsservice_dir() { printf '%s/var/lib/AccountsService/users' "$(posture_root)"; }
+posture_sddm_conf_dir() { printf '%s/etc/sddm.conf.d' "$(posture_root)"; }
 
 # posture_install_if_changed FILE CONTENT [MODE] — writes CONTENT (plus a
 # trailing newline) to FILE via a same-directory temp file and rename, but
@@ -214,6 +215,41 @@ posture_write_accountsservice() {
 posture_remove_accountsservice() {
     local account="$1"
     rm -f "$(posture_accountsservice_dir)/$account"
+}
+
+# --- SDDM theme selection (R-LOGIN, issue #14) -----------------------------
+
+# posture_sddm_theme_dropin_text — the whole content of
+# /etc/sddm.conf.d/zz-omarchy-kids-theme.conf: selects our portal
+# (share/sddm-theme/ -> /usr/share/sddm/themes/omarchy-kids) the same way
+# Omarchy's own /etc/sddm.conf.d/10-theme.conf selects "omarchy" --
+# `[Theme]` `Current=<name>` is SDDM's own documented key
+# (data/man/sddm.conf.rst.in upstream), read from every conf.d file in
+# order, so ours (a "zz-" prefix, same convention as
+# zz-omarchy-kids-autologin.conf in docs/boot.md) simply has to sort after
+# Omarchy's "10-" one to win. Kept as its own drop-in, never a hand-edit
+# of Omarchy's 10-theme.conf (I-7: core untouched).
+posture_sddm_theme_dropin_text() {
+    cat <<'EOF'
+[Theme]
+Current=omarchy-kids
+EOF
+}
+
+posture_write_sddm_theme_dropin() {
+    local file
+    file="$(posture_sddm_conf_dir)/zz-omarchy-kids-theme.conf"
+    posture_install_if_changed "$file" "$(posture_sddm_theme_dropin_text)" 0644
+}
+
+# posture_remove_sddm_theme_dropin — drops the theme selection back to
+# whatever Omarchy's own conf.d already has (its 10-theme.conf, untouched).
+# Not wired into "omarchy-kids-provision remove": like the polkit rules,
+# this is a machine-level lock (R-FND-6) left in place until Remove Kids
+# Mode takes the whole package out, since the portal is still the right
+# greeter for the machine as long as any other kid remains provisioned.
+posture_remove_sddm_theme_dropin() {
+    rm -f "$(posture_sddm_conf_dir)/zz-omarchy-kids-theme.conf"
 }
 
 # --- luks-slots (R-SEC-4, and the "LUKS2 reuses slot numbers" finding) -----

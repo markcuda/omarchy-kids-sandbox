@@ -58,7 +58,7 @@ adv_label_of() { # KEY -> the row's label, in parent words
 # pack_sites BAND — that band's pack [garden] hosts (a TOML array, so
 # pack_field's sed can't read it); empty for a band with no walled garden.
 pack_sites() {
-    "$PY" "$PYHELPER" pack-sites "$SHARE/packs/$1.toml" 2>/dev/null
+    "$KIDS_PY" "$PYHELPER" pack-sites "$SHARE/packs/$1.toml" 2>/dev/null
 }
 
 # adv_default KEY — this band's (or its pack's) default value. theme has

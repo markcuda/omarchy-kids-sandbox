@@ -16,7 +16,6 @@ source "$LIB/kids.sh"
 # theme_list_installed (issue #53): screen_kid_theme's own picker.
 # shellcheck source=lib/theme.sh
 source "$LIB/theme.sh"
-PY="$KIDS_PY"
 ASK_PY="$LIB/ask.py"
 
 CONF_BIN="$(kids_bin conf "$DIR")"
@@ -187,12 +186,12 @@ count_open_requests() {
     local -a args=(list-open "$QUEUE_DIR")
     [[ -n "${1:-}" ]] && args+=(--kid "$1")
     local rows
-    rows="$("$PY" "$ASK_PY" "${args[@]}" 2>/dev/null)"
+    rows="$("$KIDS_PY" "$ASK_PY" "${args[@]}" 2>/dev/null)"
     [[ -z "$rows" ]] && { echo 0; return 0; }
     printf '%s\n' "$rows" | grep -c '.'
 }
 
-ask_field() { "$PY" "$ASK_PY" show "$1" --field "$2" 2>/dev/null; } # PATH FIELD
+ask_field() { "$KIDS_PY" "$ASK_PY" show "$1" --field "$2" 2>/dev/null; } # PATH FIELD
 
 # kid_home_line NAME BAND STATUS_OUT NREQ — one Home-screen line. docs/panel.md.
 kid_home_line() {

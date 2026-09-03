@@ -22,7 +22,6 @@ KIDS_DIR="$ETC/kids"
 MACHINE_CONF="$ETC/machine.conf"
 BANDS_TOML="$SHARE/bands/bands.toml"
 PACKS_DIR="$SHARE/packs"
-PY="$KIDS_PY"
 PYHELPER="$LIB/conf.py"
 
 # Appendix B, in table order (docs/conf.md).
@@ -161,11 +160,11 @@ validate_value() {
 }
 
 band_dump_pairs() { # BAND -> "key=value" lines, or exit 2
-    "$PY" "$PYHELPER" band-dump "$BANDS_TOML" "$1"
+    "$KIDS_PY" "$PYHELPER" band-dump "$BANDS_TOML" "$1"
 }
 
 band_get() { # BAND KEY -> value, or exit 2
-    "$PY" "$PYHELPER" band-get "$BANDS_TOML" "$1" "$2"
+    "$KIDS_PY" "$PYHELPER" band-get "$BANDS_TOML" "$1" "$2"
 }
 
 pack_file() { echo "$PACKS_DIR/$1.toml"; }
@@ -175,8 +174,8 @@ pack_value() { # BAND KEY(allowlist|sites) -> comma list, or exit 2
     pack="$(pack_file "$band")"
     [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
     case "$key" in
-        allowlist) "$PY" "$PYHELPER" pack-ids "$pack" ;;
-        sites) "$PY" "$PYHELPER" pack-sites "$pack" ;;
+        allowlist) "$KIDS_PY" "$PYHELPER" pack-ids "$pack" ;;
+        sites) "$KIDS_PY" "$PYHELPER" pack-sites "$pack" ;;
     esac
 }
 
@@ -271,7 +270,7 @@ cmd_reset() {
 }
 
 cmd_bands() {
-    "$PY" "$PYHELPER" band-list "$BANDS_TOML" | while IFS=$'\t' read -r band label blurb; do
+    "$KIDS_PY" "$PYHELPER" band-list "$BANDS_TOML" | while IFS=$'\t' read -r band label blurb; do
         printf '%-8s %-14s %s\n' "$band" "$label" "$blurb"
     done
 }
@@ -284,7 +283,7 @@ cmd_band() {
 
 cmd_slug() {
     [[ $# -ge 1 ]] || die "omarchy-kids-conf slug <display name>"
-    "$PY" "$PYHELPER" slug "$@"
+    "$KIDS_PY" "$PYHELPER" slug "$@"
 }
 
 # cmd_machine set parent <name> — machine.conf's parent= (issue #46), the

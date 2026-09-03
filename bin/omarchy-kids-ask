@@ -9,7 +9,6 @@ DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 LIB="$DIR/lib"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
-PY="$KIDS_PY"
 ASKPY="$LIB/ask.py"
 CONF_BIN="$(kids_bin conf "$DIR")"
 WEB_BIN="$(kids_bin web "$DIR")"
@@ -170,7 +169,7 @@ cmd_submit() {
 
     local -a args=("write" "$OUTBOX_DIR" --kid "$account" --kind "$KIND" --what "$WHAT")
     [[ -n "$MINUTES" ]] && args+=(--minutes "$MINUTES")
-    "$PY" "$ASKPY" "${args[@]}"
+    "$KIDS_PY" "$ASKPY" "${args[@]}"
 }
 
 # --- kid-side: grant, the on-the-spot path (review S1) ---------------------
@@ -188,7 +187,7 @@ cmd_grant() {
     local password; IFS= read -r password || true
 
     local json
-    json="$("$PY" "$ASKPY" request-json --kid "$account" --kind "$KIND" --what "$WHAT" \
+    json="$("$KIDS_PY" "$ASKPY" request-json --kid "$account" --kind "$KIND" --what "$WHAT" \
         ${MINUTES:+--minutes "$MINUTES"})" || die "grant: $KIND request rejected before it was sent"
 
     local reply
@@ -212,10 +211,10 @@ cmd_grant() {
 # "do the thing", separate from "who decided".
 apply_record() {
     local path="$1" kid kind what minutes
-    kid="$("$PY" "$ASKPY" show "$path" --field kid)"
-    kind="$("$PY" "$ASKPY" show "$path" --field kind)"
-    what="$("$PY" "$ASKPY" show "$path" --field what)"
-    minutes="$("$PY" "$ASKPY" show "$path" --field minutes)"
+    kid="$("$KIDS_PY" "$ASKPY" show "$path" --field kid)"
+    kind="$("$KIDS_PY" "$ASKPY" show "$path" --field kind)"
+    what="$("$KIDS_PY" "$ASKPY" show "$path" --field what)"
+    minutes="$("$KIDS_PY" "$ASKPY" show "$path" --field minutes)"
 
     case "$kind" in
         time) apply_time "$kid" "$minutes" ;;
@@ -349,7 +348,7 @@ cmd_collect() {
                 # an open request from the outbox's real owner. Never a
                 # decision, never an action (review S1). A record that
                 # cannot survive the allowlist is dropped, not queued.
-                if "$PY" "$ASKPY" reopen "$dest" --kid "$owner" 2>/dev/null; then
+                if "$KIDS_PY" "$ASKPY" reopen "$dest" --kid "$owner" 2>/dev/null; then
                     collected=$((collected + 1))
                 else
                     rm -f "$dest"
@@ -397,19 +396,19 @@ cmd_apply_grant() {
     is_root || die "apply-grant: root only (it is omarchy-kids-authd's callback, not a user command)"
     [[ "$apply_flag" == 1 ]] && DRY_RUN=0
 
-    "$PY" "$ASKPY" validate --kid "$kid" --kind "$kind" --what "$what" \
+    "$KIDS_PY" "$ASKPY" validate --kid "$kid" --kind "$kind" --what "$what" \
         ${minutes:+--minutes "$minutes"} || die "apply-grant: refused"
     is_known_kid_here "$kid" || die "apply-grant: '$kid' is not a provisioned kid account"
 
     install -d -m 0755 "$QUEUE_DIR"
     local name
-    name="$("$PY" "$ASKPY" write "$QUEUE_DIR" --kid "$kid" --kind "$kind" --what "$what" \
+    name="$("$KIDS_PY" "$ASKPY" write "$QUEUE_DIR" --kid "$kid" --kind "$kind" --what "$what" \
         ${minutes:+--minutes "$minutes"})" || die "apply-grant: could not record the request"
     local path="$QUEUE_DIR/$name"
 
     apply_record "$path" || die "apply-grant: could not apply the request"
     if [[ "$DRY_RUN" == "0" ]]; then
-        "$PY" "$ASKPY" decide "$path" --state approved --by keyboard
+        "$KIDS_PY" "$ASKPY" decide "$path" --state approved --by keyboard
     fi
     echo "omarchy-kids-ask: granted $kind '$what' to $kid"
 }
@@ -422,7 +421,7 @@ cmd_list() {
     local -a args=("list-open" "$QUEUE_DIR")
     [[ -n "$kid" ]] && args+=(--kid "$kid")
 
-    local rows; rows="$("$PY" "$ASKPY" "${args[@]}")"
+    local rows; rows="$("$KIDS_PY" "$ASKPY" "${args[@]}")"
     if [[ -z "$rows" ]]; then
         echo "omarchy-kids-ask: no open requests"
         return 0
@@ -454,7 +453,7 @@ cmd_approve() {
     [[ "$apply_flag" == 1 ]] && DRY_RUN=0
 
     local path; path="$(record_path_for_id "$id")"
-    local state; state="$("$PY" "$ASKPY" show "$path" --field state)"
+    local state; state="$("$KIDS_PY" "$ASKPY" show "$path" --field state)"
     [[ "$state" == "open" ]] || die "request '$id' is already decided ($state)"
 
     # A failed apply (root required, the target not installed yet) is
@@ -462,7 +461,7 @@ cmd_approve() {
     # graceful-degradation apply_time's own comment documents.
     apply_record "$path" || echo "omarchy-kids-ask: could not apply $id (see above) -- approving it anyway" >&2
     if [[ "$DRY_RUN" == "0" ]]; then
-        "$PY" "$ASKPY" decide "$path" --state approved --by panel
+        "$KIDS_PY" "$ASKPY" decide "$path" --state approved --by panel
         echo "omarchy-kids-ask: approved $id"
     else
         echo "  [dry-run] would mark $id approved (by=panel)"
@@ -482,11 +481,11 @@ cmd_decline() {
     [[ "$apply_flag" == 1 ]] && DRY_RUN=0
 
     local path; path="$(record_path_for_id "$id")"
-    local state; state="$("$PY" "$ASKPY" show "$path" --field state)"
+    local state; state="$("$KIDS_PY" "$ASKPY" show "$path" --field state)"
     [[ "$state" == "open" ]] || die "request '$id' is already decided ($state)"
 
     if [[ "$DRY_RUN" == "0" ]]; then
-        "$PY" "$ASKPY" decide "$path" --state declined --by panel
+        "$KIDS_PY" "$ASKPY" decide "$path" --state declined --by panel
         echo "omarchy-kids-ask: declined $id"
     else
         echo "  [dry-run] would mark $id declined (by=panel), no action performed"

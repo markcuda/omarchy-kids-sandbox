@@ -10,7 +10,6 @@ LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-PY="$KIDS_PY"
 PYHELPER="$LIB/conf.py"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
@@ -98,7 +97,7 @@ pack_ids_array() {
     local band="$1" pack ids
     pack="$(pack_file "$band")"
     [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
-    ids="$("$PY" "$PYHELPER" pack-ids "$pack")"
+    ids="$("$KIDS_PY" "$PYHELPER" pack-ids "$pack")"
     PACK_IDS=()
     IFS=',' read -ra PACK_IDS <<<"$ids"
 }
@@ -109,7 +108,7 @@ LABEL=""
 PKG=""
 pack_app_meta() {
     local pack="$1" id="$2" meta
-    meta="$("$PY" "$PYHELPER" pack-app "$pack" "$id")" || die "no such app id '$id' in $pack"
+    meta="$("$KIDS_PY" "$PYHELPER" pack-app "$pack" "$id")" || die "no such app id '$id' in $pack"
     IFS=$'\t' read -r LABEL PKG _web <<<"$meta"
 }
 

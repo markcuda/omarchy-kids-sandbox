@@ -1,0 +1,279 @@
+#!/bin/bash
+# omarchy-kids-web — renders and installs the per-band managed Chromium
+# policy (SPEC.md R-WEB-1..4). Templates and starter lists are data:
+# share/policy/<band>.json (the fixed keys, R-WEB-2) and
+# share/policy/lists/<band>.txt (the walled-garden starter allowlist,
+# R-WEB-3); see share/policy/README.md for every key's citation and
+# docs/web.md for how a parent edits the lists.
+#
+#   render <band> [--allow FILE] [--out FILE]
+#       Merges the band's policy template with its starter list (plus an
+#       optional extra --allow FILE, same one-host-per-line format --
+#       e.g. a kid's own approved sites) into the final managed-policy
+#       JSON. Prints to stdout, or writes --out FILE. Only garden bands
+#       (6-8, 9-12; share/bands/bands.toml's `web` field) take an
+#       allowlist at all -- "none" (3-5) and "filtered" (13+) bands die
+#       on --allow rather than silently ignore it (I-6, R-WEB-3: "filtered
+#       open web adds neither" list).
+#
+#   install <band> [--allow FILE] [--apply]
+#       Same render, then writes
+#       /etc/chromium/policies/managed/omarchy-kids-<band>.json at 0640
+#       root:omarchy-kids-<band> (R-WEB-1), under $OMARCHY_KIDS_ROOT if
+#       set. DRY_RUN=1 by default (AGENTS.md rule 8); --apply or
+#       DRY_RUN=0 writes for real.
+#
+# Every path is overridable for tests, same convention as
+# omarchy-kids-provision and omarchy-kids-session:
+#   OMARCHY_KIDS_SHARE    package data root (default /usr/share/omarchy-kids;
+#                         this reads $OMARCHY_KIDS_SHARE/policy/<band>.json
+#                         and $OMARCHY_KIDS_SHARE/policy/lists/<band>.txt)
+#   OMARCHY_KIDS_ROOT     scratch prefix for /etc/chromium/policies/managed
+#                         (default empty, the real path -- same var
+#                         bin/omarchy-kids-session and lib/posture.sh use
+#                         for the system paths this package doesn't own)
+#   OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf, used to read each
+#                         band's `web` mode from share/bands/bands.toml
+#                         (default: resolved beside this script, else
+#                         /usr/bin)
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONF="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF" ]] || CONF=omarchy-kids-conf
+
+SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+
+DRY_RUN="${DRY_RUN:-1}"
+
+VALID_BANDS=("3-5" "6-8" "9-12" "13+")
+
+die() { echo "omarchy-kids-web: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<'EOF'
+Usage: omarchy-kids-web render <band> [--allow FILE] [--out FILE]
+       omarchy-kids-web install <band> [--allow FILE] [--apply]
+       omarchy-kids-web --help
+
+render  Merges share/policy/<band>.json with share/policy/lists/<band>.txt
+        (plus an optional --allow FILE, same format -- e.g. a kid's own
+        approved sites) into the final managed Chromium policy JSON.
+        Prints to stdout, or --out FILE. Bands: 3-5, 6-8, 9-12, 13+.
+        --allow is only accepted for a "garden" band (6-8, 9-12); "none"
+        (3-5) and "filtered" (13+) bands take no allowlist at all
+        (SPEC.md R-WEB-3) and this refuses rather than silently ignore it.
+
+install Renders, then writes
+        /etc/chromium/policies/managed/omarchy-kids-<band>.json at 0640
+        root:omarchy-kids-<band> (R-WEB-1), under $OMARCHY_KIDS_ROOT if
+        set.
+
+DRY_RUN=1 is the default for "install" (see AGENTS.md rule 8): it only
+prints what it would do. Pass --apply, or set DRY_RUN=0, to make it
+real. "render" always runs for real -- it only ever writes to a file the
+caller named with --out, never a system path.
+
+  -h, --help  Show this help and exit.
+EOF
+}
+
+run() {
+    if [[ "$DRY_RUN" == "0" ]]; then
+        "$@"
+    else
+        printf '  [dry-run]'
+        printf ' %q' "$@"
+        printf '\n'
+    fi
+}
+
+is_valid_band() {
+    local b="$1" v
+    for v in "${VALID_BANDS[@]}"; do [[ "$v" == "$b" ]] && return 0; done
+    return 1
+}
+
+# group_for_band BAND — the same fixed, documented mapping
+# bin/omarchy-kids-provision's and bin/omarchy-kids-assert's own
+# group_for_band use (docs/packaging.md); duplicated rather than sourced
+# for the same reason bin/omarchy-kids-assert already gives: four stable
+# lines unlikely to ever change independent of either file, and
+# omarchy-kids-provision is a script (its own `main "$@"` would run if
+# sourced), not a library.
+group_for_band() {
+    case "$1" in
+        3-5) echo omarchy-kids-3-5 ;;
+        6-8) echo omarchy-kids-6-8 ;;
+        9-12) echo omarchy-kids-9-12 ;;
+        13+) echo omarchy-kids-13plus ;;
+        *) die "unknown band: '$1'" ;;
+    esac
+}
+
+# band_web_mode BAND — none|garden|filtered, from share/bands/bands.toml
+# via omarchy-kids-conf (the one place that table is read from), not a
+# second hardcoded mapping here.
+band_web_mode() {
+    local band="$1" out
+    out="$("$CONF" band "$band" 2>/dev/null)" || die "could not read band '$band' defaults from $CONF (see docs/conf.md)"
+    printf '%s\n' "$out" | sed -n 's/^web=//p' | head -1
+}
+
+# list_domains FILE — one host per line, '#' comments (full-line or
+# trailing) and blank lines stripped. Missing file -> nothing, not an
+# error (a band with no starter list yet is not a bug).
+list_domains() {
+    local file="$1"
+    [[ -f "$file" ]] || return 0
+    sed -e 's/#.*//' -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e '/^$/d' "$file"
+}
+
+# render_policy_json BAND [ALLOW_FILE] — prints the final managed-policy
+# JSON on stdout, or dies with a one-line reason.
+render_policy_json() {
+    local band="$1" allow_file="${2:-}"
+    local policy_file="$SHARE/policy/$band.json"
+    local list_file="$SHARE/policy/lists/$band.txt"
+
+    [[ -f "$policy_file" ]] || die "no policy template for band '$band' ($policy_file)"
+    jq -e '.' "$policy_file" >/dev/null 2>&1 || die "invalid JSON in $policy_file"
+
+    local mode
+    mode="$(band_web_mode "$band")"
+
+    case "$mode" in
+        garden)
+            local domains allow_json
+            domains="$( { list_domains "$list_file"; [[ -n "$allow_file" ]] && list_domains "$allow_file"; } | sort -u )"
+            allow_json="$(printf '%s\n' "$domains" | jq -R -s 'split("\n") | map(select(length > 0))')"
+            jq --argjson allow "$allow_json" '.URLAllowlist = $allow' "$policy_file" \
+                || die "failed to merge the allowlist for band '$band'"
+            ;;
+        none|filtered)
+            [[ -z "$allow_file" ]] || die "band '$band' is '$mode' (R-WEB-3): it takes no allowlist, so --allow is not accepted"
+            jq '.' "$policy_file"
+            ;;
+        *)
+            die "band '$band' has an unrecognized web mode '$mode' (share/bands/bands.toml)"
+            ;;
+    esac
+}
+
+# install_policy_file BAND [ALLOW_FILE] — renders, then writes
+# /etc/chromium/policies/managed/omarchy-kids-<band>.json at 0640
+# root:omarchy-kids-<band> (R-WEB-1), via a same-directory temp file and
+# rename so a reading browser never sees a half-written file. Ownership
+# is attempted best-effort and never fails the call, matching
+# bin/omarchy-kids-assert's own chromium_fix and its documented reason
+# (docs/assert.md): a real run is always root, at which point chown
+# always succeeds anyway; a non-root dev/test run cannot chown to
+# root:<group> and that is expected, not a bug.
+install_policy_file() {
+    local band="$1" allow_file="${2:-}"
+    local dir="$SYSROOT/etc/chromium/policies/managed"
+    local file="$dir/omarchy-kids-$band.json"
+    local json group stage
+
+    json="$(render_policy_json "$band" "$allow_file")" || return 1
+
+    install -d -m 0755 "$dir"
+    stage="$(mktemp "$dir/.omarchy-kids-$band.json.XXXXXX")"
+    printf '%s\n' "$json" > "$stage"
+    chmod 0640 "$stage"
+    mv -f "$stage" "$file"
+
+    group="$(group_for_band "$band")"
+    if ! chown "root:$group" "$file" >/dev/null 2>&1; then
+        echo "  (could not chown $file to root:$group -- fine outside a real root run; omarchy-kids-assert fixes this on the target)" >&2
+    fi
+    echo "  installed $file (root:$group 0640)"
+}
+
+# --- render --------------------------------------------------------------
+
+cmd_render() {
+    local band="" allow_file="" out_file=""
+    while (($#)); do
+        case "$1" in
+            --allow) allow_file="${2:?--allow needs a value}"; shift 2 ;;
+            --out) out_file="${2:?--out needs a value}"; shift 2 ;;
+            -h|--help) usage; exit 0 ;;
+            --) shift ;;
+            -*) die "render: unknown option '$1'" ;;
+            *)
+                if [[ -z "$band" ]]; then band="$1"; else die "render: unexpected argument '$1'"; fi
+                shift
+                ;;
+        esac
+    done
+
+    [[ -n "$band" ]] || die "render: needs a band"
+    is_valid_band "$band" || die "render: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
+
+    local json
+    json="$(render_policy_json "$band" "$allow_file")"
+
+    if [[ -n "$out_file" ]]; then
+        printf '%s\n' "$json" > "$out_file"
+    else
+        printf '%s\n' "$json"
+    fi
+}
+
+# --- install ---------------------------------------------------------------
+
+cmd_install() {
+    local band="" allow_file=""
+    while (($#)); do
+        case "$1" in
+            --allow) allow_file="${2:?--allow needs a value}"; shift 2 ;;
+            --apply) DRY_RUN=0; shift ;;
+            -h|--help) usage; exit 0 ;;
+            --) shift ;;
+            -*) die "install: unknown option '$1'" ;;
+            *)
+                if [[ -z "$band" ]]; then band="$1"; else die "install: unexpected argument '$1'"; fi
+                shift
+                ;;
+        esac
+    done
+
+    [[ -n "$band" ]] || die "install: needs a band"
+    is_valid_band "$band" || die "install: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
+
+    echo "Installing Chromium policy for band $band"
+    run install_policy_file "$band" "$allow_file"
+}
+
+# --- main --------------------------------------------------------------
+
+main() {
+    local cmd="${1:-}"
+    case "$cmd" in
+        -h|--help|"")
+            usage
+            [[ "$cmd" == "" ]] && exit 2
+            exit 0
+            ;;
+    esac
+    shift
+
+    local -a rest=()
+    local arg
+    for arg in "$@"; do
+        if [[ "$arg" == "--apply" ]]; then
+            DRY_RUN=0
+        else
+            rest+=("$arg")
+        fi
+    done
+
+    case "$cmd" in
+        render) cmd_render "${rest[@]+"${rest[@]}"}" ;;
+        install) cmd_install "${rest[@]+"${rest[@]}"}" ;;
+        *) die "unknown command: '$cmd' (see --help)" ;;
+    esac
+}
+
+main "$@"

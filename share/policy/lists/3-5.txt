@@ -1,0 +1,11 @@
+# Starter list for band 3-5 (SPEC.md R-BAND, R-WEB-3).
+#
+# 3-5's web mode is "none" (share/bands/bands.toml): no browser at all.
+# omarchy-kids-session-start hides Chromium from the launcher entirely,
+# and the band's own policy (share/policy/3-5.json) sets
+# URLBlocklist: ["*"] with no allowlist, as defense in depth in case
+# Chromium is ever opened anyway. There is nothing for a walled garden
+# to allow through, so this file is intentionally empty -- left present
+# rather than omitted so every band has the same shape for tooling
+# (`omarchy-kids-web render 3-5` and `--allow` both refuse for this band;
+# see docs/web.md).

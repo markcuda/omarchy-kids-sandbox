@@ -1,0 +1,15 @@
+{
+  "DnsOverHttpsMode": "secure",
+  "DnsOverHttpsTemplates": "https://family.cloudflare-dns.com/dns-query",
+  "ForceGoogleSafeSearch": true,
+  "ForceYouTubeRestrict": 2,
+  "IncognitoModeAvailability": 1,
+  "DeveloperToolsAvailability": 2,
+  "ExtensionInstallBlocklist": ["*"],
+  "BrowserSignin": 0,
+  "DownloadRestrictions": 1,
+  "SavingBrowserHistoryDisabled": false,
+  "AllowDeletingBrowserHistory": false,
+  "URLBlocklist": ["*"],
+  "URLAllowlist": []
+}

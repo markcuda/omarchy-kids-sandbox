@@ -65,6 +65,17 @@ else
   : >"$LOG"
 fi
 
+# Style gate, where the formatter exists (it does not on the Mac): every bash file must already
+# be `shfmt -i 2 -ci` (AGENTS.md).
+if vm "command -v shfmt >/dev/null"; then
+  unformatted="$(vm "cd $REMOTE_DIR && shfmt -i 2 -ci -l \$(grep -rlE '^#!/bin/bash|^# shellcheck shell=bash' bin lib test scripts)" 2>/dev/null)"
+  if [[ -z "$unformatted" ]]; then
+    ok "every bash file is shfmt -i 2 -ci clean"
+  else
+    fail "shfmt would change: $(echo "$unformatted" | tr '\n' ' ')"
+  fi
+fi
+
 while IFS= read -r line; do
   echo "note remote skip: $line"
 done < <(grep -E '^ *SKIP' "$LOG" 2>/dev/null)

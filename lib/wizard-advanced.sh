@@ -166,10 +166,13 @@ mark_if_changed() {
     fi
 }
 
-# adv_append_row ARRAYNAME "label|value" — appends by name.
+# adv_append_row ARRAYNAME "label|value" — appends by name (bash-3.2-safe
+# idiom, same as lib/tui.sh's _tui_array_copy).
 adv_append_row() {
-    local -n __adv_arr="$1"
-    __adv_arr+=("$2")
+    local __adv_arr="$1" __adv_row="$2"
+    # shellcheck disable=SC1087 # $__adv_arr[@] is the array-name being
+    # built for eval, not an expansion shellcheck can see through
+    eval "$__adv_arr+=(\"\$__adv_row\")"
 }
 
 # adv_summary_extra_rows ARRAYNAME — appends a "label|value (custom)" row

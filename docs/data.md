@@ -74,9 +74,13 @@ screen-time ledger (docs/time.md's "trust boundary"), recording a launch is two 
 2. **`bin/omarchy-kids-time-ledger tick`** — already runs once a minute as root (docs/time.md).
    This issue adds one step to it: `lib/data.sh`'s `data_fold_launches`, which appends whatever's
    new in each known kid's own runtime log onto their root-owned `launches.log`, then remembers how
-   far it got (`launches.offset`, plain byte count) so the same line is never folded twice. A fresh
-   login gets a fresh (smaller) runtime tmpfs; the fold notices the file shrank and starts over from
-   the beginning rather than treating that as corruption.
+   far it got (`launches.offset`, `"<inode> <byte-offset>"`) so the same line is never folded twice.
+   A fresh login gets a fresh runtime tmpfs at the same path — a new inode, and often a smaller
+   file; either one on its own means "this is a new file", so the fold starts over from the
+   beginning rather than treating it as corruption or silently skipping already-there-looking bytes.
+   `systemd/omarchy-kids-time-ledger.service` deliberately does not set `ProtectHome=yes` for the
+   same reason `omarchy-kids-ask-collect.service` doesn't (docs/ask.md): it hides `/run/user/*`
+   from the unit, which is exactly where a kid's own runtime log lives.
 
 **Only Level 1 tile launches are recorded.** Levels 2/3 run Omarchy's own app grid (R-DESK-4's
 trimmed menu, `docs/apps.md`), which this package doesn't own — there's no launch hook to add one

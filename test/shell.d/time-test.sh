@@ -392,5 +392,63 @@ check "$?" 0 "ask-grownup: still exits 0 with no omarchy-kids-ask-grownup on PAT
 log_out="$(cat "$RUN_DIR/session-$(id -u).log" 2>/dev/null || true)"
 check_contains "$log_out" "asked for" "ask-grownup: logs the request when there's nothing to run"
 
+echo
+
+# =========================================================================
+# static: systemd/omarchy-kids-time-ledger.{service} and omarchy-kids-time.timer
+#
+# tick reads every known kid's own $XDG_RUNTIME_DIR (lib/data.sh's
+# data_fold_launches) as well as writing under /var/lib/omarchy-kids
+# and /run/omarchy-kids -- ProtectHome=yes would hide /run/user/* from
+# the unit (systemd's own docs), which is exactly where that runtime
+# log lives, so it must stay unset; the two write targets still need
+# to be explicit ReadWritePaths under ProtectSystem=strict.
+# =========================================================================
+
+SERVICE="$DIR/systemd/omarchy-kids-time-ledger.service"
+TIMER="$DIR/systemd/omarchy-kids-time.timer"
+
+if [[ -f "$SERVICE" ]]; then
+  pass "omarchy-kids-time-ledger.service exists"
+  grep -qE '^\[Service\]' "$SERVICE" && pass "service: has [Service]" || fail_ "service: missing [Service]"
+  grep -qE '^Type=oneshot' "$SERVICE" && pass "service: Type=oneshot" || fail_ "service: missing Type=oneshot"
+  grep -qE '^ExecStart=.*omarchy-kids-time-ledger tick' "$SERVICE" \
+    && pass "service: ExecStart runs 'omarchy-kids-time-ledger tick'" \
+    || fail_ "service: ExecStart does not run time-ledger tick"
+  grep -qE '^ProtectHome=yes' "$SERVICE" \
+    && fail_ "service: ProtectHome=yes would hide /run/user/* -- the runtime launches log tick folds lives there" \
+    || pass "service: ProtectHome=yes is not set (so /run/user/<uid> stays visible to the fold step)"
+  grep -qE '^ReadWritePaths=.*\bvar/lib/omarchy-kids\b' "$SERVICE" \
+    && pass "service: ReadWritePaths includes /var/lib/omarchy-kids" \
+    || fail_ "service: ReadWritePaths missing /var/lib/omarchy-kids"
+  grep -qE '^ReadWritePaths=.*\brun/omarchy-kids\b' "$SERVICE" \
+    && pass "service: ReadWritePaths includes /run/omarchy-kids" \
+    || fail_ "service: ReadWritePaths missing /run/omarchy-kids"
+else
+  fail_ "$SERVICE not found"
+fi
+
+if [[ -f "$TIMER" ]]; then
+  pass "omarchy-kids-time.timer exists"
+  grep -qE '^\[Timer\]' "$TIMER" && pass "timer: has [Timer]" || fail_ "timer: missing [Timer]"
+  grep -qE '^Unit=omarchy-kids-time-ledger\.service' "$TIMER" \
+    && pass "timer: points at omarchy-kids-time-ledger.service" \
+    || fail_ "timer: missing/wrong Unit="
+  grep -qE '^\[Install\]' "$TIMER" && pass "timer: has [Install]" || fail_ "timer: missing [Install]"
+  grep -qE '^WantedBy=timers\.target' "$TIMER" && pass "timer: WantedBy=timers.target" || fail_ "timer: missing WantedBy=timers.target"
+else
+  fail_ "$TIMER not found"
+fi
+
+if command -v systemd-analyze >/dev/null 2>&1; then
+  if systemd-analyze verify "$SERVICE" "$TIMER" >/dev/null 2>&1; then
+    pass "systemd-analyze verify: service + timer are syntactically valid"
+  else
+    fail_ "systemd-analyze verify: service or timer failed verification"
+  fi
+else
+  pass "systemd-analyze not available here -- static [Section]/key checks above stand in for it"
+fi
+
 echo "time-test RESULT: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"
 exit $fail

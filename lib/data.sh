@@ -12,10 +12,14 @@
 #   launches.log        one "<timestamp> <app id>" line per Level 1
 #                        tile launch (R-DATA-1's "app launches"). Root-
 #                        owned, append-only in normal operation.
-#   launches.offset      a plain integer byte count: how much of the
-#                        kid's own *runtime* launches log (below) has
-#                        already been folded into launches.log. Root
-#                        housekeeping, not itself recorded data.
+#   launches.offset      "<inode> <byte-offset>" of the kid's own
+#                        *runtime* launches log (below): how much of it
+#                        has already been folded into launches.log, and
+#                        which incarnation of that path the offset was
+#                        measured against (a fresh login gets a fresh
+#                        $XDG_RUNTIME_DIR tmpfs at the same path -- a
+#                        new inode). Root housekeeping, not itself
+#                        recorded data.
 #
 # The trust boundary is the same shape lib/time.sh's own header
 # describes for screen-time minutes, one level up: a kid's own Level 1
@@ -110,30 +114,68 @@ data_write_int() {
     mv "$tmp" "$file"
 }
 
+# data_stat_inode FILE — FILE's inode number, BSD stat first then GNU
+# (same fallback order as bin/omarchy-kids-check's stat_group). Empty
+# if FILE doesn't exist.
+data_stat_inode() {
+    stat -f '%i' "$1" 2>/dev/null || stat -c '%i' "$1" 2>/dev/null
+}
+
+# data_read_offset FILE — "<inode> <byte-offset>" last recorded for the
+# runtime log FILE tracks, one line so a fold can never end up with one
+# updated and not the other. Both read as 0 if FILE is missing, empty,
+# or (an upgrade from before this pairing existed) just a bare byte
+# count -- 0 never matches a real inode, so that reads as "unknown
+# file", the same as a fresh login would.
+data_read_offset() {
+    local file="$1" inode off
+    read -r inode off <"$file" 2>/dev/null
+    [[ "$inode" =~ ^[0-9]+$ ]] || inode=0
+    [[ "$off" =~ ^[0-9]+$ ]] || off=0
+    printf '%s %s\n' "$inode" "$off"
+}
+
+# data_write_offset FILE INODE OFFSET — same atomic-write shape as
+# data_write_int.
+data_write_offset() {
+    local file="$1" inode="$2" off="$3" dir tmp
+    dir="$(dirname "$file")"
+    [[ -d "$dir" ]] || install -d -m 0755 "$dir"
+    tmp="$(mktemp "${file}.XXXXXX")"
+    printf '%s %s\n' "$inode" "$off" >"$tmp"
+    chmod 0644 "$tmp"
+    mv "$tmp" "$file"
+}
+
 # data_fold_launches KID — root-only (see header): appends whatever is
 # new in KID's own runtime launches log onto their root-owned
-# launches.log, then remembers how far it got. A missing runtime file
-# (no session yet, or a session that never opened a Level 1 tile) is
-# not an error, just nothing to fold. If the runtime file is smaller
-# than the last recorded offset, it must be a fresh one — a new login
-# gets a fresh $XDG_RUNTIME_DIR tmpfs — so fold from the start again
-# instead of treating that as corruption.
+# launches.log, then remembers how far it got, keyed to that file's
+# inode as well as its byte offset. A missing runtime file (no session
+# yet, or a session that never opened a Level 1 tile) is not an error,
+# just nothing to fold. A new login gets a fresh $XDG_RUNTIME_DIR tmpfs
+# at the same path -- a different inode, one telltale a size check
+# alone can miss if the new file happens to grow past the old offset
+# before the next tick runs -- so either that or a file now shorter
+# than what was already folded means "this is a new file", and folding
+# starts over from byte 0 instead of skipping or erroring.
 data_fold_launches() {
-    local kid="$1" src dest offfile off size dir
+    local kid="$1" src dest offfile off size dir inode saved_inode
     src="$(data_runtime_launches_file "$kid")" || return 0
     [[ -r "$src" ]] || return 0
     dest="$(data_launches_file "$kid")"
     offfile="$(data_launches_offset_file "$kid")"
-    off="$(data_read_int "$offfile")"
+    inode="$(data_stat_inode "$src")"; [[ "$inode" =~ ^[0-9]+$ ]] || inode=0
+    read -r saved_inode off <<<"$(data_read_offset "$offfile")"
     size="$(wc -c <"$src" 2>/dev/null | tr -d '[:space:]')"
     [[ "$size" =~ ^[0-9]+$ ]] || size=0
-    (( off > size )) && off=0
-    (( size <= off )) && return 0
-    dir="$(dirname "$dest")"
-    [[ -d "$dir" ]] || install -d -m 0755 "$dir"
-    [[ -e "$dest" ]] || { : >"$dest"; chmod 0644 "$dest"; }
-    tail -c "+$((off + 1))" "$src" >>"$dest"
-    data_write_int "$offfile" "$size"
+    { [[ "$inode" != "$saved_inode" ]] || (( off > size )); } && off=0
+    if (( size > off )); then
+        dir="$(dirname "$dest")"
+        [[ -d "$dir" ]] || install -d -m 0755 "$dir"
+        [[ -e "$dest" ]] || { : >"$dest"; chmod 0644 "$dest"; }
+        tail -c "+$((off + 1))" "$src" >>"$dest"
+    fi
+    data_write_offset "$offfile" "$inode" "$size"
 }
 
 # data_history_visible KID CONF_BIN — "yes"/"no" (Appendix B's

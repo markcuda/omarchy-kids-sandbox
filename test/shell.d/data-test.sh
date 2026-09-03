@@ -200,6 +200,22 @@ OMARCHY_KIDS_NOW="2026-09-02 10:01:00" "$LEDGER" tick >/dev/null
 check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "4" "tick: a fresh (shrunk) runtime file after a new login still folds"
 check_contains "$(cat "$ROOT_LOG")" "kanagram" "tick: the post-relogin launch made it in"
 
+# A re-login's fresh runtime file is not guaranteed to be *smaller* --
+# a kid who launches several tiles fast enough could recreate one at
+# least as big as the old offset before the next tick runs. Recreate
+# the path outright (rm, not truncate: a real new login gets a new
+# tmpfs file, a new inode at the same path) with content that starts
+# past the old byte offset, so a size-only check would wrongly treat
+# it as "nothing new before this point" and silently drop the start of
+# the new session's own log.
+rm -f "$RUNTIME_LOG"
+OMARCHY_KIDS_NOW="2026-09-02 11:00:00" "$LAUNCHER_CTL" log supertuxkart
+OMARCHY_KIDS_NOW="2026-09-02 11:01:00" "$LAUNCHER_CTL" log gcompris
+OMARCHY_KIDS_NOW="2026-09-02 11:02:00" "$LEDGER" tick >/dev/null
+check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "6" "tick: a same-path re-login (new inode, not smaller) still folds from its own start"
+check_contains "$(cat "$ROOT_LOG")" "11:00:00 supertuxkart" "tick: the new session's first line is whole, not sliced off by the old offset"
+check_contains "$(cat "$ROOT_LOG")" "11:01:00 gcompris" "tick: the new session's second line made it in too"
+
 echo
 
 # =========================================================================
@@ -352,7 +368,7 @@ out="$(OMARCHY_KIDS_NOW="$NOW" "$DATA" retention)"
 check_contains "$out" "2024-01-01" "retention (dry-run): names the stale usage day"
 check_contains "$out" "launches.log" "retention (dry-run): names the launches log it would rewrite"
 check_file "$USAGE_DIR/2024-01-01" "retention (dry-run): nothing was actually removed"
-check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "5" "retention (dry-run): launches.log untouched"
+check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "7" "retention (dry-run): launches.log untouched"
 nreq=0; for f in "$QUEUE_DIR"/*.json; do [[ -e "$f" ]] && nreq=$((nreq + 1)); done
 check "$nreq" "2" "retention (dry-run): queue untouched"
 

@@ -75,9 +75,15 @@ cat > "$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada Lovelace
 avatar=fox
 band=6-8
+theme=tokyo-night
 password=set
 onboarded=no
 EOF
+
+# issue #53: a scratch system themes dir for theme_apply_for's own copy.
+OMARCHY_PATH="$TMP/omarchy"
+mkdir -p "$OMARCHY_PATH/themes/tokyo-night"
+echo 'background = "#1a1b26"' > "$OMARCHY_PATH/themes/tokyo-night/colors.toml"
 
 cp "$ROOT_DIR"/share/hyprland/*.lua "$SHARE/hyprland/"
 cp "$ROOT_DIR"/share/avatars/*.svg "$SHARE/avatars/"
@@ -95,7 +101,8 @@ stub() {
 EOF
     [[ -n "$extra" ]] && printf '%s\n' "$extra" >> "$f"
     echo 'exit 0' >> "$f"
-    sed -i.bak -e "s#__NAME__#$name#g" -e "s#__ARGVLOG__#$ARGV_LOG#g" -e "s#__LOG__#$LOG#g" "$f"
+    sed -i.bak -e "s#__NAME__#$name#g" -e "s#__ARGVLOG__#$ARGV_LOG#g" -e "s#__LOG__#$LOG#g" \
+        -e "s#__HOMEROOT__#$HOMEROOT#g" "$f"
     rm -f "$f.bak"
     chmod +x "$f"
 }
@@ -157,13 +164,17 @@ esac
 # account with no GECOS set at all. This box has no real "kid-ada" user
 # account to ask (AGENTS.md rule 8: nothing here is ever a real
 # system), so this is the entire NSS lookup for the gecos lock's check
-# side.
+# side. The home field (6th) is __HOMEROOT__-prefixed, matching this
+# suite's own OMARCHY_KIDS_HOME_ROOT scratch layout -- lib/theme.sh's
+# theme_account_home (issue #53) prefers this real-shaped lookup over
+# its own OMARCHY_KIDS_HOME_ROOT fallback, the same as a real getent
+# would on an actual machine.
 # shellcheck disable=SC2016
 stub getent '
 if [[ "$1" == "passwd" ]]; then
     acct="$2"
     gecos="$(cat "__LOG__/gecos/$acct" 2>/dev/null || true)"
-    printf "%s:x:1000:1000:%s:/home/%s:/bin/bash\n" "$acct" "$gecos" "$acct"
+    printf "%s:x:1000:1000:%s:__HOMEROOT__/home/%s:/bin/bash\n" "$acct" "$gecos" "$acct"
     exit 0
 fi
 exit 1
@@ -230,6 +241,7 @@ export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$SCRATCH_ROOT"
 export OMARCHY_KIDS_HOME_ROOT="$HOMEROOT"
+export OMARCHY_PATH
 
 # --- seed every lock as "already provisioned", using lib/posture.sh's
 #     own writers directly (never omarchy-kids-provision: this test is
@@ -310,6 +322,11 @@ posture_ensure_parent_unlock_line omarchy-lock-password
 mkdir -p "$HOMEROOT/home/kid-ada"
 touch "$LOG/mounted-kid-ada"
 
+# theme (issue #53): kid-ada's own current theme already matches the
+# profile's theme=tokyo-night, via the same theme_apply_for the lock
+# itself uses to fix drift, so the first "all ok" run below is really ok.
+theme_apply_for kid-ada tokyo-night
+
 # groups: already a member of both
 echo "kid-ada omarchy-kids omarchy-kids-6-8" > "$LOG/groups/kid-ada"
 
@@ -365,7 +382,7 @@ echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" > "$LOG/lsinitcpio-output"
 out="$("$BIN")"; st=$?
 check_eq "$st" 0 "a fully-provisioned, untouched tree exits 0"
 for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
-    "accountsservice:kid-ada" "gecos:kid-ada" "face:kid-ada" "groups:kid-ada" "polkit-admin" "polkit-deny" \
+    "accountsservice:kid-ada" "gecos:kid-ada" "face:kid-ada" "groups:kid-ada" "theme:kid-ada" "polkit-admin" "polkit-deny" \
     "sddm-theme" "portal-conf" \
     "pam:sddm" "pam:systemd-user" "pam:sddm-autologin" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
     "getty:tty2" "getty:tty3" "getty:tty4" \
@@ -441,6 +458,27 @@ check_contains "$(cat "$ARGV_LOG")" "usermod -aG omarchy-kids-6-8 kid-ada" \
     "groups: usermod -aG was called with only the missing group"
 check_contains "$(cat "$LOG/groups/kid-ada")" "omarchy-kids-6-8" "groups: kid-ada is back in the band group"
 : > "$ARGV_LOG"
+
+# theme (issue #53): kid-ada's own theme drifts to a different one (as if
+# they deleted/replaced .../current/theme themselves -- they own the
+# containing directory, lib/theme.sh's theme_apply_for header has why).
+KID_THEME_NAME_FILE="$HOMEROOT/home/kid-ada/.local/state/omarchy/current/theme.name"
+echo "some-other-theme" > "$KID_THEME_NAME_FILE"
+out="$("$BIN")"
+only_this_lock_changed "$out" "theme:kid-ada" "theme"
+check_eq "$(cat "$KID_THEME_NAME_FILE" 2>/dev/null)" "tokyo-night" "theme: kid-ada's theme.name is back to the profile's theme"
+check_eq "$(cat "$HOMEROOT/home/kid-ada/.local/state/omarchy/current/theme/colors.toml" 2>/dev/null)" \
+    "$(cat "$OMARCHY_PATH/themes/tokyo-night/colors.toml")" \
+    "theme: kid-ada's colors.toml is back to tokyo-night's own"
+
+# theme: no override at all is "ok" (nothing to fix) -- a profile written
+# before issue #53, or a parent with no theme to copy at provision time.
+sed -i.bak '/^theme=/d' "$ETC/kids/kid-ada.conf"; rm -f "$ETC/kids/kid-ada.conf.bak"
+out="$("$BIN")"
+check_status "$out" "theme:kid-ada" "ok" "theme: no override at all reports ok, not FAIL or a fix"
+# restore for the rest of this file's own idempotence checks below
+printf 'theme=tokyo-night\n' >> "$ETC/kids/kid-ada.conf"
+theme_apply_for kid-ada tokyo-night
 
 # polkit admin
 ADMIN_RULE="$SCRATCH_ROOT/etc/polkit-1/rules.d/40-omarchy-kids.rules"

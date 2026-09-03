@@ -1,8 +1,9 @@
 # shellcheck shell=bash
 # lib/provision-add.sh — omarchy-kids-provision's "add" subcommand: the
-# Unix account, profile, every posture write, the LUKS slot, and the
-# portal/theme.conf.user rebuild. Sourced by the dispatcher; not meant
-# to be executed directly.
+# Unix account, profile, every posture write, the LUKS slot, the
+# portal/theme.conf.user rebuild, and matching the kid's own desktop
+# theme to the parent's current one (issue #53, docs/theming.md).
+# Sourced by the dispatcher; not meant to be executed directly.
 
 cmd_add() {
     local display="" band="" avatar="fox"
@@ -208,6 +209,28 @@ cmd_add() {
     # setup just left in this fresh home with Kids Mode's own copy, minus
     # the extension-loading flag the kids policy always refuses.
     run install_kids_chromium_flags "$account"
+
+    # R-DESK, issue #53: the kid's own desktop should already look like
+    # the house look at first login (docs/theming.md's "Verified live"
+    # section: before this, every Kids Mode surface but the portal/
+    # wizard/bar stayed on Omarchy's stock theme, since a fresh account's
+    # own .../current/theme is whatever omarchy-provision-user left).
+    # theme_current_name (lib/theme.sh) reads the parent's own
+    # .../current/theme.name, with THEME_KIDS_HOME pointed at the
+    # parent's own $HOME via posture_parent_home -- the same lookup the
+    # portal writer above already uses. "$CONF" set is the one writer for
+    # this: its own cmd_set applies the theme to disk as root and
+    # best-effort reloads a live session (lib/theme.sh's theme_apply_for/
+    # theme_reload_if_live), the exact path a parent picking a different
+    # theme later in the wizard/panel goes through too -- nothing here
+    # touches theme files directly.
+    local parent_theme=""
+    parent_theme="$(THEME_KIDS_HOME="$(posture_parent_home "$parent")" theme_current_name)"
+    if [[ -n "$parent_theme" ]]; then
+        run "$CONF" set "$account" theme "$parent_theme"
+    else
+        echo "warning: parent '$parent' has no current Omarchy theme yet (never ran 'omarchy theme set'); $account keeps the desktop's stock theme" >&2
+    fi
 
     echo "Done: $account"
 }

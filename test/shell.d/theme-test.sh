@@ -23,6 +23,9 @@ rc=0
 check_eq() { # got want label
     if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
 }
+check_contains() { # haystack needle label
+    if [[ "$1" == *"$2"* ]]; then pass "$3"; else fail "$3 (want to find '$2' in '$1')"; fi
+}
 
 TMP="$(mktemp -d)"
 # shellcheck disable=SC2329 # invoked via `trap ... EXIT`, not called directly
@@ -279,6 +282,140 @@ check_eq "$(wc -l <"$TMP/broken.err" | tr -d ' ')" "1" \
 check_eq "$(cat "$TMP/broken.err")" \
     "theme_color: omarchy-theme-color is missing or failed here — using the fallback palette (docs/theming.md)" \
     "theme_color: the one log line explains what happened and where to read more"
+
+# --- issue #53: theme_account_home, theme_current_name --------------------
+
+check_eq "$(
+    (
+        unset OMARCHY_KIDS_HOME_ROOT
+        # shellcheck source=/dev/null
+        source "$THEME_LIB"
+        theme_account_home nosuchaccountxyz
+    )
+)" "/home/nosuchaccountxyz" \
+    "theme_account_home: falls back to /home/<account> for an unknown account"
+
+check_eq "$(
+    (
+        OMARCHY_KIDS_HOME_ROOT="$TMP/scratchroot"
+        export OMARCHY_KIDS_HOME_ROOT
+        # shellcheck source=/dev/null
+        source "$THEME_LIB"
+        theme_account_home kid-ada
+    )
+)" "$TMP/scratchroot/home/kid-ada" \
+    "theme_account_home: OMARCHY_KIDS_HOME_ROOT prefixes the fallback path"
+
+echo tokyo-night > "$FIXTURE_HOME/.local/state/omarchy/current/theme.name"
+check_eq "$(
+    (
+        THEME_KIDS_HOME="$FIXTURE_HOME"
+        export THEME_KIDS_HOME
+        # shellcheck source=/dev/null
+        source "$THEME_LIB"
+        theme_current_name
+    )
+)" "tokyo-night" "theme_current_name: reads .../current/theme.name beside theme_dir"
+
+check_eq "$(
+    (
+        THEME_KIDS_HOME="$TMP/no-such-home"
+        export THEME_KIDS_HOME
+        # shellcheck source=/dev/null
+        source "$THEME_LIB"
+        theme_current_name
+    )
+)" "" "theme_current_name: empty (not an error) with no theme.name at all"
+
+# --- issue #53: theme_list_installed, theme_apply_for, theme_reload_if_live -
+
+OMARCHY_SHARE="$TMP/omarchy-share"
+mkdir -p "$OMARCHY_SHARE/themes/tokyo-night" "$OMARCHY_SHARE/themes/catppuccin-latte"
+cat > "$OMARCHY_SHARE/themes/tokyo-night/colors.toml" <<'EOF'
+background = "#1a1b26"
+foreground = "#c0caf5"
+EOF
+mkdir -p "$OMARCHY_SHARE/themes/tokyo-night/backgrounds"
+: > "$OMARCHY_SHARE/themes/tokyo-night/backgrounds/bg1.png"
+cat > "$OMARCHY_SHARE/themes/catppuccin-latte/colors.toml" <<'EOF'
+background = "#eff1f5"
+foreground = "#4c4f69"
+EOF
+
+check_eq "$(
+    (
+        OMARCHY_PATH="$OMARCHY_SHARE"
+        export OMARCHY_PATH
+        # shellcheck source=/dev/null
+        source "$THEME_LIB"
+        theme_list_installed
+    )
+)" "$(printf 'catppuccin-latte\ntokyo-night')" \
+    "theme_list_installed: every theme under \$OMARCHY_PATH/themes, sorted"
+
+check_eq "$(
+    (
+        OMARCHY_PATH="$TMP/no-such-omarchy-path"
+        export OMARCHY_PATH
+        # shellcheck source=/dev/null
+        source "$THEME_LIB"
+        theme_list_installed
+    )
+)" "" "theme_list_installed: empty, not an error, with no themes dir at all"
+
+APPLY_HOME_ROOT="$TMP/apply-homeroot"
+mkdir -p "$APPLY_HOME_ROOT/home/kid-ada"
+(
+    OMARCHY_PATH="$OMARCHY_SHARE"
+    OMARCHY_KIDS_HOME_ROOT="$APPLY_HOME_ROOT"
+    export OMARCHY_PATH OMARCHY_KIDS_HOME_ROOT
+    # shellcheck source=/dev/null
+    source "$THEME_LIB"
+    theme_apply_for kid-ada tokyo-night
+)
+apply_rc=$?
+check_eq "$apply_rc" "0" "theme_apply_for: exits 0 for a real theme"
+
+KID_THEME_DIR="$APPLY_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme"
+check_eq "$(cat "$KID_THEME_DIR/colors.toml" 2>/dev/null)" "$(cat "$OMARCHY_SHARE/themes/tokyo-night/colors.toml")" \
+    "theme_apply_for: colors.toml copied verbatim from the system theme"
+[[ -f "$KID_THEME_DIR/backgrounds/bg1.png" ]] && pass "theme_apply_for: copies the whole theme tree, not just colors.toml" \
+    || fail "theme_apply_for: backgrounds/ was not copied"
+check_eq "$(cat "$APPLY_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme.name" 2>/dev/null)" "tokyo-night" \
+    "theme_apply_for: writes theme.name beside the theme directory"
+
+mode="$(stat -f '%Lp' "$KID_THEME_DIR/colors.toml" 2>/dev/null || stat -c '%a' "$KID_THEME_DIR/colors.toml" 2>/dev/null)"
+check_eq "$mode" "644" "theme_apply_for: theme files are mode 0644"
+
+out="$(
+    (
+        OMARCHY_PATH="$OMARCHY_SHARE"
+        OMARCHY_KIDS_HOME_ROOT="$APPLY_HOME_ROOT"
+        export OMARCHY_PATH OMARCHY_KIDS_HOME_ROOT
+        # shellcheck source=/dev/null
+        source "$THEME_LIB"
+        theme_apply_for kid-ada no-such-theme
+    ) 2>&1
+)"
+apply_bad_rc=$?
+check_eq "$apply_bad_rc" "1" "theme_apply_for: exits 1 for an unknown theme name"
+check_contains "$out" "no such theme 'no-such-theme'" "theme_apply_for: names the missing theme in its error"
+
+# theme_reload_if_live: no live session for this account (no real Hyprland
+# process owned by it in this test environment) is a no-op with one line,
+# never a failure.
+out="$(
+    (
+        OMARCHY_KIDS_HOME_ROOT="$APPLY_HOME_ROOT"
+        export OMARCHY_KIDS_HOME_ROOT
+        # shellcheck source=/dev/null
+        source "$THEME_LIB"
+        theme_reload_if_live kid-ada
+    ) 2>&1
+)"
+reload_rc=$?
+check_eq "$reload_rc" "0" "theme_reload_if_live: exits 0 with no live session"
+check_contains "$out" "no live session for 'kid-ada'" "theme_reload_if_live: explains why it did nothing"
 
 echo "theme-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

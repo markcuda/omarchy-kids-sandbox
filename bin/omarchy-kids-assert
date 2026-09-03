@@ -12,6 +12,11 @@ LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/oma
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh
 source "$LIB/posture.sh"
+# lib/theme.sh's theme_current_name/theme_apply_for, for the "theme:<account>"
+# lock below (issue #53) -- also sourced transitively by lib/posture.sh,
+# named explicitly here since this file calls them directly.
+# shellcheck source=lib/theme.sh
+source "$LIB/theme.sh"
 # shellcheck source=lib/units.sh
 source "$LIB/units.sh"
 # shellcheck source=lib/kids.sh
@@ -35,13 +40,13 @@ Usage: omarchy-kids-assert [--quiet] [--dry-run]
 Re-asserts every Kids Mode lock for every provisioned kid, and every
 machine-level lock, idempotently (SPEC.md I-4, R-TRUST-5): fstab bind
 lines and noexec mounts, pam_namespace lines, the AccountsService pin,
-the passwd GECOS display name, the SDDM face icon, group membership, the
-polkit admin/deny rules, the SDDM portal theme selection and its
-theme.conf.user parent/avatar data (R-LOGIN, issue #39), pam_namespace on
-sddm and systemd-user, masked getty@tty2..6, the
-/etc/omarchy-kids/hyprland/*.lua copies, per-band Chromium policy file
-permissions, and the boot hook (R-BOOT-5). See docs/assert.md for the
-full lock list and exit codes.
+the passwd GECOS display name, the SDDM face icon, group membership, each
+kid's own current Omarchy theme (issue #53), the polkit admin/deny rules,
+the SDDM portal theme selection and its theme.conf.user parent/avatar data
+(R-LOGIN, issue #39), pam_namespace on sddm and systemd-user, masked
+getty@tty2..6, the /etc/omarchy-kids/hyprland/*.lua copies, per-band
+Chromium policy file permissions, and the boot hook (R-BOOT-5). See
+docs/assert.md for the full lock list and exit codes.
 
 Applies fixes for real by default -- this is the command the pacman hook
 and the boot unit call with no other flags, so it must self-heal without
@@ -148,6 +153,7 @@ main() {
         assert_one "gecos:$account" gecos_ok gecos_fix "$account" "$name"
         assert_one "face:$account" face_ok face_fix "$account" "$avatar"
         assert_one "groups:$account" groups_ok groups_fix "$account" "$band"
+        assert_one "theme:$account" theme_ok theme_fix "$account"
     done
 
     assert_one "polkit-admin" polkit_admin_ok polkit_admin_fix

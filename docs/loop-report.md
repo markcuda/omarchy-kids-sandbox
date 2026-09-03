@@ -41,7 +41,9 @@ Each command's doc has a "Verified live" section with the exact evidence. In one
 Mark asked for DHH-grade code, Omarchy's own conventions and per-theme styling, and UX work
 from screenshots. In progress: `docs/style.md` and the Conventions section in `AGENTS.md`
 (merged), the antagonistic review in `docs/reviews/` with its security fixes (#51), theme
-plumbing for every surface (#47), the structural refactor (#49) and the wizard's look (#50).
+plumbing for every surface (#47, merged and screenshot-verified), the starter packs audited and
+installed for real (#52), the structural refactor (#49), the wizard's look (#50), the launcher
+layout with icons (#54) and kids inheriting the parent's theme (#53).
 
 ## What is open
 

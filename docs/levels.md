@@ -237,3 +237,6 @@ above).
 
 With ten tiles drawn five per row, eight Right presses from the first tile highlighted Web and
 Enter launched Chromium (issue #43's column-count fix, `share/launcher/gridnav.js`).
+Same night, with the 6-8 pack installed: Enter on the GCompris tile launched it fullscreen in
+the kid's session (Hyprland reported the client fullscreen; the launch was logged), the first
+real app run through Kids Mode.

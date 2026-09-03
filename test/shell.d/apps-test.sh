@@ -148,7 +148,6 @@ check_status "$?" 2 "list: an unknown band/kid is refused"
 check "$(env -u HOME "$APPS" allowlist kid-ada 2>&1)" "$("$APPS" allowlist kid-ada)" \
   "allowlist: same answer with HOME unset (the boot-time assert runs that way)"
 
-
 check "$("$APPS" allowlist kid-ada)" \
   "gcompris,tuxpaint,ktuberling,blinken,supertux,supertuxkart,klettres,kanagram" \
   "allowlist: no overrides -> the full 6-8 pack, in pack order"

@@ -24,7 +24,7 @@ posture_pam_dir() { printf '%s/etc/pam.d' "$(posture_root)"; }
 posture_fstab() { printf '%s/etc/fstab' "$(posture_root)"; }
 posture_accountsservice_dir() { printf '%s/var/lib/AccountsService/users' "$(posture_root)"; }
 posture_sddm_conf_dir() { printf '%s/etc/sddm.conf.d' "$(posture_root)"; }
-posture_sddm_service_dropin_dir() { printf '%s/etc/systemd/system/sddm.service.d' "$(posture_root)"; }
+posture_sddm_theme_dir() { printf '%s/usr/share/sddm/themes/omarchy-kids' "$(posture_root)"; }
 
 # posture_install_if_changed FILE CONTENT [MODE] — writes CONTENT (plus a
 # trailing newline) to FILE via a same-directory temp file and rename, but
@@ -377,6 +377,71 @@ posture_remove_accountsservice() {
     rm -f "$(posture_accountsservice_dir)/$account"
 }
 
+# --- SDDM face icons (issue #39, live VM finding) --------------------------
+#
+# AccountsService's own Icon= key (posture_accountsservice_text above) is
+# NOT what SDDM's UserModel actually reads for the "icon" role on this
+# stack. UserModel's constructor (sddm/sddm's src/greeter/UserModel.cpp,
+# fetched 2026-09, confirmed by reading it directly) checks, in this
+# order: "<home>/.face.icon" first, then the literal path
+# "/var/lib/AccountsService/icons/<account>" (a cache file the real
+# accountsd daemon populates itself via its own D-Bus SetIconFile method
+# -- nothing in this repo ever calls that method, so this file is never
+# created here and its existence check always fails), then
+# "<FacesDir>/<account>.face.icon" (FacesDir defaults to
+# /usr/share/sddm/faces -- /usr/lib/sddm/sddm.conf.d/default.conf line
+# 58). The third path is the one that actually has to exist on disk for
+# an avatar to render on this stack; posture_accountsservice_text's own
+# Icon= line is kept as-is (it may still matter to a D-Bus-backed
+# AccountsService client elsewhere, and removing a working write is
+# needless churn), it just isn't what SDDM itself reads.
+#
+# Copied, not symlinked, and never under the kid's own home: "~/.face.icon"
+# is the *first* path UserModel checks, ahead of this one, and the kid's
+# home must stay untrusted (I-3) -- writing there would also hand the kid
+# a way to swap their own avatar file for something else read by root's
+# greeter process. Copying instead of pointing straight at
+# share/avatars/<avatar>.svg keeps this file's content independent of
+# wherever the package happens to install avatars, matching
+# posture_accountsservice_text's own reasoning for using a fixed,
+# real path rather than a scratch one for the *destination* -- the
+# *source* is still caller-supplied here (unlike the Icon= line's plain
+# string) because copying needs a real, readable file to copy from, and
+# the real command (omarchy-kids-provision) and its tests use different
+# real/scratch source directories (OMARCHY_KIDS_SHARE) the way
+# omarchy-kids-assert's hyprland-configs lock already does for
+# share/hyprland/*.lua.
+posture_sddm_faces_dir() { printf '%s/usr/share/sddm/faces' "$(posture_root)"; }
+
+# posture_write_face_icon SRC ACCOUNT — SRC is the avatar SVG's full
+# source path (the caller resolves which avatar and which directory
+# avatars live in). Copied byte-for-byte (not routed through
+# posture_install_if_changed's text-content helper, which normalizes
+# trailing newlines -- this is meant to be an exact copy of an SVG file,
+# same atomic temp-file-then-rename shape every other writer here uses,
+# skipped entirely via `cmp -s` if the destination already matches, the
+# same idempotence check omarchy-kids-assert's own hyprland-configs lock
+# already uses for a directory of files).
+posture_write_face_icon() {
+    local src="$1" account="$2" file dir stage
+    if [[ ! -r "$src" ]]; then
+        echo "posture_write_face_icon: no such avatar file '$src'" >&2
+        return 1
+    fi
+    file="$(posture_sddm_faces_dir)/$account.face.icon"
+    dir="$(dirname "$file")"
+    install -d -m 0755 "$dir"
+    cmp -s "$src" "$file" 2>/dev/null && return 0
+    stage="$(mktemp "$dir/.$(basename "$file").XXXXXX")"
+    install -m 0644 "$src" "$stage"
+    mv -f "$stage" "$file"
+}
+
+# posture_remove_face_icon ACCOUNT — reverses posture_write_face_icon.
+posture_remove_face_icon() {
+    rm -f "$(posture_sddm_faces_dir)/$1.face.icon"
+}
+
 # --- SDDM theme selection (R-LOGIN, issue #14) -----------------------------
 
 # posture_sddm_theme_dropin_text — the whole content of
@@ -412,104 +477,85 @@ posture_remove_sddm_theme_dropin() {
     rm -f "$(posture_sddm_conf_dir)/zz-omarchy-kids-theme.conf"
 }
 
-# --- portal.json: parent detection + avatars for the greeter (issue #39) ---
+# --- theme.conf.user: parent detection + avatars for the greeter (issue #39) -
 #
 # V1's live VM run (docs/portal.md's "Verified live" section) found the
 # portal's tiles keying "who is the parent" off the "kid-" username prefix
 # broke as soon as the machine's *owner* was named "kid-vm" (a VM test
 # fixture, not a real child) -- the owner's own tile was misclassified as
-# a kid. /etc/omarchy-kids/portal.json is a theme-readable file so
-# Main.qml can decide parenthood from the profile registry instead
-# (docs/assert.md's own "never provisioned means nothing to assert"
-# framing applies here too: this file only ever lists kids actually
-# provisioned, from $OMARCHY_KIDS_ETC/kids/*.conf, and whoever
-# machine.conf's "parent=" names -- never a guess from account naming).
+# a kid.
 #
-# Root-owned 0644 (world-readable, like every other file lib/posture.sh
-# writes for the greeter to read) -- it holds names and avatar ids, none
-# of which is a secret, and SDDM's greeter runs as an unprivileged user
-# that needs to read it (see the "Reading portal.json" note in
-# docs/portal.md for exactly how Main.qml gets at it).
+# An earlier version of this fix wrote a separate portal.json and read it
+# from Main.qml with XMLHttpRequest on a file:// URL. Dropped: that read
+# needs QML_XHR_ALLOW_FILE_READ=1 in the greeter's own process
+# environment (Qt refuses local-file XHR reads otherwise), and the only
+# way found to set that was a systemd drop-in on sddm.service -- which
+# only takes effect after `systemctl restart sddm`, which on a live,
+# already-booted machine re-fires the owner's stock autologin. Not an
+# acceptable cost for a display-name/avatar polish fix.
+#
+# Used instead: SDDM's own theme config override mechanism.
+# `ThemeConfig::setTo()` (sddm/sddm's src/common/ThemeConfig.cpp, fetched
+# 2026-09, confirmed by reading it directly) loads `<path>` (the theme's
+# own theme.conf) into a QSettings, then loads a *second* QSettings from
+# `<path> + ".user"` and overwrites every key the second file sets
+# non-empty over the first's -- so `theme.conf.user`, right next to
+# `theme.conf` in the installed theme directory, is read automatically by
+# SDDM itself, with no XHR, no file:// URL, and no extra process
+# environment needed. Main.qml already reads every [General] key through
+# the existing "config" context property (theme.conf's own header
+# comment); "parent" and "kids" below are just two more keys in that
+# same property map.
+#
+# Written to $(posture_sddm_theme_dir)/theme.conf.user -- the *installed*
+# theme directory (PKGBUILD's package() copies share/sddm-theme/ there),
+# not this repo's own share/sddm-theme/theme.conf, which ships as a
+# read-only package file and must never be hand-edited at runtime (I-7).
+# Root-owned 0644, rewritten in full on every add/remove (never appended
+# to), same "recompute the whole thing" shape portal.json used and
+# luks-slots still uses: it holds names and avatar ids, none of which is
+# a secret, and SDDM's greeter runs as an unprivileged user that needs to
+# read it.
 
-# posture_portal_json_text PARENT [ENTRY...] — ENTRY is
-# "account<TAB>name<TAB>avatar" (a tab, not ':' -- a display name could
-# plausibly contain a colon; AGENTS.md rule 5's shell style forbids
-# assuming it can't contain a tab too, so callers are responsible for
-# never handing this a name with an embedded tab -- the wizard's own
-# name field, once it exists, is the one place that would need to
-# enforce that). Built with jq, already a hard PKGBUILD dependency
-# (bin/omarchy-kids-web, bin/omarchy-kids-session-start both already
-# shell out to it) rather than hand-rolled string concatenation, so a
-# display name with a quote or backslash in it can never produce
-# invalid JSON.
-posture_portal_json_text() {
-    local parent="$1" kids_json="{}" entry account name avatar
+# posture_portal_conf_text PARENT [ENTRY...] — ENTRY is
+# "account<TAB>name<TAB>avatar" (a tab, not ':' or ',' -- both are used
+# as separators in the "kids=" value below, so callers are responsible
+# for never handing this a name containing either; the wizard's own name
+# field, once it exists, is the one place that would need to enforce
+# that. A profile with such a name is theme-invisible -- not a crash --
+# until AGENTS.md rule 9's "kid-ada"-only fixture convention meets a
+# real wizard that has to actually sanitize this). Two [General] keys,
+# both plain strings QSettings needs no escaping for on the simple
+# alphanumeric+space names/avatars this repo's own fixtures and bands
+# ever produce:
+#   parent=<account>
+#   kids=<account>:<name>:<avatar>,<account>:<name>:<avatar>,...
+posture_portal_conf_text() {
+    local parent="$1" kids_field="" sep="" entry account name avatar
     shift
     for entry in "$@"; do
         IFS=$'\t' read -r account name avatar <<<"$entry"
-        kids_json="$(jq -n --argjson kids "$kids_json" --arg acct "$account" --arg name "$name" --arg avatar "$avatar" \
-            '$kids + {($acct): {name: $name, avatar: $avatar}}')"
+        kids_field="${kids_field}${sep}${account}:${name}:${avatar}"
+        sep=","
     done
-    jq -n --arg parent "$parent" --argjson kids "$kids_json" '{parent: $parent, kids: $kids}'
-}
-
-# posture_write_portal_json FILE PARENT [ENTRY...] — FILE is a full path
-# (like posture_write_luks_slots' FILE argument), not computed from
-# posture_root: portal.json lives under $OMARCHY_KIDS_ETC
-# (/etc/omarchy-kids/portal.json), alongside the kid profiles and
-# machine.conf it is derived from, not under the OMARCHY_KIDS_ROOT-scoped
-# paths (/etc/polkit-1, /etc/pam.d, ...) every other posture_* writer in
-# this file owns -- the caller (omarchy-kids-provision,
-# omarchy-kids-assert) already knows that path.
-posture_write_portal_json() {
-    local file="$1" parent="$2"
-    shift 2
-    posture_install_if_changed "$file" "$(posture_portal_json_text "$parent" "$@")" 0644
-}
-
-# --- SDDM greeter local-file XHR (issue #39, "reading portal.json") -------
-#
-# By default Qt's QML XMLHttpRequest refuses to read local files at all --
-# confirmed against Qt 6's own documentation (doc.qt.io/qt-6/qml-qtqml-
-# xmlhttprequest.html, fetched 2026-09): "By default, you cannot use the
-# XMLHttpRequest object to read files from your local file system,"
-# lifted only by setting QML_XHR_ALLOW_FILE_READ=1 in the process
-# environment. SDDM's own greeter source (sddm/sddm's
-# src/greeter/GreeterApp.cpp, fetched 2026-09) sets no such variable
-# itself -- grepped for `qputenv`/`setenv` there: only QT_QPA_PLATFORM is
-# ever *read*, nothing XHR-related is ever *set*. So without this,
-# Main.qml's portal.json read (see its own header comment) will silently
-# fail every time and the theme falls back to its old kid-<slug> prefix
-# heuristic -- not a hypothetical risk, an active one.
-#
-# This writes a systemd drop-in on sddm.service (never sddm.service
-# itself -- I-7: core untouched) exporting that variable, on the
-# assumption that systemd inherits a unit's own Environment= into every
-# process that unit's main PID subsequently forks/execs, which should
-# include the greeter helper sddm.service spawns. UNVERIFIED: nothing in
-# this checkout can confirm the greeter process actually inherits it
-# short of the real VM (docs/portal.md's test plan has the check); if it
-# doesn't, Main.qml's fallback heuristic is what actually runs in
-# practice, same as if this drop-in didn't exist at all.
-posture_sddm_xhr_dropin_text() {
-    cat <<'EOF'
-[Service]
-Environment=QML_XHR_ALLOW_FILE_READ=1
+    cat <<EOF
+[General]
+parent=$parent
+kids=$kids_field
 EOF
 }
 
-posture_write_sddm_xhr_dropin() {
+# posture_write_portal_conf PARENT [ENTRY...] — path is always
+# $(posture_sddm_theme_dir)/theme.conf.user (see the section header
+# above for why this isn't a caller-supplied FILE argument the way
+# portal.json's writer took one: this is the one installed theme
+# directory, not a scratch-overridable ETC path).
+posture_write_portal_conf() {
+    local parent="$1"
+    shift
     local file
-    file="$(posture_sddm_service_dropin_dir)/omarchy-kids-portal-xhr.conf"
-    posture_install_if_changed "$file" "$(posture_sddm_xhr_dropin_text)" 0644
-}
-
-# posture_remove_sddm_xhr_dropin — same shape and same "not called from
-# anywhere yet" status as posture_remove_sddm_theme_dropin just above:
-# machine-level (R-FND-6), left in place by "provision remove" until
-# Remove Kids Mode takes the whole package out.
-posture_remove_sddm_xhr_dropin() {
-    rm -f "$(posture_sddm_service_dropin_dir)/omarchy-kids-portal-xhr.conf"
+    file="$(posture_sddm_theme_dir)/theme.conf.user"
+    posture_install_if_changed "$file" "$(posture_portal_conf_text "$parent" "$@")" 0644
 }
 
 # --- luks-slots (R-SEC-4, and the "LUKS2 reuses slot numbers" finding) -----

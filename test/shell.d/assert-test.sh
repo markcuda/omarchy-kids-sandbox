@@ -63,7 +63,7 @@ STUBS="$TMP/stubs"
 LOG="$TMP/log"
 ARGV_LOG="$LOG/argv.log"
 
-mkdir -p "$ETC/kids" "$SHARE/hyprland" "$SCRATCH_ROOT/usr/lib/pam.d" "$HOMEROOT" "$STUBS" "$LOG/groups" "$LOG/gecos"
+mkdir -p "$ETC/kids" "$SHARE/hyprland" "$SHARE/avatars" "$SCRATCH_ROOT/usr/lib/pam.d" "$HOMEROOT" "$STUBS" "$LOG/groups" "$LOG/gecos"
 printf 'account include system-login\nsession include system-login\n' > "$SCRATCH_ROOT/usr/lib/pam.d/systemd-user"
 touch "$ARGV_LOG"
 
@@ -80,6 +80,7 @@ onboarded=no
 EOF
 
 cp "$ROOT_DIR"/share/hyprland/*.lua "$SHARE/hyprland/"
+cp "$ROOT_DIR"/share/avatars/*.svg "$SHARE/avatars/"
 
 # --- stub PATH -----------------------------------------------------------
 
@@ -262,8 +263,8 @@ posture_write_polkit_admin_rule mark
 posture_write_polkit_deny_rule
 posture_write_sddm_theme_dropin
 posture_write_accountsservice kid-ada fox
-posture_write_sddm_xhr_dropin
-posture_write_portal_json "$ETC/portal.json" mark "$(printf 'kid-ada\tAda Lovelace\tfox')"
+posture_write_face_icon "$SHARE/avatars/fox.svg" kid-ada
+posture_write_portal_conf mark "$(printf 'kid-ada\tAda Lovelace\tfox')"
 printf '%s' 'Ada Lovelace' > "$LOG/gecos/kid-ada"
 posture_ensure_parent_unlock_line sddm
 posture_ensure_parent_unlock_line omarchy-lock-password
@@ -317,8 +318,8 @@ echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" > "$LOG/lsinitcpio-output"
 out="$("$BIN")"; st=$?
 check_eq "$st" 0 "a fully-provisioned, untouched tree exits 0"
 for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
-    "accountsservice:kid-ada" "gecos:kid-ada" "groups:kid-ada" "polkit-admin" "polkit-deny" \
-    "sddm-theme" "sddm-xhr" "portal-json" \
+    "accountsservice:kid-ada" "gecos:kid-ada" "face:kid-ada" "groups:kid-ada" "polkit-admin" "polkit-deny" \
+    "sddm-theme" "portal-conf" \
     "pam:sddm" "pam:systemd-user" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
     "getty:tty2" "getty:tty3" "getty:tty4" \
     "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook"; do
@@ -373,6 +374,17 @@ check_eq "$(cat "$LOG/gecos/kid-ada" 2>/dev/null)" "Ada Lovelace" "gecos: the di
 check_contains "$(cat "$ARGV_LOG")" "usermod -c Ada Lovelace kid-ada" "gecos: usermod -c was called with the profile's name"
 : > "$ARGV_LOG"
 
+# face (issue #39, live VM finding): the SDDM face icon file is deleted.
+FACE_ICON="$SCRATCH_ROOT/usr/share/sddm/faces/kid-ada.face.icon"
+rm -f "$FACE_ICON"
+out="$("$BIN")"
+only_this_lock_changed "$out" "face:kid-ada" "face"
+if [[ -f "$FACE_ICON" ]] && cmp -s "$SHARE/avatars/fox.svg" "$FACE_ICON"; then
+    pass "face: the icon file is back, matching the fox avatar"
+else
+    fail "face: the icon file was not restored"
+fi
+
 # groups
 echo "kid-ada omarchy-kids" > "$LOG/groups/kid-ada"  # band group missing
 out="$("$BIN")"
@@ -403,24 +415,15 @@ out="$("$BIN")"
 only_this_lock_changed "$out" "sddm-theme" "sddm-theme"
 check_contains "$(cat "$THEME_DROPIN" 2>/dev/null)" "Current=omarchy-kids" "sddm-theme: the drop-in is back"
 
-# sddm-xhr (issue #39)
-XHR_DROPIN="$SCRATCH_ROOT/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf"
-rm -f "$XHR_DROPIN"
+# portal-conf (issue #39): replaces the earlier portal.json + sddm.service
+# XHR drop-in design -- see lib/posture.sh's and Main.qml's own header
+# comments for why.
+PORTAL_CONF="$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
+rm -f "$PORTAL_CONF"
 out="$("$BIN")"
-only_this_lock_changed "$out" "sddm-xhr" "sddm-xhr"
-check_contains "$(cat "$XHR_DROPIN" 2>/dev/null)" "Environment=QML_XHR_ALLOW_FILE_READ=1" "sddm-xhr: the drop-in is back"
-
-# portal-json (issue #39)
-PORTAL_JSON="$ETC/portal.json"
-rm -f "$PORTAL_JSON"
-out="$("$BIN")"
-only_this_lock_changed "$out" "portal-json" "portal-json"
-if command -v jq >/dev/null 2>&1; then
-    check_eq "$(jq -r '.parent' "$PORTAL_JSON" 2>/dev/null)" "mark" "portal-json: the file is back, with the parent"
-    check_eq "$(jq -r '.kids["kid-ada"].name' "$PORTAL_JSON" 2>/dev/null)" "Ada Lovelace" "portal-json: kid-ada's entry is back"
-else
-    check_contains "$(cat "$PORTAL_JSON" 2>/dev/null)" "kid-ada" "portal-json: the file is back"
-fi
+only_this_lock_changed "$out" "portal-conf" "portal-conf"
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "parent=mark" "portal-conf: the file is back, with the parent"
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kid-ada:Ada Lovelace:fox" "portal-conf: kid-ada's entry is back"
 
 # pam:sddm
 #

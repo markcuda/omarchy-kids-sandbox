@@ -118,15 +118,24 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
         fail "Main.qml does not look up both omarchy-kids.desktop and omarchy.desktop"
     fi
 
-    # issue #39: parent detection from portal.json, never solely the
-    # "kid-" username prefix; display name and avatar fallbacks.
-    for needle in "portal.json" "XMLHttpRequest" "isParentAccount" "portalParent" "portalKids" "avatarSourceFor"; do
+    # issue #39: parent detection from theme.conf.user's config.parent/
+    # config.kids (SDDM's own ThemeConfig override, never XHR), never
+    # solely the "kid-" username prefix; display name and avatar fallbacks.
+    for needle in "config.parent" "config.kids" "parsePortalConfig" "isParentAccount" "portalParent" "portalKids" "avatarSourceFor"; do
         if grep -qF "$needle" "$MAIN_QML"; then
             pass "Main.qml references $needle"
         else
             fail "Main.qml missing a reference to $needle"
         fi
     done
+    # "new XMLHttpRequest" is the actual instantiation; the header
+    # comment's historical explanation of why that approach was dropped
+    # still mentions the word "XMLHttpRequest" in prose, which is fine.
+    if grep -qF "new XMLHttpRequest" "$MAIN_QML"; then
+        fail "Main.qml still instantiates XMLHttpRequest (dropped: needs QML_XHR_ALLOW_FILE_READ, see lib/posture.sh)"
+    else
+        pass "Main.qml no longer uses XMLHttpRequest for parent/kids data"
+    fi
     if grep -qF 'charAt(0).toUpperCase()' "$MAIN_QML"; then
         pass "Main.qml capitalizes the stripped-account-name display fallback"
     else
@@ -227,62 +236,75 @@ else
 fi
 unset OMARCHY_KIDS_ROOT
 
-# --- lib/posture.sh: the sddm.service XHR drop-in writer (issue #39) ------
+# --- lib/posture.sh: theme.conf.user (issue #39) ---------------------------
+# Replaces the earlier portal.json + sddm.service XHR drop-in design (see
+# Main.qml's and lib/posture.sh's own header comments for why: the drop-in
+# only took effect after `systemctl restart sddm`, which re-fires the
+# owner's stock autologin on an already-booted machine).
 
 OMARCHY_KIDS_ROOT="$TMP/root2"
 export OMARCHY_KIDS_ROOT
-posture_write_sddm_xhr_dropin
-XHR_DROPIN="$OMARCHY_KIDS_ROOT/etc/systemd/system/sddm.service.d/omarchy-kids-portal-xhr.conf"
-if [[ -f "$XHR_DROPIN" ]] && grep -qE '^\[Service\]$' "$XHR_DROPIN" && grep -qxF 'Environment=QML_XHR_ALLOW_FILE_READ=1' "$XHR_DROPIN"; then
-    pass "posture_write_sddm_xhr_dropin writes the QML_XHR_ALLOW_FILE_READ drop-in"
+posture_write_portal_conf mark \
+    "$(printf 'kid-ada\tAda Lovelace\tfox')" \
+    "$(printf 'kid-cy\tCy\towl')"
+PORTAL_CONF="$OMARCHY_KIDS_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
+if [[ -f "$PORTAL_CONF" ]]; then
+    pass "posture_write_portal_conf writes theme.conf.user"
+    check() { # got want label
+        if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
+    }
+    check "$(grep -c '^\[General\]$' "$PORTAL_CONF")" "1" "theme.conf.user: [General] section"
+    check "$(grep -c '^parent=mark$' "$PORTAL_CONF")" "1" "theme.conf.user: parent=mark"
+    check "$(grep -c '^kids=kid-ada:Ada Lovelace:fox,kid-cy:Cy:owl$' "$PORTAL_CONF")" "1" \
+        "theme.conf.user: kids= line has both kids in order"
+    mode="$(stat -f '%Lp' "$PORTAL_CONF" 2>/dev/null || stat -c '%a' "$PORTAL_CONF" 2>/dev/null)"
+    check "$mode" "644" "theme.conf.user: mode 0644"
+    # idempotence: a second write with the same content is a no-op
+    mtime1="$(stat -f '%m' "$PORTAL_CONF" 2>/dev/null || stat -c '%Y' "$PORTAL_CONF" 2>/dev/null)"
+    sleep 1
+    posture_write_portal_conf mark \
+        "$(printf 'kid-ada\tAda Lovelace\tfox')" \
+        "$(printf 'kid-cy\tCy\towl')"
+    mtime2="$(stat -f '%m' "$PORTAL_CONF" 2>/dev/null || stat -c '%Y' "$PORTAL_CONF" 2>/dev/null)"
+    check "$mtime2" "$mtime1" "posture_write_portal_conf is idempotent (no rewrite on unchanged content)"
 else
-    fail "posture_write_sddm_xhr_dropin did not write the expected drop-in"
-fi
-posture_remove_sddm_xhr_dropin
-if [[ ! -e "$XHR_DROPIN" ]]; then
-    pass "posture_remove_sddm_xhr_dropin removes the drop-in"
-else
-    fail "posture_remove_sddm_xhr_dropin left the drop-in in place"
+    fail "posture_write_portal_conf did not write $PORTAL_CONF"
 fi
 unset OMARCHY_KIDS_ROOT
 
-# --- lib/posture.sh: portal.json (issue #39) -------------------------------
+# --- lib/posture.sh: SDDM face icons (issue #39, live VM finding) ----------
+# SDDM's UserModel reads the avatar from <FacesDir>/<account>.face.icon,
+# not from AccountsService's Icon= key -- see lib/posture.sh's own header
+# comment on posture_write_face_icon for the UserModel.cpp citation.
 
-if ! command -v jq >/dev/null 2>&1; then
-    echo "SKIP portal.json checks: jq not found"
-elif ! command -v python3 >/dev/null 2>&1; then
-    echo "SKIP portal.json checks: python3 not found"
+OMARCHY_KIDS_ROOT="$TMP/root3"
+export OMARCHY_KIDS_ROOT
+FOX_SVG="$AVATARS_DIR/fox.svg"
+posture_write_face_icon "$FOX_SVG" kid-ada
+FACE_ICON="$OMARCHY_KIDS_ROOT/usr/share/sddm/faces/kid-ada.face.icon"
+if [[ -f "$FACE_ICON" ]] && cmp -s "$FOX_SVG" "$FACE_ICON"; then
+    pass "posture_write_face_icon copies the avatar SVG byte-for-byte"
 else
-    PORTAL_JSON="$TMP/portal.json"
-    posture_write_portal_json "$PORTAL_JSON" mark \
-        "$(printf 'kid-ada\tAda Lovelace\tfox')" \
-        "$(printf 'kid-cy\tCy\towl')"
-    if [[ -f "$PORTAL_JSON" ]]; then
-        pass "posture_write_portal_json writes the file"
-        check() { # got want label
-            if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
-        }
-        check "$(jq -e -r '.' "$PORTAL_JSON" >/dev/null 2>&1 && echo valid || echo invalid)" "valid" \
-            "portal.json is valid JSON"
-        check "$(jq -r '.parent' "$PORTAL_JSON")" "mark" "portal.json: parent"
-        check "$(jq -r '.kids["kid-ada"].name' "$PORTAL_JSON")" "Ada Lovelace" "portal.json: kids[kid-ada].name"
-        check "$(jq -r '.kids["kid-ada"].avatar' "$PORTAL_JSON")" "fox" "portal.json: kids[kid-ada].avatar"
-        check "$(jq -r '.kids["kid-cy"].name' "$PORTAL_JSON")" "Cy" "portal.json: kids[kid-cy].name"
-        check "$(jq -r '.kids | length' "$PORTAL_JSON")" "2" "portal.json: exactly two kids"
-        mode="$(stat -f '%Lp' "$PORTAL_JSON" 2>/dev/null || stat -c '%a' "$PORTAL_JSON" 2>/dev/null)"
-        check "$mode" "644" "portal.json: mode 0644"
-        # idempotence: a second write with the same content is a no-op
-        mtime1="$(stat -f '%m' "$PORTAL_JSON" 2>/dev/null || stat -c '%Y' "$PORTAL_JSON" 2>/dev/null)"
-        sleep 1
-        posture_write_portal_json "$PORTAL_JSON" mark \
-            "$(printf 'kid-ada\tAda Lovelace\tfox')" \
-            "$(printf 'kid-cy\tCy\towl')"
-        mtime2="$(stat -f '%m' "$PORTAL_JSON" 2>/dev/null || stat -c '%Y' "$PORTAL_JSON" 2>/dev/null)"
-        check "$mtime2" "$mtime1" "posture_write_portal_json is idempotent (no rewrite on unchanged content)"
-    else
-        fail "posture_write_portal_json did not write $PORTAL_JSON"
-    fi
+    fail "posture_write_face_icon did not write an exact copy to $FACE_ICON"
 fi
+mode="$(stat -f '%Lp' "$FACE_ICON" 2>/dev/null || stat -c '%a' "$FACE_ICON" 2>/dev/null)"
+if [[ "$mode" == "644" ]]; then
+    pass "posture_write_face_icon: mode 0644"
+else
+    fail "posture_write_face_icon: mode is $mode, want 644"
+fi
+posture_remove_face_icon kid-ada
+if [[ ! -e "$FACE_ICON" ]]; then
+    pass "posture_remove_face_icon removes the file"
+else
+    fail "posture_remove_face_icon left the file in place"
+fi
+if posture_write_face_icon "$TMP/no-such-avatar.svg" kid-ada 2>/dev/null; then
+    fail "posture_write_face_icon should fail on a missing source file"
+else
+    pass "posture_write_face_icon fails on a missing source file"
+fi
+unset OMARCHY_KIDS_ROOT
 
 echo "portal-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

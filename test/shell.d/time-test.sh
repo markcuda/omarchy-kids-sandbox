@@ -255,7 +255,7 @@ out="$("$TIME" status kid-ada)"
 check_contains "$out" "budget 60" "status: band 6-8's weekday default budget (60) with no override"
 check_contains "$out" "6 min used" "status: reflects today's ledger total (6, from the tick tests above)"
 check_contains "$out" "54 min left today" "status: 60 - 6 = 54 remaining"
-check_contains "$out" "next boundary: budget runs out at 10:54" "status: budget (54 min from 10:00) runs out well before lights-out (19:30)"
+check_contains "$out" "budget runs out at 10:54" "status: budget (54 min from 10:00) runs out well before lights-out (19:30)"
 
 "$CONF" set kid-ada budget_min 90 >/dev/null
 out="$("$TIME" status kid-ada)"
@@ -270,7 +270,7 @@ check_contains "$out" "budget 60" "status: weekend uses budget_min_weekend (band
 "$CONF" set kid-ada budget_min_weekend 30 >/dev/null
 out="$(OMARCHY_KIDS_NOW="2026-09-05 09:50:00" "$TIME" status kid-ada)"
 check_contains "$out" "budget 30" "status: budget_min_weekend override applies on a Saturday"
-check_contains "$out" "next boundary: budget runs out at 10:20" "status: next boundary picks the sooner of budget-out vs lights-out (budget wins here)"
+check_contains "$out" "budget runs out at 10:20" "status: next boundary picks the sooner of budget-out vs lights-out (budget wins here)"
 
 "$CONF" reset kid-ada >/dev/null
 
@@ -280,7 +280,7 @@ check_contains "$out" "next boundary: budget runs out at 10:20" "status: next bo
 "$LEDGER" tick >/dev/null  # bump used by one so remaining isn't a round number, just to be sure both paths compute independently
 "$TIME" grant kid-ada 500 >/dev/null
 out="$(OMARCHY_KIDS_NOW="2026-09-02 19:00:00" "$TIME" status kid-ada)"
-check_contains "$out" "next boundary: lights-out at 19:30" "status: lights-out wins when the budget would outlast it"
+check_contains "$out" "lights-out at 19:30" "status: lights-out wins when the budget would outlast it"
 
 echo
 

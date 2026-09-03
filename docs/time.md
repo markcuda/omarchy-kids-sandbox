@@ -84,7 +84,7 @@ the trade-off; nothing here tries to hide that.
 
 ```text
 omarchy-kids-time daemon           # started detached by omarchy-kids-session-start
-omarchy-kids-time status [<kid>]   # minutes used, left, and the next boundary
+omarchy-kids-time status [<kid>]   # minutes used, left, and when they run out
 omarchy-kids-time grant <kid> <n>  # root only: +n minutes to <kid>'s budget, today only
 ```text
 
@@ -93,7 +93,7 @@ omarchy-kids-time grant <kid> <n>  # root only: +n minutes to <kid>'s budget, to
 ```text
 $ omarchy-kids-time status kid-ada
 kid-ada: 23 min used, 37 min left today (budget 60)
-next boundary: lights-out at 19:30
+lights-out at 19:30
 ```text
 
 `grant` adds to a *separate* `usage/<day>.grant` file, never subtracted from `usage/<day>` itself
@@ -277,7 +277,7 @@ omarchy-kids-time-ledger.
                     at lights-out (R-TIME-4). Meant to be started
                     once, detached, from bin/omarchy-kids-session-start
                     -- not run twice in one session.
-  status [<kid>]    Minutes used, minutes left, and the next boundary
+  status [<kid>]    Minutes used, minutes left, and when they run out
                     (budget running out, or lights-out) for <kid>
                     (default: this account). Read-only; any account
                     can run this for any kid (the ledger files are

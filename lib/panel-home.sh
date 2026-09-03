@@ -53,7 +53,7 @@ screen_home() {
             "quit|Quit|"
         )
 
-        tui_screen_choose "Kids Mode" 1 1 0 "" choices "" "Enter select · Esc/q quit"
+        tui_screen_choose "Kids Mode" 1 1 0 "" choices "" "Enter select · Esc quit"
         local rc=$?
         case "$rc" in
             1) return 1 ;;

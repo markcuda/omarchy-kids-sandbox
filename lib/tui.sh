@@ -203,7 +203,9 @@ tui_header() {
             border_color="$TUI_C_ERROR"
         fi
 
-        local -a lines=("Kids Mode · Step ${step} of ${total}" "$title")
+        local -a lines=("Kids Mode")
+        ((total > 1)) && lines[0]="Kids Mode · Step ${step} of ${total}"
+        [[ "$title" != "Kids Mode" ]] && lines+=("$title")
         if [[ "$show_omy" == 1 ]]; then
             lines+=("🦉 Omy")
             [[ -n "$omy_line" ]] && lines+=("$omy_line")
@@ -230,9 +232,11 @@ tui_header() {
             fi
         fi
 
+        local -a plain=("Kids Mode")
+        ((total > 1)) && plain+=("step ${step} of ${total}")
+        [[ "$title" != "Kids Mode" ]] && plain+=("$title")
         _tui_style --border rounded --padding "0 1" \
-            --foreground "$TUI_C_ACCENT" --border-foreground "$TUI_C_ACCENT" -- \
-            "Kids Mode" "step ${step} of ${total}" "$title"
+            --foreground "$TUI_C_ACCENT" --border-foreground "$TUI_C_ACCENT" -- "${plain[@]}"
     fi
 }
 

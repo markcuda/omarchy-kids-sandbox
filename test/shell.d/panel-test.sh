@@ -164,7 +164,7 @@ facts_in_screen() {
     local facts="$1" nth="$2" row="$3" label="$4" verdict
     verdict="$(awk -v facts="$facts" -v nth="$nth" -v row="$row" '
         index($0, facts) && !seen { if (++n == nth) { seen = 1; next } }
-        seen && !done && index($0, "step 1 of 1") { verdict = "a header sits between the facts and the rows"; done = 1 }
+        seen && !done && index($0, "Kids Mode") { verdict = "a header sits between the facts and the rows"; done = 1 }
         seen && !done && index($0, row) { verdict = "ok"; done = 1 }
         END {
             if (!seen) verdict = "the facts line never rendered"

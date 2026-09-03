@@ -60,9 +60,9 @@ cmd_status() {
     (( granted > 0 )) && printf ' + %d granted' "$granted"
     printf ')\n'
     if [[ "$kind" == lights-out ]]; then
-        printf 'next boundary: lights-out at %s\n' "$at"
+        printf 'lights-out at %s\n' "$at"
     else
-        printf 'next boundary: budget runs out at %s\n' "$at"
+        printf 'budget runs out at %s\n' "$at"
     fi
     if time_is_paused "$kid"; then
         printf 'paused: time is not counting for %s right now\n' "$kid"

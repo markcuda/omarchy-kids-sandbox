@@ -20,7 +20,7 @@ screen_kid_time() { # ACCOUNT NAME
         lights="$(kid_conf_get "$account" lights_out)"
         # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
         local -a facts=()
-        while IFS= read -r line; do facts+=("$line"); done <<<"$status_out"
+        while IFS= read -r line; do facts+=("${line#"$account: "}"); done <<<"$status_out"
 
         # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
         local choices=(
@@ -257,9 +257,9 @@ screen_kid_data() { # ACCOUNT NAME
 
     # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
     local -a facts=("$name's data — today")
-    while IFS= read -r line; do facts+=("$line"); done < <("${summary_cmd[@]}")
+    while IFS= read -r line; do facts+=("${line#"$account: "}"); done < <("${summary_cmd[@]}")
     facts+=("" "$name's data — this week")
-    while IFS= read -r line; do facts+=("$line"); done < <("${summary_cmd[@]}" --week)
+    while IFS= read -r line; do facts+=("${line#"$account: "}"); done < <("${summary_cmd[@]}" --week)
 
     # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
     local choices=("back|Back|")
@@ -426,7 +426,7 @@ screen_kid() { # ACCOUNT
         nreq="$(count_open_requests "$account")"
         # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
         local -a facts=("$name — band $band")
-        while IFS= read -r line; do facts+=("$line"); done <<<"$status_out"
+        while IFS= read -r line; do facts+=("${line#"$account: "}"); done <<<"$status_out"
         facts+=("Open requests: $nreq")
         if [[ -n "$KID_NOTICE" ]]; then
             facts+=("" "$KID_NOTICE")

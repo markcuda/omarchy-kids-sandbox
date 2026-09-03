@@ -38,12 +38,16 @@ _theme_kids_fallback() {
 THEME_KIDS_FALLBACK_FONT="JetBrainsMono Nerd Font"
 
 # _theme_kids_tool_ready -- cached (_THEME_KIDS_TOOL_STATUS) probe of
-# whether omarchy-theme-color actually runs here. --all never fails for a
-# key a theme lacks, only for the tool itself being broken/missing.
+# whether omarchy-theme-color can actually answer for this account. --all
+# never fails for a key a theme lacks -- nor for a colors.toml that is not
+# there at all, where the tool still derives a few keys from nothing; hence
+# the explicit readability check, so a themeless account gets the whole
+# fallback palette rather than one derived black tile.
 _THEME_KIDS_TOOL_STATUS=""
 _theme_kids_tool_ready() {
     if [[ -z "$_THEME_KIDS_TOOL_STATUS" ]]; then
         if command -v omarchy-theme-color >/dev/null 2>&1 \
+            && [[ -r "$(theme_dir)/colors.toml" ]] \
             && omarchy-theme-color --file "$(theme_dir)/colors.toml" --all >/dev/null 2>&1; then
             _THEME_KIDS_TOOL_STATUS="ok"
         else

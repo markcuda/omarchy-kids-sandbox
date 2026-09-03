@@ -94,7 +94,9 @@ wifid_request() {
 # to stderr (3 REFUSED, 1 ERROR/no reply).
 call_wifid() {
     local reply status
-    reply="$(wifid_request "$@")"
+    # "no reply" is a real answer (socat exits non-zero when the socket is
+    # gone), so it must not abort this command's own set -e.
+    reply="$(wifid_request "$@")" || reply=""
     if [[ -z "$reply" ]]; then
         echo "omarchy-kids-wifi: no reply from omarchy-kids-wifid (is it running? see systemctl status omarchy-kids-wifid.socket)" >&2
         return 1

@@ -101,7 +101,9 @@ live_test_tmpfs_noexec() {
 # bin/omarchy-kids-session's check_polkit uses at real login (docs/check.md).
 live_test_pkcheck() {
     local acct="$1" action="$2" label="$3" out
-    out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'pkcheck --action-id "$1" --process "$$" 2>&1' _ "$action")"
+    # pkcheck exits non-zero for "not authorized" -- the answer we want --
+    # so never let the assignment's status reach omarchy-kids-check's set -e.
+    out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'pkcheck --action-id "$1" --process "$$" 2>&1' _ "$action")" || true
     case "$out" in
         *"Not authorized"*|*"not authorized"*)
             add_result "Live tests" "live:$acct:pkcheck-$label" pass "$acct: polkit refuses $action outright (R-FND-4)" ;;
@@ -128,8 +130,9 @@ live_test_kid() {
 
     live_test_tmpfs_noexec "$acct"
 
-    out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'f="$HOME/.omarchy-kids-check-live-$$"; printf "#!/bin/sh\necho pwned\n" > "$f" && chmod +x "$f" && "$f"; rc=$?; rm -f "$f"; exit $rc' 2>&1)"
-    rc=$?
+    # A refused exec is the pass here, so capture rc without set -e seeing it.
+    rc=0
+    out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'f="$HOME/.omarchy-kids-check-live-$$"; printf "#!/bin/sh\necho pwned\n" > "$f" && chmod +x "$f" && "$f"; rc=$?; rm -f "$f"; exit $rc' 2>&1)" || rc=$?
     if [[ "$rc" != 0 && ( "$out" == *"Permission denied"* || "$rc" == 126 ) ]]; then
         add_result "Live tests" "live:$acct:home-noexec-run" pass "$acct: running a freshly-written executable in \$HOME fails (Permission denied) (R-FND-2)"
     elif [[ "$rc" == 0 ]]; then

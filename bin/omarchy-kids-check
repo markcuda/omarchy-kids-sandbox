@@ -4,6 +4,7 @@
 # The green/red/yellow "is it safe?" report, read-only (SPEC.md R-TRUST-2, R-TRUST-3, R-DESK-2).
 # Reuses omarchy-kids-assert's *_ok functions. See docs/check.md.
 set -euo pipefail
+# shellcheck disable=SC2034 # sourced check/render helpers consume these globals
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 LIB="$DIR/lib"

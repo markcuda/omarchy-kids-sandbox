@@ -12,7 +12,6 @@ source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
 # shellcheck source=lib/time.sh
 source "$LIB/time.sh"
-TIME_CONF_BIN="$CONF_BIN"
 # shellcheck source=lib/data.sh
 source "$LIB/data.sh"
 

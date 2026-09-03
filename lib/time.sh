@@ -7,7 +7,6 @@
 
 TIME_SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 TIME_VARLIB="$TIME_SYSROOT/var/lib/omarchy-kids"
-TIME_CONF_BIN="" # set by the caller after sourcing; empty means time_conf resolves it
 
 # time_now — prints "YYYY-MM-DD HH:MM:SS", local wall clock.
 time_now() {
@@ -38,13 +37,11 @@ time_logical_day() {
     printf '%s\t%s\n' "$(sed -n '1p' <<<"$out")" "$(sed -n '2p' <<<"$out")"
 }
 
-# time_conf KID KEY — omarchy-kids-conf get KID KEY.
+# time_conf KID KEY — omarchy-kids-conf get KID KEY, resolved as our own sibling.
 time_conf() {
-    local kid="$1" key="$2" bin="$TIME_CONF_BIN"
-    if [[ -z "$bin" ]]; then
-        bin="$(dirname "${BASH_SOURCE[0]}")/../bin/omarchy-kids-conf"
-        [[ -x "$bin" ]] || bin=/usr/bin/omarchy-kids-conf
-    fi
+    local kid="$1" key="$2" bin
+    bin="$(dirname "${BASH_SOURCE[0]}")/../bin/omarchy-kids-conf"
+    [[ -x "$bin" ]] || bin=/usr/bin/omarchy-kids-conf
     "$bin" get "$kid" "$key"
 }
 

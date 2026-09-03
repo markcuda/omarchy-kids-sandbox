@@ -1,5 +1,21 @@
 # Session entry: `omarchy-kids-session` and `omarchy-kids-blocked` (R-DESK-1, R-DESK-2, R-WEB-4, R-FND-2a, I-3, I-4, I-9)
 
+## Session manifest
+
+`lib/session-manifest.sh` builds `/etc/omarchy-kids/sessions/<account>.json` from the effective
+root-owned profile, band defaults, pack allowlist, policy state, and `lib/launcher-map.sh`. The
+directory is `0750 root:omarchy-kids`; each manifest is atomically replaced as `0644 root:root`.
+The schema is version 1 and carries the account, display data, band/level/theme, allowlist, web
+mode and policy id, weekday/weekend budget and lights-out values, and tiles with fixed `argv`
+arrays. Unavailable applications have `installed: false` and an empty `argv`; no tile contains a
+shell command.
+
+For example: `{"schema_version":1,"account":"kid-ada","name":"Display Name","avatar":"fox","band":"6-8","level":1,"theme":"tokyo-night","allowlist":["gcompris"],"web":"garden","policy_id":"omarchy-kids-6-8","budget_min":60,"budget_min_weekend":60,"lights_out":"19:30","lights_out_weekend":"20:00","tiles":[]}`.
+
+Only root-side provisioning and assert callers write manifests by calling `session_manifest build
+<kid>`. They may validate one with `session_manifest check <kid>`. Future session, launcher, and
+shell readers consume the same file; ticket 1 does not wire those readers or assert yet.
+
 The kid session entry point. SDDM's `omarchy-kids` tile runs this through
 `/usr/share/sddm/scripts/wayland-session` the same way Omarchy's own session runs
 `uwsm start -g -1 -e -D Hyprland hyprland.desktop`; `desktop/omarchy-kids-session.desktop`

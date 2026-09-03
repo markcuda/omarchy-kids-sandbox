@@ -14,6 +14,8 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 - Closed kid-session path and binary redirect surfaces: kid-facing commands use build-time paths,
   absolute Quickshell, the account's NSS home, private fenced `/tmp` and `/dev/shm`, and all
   six console gettys; exact supplementary groups and root-only ask review commands are enforced.
+- Session manifests snapshot the validated profile and launcher tiles as root-owned JSON, with
+  atomic rebuilds that preserve the last valid document on failure.
 
 ### Added
 

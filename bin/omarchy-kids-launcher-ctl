@@ -19,21 +19,43 @@
 #   system directly -- deliberately, since this repo has no confirmed
 #   reference for Quickshell's IPC CLI syntax. If a real `quickshell ...
 #   ipc call ...` turns out to work, this is the one file to change.
+#
+#   `log` is unrelated to the launcher window itself: it's the
+#   kid-writable half of R-DATA-1's "app launches" (issue #27). The
+#   root-owned launches.log a parent's panel and a kid's own "what my
+#   grown-ups can see" screen read lives under /var/lib/omarchy-kids/,
+#   which a kid can never write to directly (I-3) -- so shell.qml calls
+#   this instead, once per tile launch (see its own header), to append
+#   one line to a file *this* account can write: its own
+#   $XDG_RUNTIME_DIR. bin/omarchy-kids-time-ledger's tick folds new
+#   lines from there into the root-owned log once a minute
+#   (lib/data.sh's data_fold_launches -- see that file's header for the
+#   trust boundary this mirrors from screen time). A kid could edit or
+#   delete their own runtime copy before the next fold; that's the same
+#   "deterrent, not a wall" honesty this file's own header already
+#   states for the rest of this package (SPEC.md 5.3) -- nothing about
+#   `log` enforces anything, it only records.
 set -euo pipefail
 
 CONTROL="${OMARCHY_KIDS_LAUNCHER_CONTROL:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids/launcher-control}"
+LAUNCHES_LOG="${OMARCHY_KIDS_LAUNCHES_LOG:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids/launches.log}"
 TITLE="Omarchy Kids Launcher"
 
 usage() {
   cat <<EOF
-Usage: omarchy-kids-launcher-ctl <show|activate>
+Usage: omarchy-kids-launcher-ctl <show|activate|log ID>
 
   show      Focus the Level 1/2 launcher window (Super+Home, Super+Space).
   activate  Tell the launcher to open its currently highlighted tile
             (Super+Enter).
+  log ID    Record one Level 1 tile launch (R-DATA-1's "app launches").
+            Appends "<timestamp> <id>" to this account's own runtime
+            launches log; never touches the root-owned one directly.
 
 Env:
   OMARCHY_KIDS_LAUNCHER_CONTROL  control file path (default \$XDG_RUNTIME_DIR/omarchy-kids/launcher-control)
+  OMARCHY_KIDS_LAUNCHES_LOG      log's own target file (default \$XDG_RUNTIME_DIR/omarchy-kids/launches.log)
+  OMARCHY_KIDS_NOW               "YYYY-MM-DD HH:MM:SS" clock override for log (tests)
 
   -h, --help  Show this help and exit.
 EOF
@@ -53,9 +75,23 @@ cmd_activate() {
   printf 'activate %s\n' "$(date +%s%N 2>/dev/null || date +%s)" >"$CONTROL"
 }
 
+cmd_log() {
+  local id="${1:-}"
+  [[ -n "$id" ]] || { echo "omarchy-kids-launcher-ctl: log needs an app id" >&2; exit 2; }
+  local now
+  # Naive local "YYYY-MM-DDTHH:MM:SS" -- one token, no embedded space,
+  # matching lib/data.sh/lib/data.py's whole-feature convention (see
+  # that file's header on why this package never converts a timezone).
+  now="${OMARCHY_KIDS_NOW:-$(date '+%Y-%m-%d %H:%M:%S')}"
+  now="${now/ /T}"
+  mkdir -p "$(dirname "$LAUNCHES_LOG")" 2>/dev/null || true
+  printf '%s %s\n' "$now" "$id" >>"$LAUNCHES_LOG" 2>/dev/null || true
+}
+
 case "${1:-}" in
   show) cmd_show ;;
   activate) cmd_activate ;;
+  log) shift; cmd_log "${1:-}" ;;
   -h|--help|"") usage; [[ "${1:-}" == "" ]] && exit 2; exit 0 ;;
   *)
     echo "omarchy-kids-launcher-ctl: unknown command: '$1' (see --help)" >&2

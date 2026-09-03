@@ -24,7 +24,13 @@
 #           /run/omarchy-kids/status.json (R-BAR-3) for every known kid,
 #           whether or not they're live right now -- best-effort; a
 #           failure to write it never fails the tick itself, since the
-#           ledger write is the part that actually matters.
+#           ledger write is the part that actually matters. Finally,
+#           for every known kid, folds any new lines from their own
+#           kid-writable runtime launches log into their root-owned
+#           launches.log (lib/data.sh's data_fold_launches, R-DATA-1's
+#           "app launches" -- see that file's header for the trust
+#           boundary this mirrors from screen time one level up).
+#           Same best-effort rule: a fold failure never fails the tick.
 #
 # Every path is overridable for tests, same convention as
 # bin/omarchy-kids-apps and lib/time.sh:
@@ -37,6 +43,8 @@
 #   OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT=0  skip the EUID check (tests
 #                        run as an ordinary user against a scratch
 #                        OMARCHY_KIDS_ROOT; set by test/shell.d/time-test.sh)
+#   OMARCHY_KIDS_RUN_USER_BASE  lib/data.sh's launch-log fold source
+#                        (default /run/user; see that file's header)
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,6 +53,8 @@ CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BI
 export OMARCHY_KIDS_CONF_BIN="$CONF_BIN" OMARCHY_KIDS_TIME_PY="$LIB/time.py"
 # shellcheck source=lib/time.sh
 source "$LIB/time.sh"
+# shellcheck source=lib/data.sh
+source "$LIB/data.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
@@ -59,8 +69,9 @@ usage() {
 Usage: omarchy-kids-time-ledger tick
 
 Adds one minute to today's ledger for every kid whose session is
-currently active, unlocked, and not paused (SPEC.md R-TIME-1..2).
-Root only. Meant to be run once a minute by
+currently active, unlocked, and not paused (SPEC.md R-TIME-1..2), then
+folds any new app-launch lines into every known kid's launches.log
+(R-DATA-1; lib/data.sh). Root only. Meant to be run once a minute by
 systemd/omarchy-kids-time.timer, not by hand.
 
   -h, --help  Show this help and exit.
@@ -159,6 +170,19 @@ cmd_tick() {
         time_ledger_add "$kid" "$day" 1
     done < <(active_kid_sessions)
     write_status_json
+    fold_all_launches
+}
+
+# fold_all_launches — R-DATA-1's "app launches": for every known kid
+# (live or not right now, same reasoning as write_status_json above),
+# folds new lines from their own runtime launches log into their
+# root-owned one (lib/data.sh's data_fold_launches). Best-effort: never
+# fails the tick.
+fold_all_launches() {
+    while IFS= read -r kid; do
+        [[ -n "$kid" ]] || continue
+        data_fold_launches "$kid" 2>/dev/null || true
+    done < <(known_kids)
 }
 
 [[ $# -ge 1 ]] || { usage >&2; exit 2; }

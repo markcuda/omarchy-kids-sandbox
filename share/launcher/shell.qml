@@ -123,10 +123,24 @@ Window {
         onExited: running = false
     }
 
+    // R-DATA-1 (issue #27): fire-and-forget record of "a tile was
+    // opened", one line per launch, via the kid-writable half of the
+    // launch log (bin/omarchy-kids-launcher-ctl's own header explains
+    // why this can't just write the root-owned log directly -- I-3).
+    // Never allowed to affect the real launch above/below: a failure
+    // here is invisible to the kid either way, same as launcherProcess
+    // itself never surfaces an error.
+    Process {
+        id: logProcess
+        onExited: running = false
+    }
+
     function launchCurrent() {
         if (root.currentIndex < 0 || root.currentIndex >= root.tiles.length) return
         var tile = root.tiles[root.currentIndex]
         if (!tile || !tile.exec) return
+        logProcess.command = ["omarchy-kids-launcher-ctl", "log", tile.id || ""]
+        logProcess.running = true
         launcherProcess.command = ["sh", "-c", tile.exec]
         launcherProcess.running = true
     }

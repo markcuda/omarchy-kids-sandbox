@@ -52,6 +52,16 @@ sends a parent back through the app entry point today.
 - **Apps** lists the band's starter pack (`omarchy-kids-apps list <kid>`) against the kid's
   effective allowlist (`omarchy-kids-apps allowlist <kid>`); Enter on an app toggles it via
   `omarchy-kids-apps hide`/`show`.
+- **Data** (R-DATA-1..5, issue #27): read-only. Prints `omarchy-kids-data summary <kid>` (today) and
+  `summary <kid> --week` (last 7 days) — minutes, launches, top apps, and top sites, in that order.
+  Minutes and launches are unprivileged reads, same as the rest of this panel; sites need root (a
+  kid's Chromium profile lives in a home this panel's own account can't otherwise reach), so this
+  screen is the one place in P2 that calls `read_priv` instead of `run_priv` — a real `sudo` read,
+  once, the moment it's needed, never previewed by `--dry-run` (there's nothing to preview: a read
+  changes nothing). If `history_visible=no` for this kid, `omarchy-kids-data` already says so in
+  plain words without touching Chromium at all (R-DATA-4), so this screen skips `read_priv` and
+  asks for no password it wouldn't use. See docs/data.md for what's recorded, where, and for how
+  long.
 - **Desktop level** is the same 1/2/3 choice as the wizard's own A11, writing `level` only when it
   changed from the current value (same "only overrides" reasoning as R-BAND-2, applied one screen
   at a time instead of a whole Apply).
@@ -90,9 +100,6 @@ run, panel-wide, not just for Apply.
   checkout implements "Remove Kids Mode" yet — not the wizard, not this panel, not a standalone
   command. Home's own "Remove Kids Mode" row says so plainly (I-6) instead of pretending to offer
   it; removing kids one at a time from their own P2 screen is what this issue actually delivers.
-- **Top apps / history** (R-WIZ-8's own list): `omarchy-kids-time`'s own usage ledger and a kid's
-  Chromium history are both real (R-DATA-1), but nothing here has a reader for either yet — that's
-  a later issue's screen, not a gap in this one.
 - **Weekend budget/lights-out variants** (`budget_min_weekend`, `lights_out_weekend`): editable
   through `omarchy-kids-conf set` directly today; the Screen Time screen only edits the weekday
   pair, matching the issue brief ("edit budget and lights-out").
@@ -105,7 +112,7 @@ run, panel-wide, not just for Apply.
 | `bands.toml`, `packs/` | `/usr/share/omarchy-kids/` | `OMARCHY_KIDS_SHARE` |
 | The ask queue | `/var/lib/omarchy-kids/queue/` | `OMARCHY_KIDS_ROOT` (scratch prefix) |
 | `lib/ask.py` (read directly for Requests, see above) | `lib/` beside `bin/`, else `/usr/lib/omarchy-kids` | `OMARCHY_KIDS_LIB` |
-| Each helper binary (`omarchy-kids-conf`/`-time`/`-ask`/`-apps`/`-web`/`-provision`/`-wizard`) | resolved beside this script, else `PATH` | `OMARCHY_KIDS_<NAME>_BIN` |
+| Each helper binary (`omarchy-kids-conf`/`-time`/`-ask`/`-apps`/`-web`/`-provision`/`-wizard`/`-data`) | resolved beside this script, else `PATH` | `OMARCHY_KIDS_<NAME>_BIN` |
 
 `test/shell.d/panel-test.sh` drives every screen above through `OMARCHY_KIDS_TUI_ANSWERS`, checking
 both the exact `[dry-run] sudo ...` line a write prints and, in a real (`--apply`) run against a

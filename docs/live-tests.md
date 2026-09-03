@@ -162,3 +162,10 @@ what state it leaves the VM in; left for a follow-on issue rather than guessed a
   `theme_color` handing a themeless account one derived black tile, and `kids_bin`'s `/usr/bin`
   fallback hiding "not installed yet" — all fixed here. Result: `test/all` green on both,
   32 files, 0 FAIL, one skip on the VM (`unlock-hook-test.sh`: no ash/busybox there).
+- 2026-09-03, run 7, `test/live/all -k` — all eight scenarios green in one run, on main with the
+  day's merges: the suite on Arch (05), the parent's recorded LUKS slot (20 now really lands on
+  the owner's desktop, with the seat-session assert), `start-hyprland -- --config` in the kid
+  session (30), the panel polish, the two-space reformat, and the review fixes. Three scenario-30
+  failures on the way there were all harness assumptions, now code: `portal_reset` waits for the
+  owner's autologin, `wait_kid_ready` waits for the launcher before any keystroke, and Finish is
+  the preselected button (no Tab).

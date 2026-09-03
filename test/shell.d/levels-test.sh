@@ -145,7 +145,8 @@ else
   SHARE="$TMP/share"
   ETC="$TMP/etc"
   RUN="$TMP/run"
-  mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$TMP/apps"
+  STUBS="$TMP/stubs"
+  mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$TMP/apps" "$STUBS"
   cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
   cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
 
@@ -162,7 +163,23 @@ Icon=tuxpaint
 Exec=tuxpaint
 EOF
 
+  # issue #42: session-start now marks a tile installed:true|false (a
+  # matched .desktop file, above, or the resolved exec's first word on
+  # PATH -- never pacman) and, by default, omits a missing app's tile
+  # entirely rather than shipping one Enter silently does nothing on
+  # (I-6). gcompris has no .desktop fixture, so a PATH stub is what
+  # makes *it* count as installed here; the other six 6-8 pack apps are
+  # deliberately left with neither, the live VM state issue #42
+  # describes -- their omission (and its log line) is covered in detail
+  # by test/shell.d/session-start-test.sh, not re-tested here.
+  cat >"$STUBS/gcompris" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+  chmod +x "$STUBS/gcompris"
+
   out="$(
+    PATH="$STUBS:$PATH" \
     OMARCHY_KIDS_ETC="$ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
     OMARCHY_KIDS_RUN="$RUN" \
@@ -185,9 +202,13 @@ EOF
     check "$(jq -r '.account' "$json_path")" "kid-ada" "launcher JSON account"
     check "$(jq -r '.band' "$json_path")" "6-8" "launcher JSON band"
     check "$(jq -r '.level' "$json_path")" "1" "launcher JSON level (band 6-8's default)"
-    check "$(jq -r '.tiles | map(select(.id != "more-apps")) | length' "$json_path")" "8" \
-      "launcher JSON has all 8 apps from the 6-8 pack"
+    # Only gcompris (PATH stub) and tuxpaint (.desktop fixture) are
+    # "installed" here; the other six 6-8 pack apps default to omitted.
+    check "$(jq -r '.tiles | map(select(.id != "more-apps")) | length' "$json_path")" "2" \
+      "launcher JSON has only the installed apps from the 6-8 pack (gcompris, tuxpaint)"
     check "$(jq -r '.tiles[0].id' "$json_path")" "gcompris" "launcher JSON keeps pack order (first tile is gcompris)"
+    check "$(jq -r '.tiles | map(select(.id != "more-apps")) | all(.installed == true)' "$json_path")" "true" \
+      "issue #42: every tile shown by default is installed:true"
 
     more_apps_tile="$(jq -c '.tiles[] | select(.id == "more-apps")' "$json_path")"
     check_contains "$more_apps_tile" '"label":"More apps"' \

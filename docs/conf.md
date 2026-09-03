@@ -70,20 +70,27 @@ written to a kid's `.conf` file, and aren't part of Appendix B.
 
 ### App override keys (issue #24, not Appendix B)
 
-Two more keys live in the same per-kid `.conf` file and go through the same `get`/`set`/`show`/
+Three more keys live in the same per-kid `.conf` file and go through the same `get`/`set`/`show`/
 `reset` as the table above, but aren't part of Appendix B, so they're kept out of that table and
-out of `omarchy-kids-conf`'s `APPENDIX_B_KEYS`: `bin/omarchy-kids-apps` is their only real caller
-(docs/apps.md), through `hide`/`show`, never by writing the profile file directly.
+out of `omarchy-kids-conf`'s `APPENDIX_B_KEYS`: `bin/omarchy-kids-apps` is `apps.extra`/
+`apps.hidden`'s only real caller (docs/apps.md), through `hide`/`show`, never by writing the
+profile file directly; `bin/omarchy-kids-session-start` is `apps.show_missing`'s only reader
+(issue #42).
 
 | Key | Values | Default source | Default |
 | --- | --- | --- | --- |
 | `apps.extra` | comma-separated launcher ids | global | (empty) |
 | `apps.hidden` | comma-separated launcher ids | global | (empty) |
+| `apps.show_missing` | `yes` `no` | global | `no` |
 
 `apps.extra` adds launcher ids on top of the kid's band pack; `apps.hidden` removes ids (from the
 pack or from `apps.extra` alike). `omarchy-kids-apps allowlist <kid>` is what actually combines
 these with `allowlist` (docs/apps.md) — `get`/`show` here only read and write the raw override,
 same as any other key. `reset` clears both, same as every other override.
+
+`apps.show_missing` controls what `bin/omarchy-kids-session-start` does with a tile whose app
+isn't installed (docs/levels.md's "The launcher's tile list"): `no` (the default) omits it
+entirely; `yes` keeps it, greyed, with a caption. Not read anywhere else.
 
 ### Machine-level keys (`machine.conf`, not profile keys)
 

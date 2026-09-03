@@ -92,7 +92,8 @@ back to running the pack `id` as a bare command if no `.desktop` file matches. I
   "band": "6-8",
   "level": "1",
   "tiles": [
-    { "id": "tuxpaint", "label": "Tux Paint", "icon": "tuxpaint", "exec": "gtk-launch tuxpaint" }
+    { "id": "tuxpaint", "label": "Tux Paint", "icon": "tuxpaint", "exec": "gtk-launch tuxpaint",
+      "installed": true, "caption": "" }
   ]
 }
 ```text
@@ -102,6 +103,21 @@ the kid's `web` key isn't `none` **and** `/etc/chromium/policies/managed/omarchy
 is readable, a `chromium` tile is appended (R-WEB-4: refuse the browser tile if the policy isn't
 there). The policy file itself is a different issue's deliverable and doesn't exist in this repo
 yet, so today this is always false — the correct fail-closed behavior, not a bug.
+
+**Installed/missing tiles (issue #42, I-6).** Every pack/`apps.extra` tile also carries
+`installed: true|false` — a matched `.desktop` file, or (the bare-command fallback) `command -v`
+on the resolved exec's first word, **never `pacman -Q`**, so this works the same for a pack app,
+an `apps.extra` id with no package at all, or any future non-pacman app source. By default
+(`apps.show_missing=no`, docs/conf.md) a missing app's tile is left out of the JSON entirely, with
+one log line naming why (`$RUN/session-<uid>.log`) — the live bug this issue fixes was a tile that
+rendered but did nothing on Enter. With `apps.show_missing=yes` the tile is kept instead, with
+`caption` set to `"installing..."` if the app's package is sitting in
+`bin/omarchy-kids-apps`' pending install queue (`OMARCHY_KIDS_ROOT/var/lib/omarchy-kids/apps-queue`,
+read here, never written) or `"not installed yet"` otherwise; `share/launcher/shell.qml` renders
+that tile greyed and the caption underneath the label, and refuses to launch it on Enter
+(`installed === false`, checked before `launchCurrent()` runs anything). An installed tile always
+carries `installed: true` and an empty `caption`. The `chromium`/`more-apps`/`kids-data` tiles
+below carry neither key — this is specifically about pack/`apps.extra` app tiles.
 
 `share/launcher/shell.qml` polls that file, plus a small control file
 (`/run/omarchy-kids/launcher-control`) that `bin/omarchy-kids-launcher-ctl` writes to on
@@ -172,6 +188,12 @@ scripts copied to their spec-required paths and made root-owned):
    terminal bind — try `Super+Return` and confirm nothing launches).
 6. Set `OMARCHY_KIDS_BAND=3-5` (or `6-8`) before the `Hyprland --config` run and confirm the
    cursor is visibly larger and GTK/Qt apps render bigger.
+7. Issue #42: on a box where the pack apps aren't installed (the reported live state), confirm
+   the launcher shows no tile for them at all by default, with a log line per omitted tile in
+   `$RUN/session-<uid>.log`; then `omarchy-kids-conf set <kid> apps.show_missing yes`, restart
+   the session, and confirm those tiles now appear greyed with a "not installed yet" caption, and
+   that Enter on one does nothing. `omarchy-kids-apps install <band> --apply` and confirm the
+   caption changes to "installing..." while the queue is pending.
 
 Everything above is run from `bash test/shell.d/levels-test.sh` first where it can be
 (grep-based binding checks, `luac -p` if available, `bin/omarchy-kids-session-start`'s JSON

@@ -28,6 +28,12 @@
 #   OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
 #   OMARCHY_KIDS_SHARE   bands.toml, packs/, launcher/ (default /usr/share/omarchy-kids)
 #   OMARCHY_KIDS_RUN     runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
+#   OMARCHY_KIDS_ROOT    scratch prefix for /var/lib/omarchy-kids (issue
+#                                   #42: reads the same apps-queue file
+#                                   bin/omarchy-kids-apps writes, to tell
+#                                   a merely-missing tile apart from one
+#                                   that's mid-install; same convention
+#                                   omarchy-kids-apps itself uses)
 #   OMARCHY_KIDS_ACCOUNT  kid account (default: this process's own user)
 #   OMARCHY_KIDS_LEVEL    1/2/3 (default: omarchy-kids-conf get <account> level)
 #   OMARCHY_KIDS_BAND     3-5/6-8/9-12/13+ (default: omarchy-kids-conf get <account> band)
@@ -66,6 +72,12 @@ SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
 mkdir -p "$RUN" 2>/dev/null || true
 APPLICATIONS_DIRS="${OMARCHY_KIDS_APPLICATIONS_DIRS:-/usr/share/applications:/usr/local/share/applications}"
+# Same convention bin/omarchy-kids-apps uses for the one system path this
+# package doesn't own (issue #42): SYSROOT/var/lib/omarchy-kids/apps-queue
+# is that command's pending-install queue, read here (never written) to
+# tell a merely-missing tile apart from one mid-install.
+SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+QUEUE_FILE="$SYSROOT/var/lib/omarchy-kids/apps-queue"
 
 # log MESSAGE — appends to the same per-session log
 # bin/omarchy-kids-session already writes to ($RUN/session-<uid>.log),
@@ -156,12 +168,13 @@ icon_for_desktop() {
   grep -m1 '^Icon=' "$f" | cut -d= -f2-
 }
 
-# resolve_tile ID PKG -> sets RESOLVED_ICON and RESOLVED_EXEC for one
-# launcher tile (globals, not "icon\texec" on stdout: bash's word
-# splitting collapses a *leading* empty field on a tab-delimited
-# herestring -- tab is one of the default IFS-whitespace characters --
-# which silently shifts every field left whenever a tile has no icon;
-# this sidesteps that instead of relying on very careful field order).
+# resolve_tile ID PKG -> sets RESOLVED_ICON, RESOLVED_EXEC and
+# RESOLVED_INSTALLED for one launcher tile (globals, not "icon\texec" on
+# stdout: bash's word splitting collapses a *leading* empty field on a
+# tab-delimited herestring -- tab is one of the default IFS-whitespace
+# characters -- which silently shifts every field left whenever a tile
+# has no icon; this sidesteps that instead of relying on very careful
+# field order).
 # Prefers a matched .desktop file (launched with gtk-launch, so it picks
 # up the app's own working directory/env the way a normal app-grid
 # entry would); falls back to running the pack id itself as a bare
@@ -169,23 +182,59 @@ icon_for_desktop() {
 # is verified against the actual package names in share/packs/*.toml
 # (pkg names like "aur:turbowarp-desktop-bin" or "gcompris-qt" don't
 # necessarily match their .desktop or binary name exactly).
+#
+# RESOLVED_INSTALLED (issue #42, I-6: never a tile whose Enter silently
+# does nothing) is the "installed" state itself -- deliberately *not*
+# `pacman -Q` (docs/apps.md's `list`/`install` already do that for a
+# band's raw pack; this is about whether the thing this exact tile would
+# run actually exists, which works the same for a pack app, an
+# apps.extra id with no package at all, or a future non-pacman app
+# source): 1 when a .desktop entry was found (resolve_tile's other
+# branch already confirmed that), else whatever `command -v` says about
+# running the resolved exec's first word on PATH.
 RESOLVED_ICON=""
 RESOLVED_EXEC=""
+RESOLVED_INSTALLED=0
 resolve_tile() {
   local id="$1" pkg="$2" desktop_line base dir
   if desktop_line="$(find_desktop_file "$id" "$pkg")"; then
     IFS=$'\t' read -r base dir <<<"$desktop_line"
     RESOLVED_ICON="$(icon_for_desktop "$base" "$dir" || true)"
     RESOLVED_EXEC="gtk-launch $base"
+    RESOLVED_INSTALLED=1
   else
     RESOLVED_ICON=""
     RESOLVED_EXEC="$id"
+    if command -v "$id" >/dev/null 2>&1; then
+      RESOLVED_INSTALLED=1
+    else
+      RESOLVED_INSTALLED=0
+    fi
   fi
+}
+
+# queue_has_pkg PKG -> 0 if PKG (an "aur:"-prefixed pack `pkg`, stripped
+# the same way bin/omarchy-kids-apps strips it) is a line in the pending
+# install queue omarchy-kids-apps install writes -- i.e. this app is
+# missing but already on its way, not just missing. Never writes the
+# queue; only omarchy-kids-apps and its install-queued worker do that.
+queue_has_pkg() {
+  local pkg="$1"
+  local pkgname="${pkg#aur:}"
+  [[ -s "$QUEUE_FILE" ]] || return 1
+  grep -qxF "$pkgname" "$QUEUE_FILE" 2>/dev/null
 }
 
 mkdir -p "$RUN"
 TILES_FILE="$(mktemp)"
 trap 'rm -f "$TILES_FILE"' EXIT
+
+# apps.show_missing (issue #42, docs/conf.md): default "no" -- a missing
+# app's tile is omitted (logged why), never shown doing nothing on
+# Enter. "yes" keeps it, greyed, with an "installing..."/"not installed
+# yet" caption instead (still never launchable -- the launcher ignores
+# Enter on it, see share/launcher/shell.qml).
+SHOW_MISSING="$("$CONF_BIN" get "$ACCOUNT" apps.show_missing)"
 
 IFS=',' read -ra ids <<<"$ALLOWLIST"
 for id in "${ids[@]}"; do
@@ -197,8 +246,24 @@ for id in "${ids[@]}"; do
   fi
   IFS=$'\t' read -r label pkg _web <<<"$meta"
   resolve_tile "$id" "$pkg"
+
+  caption=""
+  if [[ "$RESOLVED_INSTALLED" == 0 ]]; then
+    if queue_has_pkg "$pkg"; then
+      caption="installing..."
+    else
+      caption="not installed yet"
+    fi
+    if [[ "$SHOW_MISSING" != "yes" ]]; then
+      log "tile omitted for '$id' ('$ACCOUNT'): not installed (no desktop entry or exec on PATH; $caption)"
+      continue
+    fi
+  fi
+
+  installed_json=$([[ "$RESOLVED_INSTALLED" == 1 ]] && echo true || echo false)
   jq -n --arg id "$id" --arg label "$label" --arg icon "$RESOLVED_ICON" --arg exec "$RESOLVED_EXEC" \
-    '{id: $id, label: $label, icon: $icon, exec: $exec}' >>"$TILES_FILE"
+    --argjson installed "$installed_json" --arg caption "$caption" \
+    '{id: $id, label: $label, icon: $icon, exec: $exec, installed: $installed, caption: $caption}' >>"$TILES_FILE"
 done
 
 # R-WEB-4: "The kid launcher refuses to start Chromium if the kid's

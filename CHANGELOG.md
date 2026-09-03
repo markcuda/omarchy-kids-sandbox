@@ -79,6 +79,8 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Fixed (later)
 
+- The kid session starts Hyprland through `start-hyprland -- --config`, its own watchdog
+  launcher; starting `/usr/bin/Hyprland` directly earned a red banner at every kid login
 - Portal: Left and Right went dead after a password field had been opened and closed once; the
   key scope takes focus back, so a parent can arrow from a kid's tile to their own
 - Live harness: a session assert means a seat session, not the harness's own ssh login

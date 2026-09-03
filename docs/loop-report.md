@@ -99,15 +99,34 @@ from screenshots. Done since:
   `PY` aliases, `apps list --json` instead of parsing a table by column offset.
 - Harness run 6 after all of that: six of eight scenarios green in one run; the two failures
   were SSH timeouts through the laptop, and both scenarios passed on their own straight after.
-- Two things I could not settle and left as findings: the greeter stopped answering Left and
-  Right after a password field had been opened and closed once, so a parent could not arrow
-  from a kid's tile to their own (needs a fresh-greeter reproduction, then likely a
-  `forceActiveFocus()` after Escape in `share/sddm-theme/Main.qml`); and scenario 20's
-  "the owner's session is live" check passed while the screen showed the portal, so it may be
-  counting an SSH session (`assert_session` should require seat0).
-- Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3), plus
-  the two findings above. One thing to know: an agent installed Homebrew bash 5.3 on the Mac
-  without being asked; it is harmless and still there.
+- Afternoon finds, all from screenshots and the fresh-greeter probes, all fixed and verified on
+  the VM: the greeter's Left and Right died after a password field had been opened and closed
+  once (focus stayed on the hidden field; a parent could not arrow from a kid's tile to their
+  own); the harness's "session is live" check counted its own SSH login, so scenario 20 had
+  been passing while the screen showed the portal; and behind that, the real V7 gap: nothing
+  ever recorded the parent's LUKS slot, so a boot unlocked with the parent's disk password
+  landed on the portal instead of the parent's desktop. `omarchy-kids-conf machine set parent`
+  now writes the `0=<parent>` line, and a cold boot with the owner's password lands on the
+  owner's desktop again.
+- The kid session now starts Hyprland through `start-hyprland -- --config`, Hyprland's own
+  watchdog launcher, which removes the red "started without start-hyprland" banner every kid
+  saw at login. Arguments must follow `--`; without it the launcher drops the config, which is
+  the kind of thing only a live run catches.
+- Panel polish from the screenshots: no step counter on single screens, facts without the
+  account prefix, an honest footer (`q` never quit), "lights-out at 19:30" instead of "next
+  boundary: lights-out at 19:30", and a stronger scrim so the Time's Up card fades behind the
+  Ask modal.
+- Three harness lessons, each now a line of code: a session exists before its keybinds do (the
+  Super taps must wait for the launcher), the owner's boot now autologs the owner so a portal
+  reset must wait for that session before exiting it cleanly, and a kid whose daily budget
+  earlier scenarios used up gets Time's Up at login, which swallows the exit keystrokes.
+- One more harness lesson: the exit modal preselects Finish while Pause has no mechanism (the
+  honest-UI rule), and the scenario's extra Tab was moving the selection onto Pause, which the
+  modal refuses. The launcher change was never at fault; scenario 30 passes with the launcher
+  frame clean of the banner.
+- Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
+  thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
+  harmless and still there.
 
 ## What is open
 

@@ -2,7 +2,7 @@
 # 30-portal-login-and-finish: from the portal, log in as the test kid, open the exit modal
 # (three Super taps within 1.5s), Finish with the parent password, and confirm the portal comes
 # back (SPEC.md §8 item 3; docs/exit.md's "Verified live" sequence, which this mirrors exactly:
-# Left/Enter/password to the launcher, triple Super, parent password, Tab to Finish, Enter).
+# Left/Enter/password to the launcher, triple Super, parent password, Enter on the preselected Finish).
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=test/live/lib.sh

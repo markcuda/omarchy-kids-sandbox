@@ -42,8 +42,8 @@ Each command's doc has a "Verified live" section with the exact evidence. In one
 - `#4` V3: the captive-portal window needs a real captive portal to test.
 - `#24` `#26` `#28`: the real pack install, Wi-Fi on real hardware, and a populated plugins
   catalog need the laptop or upstream.
-- `#30`: Remove Kids Mode is merged and dry-run verified; the real run on the VM is the last
-  step of this loop (see the ticket for the result).
+- `#45`: small leftovers from the real Remove Kids Mode run (the removal itself worked and the
+  kids' files landed under the owner's "Kids Mode" folder).
 - `#33`: the upstream notes for Pete's PR are written up; posting is yours.
 
 Decisions waiting for you: `docs/phase1/DECISIONS-NEEDED.md` (Pause, snapshot entries, AUR
@@ -60,6 +60,6 @@ a separate PAM file; the greeter lists accounts alphabetically, not in our order
 ## State of the machines
 
 The laptop (`omarky-air`) was never rebooted and its own account was not touched beyond the
-repo clone. The VM holds kids `kid-cy`, `kid-ben` and `kid-dot` plus the leftover test account
-`kid-ada`; the owner `kid-vm` is in `omarchy-parents` and has the bar widget enabled. The
+repo clone. After the real Remove run the VM holds no kid profiles (their files are under the owner's
+"Kids Mode" folder); Cy is being re-provisioned by the wizard as the closing check; the owner `kid-vm` is in `omarchy-parents` and has the bar widget enabled. The
 scratchpad on the Mac holds only the driving scripts; every screenshot was deleted after viewing.

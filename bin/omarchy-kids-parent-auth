@@ -9,7 +9,11 @@ if [[ -n "${PAM_TYPE:-}" && "$PAM_TYPE" != "auth" ]]; then
 fi
 
 SOCK="${OMARCHY_KIDS_AUTH_SOCK:-/run/omarchy-kids/auth.sock}"
-candidate="$(cat -)"
+# One line, not "until EOF": pam_exec closes its pipe, but a caller that keeps
+# stdin open (the exit modal's Quickshell Process did, seen live) would hang
+# `cat` forever. `read` returns non-zero on a final line without a newline;
+# the value is still filled in, so keep it.
+IFS= read -r candidate || true
 
 if command -v socat >/dev/null 2>&1; then
   reply="$(printf '%s\n' "$candidate" | socat -T5 - "UNIX-CONNECT:$SOCK" 2>/dev/null)"

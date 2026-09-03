@@ -158,7 +158,8 @@ PanelWindow {
                 // signals "no more stdin" to the child -- closeStdin()
                 // is a guess. Without it, bin/omarchy-kids-parent-auth's
                 // `cat -` never sees EOF and this hangs forever.
-                if (typeof closeStdin === "function") closeStdin()
+                // Quickshell 0.3.1: flipping stdinEnabled off closes the child's stdin.
+                stdinEnabled = false
             }
         }
         onExited: (exitCode) => {

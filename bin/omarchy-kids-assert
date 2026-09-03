@@ -401,6 +401,86 @@ limine_editor_fix() {
     rm -f "$tmp"
 }
 
+# --- Limine snapshot entries (V6, issue #38): a Snapper snapshot from
+# before Kids Mode boots a frozen UKI with no unlock hook, no polkit deny
+# rule, no boot-login unit, and the owner's stock autologin, on top of the
+# live @home -- a kid with a disk password can pick it from the Limine
+# menu and land on the parent's desktop. MAX_SNAPSHOT_ENTRIES=0 in
+# /etc/default/limine hides every such entry; machine.conf's
+# boot.snapshot_entries (docs/conf.md) picks "hide" (default) or "show".
+# Machine-level like the locks above: runs once per invocation, only
+# while at least one kid is provisioned.
+limine_default() { printf '%s/etc/default/limine' "$(posture_root)"; }
+LIMINE_SNAPSHOTS_MARKER='# omarchy-kids: was MAX_SNAPSHOT_ENTRIES='
+
+boot_snapshot_entries_mode() {
+    local mode
+    mode="$(conf_get "$MACHINE_CONF" boot.snapshot_entries 2>/dev/null || true)"
+    [[ "$mode" == "show" ]] && { echo show; return; }
+    echo hide
+}
+
+# limine_snapshots_marker_value FILE — the value remembered in our own
+# comment line, if any (the value MAX_SNAPSHOT_ENTRIES held before we
+# first set it to 0).
+limine_snapshots_marker_value() {
+    local f="$1" line
+    line="$(grep -F "$LIMINE_SNAPSHOTS_MARKER" "$f" 2>/dev/null | tail -n1 || true)"
+    [[ -n "$line" ]] && printf '%s' "${line#"$LIMINE_SNAPSHOTS_MARKER"}"
+}
+
+limine_snapshots_ok() {
+    local f; f="$(limine_default)"
+    [[ -f "$f" ]] || return 0   # no /etc/default/limine here (no Limine, or a test tree): nothing to assert
+    case "$(boot_snapshot_entries_mode)" in
+        hide) grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$f" ;;
+        show) ! grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$f" ;;
+    esac
+}
+
+limine_snapshots_fix() {
+    local f tmp mode; f="$(limine_default)"
+    [[ -f "$f" ]] || return 0
+    mode="$(boot_snapshot_entries_mode)"
+    tmp="$(mktemp)" || return 1
+    case "$mode" in
+        hide)
+            local old="" have_marker=0
+            grep -qF "$LIMINE_SNAPSHOTS_MARKER" "$f" && have_marker=1
+            if [[ "$have_marker" -eq 0 ]]; then
+                old="$(grep -E '^MAX_SNAPSHOT_ENTRIES=' "$f" | tail -n1 || true)"
+                old="${old#MAX_SNAPSHOT_ENTRIES=}"
+            fi
+            {
+                grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${LIMINE_SNAPSHOTS_MARKER}" "$f" || true
+                if [[ "$have_marker" -eq 1 ]]; then
+                    grep -F "$LIMINE_SNAPSHOTS_MARKER" "$f"
+                elif [[ -n "$old" ]]; then
+                    printf '%s%s\n' "$LIMINE_SNAPSHOTS_MARKER" "$old"
+                fi
+                printf 'MAX_SNAPSHOT_ENTRIES=0\n'
+            } > "$tmp" || { rm -f "$tmp"; return 1; }
+            ;;
+        show)
+            local old; old="$(limine_snapshots_marker_value "$f")"
+            {
+                grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${LIMINE_SNAPSHOTS_MARKER}" "$f" || true
+                if [[ -n "$old" ]]; then printf 'MAX_SNAPSHOT_ENTRIES=%s\n' "$old"; fi
+                true
+            } > "$tmp" || { rm -f "$tmp"; return 1; }
+            ;;
+    esac
+    cat "$tmp" > "$f" || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
+    # Only a real run (never this dev checkout's tests, per AGENTS.md rule 8)
+    # has an empty posture_root; limine-snapper-sync also may not be
+    # installed at all (no Limine, no Snapper) -- either way, nothing to do.
+    if [[ -z "$(posture_root)" ]] && command -v limine-snapper-sync >/dev/null 2>&1; then
+        limine-snapper-sync
+    fi
+    return 0
+}
+
 main() {
     local kids=() k
     while IFS= read -r k; do
@@ -454,6 +534,8 @@ main() {
         assert_one "boot-hook" boot_hook_ok boot_hook_fix
     assert_one "limine-editor" limine_editor_ok limine_editor_fix
     fi
+
+    assert_one "limine-snapshots" limine_snapshots_ok limine_snapshots_fix
 
     [[ "$ANY_FAIL" -eq 0 ]] || exit 1
     exit 0

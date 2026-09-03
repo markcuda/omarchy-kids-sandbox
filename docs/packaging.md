@@ -1,156 +1,136 @@
 # Packaging (R-FND-1, R-BUILD-2, R-BUILD-4, R-TRUST-5)
 
-`omarchy-kids` is one Arch package, built from this checkout by `PKGBUILD` in the repo root.
-There is no upstream tarball: `source=()` is empty on purpose, and `package()` reads straight
-from `$startdir` (the checkout itself). This means the package can only be built from a git
-checkout, never from a bare PKGBUILD file.
+`omarchy-kids` is one Arch package, built by the root `PKGBUILD` from this checkout. `source=()`
+is empty by design (`PKGBUILD:8-10,34`), and `package()` reads files from `$startdir`. An AUR
+(Arch User Repository) checkout must therefore contain the whole source tree, not only `PKGBUILD`.
 
 ## Building on the test laptop
 
-Never build or install as root, and never run this on a development machine — only on the test
-laptop or in a VM (see the test-machine rule in `AGENTS.md`).
+Build only on the test laptop or in a VM. Do not build or install as root, and do not run this on
+a development machine (`AGENTS.md`). From the checkout, as the normal user:
 
 ```sh
-# in the checkout, as the normal (non-root) user
 makepkg -sf
-```text
+```
 
-`-s` resolves and installs missing `depends`/`makedepends` with pacman (will prompt for sudo);
-`-f` rebuilds even if a package of the same version already exists, which is the common case
-while pkgver stays at `0.1.0` during early development.
+`-s` asks pacman to install missing declared dependencies. `-f` rebuilds an existing package with
+the same version. The current package is `0.1.0-1`, so the result is
+`omarchy-kids-0.1.0-1-x86_64.pkg.tar.zst`.
 
-Install the result:
+Install that package on the test system:
 
 ```sh
 sudo pacman -U omarchy-kids-0.1.0-1-x86_64.pkg.tar.zst
-```text
+```
 
-pacman will run `omarchy-kids.install`'s `post_install` (or `post_upgrade` on a reinstall), which
-creates the groups and reloads systemd unit files — see below.
+The package's install scriptlet then creates its groups and reloads systemd when systemd is
+running. It does not create a kid or apply Kids Mode locks. The installed pacman hook invokes
+`omarchy-kids-assert --quiet` after the transaction; the wizard's Apply step also enables and
+starts the required units, sockets, and timers.
 
 ## AUR readiness (issue #32, R-BUILD-2)
 
-Nothing here is published. This is what's true about the checkout so a real publish, whenever
-that's decided, has nothing left to figure out.
+The package is not ready for a first AUR upload yet. The local packaging pieces are mostly here,
+but these items still need to happen:
 
-- **`.SRCINFO`** at the repo root is hand-written in `makepkg --printsrcinfo` format, since this
-  dev checkout has no `makepkg` to generate it. **Regenerate it with
-  `makepkg --printsrcinfo > .SRCINFO` on the test laptop before ever publishing to the AUR** — a
-  hand-written file is a starting point, not a substitute for the real generator, and any
-  `PKGBUILD` edit that lands after this one makes the checked-in copy stale until that's run
-  again.
-- **`pkgver` scheme.** `0.1.0` (semver-shaped), no `pkgver()` function: `source=()` is empty and
-  `package()` reads straight from `$startdir`, so there is no upstream tarball or VCS ref for a
-  `pkgver()` to derive a version from — the checkout itself is the source. Bump the middle number
-  for a feature milestone landing, the last number for a fix-only change, and reset to `1.0.0`
-  once SPEC.md §8's acceptance list is met. `pkgrel` resets to `1` on every `pkgver` bump and
-  otherwise increments only for a packaging-only fix at the same `pkgver` (a missed `depends=`, a
-  wrong file mode) — never for a code change, which always earns its own `pkgver`.
-- **`depends`/`optdepends`** are reviewed against every external binary `bin/` actually shells out
-  to, not against what SPEC.md names — see the comment beside each entry in `PKGBUILD` for the
-  reasoning. `quickshell` was missing before this issue: `omarchy-kids-exit`, `-ask`, and
-  `-session-start` all `exec quickshell -p ...` with no fallback, unlike `hyprctl`/`loginctl`
-  elsewhere in `bin/`, which are genuinely best-effort and guarded with `command -v`. `snapper`
-  and `limine-snapper-sync` moved to `optdepends`: both are guarded the same `command -v` way in
-  `omarchy-kids-assert`/`-remove`, so a machine without Snapper still installs and runs, only
-  without the pre-apply snapshot (R-TRUST-1) and the hidden-snapshot-entries lock (issue #38).
-- **`CHANGELOG.md`** at the repo root is seeded from `git log`'s merge commits, one entry per
-  merged issue branch, oldest first within each milestone-shaped group. It is not yet a "v0.1.0"
-  release changelog — there has been no tagged release — so everything so far sits under
-  `[Unreleased]`.
+- **Regenerate `.SRCINFO` on Arch.** The checked-in file has the current fields and dependencies,
+  but it was written by hand. Run `makepkg --printsrcinfo > .SRCINFO`, review the diff, and keep
+  the generated result. Compare `PKGBUILD:15-35` with `.SRCINFO:1-27`.
+- **Build and inspect a clean package on Arch.** Run `makepkg -sf` from a clean clone that contains
+  the whole checkout, inspect the package contents, and install it in the test VM before
+  publishing. The file list comes from `PKGBUILD:37-109`; this checkout has no recorded clean
+  Arch build here.
+- **Run the package lint checks.** `namcap`, Arch's package linter, should check `PKGBUILD` and
+  the built package. Resolve or consciously accept its findings. This is maintainer validation,
+  not something the install scriptlet provides (`PKGBUILD:15-35,37-109`).
+- **Create and upload the AUR package repository.** No AUR repository or first upload exists yet
+  (`docs/install.md:19-31`).
+  Because `source=()` is empty, that repository must include every path read by `package()`,
+  including `bin/`, `lib/`, `initcpio/`, `etc/`, `systemd/`, `share/`, `desktop/`, `pacman/`, and
+  `LICENSE` (`PKGBUILD:34,37-109`).
+- **Choose the public scope.** `pkgver=0.1.0` describes this as an early build, and the runtime
+  gaps remain documented in `docs/install.md` and the command docs. Decide whether the first AUR
+  entry is an explicitly early package or wait for those checks before publishing
+  (`PKGBUILD:15-18`, `docs/install.md:104-125`).
 
-### Why each depend
+Already done in this checkout:
 
-- `qt6-svg`: the portal's avatars are SVGs; without Qt's SVG image plugin the greeter shows the
-  letter-circle fallback forever. Listed explicitly because it is unverified whether `sddm` or
-  `qt6-declarative` pull it in transitively on a stock 4.0.2 box, and an already-satisfied
-  depend costs nothing (#39).
-- `networkmanager`: `omarchy-kids-wifid` shells out to `nmcli` with fixed argument shapes (#26,
-  R-WIFI-2). Every Omarchy install already runs NetworkManager for its own Wi-Fi picker.
-- `quickshell`: the exit modal, the ask-a-parent modal and the Level 1 launcher `exec quickshell`
-  with no `command -v` guard; without it none of them run (#32, R-BUILD-1). `hyprctl` and
-  `loginctl` elsewhere in `bin/` are optional and guarded.
-- `hyprland`, `sddm`: the kid session execs `/usr/bin/Hyprland` and the portal is an SDDM theme
-  (R-LOGIN). Omarchy itself is installed by its own installer, not from a repo, so it cannot be
-  a depend; `share/hyprland/L*.lua` and `omarchy-kids-session-start` need its files, and
-  `omarchy-kids-check` reports when they are missing.
-- `snapper` and `limine-snapper-sync` are `optdepends`: both are guarded with `command -v` in
-  `omarchy-kids-assert` and `-remove`, so the pre-apply snapshot and the hidden-snapshot-entries
-  lock are skipped, not failed, without them (#38, R-TRUST-1). A parent who removed either is
-  not blocked from installing Kids Mode.
+- `PKGBUILD` declares the package name, version, release, architecture, license, URL, required
+  and optional dependencies, install scriptlet, empty source list, and `backup=` file
+  (`PKGBUILD:15-35`).
+- `.SRCINFO` contains the matching package metadata and dependency lists (`.SRCINFO:1-27`). It
+  still needs regeneration as described above.
+- `package()` installs the commands, support libraries, mkinitcpio files, all `.service`,
+  `.socket`, and `.timer` units, shared data, the SDDM theme, pacman hook, desktop entries, and
+  license (`PKGBUILD:37-109`).
+- `omarchy-kids.install` exists and defines `post_install`, `post_upgrade`, and `post_remove`
+  (`omarchy-kids.install:23-36`).
+- The pacman hook is present and triggers after install, upgrade, and removal of any package, then
+  runs `/usr/bin/omarchy-kids-assert --quiet` (`pacman/omarchy-kids.hook:7-18`).
 
 ## What gets installed where
 
-Mirrors SPEC.md §5.1, restricted to what package() actually lays down today (some of §5.1's
-paths, like `/etc/omarchy-kids/kids/<account>.conf`, are written at runtime by commands that
-don't exist yet, not by the package itself).
+This table follows `package()` rather than every path listed in the specification. Some runtime
+files are created later by the commands.
 
 | Repo path | Installed to | Mode | Note |
 | --- | --- | --- | --- |
-| `bin/omarchy-kids-*` | `/usr/bin/` | 755 | Every command, present or stubbed (R-BUILD-4) |
-| `initcpio/hooks/omarchy-kids-unlock` | `/usr/lib/initcpio/hooks/omarchy-kids-unlock` | 755 | mkinitcpio runtime hook (R-BOOT-1) |
-| `initcpio/install/omarchy-kids-unlock` | `/usr/lib/initcpio/install/omarchy-kids-unlock` | 755 | mkinitcpio install hook |
-| `initcpio/omarchy-kids-open` | `/usr/lib/initcpio/omarchy-kids-open` | 755 | Shared `cryptsetup open` helper |
-| `etc/mkinitcpio.conf.d/omarchy_kids.conf` | `/etc/mkinitcpio.conf.d/omarchy_kids.conf` | 644 | Inserts the hook into `HOOKS` (R-BOOT-2); a pacman `backup=` file, so a local edit survives an upgrade as a `.pacnew` |
-| `systemd/*.service`, `systemd/*.socket` | `/usr/lib/systemd/system/` | 644 | authd socket/service, boot-login + its cleanup unit, the boot-time re-assert unit (`docs/assert.md`) |
-| `share/**` (minus `.gitkeep`) | `/usr/share/omarchy-kids/` | — | bands, packs, hyprland, tui, policy, avatars, menu, sddm-theme data |
-| `pacman/omarchy-kids.hook` | `/usr/share/libalpm/hooks/omarchy-kids.hook` | 644 | Re-assert hook (see below) |
-| `desktop/omarchy-kids.desktop` | `/usr/share/applications/omarchy-kids.desktop` | 644 | "Kids Mode" in the app drawer |
-| `desktop/omarchy-kids-session.desktop` | `/usr/share/wayland-sessions/omarchy-kids.desktop` | 644 | The kid Wayland session, offered by SDDM |
-| `LICENSE` | `/usr/share/licenses/omarchy-kids/LICENSE` | 644 | |
+| `bin/omarchy-kids`, `bin/omarchy-kids-*` | `/usr/bin/` | 755 | All command files present in `bin/` |
+| `lib/*.sh`, `lib/*.py` | `/usr/lib/omarchy-kids/` | 644 | Shared command libraries and helpers |
+| `initcpio/hooks/*` | `/usr/lib/initcpio/hooks/` | 755 | mkinitcpio runtime hooks |
+| `initcpio/install/*` | `/usr/lib/initcpio/install/` | 755 | mkinitcpio install hooks |
+| `initcpio/omarchy-kids-open` | `/usr/lib/initcpio/omarchy-kids-open` | 755 | Boot-time cryptsetup helper |
+| `etc/mkinitcpio.conf.d/omarchy_kids.conf` | `/etc/mkinitcpio.conf.d/omarchy_kids.conf` | 644 | Adds the Kids Mode hook before `encrypt`; listed in `backup=` |
+| `systemd/*.service`, `systemd/*.socket`, `systemd/*.timer` | `/usr/lib/systemd/system/` | 644 | Auth, Wi-Fi, boot/login, assertion, screen-time, request, and app-install units |
+| `share/**` | `/usr/share/omarchy-kids/` | source modes | Bands, packs, desktop data, policy, avatars, menus, and QML |
+| `share/sddm-theme/**` | `/usr/share/sddm/themes/omarchy-kids/` | source modes | The SDDM greeter theme is copied there separately |
+| `pacman/omarchy-kids.hook` | `/usr/share/libalpm/hooks/omarchy-kids.hook` | 644 | Post-transaction lock check |
+| `desktop/omarchy-kids.desktop` | `/usr/share/applications/omarchy-kids.desktop` | 644 | App-drawer entry |
+| `desktop/omarchy-kids-session.desktop` | `/usr/share/wayland-sessions/omarchy-kids.desktop` | 644 | Kid Wayland session entry |
+| `LICENSE` | `/usr/share/licenses/omarchy-kids/LICENSE` | 644 | MIT license text |
 
-Not laid down by the package (written at runtime by commands not built yet, per §5.1):
-`/etc/omarchy-kids/kids/<account>.conf`, `/etc/omarchy-kids/machine.conf`,
-`/etc/omarchy-kids/luks-slots`, `/etc/chromium/policies/managed/omarchy-kids-<band>.json`,
-`/etc/polkit-1/rules.d/4x-omarchy-kids*.rules`, `/etc/sddm.conf.d/zz-omarchy-kids-*.conf`,
-`/run/omarchy-kids/`, `/var/lib/omarchy-kids/`.
+The package does not create these runtime paths itself: `/etc/omarchy-kids/kids/<account>.conf`,
+`/etc/omarchy-kids/machine.conf`, `/etc/omarchy-kids/luks-slots`, Chromium policy files,
+polkit and PAM changes, SDDM runtime configuration, `/run/omarchy-kids/`, or
+`/var/lib/omarchy-kids/`. The wizard, provisioning, web, assertion, and removal commands create
+or remove them as their jobs require.
 
 ### Groups
 
-`omarchy-kids.install`'s `post_install`/`post_upgrade` create six groups with `groupadd -f`
-(idempotent -- safe to run again on every upgrade):
+`post_install` and `post_upgrade` call `groupadd -f` for six groups, so repeating an install or
+upgrade is safe (`omarchy-kids.install:8-14`):
 
-- `omarchy-kids` -- every kid account
-- `omarchy-kids-3-5`, `omarchy-kids-6-8`, `omarchy-kids-9-12`, `omarchy-kids-13plus` -- one per band
-- `omarchy-parents` -- the machine's owner(s)
+- `omarchy-kids` for kid accounts
+- `omarchy-kids-3-5`, `omarchy-kids-6-8`, `omarchy-kids-9-12`, and `omarchy-kids-13plus` for age bands
+- `omarchy-parents` for the parent account
 
-No account is added to any of these by the package itself; that is `omarchy-kids-provision`'s job
-(not built yet). `post_install`/`post_upgrade` also run `systemctl daemon-reload` when systemd is
-running, and print a one-line hint to run `omarchy-kids`.
+The package does not add accounts to these groups. `omarchy-kids-provision` does that when a
+parent applies a kid setup. The scriptlet also runs `systemctl daemon-reload` when
+`/run/systemd/system` exists (`omarchy-kids.install:16-21`). It does not enable units itself.
 
-`post_remove` deliberately leaves every group and every kid account in place -- removing the
-package is not the same as Remove Kids Mode (R-TRUST-4), which is a separate, explicit action.
+`post_remove` only prints a notice. It leaves the groups, kid accounts, homes, disk slots, and
+runtime configuration in place (`omarchy-kids.install:34-36`).
 
 ## The pacman hook
 
-`/usr/share/libalpm/hooks/omarchy-kids.hook` fires `omarchy-kids-assert --quiet` after every
-pacman transaction (install, upgrade, *or* remove of any package, not just this one) so that an
-unrelated update -- a kernel bump, a config-file overwrite -- can never silently drop a lock
-(R-TRUST-5, I-4). `omarchy-kids-assert` is the one place that re-applies every lock idempotently
--- polkit rules, pam_namespace, fstab/mount, group membership, the AccountsService pin, masked
-getty units, the hyprland config copies, Chromium policy file modes, and the boot hook -- for
-every provisioned kid and the machine as a whole; see `docs/assert.md` for the full list, when it
-runs, and its exit codes.
+The installed hook runs after every pacman transaction, including transactions unrelated to Kids
+Mode (`pacman/omarchy-kids.hook:7-18`). It calls `omarchy-kids-assert --quiet`, which checks and
+repairs the locks that have been provisioned. The hook is a trigger; it does not replace the
+wizard's Apply step or Remove Kids Mode.
 
 ## Removing
 
+First run Remove Kids Mode from the app, or run `omarchy-kids remove-kids-mode`. That command
+removes the kid accounts and machine locks, and by default moves each home to the parent's
+`Kids Mode/<name>/` directory. Use `--delete-homes` only when deleting those files is intended.
+
+Then remove the package:
+
 ```sh
 sudo pacman -R omarchy-kids
-```text
+```
 
-This removes the files in the table above and prints `post_remove`'s notice. It does **not**:
-
-- remove the `omarchy-kids*`/`omarchy-parents` groups
-- remove any kid account, its home, or its LUKS slot
-- touch `/etc/omarchy-kids/`, `/var/lib/omarchy-kids/`, or `/run/omarchy-kids/`
-
-Reversing all of that is Remove Kids Mode (R-TRUST-4), run from the app before uninstalling the
-package -- not a side effect of `pacman -R`.
-
-## Known gaps (2026-09-02, first install in the VM)
-
-- The package does not enable `omarchy-kids-boot-login.service` and its cleanup unit; today they
-  are enabled by hand after install. They should be enabled by `omarchy-kids-provision add` when
-  the first kid is created and re-checked by `omarchy-kids-assert`.
-- Installing over files placed by `scripts/deploy-boot-hook.sh` conflicts, as pacman should;
-  run the deploy script's `--remove` first on a machine that used it.
+`pacman -R` removes the files installed by `package()`, subject to pacman's normal `backup=` file
+rules, and runs `post_remove`. It does not remove the groups, kid accounts, homes, disk slots, or
+runtime paths. Removing the package first is not the same as Remove Kids Mode and leaves the
+machine partially configured.

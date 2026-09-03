@@ -167,4 +167,3 @@ Not yet exercised live: the wrong-password shake, the power-off chord, the paren
 a kid tile (needs #15), and the display-name and avatar polish in #39. `sddm-greeter-qt6
 --test-mode` aborts inside a Hyprland session (stock theme too), so a real boot into the portal
 is the only way to see the theme.
-

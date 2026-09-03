@@ -1,0 +1,617 @@
+#!/bin/bash
+# omarchy-kids-wizard — the parent wizard's Easy path (SPEC.md R-WIZ-1..9,
+# Appendix A; issue #19). Bash + gum in Omarchy's floating terminal, every
+# screen rendered by lib/tui.sh (issue #18) — this file never calls gum
+# directly. See docs/wizard.md for the full screen list and the
+# answers-file layout tests drive it with.
+#
+# Scope note (see docs/wizard.md "What this issue does not build" for the
+# full reasoning): SPEC.md's Appendix A also has a parent-password screen
+# right after Welcome (A2), a face/avatar picker (A4), and five separate
+# one-choice screens for web/time/apps/wifi/level (A7-A11). This wizard
+# takes the band's sensible defaults for all of those instead of asking
+# screen-by-screen, shows them on one summary screen, and asks for the
+# parent's password once, right before Apply, not at the top. Avatar
+# defaults to "fox" (the same default bin/omarchy-kids-provision's own
+# `cmd_add` already falls back to). Advanced (the per-cell checklist,
+# A13a) is issue #20; choosing it here just explains that and returns.
+#
+# Every screen is keyboard-complete (Esc back, Ctrl+C leave with nothing
+# changed — see lib/tui.sh) up to the moment Apply actually starts
+# running commands; once a system change has begun, stopping partway
+# would leave things half-done, so the run is committed at that point,
+# same as the installer's own dashboard (R-WIZ-5).
+#
+#   omarchy-kids-wizard [--dry-run] [--help]
+#
+# DRY_RUN=1 is the default everywhere Apply would write something (AGENTS.md
+# rule 8): every command Apply would run is printed, `pacman`/`sudo`/
+# `omarchy-kids-*` included, nothing runs. --apply is not offered here on
+# purpose — spec's summary screen (A13) is itself the confirmation; passing
+# DRY_RUN=0 (or --apply) is how a real run happens, same convention as
+# every other command in bin/.
+#
+# Every path is overridable for tests, same convention as the rest of
+# bin/ (test/shell.d/wizard-test.sh runs entirely against scratch trees
+# with a stub PATH for gum/pacman/sudo and stub omarchy-kids-provision/
+# -web/-assert/-session pointed at by their own env vars below):
+#   OMARCHY_KIDS_ETC             default /etc/omarchy-kids
+#   OMARCHY_KIDS_SHARE            default /usr/share/omarchy-kids
+#   OMARCHY_KIDS_LIB              default lib/ beside bin/, else /usr/lib/omarchy-kids
+#   OMARCHY_KIDS_CONF_BIN          path to omarchy-kids-conf (default: resolved
+#                                  beside this script, else PATH)
+#   OMARCHY_KIDS_PROVISION_BIN     path to omarchy-kids-provision (default: sibling, else PATH)
+#   OMARCHY_KIDS_WEB_BIN           path to omarchy-kids-web (default: sibling, else PATH)
+#   OMARCHY_KIDS_ASSERT_BIN        path to omarchy-kids-assert (default: sibling, else PATH)
+#   OMARCHY_KIDS_SESSION_BIN       path to omarchy-kids-session (default: sibling, else PATH)
+#   OMARCHY_KIDS_AUTH_SOCK         the parent-password verifier socket (default
+#                                  /run/omarchy-kids/auth.sock, same var
+#                                  bin/omarchy-kids-parent-auth uses)
+#   OMARCHY_KIDS_SETUP_LOG         the technical log Apply writes to (R-WIZ-5;
+#                                  default /var/log/omarchy-kids/setup.log)
+#   OMARCHY_KIDS_TUI_ANSWERS       one answer per line; see lib/tui.sh / docs/tui.md
+#   DRY_RUN                        default 1; 0 (or --apply) makes Apply real
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/conf.sh
+source "$LIB/conf.sh"
+# shellcheck source=lib/tui.sh
+source "$LIB/tui.sh"
+
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
+SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+KIDS_DIR="$ETC/kids"
+
+CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=omarchy-kids-conf
+PROVISION_BIN="${OMARCHY_KIDS_PROVISION_BIN:-$DIR/bin/omarchy-kids-provision}"; [[ -x "$PROVISION_BIN" ]] || PROVISION_BIN=omarchy-kids-provision
+WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=omarchy-kids-web
+ASSERT_BIN="${OMARCHY_KIDS_ASSERT_BIN:-$DIR/bin/omarchy-kids-assert}"; [[ -x "$ASSERT_BIN" ]] || ASSERT_BIN=omarchy-kids-assert
+SESSION_BIN="${OMARCHY_KIDS_SESSION_BIN:-$DIR/bin/omarchy-kids-session}"; [[ -x "$SESSION_BIN" ]] || SESSION_BIN=omarchy-kids-session
+
+AUTH_SOCK="${OMARCHY_KIDS_AUTH_SOCK:-/run/omarchy-kids/auth.sock}"
+SETUP_LOG="${OMARCHY_KIDS_SETUP_LOG:-/var/log/omarchy-kids/setup.log}"
+
+DRY_RUN="${DRY_RUN:-1}"
+
+VALID_BANDS=("3-5" "6-8" "9-12" "13+")
+TOTAL_STEPS=8
+
+die() { echo "omarchy-kids-wizard: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<EOF
+Usage: omarchy-kids-wizard [--dry-run] [--help]
+
+Walks a parent through adding one kid: name, age band, Simple or Advanced,
+the kid's password, a plain-words summary, then Apply with a progress
+dashboard and a safety check (SPEC.md R-WIZ-1..9). Run it directly, or as
+'omarchy-kids wizard'. See docs/wizard.md.
+
+  --dry-run   Print every command Apply would run instead of running it
+              (also the default with no DRY_RUN set at all — AGENTS.md
+              rule 8). Set DRY_RUN=0 to make Apply real.
+  -h, --help  Show this help and exit.
+EOF
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=1 ;;
+        --apply) DRY_RUN=0 ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *)
+            die "unknown argument: '$arg' (see --help)"
+            ;;
+    esac
+done
+
+# --- small helpers -----------------------------------------------------
+
+# band_field BAND KEY — one value out of `omarchy-kids-conf band <band>`'s
+# key=value lines (label, blurb, level, web, budget_min, lights_out,
+# terminal, password_min, password_optional, ...). Same shape as
+# bin/omarchy-kids-provision's own band_field; duplicated rather than
+# shared for the same reason that file gives for group_for_band: four to
+# a dozen stable lines, and provision is a script, not a library.
+band_field() {
+    local band="$1" key="$2" out
+    out="$("$CONF_BIN" band "$band")" || die "could not read band '$band' defaults from $CONF_BIN"
+    printf '%s\n' "$out" | sed -n "s/^${key}=//p" | head -1
+}
+
+# pack_field BAND PATTERN — every value of a `key = "value"` line in that
+# band's pack TOML (share/packs/<band>.toml), one per line. Used for `pkg`
+# (prefetch/install) and `label` (the summary's starter-apps line); a
+# plain sed over the pack's own documented shape (AGENTS.md, Appendix C)
+# rather than a new lib/conf.py command, since this only ever reads two
+# already-fixed-format fields.
+pack_field() {
+    local band="$1" key="$2"
+    local pack="$SHARE/packs/$band.toml"
+    [[ -f "$pack" ]] || return 0
+    sed -n "s/^${key} = \"\\(.*\\)\"\$/\\1/p" "$pack"
+}
+
+# repo_and_aur_pkgs BAND — sets REPO_PKGS=() and AUR_PKGS=() (the "aur:"
+# prefix stripped) from that band's starter pack.
+REPO_PKGS=()
+AUR_PKGS=()
+repo_and_aur_pkgs() {
+    REPO_PKGS=()
+    AUR_PKGS=()
+    local p
+    while IFS= read -r p; do
+        [[ -z "$p" ]] && continue
+        case "$p" in
+            aur:*) AUR_PKGS+=("${p#aur:}") ;;
+            *) REPO_PKGS+=("$p") ;;
+        esac
+    done < <(pack_field "$1" pkg)
+}
+
+# run_priv CMD... — the one place a real system change is either printed
+# (DRY_RUN=1, the default) or actually run, under sudo (Apply is the only
+# place this wizard ever needs root — see "Root and the one sudo prompt"
+# in docs/wizard.md). Never used for a command that also needs its own
+# stdin; see run_priv_stdin for that.
+run_priv() {
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '  [dry-run] sudo'
+        printf ' %q' "$@"
+        printf '\n'
+    else
+        sudo "$@"
+    fi
+}
+
+# run_priv_stdin CMD... — like run_priv, but forwards this function's own
+# stdin to the real command (provision's --password-stdin /
+# --parent-password-stdin). In DRY_RUN mode the piped stdin (a password)
+# is drained and discarded, never echoed — only the argv is printed, and
+# a password is never on argv (AGENTS.md: "passwords only ever on stdin,
+# never argv, never logged").
+run_priv_stdin() {
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '  [dry-run] sudo'
+        printf ' %q' "$@"
+        printf '\n'
+        cat >/dev/null
+    else
+        sudo "$@"
+    fi
+}
+
+# run_priv_as USER CMD... — run_priv, but as USER (omarchy-kids-session
+# --check has to run as the kid to see the kid's own facts).
+run_priv_as() {
+    local user="$1"
+    shift
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '  [dry-run] sudo -u %q' "$user"
+        printf ' %q' "$@"
+        printf '\n'
+    else
+        sudo -u "$user" "$@"
+    fi
+}
+
+# --- prefetch (R-WIZ-4): starts on the age screen, never blocks --------
+#
+# Known gap (see docs/wizard.md): there is no dedicated root helper for
+# this yet (R-WIZ-4 calls for one), so a real run only prefetches when
+# sudo already has a cached credential (`sudo -n true`) — usually not yet
+# true this early in the wizard, since the one parent-password prompt is
+# right before Apply (see the file header). Rather than pop a second,
+# unplanned password prompt here, a real run just skips prefetching and
+# says so; Apply's own "installing starter apps" step still works fine
+# either way, from cache if prefetch got to run or freshly downloaded if
+# not (R-APPS-8's "offline: complete and defer" is the same shape of
+# fallback, just for a different reason).
+PREFETCH_PID=""
+start_prefetch() {
+    local band="$1"
+    repo_and_aur_pkgs "$band"
+    ((${#REPO_PKGS[@]})) || return 0
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '  [dry-run] sudo -n pacman -Sw --noconfirm'
+        printf ' %q' "${REPO_PKGS[@]}"
+        printf ' (background, started now, never blocks)\n'
+        return 0
+    fi
+    if sudo -n true 2>/dev/null; then
+        sudo -n pacman -Sw --noconfirm "${REPO_PKGS[@]}" >/dev/null 2>&1 &
+        PREFETCH_PID=$!
+    else
+        echo "  (starter-pack download will start at Apply instead of now — see docs/wizard.md)" >&2
+    fi
+}
+stop_prefetch() {
+    [[ -n "$PREFETCH_PID" ]] && kill "$PREFETCH_PID" >/dev/null 2>&1
+    PREFETCH_PID=""
+}
+trap stop_prefetch EXIT
+
+# --- validators ----------------------------------------------------------
+
+# validate_kid_name CANDIDATE — letters, spaces, and hyphens, 1-24 chars
+# (issue #19's brief); printed on failure, redraws the screen (lib/tui.sh's
+# VALIDATOR contract).
+validate_kid_name() {
+    local name="$1"
+    if [[ -z "$name" ]]; then
+        echo "Type a name — a first name or nickname is fine."
+        return 1
+    fi
+    if ((${#name} > 24)); then
+        echo "Keep it to 24 characters or fewer."
+        return 1
+    fi
+    if [[ ! "$name" =~ ^[A-Za-z][A-Za-z\ -]*$ ]]; then
+        echo "Letters, spaces, and hyphens only, please."
+        return 1
+    fi
+    return 0
+}
+
+PASSWORD_MIN=4
+validate_kid_password() {
+    local pw="$1"
+    if ((${#pw} < PASSWORD_MIN)); then
+        echo "That needs to be at least $PASSWORD_MIN characters."
+        return 1
+    fi
+    return 0
+}
+
+# verify_parent_password CANDIDATE — the same protocol
+# bin/omarchy-kids-parent-auth speaks to omarchy-kids-authd (docs/authd.md):
+# one line in, "ok"/"no" back. If the verifier isn't running here (no
+# socket — a dev box, or a machine mid-setup), this can't verify anything
+# on its own; per the wizard's brief, provision's own
+# --parent-password-stdin is what actually checks it, when a LUKS slot is
+# in play. Either way this never blocks Apply on a check it has no way to
+# perform.
+verify_parent_password() {
+    local candidate="$1" reply
+    [[ -S "$AUTH_SOCK" ]] || return 0
+    if command -v socat >/dev/null 2>&1; then
+        reply="$(printf '%s\n' "$candidate" | socat -T5 - "UNIX-CONNECT:$AUTH_SOCK" 2>/dev/null)"
+    elif command -v python3 >/dev/null 2>&1; then
+        reply="$(printf '%s\n' "$candidate" | python3 -c '
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(5)
+try:
+    s.connect(sys.argv[1])
+    s.sendall(sys.stdin.buffer.read())
+    s.shutdown(socket.SHUT_WR)
+    data = b""
+    while True:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    sys.stdout.buffer.write(data)
+except OSError:
+    pass
+' "$AUTH_SOCK" 2>/dev/null)"
+    else
+        return 0
+    fi
+    [[ "$reply" == ok* ]]
+}
+
+validate_parent_password() {
+    verify_parent_password "$1" && return 0
+    echo "That password wasn't recognized. Try again."
+    return 1
+}
+
+# --- screens -------------------------------------------------------------
+# One function per screen, in flow order. Each returns lib/tui.sh's own
+# contract: 0 = continue (answer in the variable the caller expects), 1 =
+# Esc/"go back", 130 = Ctrl+C/"leave, nothing changed" (the driver loop
+# below is what actually does the going-back and leaving).
+
+screen_welcome() {
+    # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+    local choices=("begin|Begin|")
+    local omy=$'Hi, I\'m Omy. Kids Mode turns this computer into one your kids can use on their own.\n\nEach kid gets their own desktop, at their own level.\nYou stay in charge with one password, yours.\nEverything can be undone.'
+    tui_screen_choose "Welcome" 1 "$TOTAL_STEPS" 1 "$omy" choices "begin" "$TUI_FOOTER_FIRST"
+}
+
+screen_name() {
+    tui_screen_input "What's your kid's name?" 2 "$TOTAL_STEPS" 0 "" \
+        text "First name or nickname. It's what they'll see." validate_kid_name
+    local rc=$?
+    ((rc == 0)) || return $rc
+    DISPLAY_NAME="$TUI_REPLY"
+    ACCOUNT="$("$CONF_BIN" slug "$DISPLAY_NAME")" || die "could not slug '$DISPLAY_NAME'"
+    if [[ -e "$KIDS_DIR/$ACCOUNT.conf" ]]; then
+        echo
+        echo "That'll be close to $ACCOUNT on this computer (a number gets added if it's taken)."
+    else
+        echo
+        echo "That'll be $ACCOUNT on this computer."
+    fi
+    return 0
+}
+
+screen_band() {
+    local -a choices=()
+    local b label blurb
+    for b in "${VALID_BANDS[@]}"; do
+        label="$(band_field "$b" label)"
+        blurb="$(band_field "$b" blurb)"
+        choices+=("$b|$label|$blurb")
+    done
+    tui_screen_choose "How old is $DISPLAY_NAME?" 3 "$TOTAL_STEPS" 0 "" choices "6-8"
+    local rc=$?
+    ((rc == 0)) || return $rc
+    BAND="$TUI_REPLY"
+    PASSWORD_MIN="$(band_field "$BAND" password_min)"
+    # R-WIZ-4: prefetch starts here, in the background, and never blocks.
+    start_prefetch "$BAND"
+    return 0
+}
+
+screen_mode() {
+    while true; do
+        local choices=(
+            "simple|Simple|A few clear choices with sensible defaults. About five minutes."
+            "advanced|Advanced|Every setting on one screen. Coming in a later update."
+        )
+        tui_screen_choose "How do you want to set up $DISPLAY_NAME's computer?" \
+            4 "$TOTAL_STEPS" 0 "" choices "simple"
+        local rc=$?
+        ((rc == 0)) || return $rc
+        if [[ "$TUI_REPLY" == advanced ]]; then
+            echo
+            echo "Advanced setup is coming next — for now, Simple covers everyone with sensible defaults."
+            continue
+        fi
+        return 0
+    done
+}
+
+screen_password() {
+    NO_PASSWORD=0
+    if [[ "$BAND" == "3-5" ]]; then
+        local choices=(
+            "yes|Set a password|$DISPLAY_NAME types it to get in."
+            "no|No password|$DISPLAY_NAME gets in once you start their session, no typing needed."
+        )
+        tui_screen_choose "Give $DISPLAY_NAME a password?" 5 "$TOTAL_STEPS" 0 "" choices "yes"
+        local rc=$?
+        ((rc == 0)) || return $rc
+        if [[ "$TUI_REPLY" == no ]]; then
+            NO_PASSWORD=1
+            KID_PASSWORD=""
+            return 0
+        fi
+    fi
+
+    while true; do
+        tui_screen_input "Now a password for $DISPLAY_NAME." 5 "$TOTAL_STEPS" 0 "" \
+            password "This unlocks $DISPLAY_NAME's screen (and this computer's disk, if it's encrypted) and logs them in." \
+            validate_kid_password
+        local rc=$?
+        ((rc == 0)) || return $rc
+        local first="$TUI_REPLY"
+
+        tui_screen_input "Type it again to be sure." 5 "$TOTAL_STEPS" 0 "" \
+            password "Same password, once more." validate_kid_password
+        rc=$?
+        ((rc == 0)) || return $rc
+
+        if [[ "$first" == "$TUI_REPLY" ]]; then
+            KID_PASSWORD="$first"
+            return 0
+        fi
+        echo
+        echo "Those didn't match — let's try again."
+    done
+}
+
+friendly_web_mode() {
+    case "$1" in
+        none) echo "No browser" ;;
+        garden) echo "Only sites you choose" ;;
+        filtered) echo "Filtered open web" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+screen_summary() {
+    local level web budget lights_out label blurb apps password_line
+    level="$(band_field "$BAND" level)"
+    web="$(band_field "$BAND" web)"
+    budget="$(band_field "$BAND" budget_min)"
+    lights_out="$(band_field "$BAND" lights_out)"
+    label="$(band_field "$BAND" label)"
+    blurb="$(band_field "$BAND" blurb)"
+    apps="$(pack_field "$BAND" label | paste -sd, - | sed 's/,/, /g')"
+    if ((NO_PASSWORD)); then
+        password_line="No password — $DISPLAY_NAME gets in once you start their session."
+    else
+        password_line="$DISPLAY_NAME types their own password to get in."
+    fi
+
+    # shellcheck disable=SC2034 # read by tui_screen_summary via nameref-by-name
+    local rows=(
+        "Account|$ACCOUNT"
+        "Age band|$label ($blurb)"
+        "Desktop|Level $level"
+        "Web|$(friendly_web_mode "$web")"
+        "Screen time|$budget minutes a day"
+        "Bedtime|$lights_out"
+        "Starter apps|$apps"
+        "Password|$password_line"
+    )
+    tui_screen_summary "Here's what happens next for $DISPLAY_NAME." 6 "$TOTAL_STEPS" 0 "" rows
+
+    local choices=("apply|Apply|" "change|Change something|")
+    tui_screen_choose "Ready?" 6 "$TOTAL_STEPS" 0 "" choices "apply"
+    local rc=$?
+    ((rc == 0)) || return $rc
+    [[ "$TUI_REPLY" == apply ]] && return 0
+    return 1 # "Change something" == Esc: don't proceed, go back a screen
+}
+
+screen_apply() {
+    while true; do
+        tui_screen_input "Your password, once more." 7 "$TOTAL_STEPS" 0 "" \
+            password "Kids Mode checks every grown-up change against it. This is the one system change (Apply) that needs it." \
+            validate_parent_password
+        local rc=$?
+        ((rc == 0)) || return $rc
+        PARENT_PASSWORD="$TUI_REPLY"
+        break
+    done
+
+    tui_header "Apply" 7 "$TOTAL_STEPS" 0 ""
+    echo
+
+    # shellcheck disable=SC2034 # read by tui_progress via nameref-by-name
+    local steps=(
+        "Getting your OK"
+        "Setting up $DISPLAY_NAME's account"
+        "Turning on the safe browser rules"
+        "Installing $BAND starter apps"
+        "Double-checking everything is safe"
+    )
+    local i=0
+    tui_progress steps "$i" "You can watch this happen — nothing here needs another click."
+
+    # Step 1: the one sudo prompt for the whole Apply step (see
+    # run_priv's comment / docs/wizard.md "Root and the one sudo prompt").
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '  [dry-run] sudo -v\n'
+    elif ! sudo -n true 2>/dev/null; then
+        printf '%s\n' "$PARENT_PASSWORD" | sudo -S -p '' -v 2>/dev/null
+    fi
+    i=1
+    tui_progress steps "$i"
+
+    # Step 2: the account itself.
+    if ((NO_PASSWORD)); then
+        run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --no-password --apply </dev/null
+    else
+        printf '%s\n%s\n' "$KID_PASSWORD" "$PARENT_PASSWORD" |
+            run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --password-stdin --parent-password-stdin --apply
+    fi
+    local provision_rc=$?
+    i=2
+    tui_progress steps "$i"
+
+    # Step 3: web policy.
+    run_priv "$WEB_BIN" install "$BAND" --apply
+    local web_rc=$?
+    i=3
+    tui_progress steps "$i"
+
+    # Step 4: starter pack, from cache (R-WIZ-4/R-APPS-3).
+    if ((${#REPO_PKGS[@]})); then
+        run_priv pacman -S --noconfirm --needed "${REPO_PKGS[@]}"
+    fi
+    if ((${#AUR_PKGS[@]})); then
+        echo "  (AUR packages deferred — no AUR helper wired up yet: ${AUR_PKGS[*]})"
+    fi
+    i=4
+    tui_progress steps "$i"
+
+    # Step 5: the safety check (R-WIZ-1's "→ Apply → ... → Done", and the
+    # brief's "omarchy-kids-assert and omarchy-kids-session --check").
+    echo
+    echo "Safety check:"
+    run_priv "$ASSERT_BIN"
+    local assert_rc=$?
+    run_priv_as "$ACCOUNT" "$SESSION_BIN" --check
+    local session_rc=$?
+    i=5
+    tui_progress steps "$i" "The technical log is at $SETUP_LOG."
+
+    APPLY_OK=1
+    if [[ "$DRY_RUN" != "1" ]]; then
+        ((provision_rc == 0)) || APPLY_OK=0
+        ((web_rc == 0)) || APPLY_OK=0
+        ((assert_rc == 0)) || APPLY_OK=0
+        ((session_rc == 0)) || APPLY_OK=0
+    fi
+    return 0
+}
+
+screen_done() {
+    local headline
+    if ((APPLY_OK)); then
+        headline="$DISPLAY_NAME's desktop is ready."
+    else
+        headline="$DISPLAY_NAME's account is set up, but the safety check found something to fix — see the lines above."
+    fi
+    local omy="$headline Next time the computer starts, $DISPLAY_NAME can just type their password."
+    local choices=(
+        "parent|Return to my desktop|"
+        "kid|Open $DISPLAY_NAME's desktop|"
+    )
+    tui_screen_choose "Done" 8 "$TOTAL_STEPS" 1 "$omy" choices "parent"
+    local rc=$?
+    if [[ "$TUI_REPLY" == kid ]]; then
+        echo
+        echo "There's no live preview switch yet on this box (see docs/wizard.md) —"
+        echo "$DISPLAY_NAME logs in from the portal next time the screen locks or the computer starts."
+    fi
+    return $((rc == 130 ? 130 : 0))
+}
+
+# --- driver: step forward, Esc back, Ctrl+C leave (nothing changed) ----
+
+DISPLAY_NAME=""
+ACCOUNT=""
+BAND=""
+NO_PASSWORD=0
+KID_PASSWORD=""
+PARENT_PASSWORD=""
+APPLY_OK=1
+
+tui_init || exit $?
+
+STEP=1
+while ((STEP <= TOTAL_STEPS)); do
+    rc=0
+    case "$STEP" in
+        1) screen_welcome ;;
+        2) screen_name ;;
+        3) screen_band ;;
+        4) screen_mode ;;
+        5) screen_password ;;
+        6) screen_summary ;;
+        7) screen_apply ;;
+        8) screen_done ;;
+    esac
+    rc=$?
+    case "$rc" in
+        0) STEP=$((STEP + 1)) ;;
+        1)
+            if ((STEP == 1)); then
+                echo "Nothing to go back to — leaving, nothing changed." >&2
+                exit 1
+            fi
+            STEP=$((STEP - 1))
+            ;;
+        130)
+            stop_prefetch
+            echo "Left setup. Nothing changed." >&2
+            exit 130
+            ;;
+        *)
+            die "screen at step $STEP failed unexpectedly" 2
+            ;;
+    esac
+done
+
+exit 0

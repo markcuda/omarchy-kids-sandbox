@@ -1,33 +1,69 @@
 #!/bin/bash
 # omarchy-kids: the app entry point (R-FND-1, R-WIZ-1 through R-WIZ-9).
-# Launched from the app drawer or Super+Shift+K; opens the parent wizard on
-# first run and the panel after that, in Omarchy's floating terminal.
-# Stub: the wizard/panel is not built yet (see issue #8's follow-ons).
+# Launched from the app drawer or Super+Shift+K. With no kid provisioned
+# yet, opens the parent wizard (bin/omarchy-kids-wizard, issue #19); once
+# at least one kid exists, `omarchy-kids` alone opens the panel (not built
+# yet -- separate issue) and `omarchy-kids wizard` always opens the wizard
+# (R-WIZ-7's "add a kid" runs the same per-kid screens).
 set -uo pipefail
 
-for arg in "$@"; do
-  case "$arg" in
-    -h|--help)
-      cat <<'EOF'
-Usage: omarchy-kids
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+WIZARD_BIN="${OMARCHY_KIDS_WIZARD_BIN:-$DIR/bin/omarchy-kids-wizard}"; [[ -x "$WIZARD_BIN" ]] || WIZARD_BIN=omarchy-kids-wizard
 
-Opens Kids Mode: the parent wizard on first run, the panel after that.
-Not built yet -- see SPEC.md R-WIZ.
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
+KIDS_DIR="$ETC/kids"
 
+usage() {
+  cat <<EOF
+Usage: omarchy-kids [wizard] [--dry-run] [--help]
+
+Opens Kids Mode. With no kid provisioned yet, this is the parent wizard
+(SPEC.md R-WIZ). Once a kid exists, this opens the panel -- not built yet,
+see a later issue -- and 'omarchy-kids wizard' always opens the wizard, to
+add another kid.
+
+  wizard      Always open the parent wizard, even if kids already exist.
+  --dry-run   Passed through to the wizard's Apply step (see its --help).
   -h, --help  Show this help and exit.
 EOF
+}
+
+any_kid_provisioned() {
+  local f
+  for f in "$KIDS_DIR"/*.conf; do
+    [[ -e "$f" ]] && return 0
+  done
+  return 1
+}
+
+args=()
+open_wizard=0
+for arg in "$@"; do
+  case "$arg" in
+    wizard) open_wizard=1 ;;
+    -h | --help)
+      usage
       exit 0
       ;;
+    *) args+=("$arg") ;;
   esac
 done
 
-echo "omarchy-kids: setup is not built yet (stub)."
+if ((open_wizard)); then
+  exec "$WIZARD_BIN" "${args[@]+"${args[@]}"}"
+fi
+
+if ! any_kid_provisioned; then
+  exec "$WIZARD_BIN" "${args[@]+"${args[@]}"}"
+fi
+
+echo "omarchy-kids: the panel is not built yet (stub). Run 'omarchy-kids wizard' to add another kid."
 
 if command -v gum >/dev/null 2>&1; then
   gum style \
     --border rounded --padding "1 2" --margin "1 0" \
     --foreground 212 --border-foreground 212 \
-    "Kids Mode" "Setup isn't built yet. Check back soon."
+    "Kids Mode" "The panel isn't built yet. Run 'omarchy-kids wizard' to add another kid."
 fi
 
 exit 0

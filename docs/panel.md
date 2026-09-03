@@ -112,3 +112,14 @@ both the exact `[dry-run] sudo ...` line a write prints and, in a real (`--apply
 pass-through `sudo` fake and a thin argv-logging "spy" in front of each real helper binary, that the
 write actually happened (a budget really changed on disk, an app is really hidden, a request is
 really marked approved) — and that a mistyped remove confirmation runs nothing at all.
+
+## Verified live (2026-09-02, QEMU test VM)
+
+Over `ssh -tt` with an answers file: `omarchy-kids` opened the panel (two kids exist), the Home
+rows showed live minutes ("Cy · 6-8 · 17m used / 0m left today"), Cy → Screen time → "Give
+more minutes today" → 10 printed the exact command in dry-run and, with `--apply`, ran
+`sudo omarchy-kids-time grant kid-cy 10` after one warmed prompt; the status line updated to
+"9 min left today (budget 1 + 25 granted)". Kid rows answer to their number (or the full
+line), not the account name. Requests, Web, Apps, Password and Remove rows share the same
+code path and are not yet exercised live.
+

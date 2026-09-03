@@ -201,3 +201,10 @@ export story today (see "Not built here" above for why there's no dedicated flag
 launch-log fold (including the dedup-by-offset and fresh-login-reset cases) — a fixture launches
 log, a small fixture Chromium `History` db built by python3 (this issue's own "Chromium facts"),
 and a temp root throughout; no real Unix accounts, per AGENTS.md rule 8.
+
+## Verified live (2026-09-03, QEMU test VM)
+
+`launches`, `summary` and `sites` answered honestly for a kid; the launch fold only started
+working once the ledger unit stopped hiding `/run/user` (ProtectHome) and the offset file
+carried the runtime file's inode: after that a tile launched from the launcher appeared in the
+root-owned log at the next tick and in `omarchy-kids-data launches`.

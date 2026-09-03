@@ -63,12 +63,12 @@ authorization result — see #1.
 
 `bin/omarchy-kids-assert:680-683`
 
-```
+```text
 if [[ -f "$HOOK_FILE" ]]; then
     assert_one "boot-hook" boot_hook_ok boot_hook_fix
 assert_one "limine-editor" limine_editor_ok limine_editor_fix
 fi
-```
+```text
 
 The second `assert_one` is indented as though it were outside the `if`; it is inside it. The
 comment at line 515 states the stakes: *"the menu editor and 'Blank Entry' let anyone append
@@ -115,9 +115,9 @@ belongs: `provision`, `assert`, `web`, `apps`, `remove`.
 
 `bin/omarchy-kids-boot-login:37-42`
 
-```
+```text
 session_for() { case "$1" in kid-*) echo "omarchy-kids.desktop" ;; *) echo "omarchy.desktop" ;; esac; }
-```
+```text
 
 `lib/posture.sh:482-486` documents this exact heuristic failing live: *"a VM whose owner was
 named `kid-vm` … the owner's own tile was misclassified as a kid"*. The portal was fixed to read

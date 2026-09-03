@@ -133,3 +133,5 @@ what state it leaves the VM in; left for a follow-on issue rather than guessed a
   scenarios passed in one `test/live/all -k` run.
 - 2026-09-03, third full run after the security fixes, the verifier's reader fix and the unit's
   writable paths: all seven passed again.
+- 2026-09-03, fourth full run against the structural refactor (shared helpers, dispatchers,
+  strict mode): all seven passed.

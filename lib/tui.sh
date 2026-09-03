@@ -29,6 +29,19 @@
 #     keyboard. Every screen is still rendered to stdout in this mode, the
 #     same as an interactive run, so a recorded session reads the same way.
 #
+# Two ways to *render* a screen (issue #50 — the wizard didn't clear between
+# steps and looked nothing like Omarchy's own gum screens):
+#   - plain: the original, non-clearing render every test in this repo
+#     already parses — one screen, one bordered box, everything printed in
+#     order, nothing cleared. Selected whenever OMARCHY_KIDS_TUI_ANSWERS is
+#     set (file mode) or OMARCHY_KIDS_TUI_PLAIN=1 is set explicitly.
+#   - card (a real terminal, neither of those set): clears the screen at
+#     every step (_tui_clear, the same external `clear` omarchy-
+#     provision-owner's clear_logo calls at v4.0.2) and draws one
+#     `gum style --border rounded` card at a stable, centered position
+#     (_tui_measure) — see tui_header. _tui_card_mode is the one place that
+#     decides which of the two a given render uses.
+#
 # Not meant to be executed directly; source it from a command:
 #   source "$DIR/lib/tui.sh"
 
@@ -52,6 +65,15 @@ TUI_NEXT_ANSWER="" # scratch: set by _tui_next_answer, read right after
 declare -a TUI_ANSWERS=()
 TUI_ANSWERS_I=0
 
+# The card's max width (issue #50) — _tui_measure only ever narrows this to
+# fit a smaller terminal, never widens it past it on a big one. TUI_CARD_W/
+# TUI_CARD_LEFT are _tui_measure's own output: the card's actual width this
+# render, and the left margin that centers it. Card mode only; plain mode
+# never reads either.
+TUI_CARD_WIDTH=64
+TUI_CARD_W=""
+TUI_CARD_LEFT=0
+
 # Colors tui_init resolves via lib/theme.sh's theme_color, in the hex form
 # gum's --foreground and --border-foreground already accept. theme_color's
 # own fallback palette (lib/theme.sh) covers a machine with no theme read
@@ -74,6 +96,30 @@ tui_init() {
     TUI_C_FG="$(theme_color foreground)"
     TUI_C_MUTED="$(theme_color muted)"
     TUI_C_ERROR="$(theme_color error)"
+    local bg
+    bg="$(theme_color background)"
+
+    # Theme -> gum environment (issue #50). Omarchy's own themed session
+    # already exports these once per theme, via default/themed/gum_env.
+    # lua.tpl (fetched at v4.0.2: bare FOREGROUND/BACKGROUND/BORDER_
+    # FOREGROUND/BORDER_BACKGROUND for `gum style` itself, plus a
+    # GUM_<CMD>_<FIELD>_FOREGROUND/BACKGROUND pair per gum subcommand). When
+    # that's already set, gum reads it with zero flags from us — this is
+    # "look like Omarchy's own gum screens", not a lookalike. _tui_gum_env_
+    # default only fills a var that's still empty, so a dev shell or CI
+    # runner with no themed session (nothing sourced gum_env.lua) still gets
+    # theme_color's own resolution instead of gum's built-in defaults.
+    _tui_gum_env_default FOREGROUND "$TUI_C_FG"
+    _tui_gum_env_default BACKGROUND "$bg"
+    _tui_gum_env_default BORDER_FOREGROUND "$TUI_C_ACCENT"
+    _tui_gum_env_default BORDER_BACKGROUND "$bg"
+    _tui_gum_env_default GUM_CHOOSE_CURSOR_FOREGROUND "$TUI_C_ACCENT"
+    _tui_gum_env_default GUM_CHOOSE_ITEM_FOREGROUND "$TUI_C_FG"
+    _tui_gum_env_default GUM_CHOOSE_SELECTED_FOREGROUND "$TUI_C_ACCENT"
+    _tui_gum_env_default GUM_INPUT_PROMPT_FOREGROUND "$TUI_C_ACCENT"
+    _tui_gum_env_default GUM_INPUT_PLACEHOLDER_FOREGROUND "$TUI_C_MUTED"
+    _tui_gum_env_default GUM_CONFIRM_PROMPT_FOREGROUND "$TUI_C_ACCENT"
+    _tui_gum_env_default GUM_CONFIRM_SELECTED_FOREGROUND "$TUI_C_ACCENT"
 
     if [[ -n "${OMARCHY_KIDS_TUI_ANSWERS:-}" ]]; then
         if [[ ! -r "$OMARCHY_KIDS_TUI_ANSWERS" ]]; then
@@ -127,6 +173,66 @@ _tui_array_copy() {
     eval "$__tui_dest=(\"\${$__tui_src[@]+\"\${$__tui_src[@]}\"}\")"
 }
 
+# _tui_gum_env_default NAME VALUE — exports NAME=VALUE only when NAME isn't
+# already set in the environment (tui_init's "Theme -> gum environment"
+# block, issue #50). Reads NAME indirectly with eval, the same pre-4.3-bash
+# idiom _tui_array_copy uses above, rather than `${!name}`, so this keeps
+# working under the plain bash 3.2 test/all also has to run on.
+_tui_gum_env_default() {
+    local __tui_name="$1" __tui_val="$2" __tui_current
+    __tui_current="$(eval "printf '%s' \"\${$__tui_name:-}\"")"
+    if [[ -z "$__tui_current" ]]; then
+        export "$__tui_name=$__tui_val"
+    fi
+}
+
+# _tui_card_mode — true when a screen should draw the cleared, bordered
+# "card" (issue #50); false for the plain, non-clearing render every
+# existing test parses. Plain wins whenever an answers file is driving the
+# screen (TUI_MODE=file) or OMARCHY_KIDS_TUI_PLAIN=1 is set — see the file
+# header's "Two ways to render a screen".
+_tui_card_mode() {
+    [[ "$TUI_MODE" == interactive && "${OMARCHY_KIDS_TUI_PLAIN:-0}" != 1 ]]
+}
+
+# _tui_clear — clears the terminal the way Omarchy's own first-boot setup
+# does it (bin/omarchy-provision-owner's clear_logo, v4.0.2 — a plain
+# `clear`, not a raw escape sequence spliced into a `printf`), so tests can
+# fake `clear` on PATH the same way they already fake `gum`. A no-op, not a
+# failure, when `clear` isn't installed (a dev shell missing termcap data).
+_tui_clear() {
+    command -v clear >/dev/null 2>&1 && clear
+    return 0
+}
+
+# _tui_measure — sets TUI_CARD_W (this render's card width: TUI_CARD_WIDTH,
+# or the terminal's width if narrower) and TUI_CARD_LEFT (the left margin
+# that centers it), then exports GUM_CHOOSE_PADDING/GUM_INPUT_PADDING/
+# GUM_CONFIRM_PADDING to that same margin so gum's own chooser/input line up
+# under the card instead of hugging the left edge — the same measure-then-
+# pad-every-widget trick omarchy-provision-owner's measure_terminal uses
+# (v4.0.2). `tput cols` is the width probe (also what a stubbed test fakes);
+# COLUMNS, then a fixed 80, are the fallbacks when tput itself isn't there
+# or fails. Card mode only; plain mode never calls this, so it can never
+# affect the byte-for-byte output every existing test already parses.
+_tui_measure() {
+    local cols=""
+    if command -v tput >/dev/null 2>&1; then
+        cols="$(tput cols 2>/dev/null || true)"
+    fi
+    [[ "$cols" =~ ^[0-9]+$ ]] || cols="${COLUMNS:-80}"
+
+    TUI_CARD_W=$TUI_CARD_WIDTH
+    ((cols < TUI_CARD_W)) && TUI_CARD_W=$cols
+    ((TUI_CARD_W < 20)) && TUI_CARD_W=20
+
+    TUI_CARD_LEFT=$(((cols - TUI_CARD_W) / 2))
+    ((TUI_CARD_LEFT < 0)) && TUI_CARD_LEFT=0
+
+    local pad="0 0 0 $TUI_CARD_LEFT"
+    export GUM_CHOOSE_PADDING="$pad" GUM_INPUT_PADDING="$pad" GUM_CONFIRM_PADDING="$pad"
+}
+
 # _tui_style FLAGS... -- TEXT... — the one place gum style is called.
 # Without gum (a dev machine that hasn't installed it yet — PKGBUILD
 # depends on it, so a real install always has it) this drops straight to
@@ -149,28 +255,87 @@ _tui_style() {
 }
 
 _tui_footer() {
-    _tui_style --foreground "$TUI_C_MUTED" -- "$1"
+    if _tui_card_mode; then
+        _tui_style --foreground "$TUI_C_MUTED" --margin "0 0 0 $TUI_CARD_LEFT" -- "$1"
+    else
+        _tui_style --foreground "$TUI_C_MUTED" -- "$1"
+    fi
 }
 
-# tui_header TITLE STEP TOTAL SHOW_OMY [OMY_LINE]
+# tui_header TITLE STEP TOTAL SHOW_OMY [OMY_LINE] [BODY_ARRAYNAME] [ERROR]
 # The Omy glyph and voice line only render when SHOW_OMY is 1 — spec v1.1:
-# Omy speaks on Welcome and Done, every other screen is plain. The bordered
-# "Kids Mode / step n of N / title" box under it renders on every screen.
+# Omy speaks on Welcome and Done, every other screen is plain. Every screen
+# still gets the same pieces — a step line, a title, Omy (sometimes), a
+# body (sometimes) — but _tui_card_mode decides how they're laid out
+# (issue #50):
+#
+#   - plain mode: unchanged from before issue #50, byte-for-byte — the
+#     bordered "Kids Mode / step n of N / title" box every existing test
+#     already parses. BODY_ARRAYNAME/ERROR are ignored here; a caller with
+#     body lines (tui_screen_confirm, tui_screen_summary) prints them
+#     itself right after, the way it always has.
+#   - card mode: clears the screen (_tui_clear) and measures it
+#     (_tui_measure) first, then draws a subtle "Kids Mode · Step n of N"
+#     line, Omy (styled apart from everything else, its own two lines,
+#     exactly like plain mode), and one centered, width-bounded
+#     `gum style --border rounded` card holding the title and — when a
+#     caller passes one — BODY_ARRAYNAME's lines underneath it. gum has no
+#     way to color one line inside a `gum style` box differently than the
+#     rest, so ERROR=1 (tui_screen_input's failed-validator case) turns the
+#     *whole* card the theme's error color rather than just one line in it.
+#     The chooser/input a caller shows next isn't literally inside this box
+#     (gum has no such widget) — _tui_measure's GUM_*_PADDING lines it up
+#     directly under the card instead, same as omarchy-provision-owner's
+#     own step()-then-gum-choose pattern.
 tui_header() {
     local title="$1" step="$2" total="$3" show_omy="$4" omy_line="${5:-}"
+    local body_argname="${6:-}" errflag="${7:-0}"
 
-    if [[ "$show_omy" == 1 ]]; then
-        _tui_style --foreground "$TUI_C_ACCENT" --bold -- "🦉 Omy"
-        if [[ -n "$omy_line" ]]; then
-            local -a f=(--italic)
-            [[ -n "$TUI_C_FG" ]] && f+=(--foreground "$TUI_C_FG")
-            _tui_style "${f[@]}" -- "$omy_line"
+    if _tui_card_mode; then
+        _tui_clear
+        _tui_measure
+        local -a m=(--margin "0 0 0 $TUI_CARD_LEFT")
+
+        _tui_style --foreground "$TUI_C_MUTED" "${m[@]}" -- "Kids Mode · Step ${step} of ${total}"
+
+        if [[ "$show_omy" == 1 ]]; then
+            _tui_style --foreground "$TUI_C_ACCENT" --bold "${m[@]}" -- "🦉 Omy"
+            if [[ -n "$omy_line" ]]; then
+                local -a f=(--italic "${m[@]}")
+                [[ -n "$TUI_C_FG" ]] && f+=(--foreground "$TUI_C_FG")
+                _tui_style "${f[@]}" -- "$omy_line"
+            fi
         fi
-    fi
 
-    _tui_style --border rounded --padding "0 1" \
-        --foreground "$TUI_C_ACCENT" --border-foreground "$TUI_C_ACCENT" -- \
-        "Kids Mode" "step ${step} of ${total}" "$title"
+        local -a _tui_hdr_body=()
+        [[ -n "$body_argname" ]] && _tui_array_copy _tui_hdr_body "$body_argname"
+        local -a card=("$title")
+        local b
+        for b in "${_tui_hdr_body[@]+"${_tui_hdr_body[@]}"}"; do card+=("$b"); done
+
+        local fg="$TUI_C_FG" bfg="$TUI_C_ACCENT"
+        if [[ "$errflag" == 1 ]]; then
+            fg="$TUI_C_ERROR"
+            bfg="$TUI_C_ERROR"
+        fi
+
+        _tui_style --border rounded --padding "1 2" --margin "1 0 1 $TUI_CARD_LEFT" \
+            --width "$TUI_CARD_W" --foreground "$fg" --border-foreground "$bfg" -- \
+            "${card[@]}"
+    else
+        if [[ "$show_omy" == 1 ]]; then
+            _tui_style --foreground "$TUI_C_ACCENT" --bold -- "🦉 Omy"
+            if [[ -n "$omy_line" ]]; then
+                local -a f=(--italic)
+                [[ -n "$TUI_C_FG" ]] && f+=(--foreground "$TUI_C_FG")
+                _tui_style "${f[@]}" -- "$omy_line"
+            fi
+        fi
+
+        _tui_style --border rounded --padding "0 1" \
+            --foreground "$TUI_C_ACCENT" --border-foreground "$TUI_C_ACCENT" -- \
+            "Kids Mode" "step ${step} of ${total}" "$title"
+    fi
 }
 
 # _tui_confirm_leave — the Ctrl+C contract itself: "Leave setup? Nothing
@@ -235,8 +400,19 @@ tui_screen_choose() {
 
     while true; do
         tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
-        local d
-        for d in "${display[@]+"${display[@]}"}"; do _tui_style -- "$d"; done
+
+        # gum choose renders this same list itself once it's the real
+        # widget doing the asking — printing it here too is the exact
+        # duplicate issue #50's screenshots showed. Print it ourselves only
+        # when nothing else is about to: file mode (nothing renders it at
+        # all) and the no-gum fallback below (its own `read` has no list of
+        # its own either).
+        if ! { [[ "$TUI_MODE" == interactive ]] && ((TUI_HAVE_GUM)); }; then
+            local -a dm=()
+            _tui_card_mode && dm=(--margin "0 0 0 $TUI_CARD_LEFT")
+            local d
+            for d in "${display[@]+"${display[@]}"}"; do _tui_style "${dm[@]+"${dm[@]}"}" -- "$d"; done
+        fi
         _tui_footer "$footer"
 
         local chosen
@@ -245,6 +421,10 @@ tui_screen_choose() {
             chosen="$TUI_NEXT_ANSWER"
         elif ((TUI_HAVE_GUM)); then
             local -a gflags=(--header "$title")
+            local h=${#display[@]}
+            ((h > 10)) && h=10
+            ((h < 1)) && h=1
+            gflags+=(--height "$h")
             [[ -n "$default_display" ]] && gflags+=(--selected "$default_display")
             chosen="$(gum choose "${gflags[@]}" -- "${display[@]+"${display[@]}"}")"
             case $? in
@@ -254,7 +434,6 @@ tui_screen_choose() {
                     ;;
             esac
         else
-            for d in "${display[@]+"${display[@]}"}"; do echo "$d"; done
             read -r -p "> " chosen
         fi
 
@@ -298,10 +477,26 @@ tui_screen_input() {
     local title="$1" step="$2" total="$3" show_omy="$4" omy_line="$5"
     local kind="$6" placeholder="${7:-}" validator="${8:-}"
     local footer="${9:-$TUI_FOOTER_DEFAULT}"
+    local last_err=""
 
     while true; do
-        tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
-        [[ -n "$placeholder" ]] && _tui_style --foreground "$TUI_C_MUTED" -- "$placeholder"
+        # A failed validator's message rides along as an extra card line on
+        # the redraw that follows it (issue #50: "errors ... in the theme's
+        # error colour inside the card") rather than a one-off line printed
+        # off to the side — see tui_header's own comment on ERROR.
+        local -a _tui_input_body=()
+        [[ -n "$placeholder" ]] && _tui_input_body+=("$placeholder")
+        [[ -n "$last_err" ]] && _tui_input_body+=("" "$last_err")
+
+        if _tui_card_mode; then
+            local errflag=0
+            [[ -n "$last_err" ]] && errflag=1
+            tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_input_body "$errflag"
+        else
+            tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
+            [[ -n "$placeholder" ]] && _tui_style --foreground "$TUI_C_MUTED" -- "$placeholder"
+            [[ -n "$last_err" ]] && _tui_style --foreground "$TUI_C_ERROR" -- "$last_err"
+        fi
         _tui_footer "$footer"
 
         local ans
@@ -309,7 +504,7 @@ tui_screen_input() {
             _tui_next_answer || return 2
             ans="$TUI_NEXT_ANSWER"
         elif ((TUI_HAVE_GUM)); then
-            local -a gflags=(--placeholder "$placeholder")
+            local -a gflags=(--placeholder "$placeholder" --prompt.foreground "$TUI_C_ACCENT")
             [[ "$kind" == password ]] && gflags+=(--password)
             ans="$(gum input "${gflags[@]}")"
             case $? in
@@ -335,7 +530,7 @@ tui_screen_input() {
         if [[ -n "$validator" ]]; then
             local err
             if ! err="$("$validator" "$ans")"; then
-                _tui_style --foreground "$TUI_C_ERROR" -- "${err:-That is not valid. Try again.}"
+                last_err="${err:-That is not valid. Try again.}"
                 continue
             fi
         fi
@@ -357,9 +552,13 @@ tui_screen_confirm() {
     local affirm="${7:-Yes}" decline="${8:-No}"
     local footer="${9:-$TUI_FOOTER_DEFAULT}"
 
-    tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
-    local b
-    for b in "${_tui_body[@]+"${_tui_body[@]}"}"; do _tui_style -- "$b"; done
+    if _tui_card_mode; then
+        tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_body
+    else
+        tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
+        local b
+        for b in "${_tui_body[@]+"${_tui_body[@]}"}"; do _tui_style -- "$b"; done
+    fi
     _tui_footer "$footer"
 
     local ans
@@ -417,19 +616,26 @@ tui_screen_summary() {
     _tui_array_copy _tui_rows "$6"
     local footer="${7:-$TUI_FOOTER_DEFAULT}"
 
-    tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
-
     local row label width=0
     for row in "${_tui_rows[@]+"${_tui_rows[@]}"}"; do
         label="${row%%|*}"
         ((${#label} > width)) && width=${#label}
     done
+    local -a _tui_summary_lines=()
     local value
     for row in "${_tui_rows[@]+"${_tui_rows[@]}"}"; do
         label="${row%%|*}"
         value="${row#*|}"
-        _tui_style -- "$(printf '%-*s  %s' "$width" "$label" "$value")"
+        _tui_summary_lines+=("$(printf '%-*s  %s' "$width" "$label" "$value")")
     done
+
+    if _tui_card_mode; then
+        tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_summary_lines
+    else
+        tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
+        local l
+        for l in "${_tui_summary_lines[@]+"${_tui_summary_lines[@]}"}"; do _tui_style -- "$l"; done
+    fi
 
     _tui_footer "$footer"
 }

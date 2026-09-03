@@ -94,7 +94,7 @@ PanelWindow {
     FileView {
         id: launcherJson
         path: Quickshell.env("OMARCHY_KIDS_LAUNCHER_JSON")
-            || ("/run/omarchy-kids/launcher-" + (Quickshell.env("UID") || "0") + ".json")
+            || (Quickshell.env("XDG_RUNTIME_DIR") + "/omarchy-kids/launcher-" + (Quickshell.env("UID") || "0") + ".json")
         watchChanges: false
     }
     function fallbackField(key) {
@@ -179,16 +179,14 @@ PanelWindow {
     // starts, so a race with the highlight changing mid-check can't
     // run the wrong one).
     property string pendingAction: ""
-    Process {
-        id: actionProcess
-        command: root.pendingAction === "finish"
-            ? ["omarchy-kids-exit", "--finish"]
-            : ["omarchy-kids-exit", "--pause"]
-    }
-
     function onVerified() {
         root.wrongCount = 0
-        actionProcess.running = true
+        // Detached, not a child Process: Qt.quit() right after starting a child
+        // killed it before it ran (seen live 2026-09-02: the modal closed, the
+        // session stayed). --finish ends this compositor anyway.
+        Quickshell.execDetached(root.pendingAction === "finish"
+            ? ["omarchy-kids-exit", "--finish"]
+            : ["omarchy-kids-exit", "--pause"])
         Qt.quit()
     }
 

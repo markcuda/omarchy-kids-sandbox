@@ -106,9 +106,15 @@ R-BAR-2) to run directly.
 `daemon` polls every 30 s (`OMARCHY_KIDS_TIME_POLL_INTERVAL`) while *this session*
 (`$XDG_SESSION_ID`) is `Active=yes`/`LockedHint=no` and not paused:
 
-- remaining ≤ 10/5/1 minutes (first crossing only, per threshold) → `share/time/toast.qml`
-  (R-TIME-3; SPEC.md's three thresholds, not the two a draft of this ticket floated — the spec
-  wins, per `AGENTS.md`).
+- remaining minutes crossing 10/5/1 **downward** (`lib/time.sh`'s `time_toast_thresholds` —
+  R-TIME-3, issue #40; SPEC.md's three thresholds, not the two a draft of this ticket floated —
+  the spec wins, per `AGENTS.md`) → `share/time/toast.qml`. A threshold fires only when the
+  remaining minutes last seen was above it and the current reading is at or below it (`previous >
+  threshold ≥ current`); a grant that raises remaining minutes back above a threshold un-fires it,
+  so it fires again the next time it's actually crossed, instead of the stale re-fire issue #40
+  reported live (a grant to 16 minutes re-triggered the already-shown "10 minutes left" toast).
+  Every check — fired or not — is logged with its previous/current values (`toast-check:` lines in
+  the session log) so a live run can be audited the same way this was found.
 - remaining ≤ 0, or the clock has reached lights-out → `share/time/timesup.qml` (R-TIME-4),
   unless one is already up (`pgrep`, same pattern `omarchy-kids-exit` uses for its own modal).
 - if a grant (or a fresh day, or lights-out being pushed — see "Not built yet") clears the
@@ -117,8 +123,11 @@ R-BAR-2) to run directly.
 
 ## Warnings and Time's Up (R-TIME-3, R-TIME-4)
 
-`share/time/toast.qml`: small, top-right, auto-dismiss (8 s), **no keyboard grab** — deliberately
-not layer-shell-exclusive, so a kid mid-task never loses focus to it.
+`share/time/toast.qml`: small, anchored top-right below the Level 1/2 launcher's own top-right
+clock (`share/launcher/shell.qml`) — a 96px top margin instead of the clock's 24px, clearing its
+roughly 40px height (issue #40; UNVERIFIED, see the QML's own header) — auto-dismiss (6 s, down
+from 8 s), **no keyboard grab** — deliberately not layer-shell-exclusive, so a kid mid-task never
+loses focus to it.
 
 `share/time/timesup.qml`: full-screen, keyboard-exclusive (same `PanelWindow` +
 `WlrLayershell.layer: WlrLayer.Overlay` + `WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive`
@@ -189,12 +198,19 @@ so this list is exactly the set of R-TIME/R-ASK behaviors this issue's "Done whe
   `omarchy-kids-session-start` before it `exec`s the launcher/shell, actually survives that `exec`
   and keeps running for the life of the session (expected — backgrounded jobs aren't children of
   the `exec`'d process — but never watched happen on a real Hyprland session).
+- `share/time/toast.qml`'s 96px top margin actually clearing `share/launcher/shell.qml`'s clock,
+  and the 6 s auto-dismiss (issue #40) — arithmetic from both files' own anchors/font sizes, never
+  checked against a real rendered frame of either.
+- The 1-minute toast and Time's Up firing by budget alone, not just lights-out (issue #40's other
+  open question from the "Verified live" note below) — `test/shell.d/time-test.sh`'s daemon
+  `--oneshot` checks prove the decision and the `toast-check:` log line's shape; a kid actually
+  seeing either on a real session is still unconfirmed.
 
 ## Verified live (2026-09-02, QEMU test VM)
 
 The kid-side daemon starts with the session (`omarchy-kids-session-start` line in the session
 log). The lights-out rule fired the full-screen Time's Up overlay at login for a 6-8 kid at
-22:29 (band lights-out 19:30): owl avatar, "Time's up, Ben!", a "Finishing in N s" countdown,
+22:29 (band lights-out 19:30): owl avatar, "Time's up, kid-ada!", a "Finishing in N s" countdown,
 "Ask a grown-up for more time" and "Finish". With no answer it ran Finish after 60 s and the
 portal came back. Two packaging slips found live and fixed: the timer unit did not name its
 ledger service, and the units lock enabled the timers without starting them. The budget path
@@ -202,9 +218,21 @@ ledger service, and the units lock enabled the timers without starting them. The
 
 Budget path, same night: with the timer running the ledger counted real minutes ("2 min used"
 after two ticks), the 5-minute toast fired at login with 3 minutes left, and a grant from the
-Ask modal moved the boundary. Two small things to tidy (issue #40): the toast overlaps the
-launcher's clock, and a later "10 minutes left" toast fired after the grant raised the
-remaining time, so the thresholds should only fire on the way down.
-Later the same night the budget itself ran out live: the ledger counted 9 minutes down one per
-tick, "Time's up, Cy!" appeared at 0 with the fox avatar and the countdown, and the 60 s
-auto-Finish returned a fresh greeter. Whether the 1-minute toast showed is unconfirmed (#40).
+Ask modal moved the boundary. Two small things to tidy (issue #40): the toast overlapped the
+launcher's clock, and a later "10 minutes left" toast fired again after the grant raised the
+remaining time. Later the same night the budget itself ran out live: the ledger counted 9
+minutes down one per tick, "Time's up, kid-ada!" appeared at 0 with the fox avatar and the
+countdown, and the 60 s auto-Finish returned a fresh greeter. Whether the 1-minute toast showed
+was unconfirmed.
+
+**Issue #40's fix, not yet re-verified live:** the toast now anchors below the launcher's clock
+instead of under it (a 96px top margin, up from 24px — `share/time/toast.qml`'s header) and
+auto-dismisses in 6 s instead of 8; the threshold logic moved into a pure function,
+`lib/time.sh`'s `time_toast_thresholds` (table-tested in `test/shell.d/time-test.sh`), that fires
+10/5/1 only on `previous > threshold ≥ current` and un-fires a threshold the moment a grant raises
+`current` back above it, so the stale-refire-after-a-grant bug above can't recur; and every check
+— fired or not — is logged as `toast-check: ... previous=N current=M fired={...} firing={...}` so
+a live run can show, from the log alone, exactly what the daemon saw at the 1-minute mark and at
+budget-exhausted-Time's-Up, closing both of this "Verified live" note's open questions. None of
+the three (the clock clearance, the re-fire fix, or the 1-minute/budget-exhausted confirmation)
+has run against a real session yet — see "What's unverified" above.

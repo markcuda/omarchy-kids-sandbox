@@ -136,6 +136,48 @@ out="$(python3 "$DIR/lib/time.py" logical-day "2026-09-05 10:00:00")"
 check "$(sed -n 2p <<<"$out")" "yes" "logical-day: 2026-09-05 (Saturday) is a weekend"
 
 # =========================================================================
+# lib/time.sh time_toast_thresholds: the pure decision behind R-TIME-3's
+# toasts (issue #40) -- fire only on a real downward crossing of 10/5/1,
+# and let a grant that raises remaining minutes back above a threshold
+# un-fire it so it can fire again the next time it's crossed. No files,
+# no clock -- sourced straight from lib/time.sh, table-tested here.
+# Row format: "previous|current|thresholds|fired-in|expect-fire|expect-fired-out"
+# (previous "" means "no previous value", the daemon's first-ever check).
+# =========================================================================
+
+# shellcheck source=lib/time.sh
+source "$DIR/lib/time.sh"
+
+toast_cases=(
+  # first-ever check ("" previous == +infinity, everything is a "drop")
+  "|15|10 5 1|||"                 # above every threshold: nothing fires
+  "|8|10 5 1||10|10"              # starts already below 10
+  "|3|10 5 1||10 5|10 5"          # starts already below 5: 10 marked too
+  # ordinary descent, one threshold crossed per step
+  "15|8|10 5 1||10|10"
+  "8|3|10 5 1|10|5|10 5"
+  "3|2|10 5 1|10 5||10 5"         # 2 > 1: the 1-minute mark not reached yet
+  "2|1|10 5 1|10 5|1|10 5 1"      # the exact 1-minute crossing (issue #40's 3rd ask)
+  "1|1|10 5 1|10 5 1||10 5 1"     # a flat repeat poll on the same minute: no refire
+  # a grant mid-countdown -- the live bug this issue reported
+  "3|16|10 5 1|10 5||"            # grant clears every threshold: no immediate refire
+  "16|9|10 5 1||10|10"            # descending again afterward re-fires 10
+  "9|20|10 5 1|10||"               # a smaller grant only un-fires 10 (was already past it)
+  "9|7|10 5 1|10||10"              # a grant that doesn't reach back above 10: stays fired
+)
+for c in "${toast_cases[@]}"; do
+  IFS='|' read -r tprev tcurr tthresh tfired texpect_fire texpect_fired <<<"$c"
+  tout="$(time_toast_thresholds "$tprev" "$tcurr" "$tthresh" "$tfired")"
+  tgot_fire="$(sed -n 1p <<<"$tout")"
+  tgot_fired="$(sed -n 2p <<<"$tout")"
+  label="time_toast_thresholds(prev=${tprev:-none} curr=$tcurr fired={${tfired:-none}})"
+  check "$tgot_fire" "$texpect_fire" "$label fires {${texpect_fire:-none}}"
+  check "$tgot_fired" "$texpect_fired" "$label leaves fired-set {${texpect_fired:-none}}"
+done
+
+echo
+
+# =========================================================================
 # omarchy-kids-time-ledger tick
 # =========================================================================
 
@@ -265,6 +307,62 @@ check "$?" 2 "grant: refuses a zero amount"
 check "$?" 2 "grant: refuses a negative amount"
 "$TIME" grant kid-ada abc >/dev/null 2>&1
 check "$?" 2 "grant: refuses a non-numeric amount"
+
+echo
+
+# =========================================================================
+# daemon: fires toasts on the way down, hits Time's Up at 0 by budget
+# (not just lights-out), and logs every check with previous/current so
+# a live run can be audited (issue #40's 3rd ask). --oneshot runs one
+# poll and returns, so each call below starts with no previous value --
+# the time_toast_thresholds table above is what proves the across-poll
+# reset/refire behavior; this proves the daemon actually wires that
+# function up and logs what it decided, using the real command, not a
+# stub.
+# =========================================================================
+
+DAEMON_DAY="2026-09-16"   # a fresh day, untouched by the tests above
+export OMARCHY_KIDS_NOW="$DAEMON_DAY 10:00:00"
+"$CONF" set kid-ada budget_min 12 >/dev/null
+"$CONF" set kid-ada budget_min_weekend 12 >/dev/null
+
+DAEMON_USAGE_DIR="$ROOT/var/lib/omarchy-kids/kid-ada/usage"
+mkdir -p "$DAEMON_USAGE_DIR"
+DAEMON_RUN="$TMP/daemon-run"
+DAEMON_LOG="$DAEMON_RUN/session-$(id -u).log"
+export OMARCHY_KIDS_RUN="$DAEMON_RUN"
+export OMARCHY_KIDS_ACCOUNT="kid-ada"
+export XDG_SESSION_ID=1
+set_sessions "1 1000 kid-ada yes no"
+
+# run_daemon_oneshot USED_MINUTES — writes USED_MINUTES to $DAEMON_DAY's
+# ledger file, runs one daemon poll against it, and prints the fresh
+# session log.
+run_daemon_oneshot() {
+  rm -rf "$DAEMON_RUN"; mkdir -p "$DAEMON_RUN"
+  echo "$1" >"$DAEMON_USAGE_DIR/$DAEMON_DAY"
+  OMARCHY_KIDS_TIME_DAEMON_ONESHOT=1 "$TIME" daemon >/dev/null 2>&1
+  cat "$DAEMON_LOG" 2>/dev/null
+}
+
+log_out="$(run_daemon_oneshot 8)"   # budget 12, used 8: 4 min remaining
+check_contains "$log_out" "toast-check: kid='kid-ada' previous=none current=4 fired={10 5} firing={10 5}" \
+  "daemon: logs previous/current and picks up both thresholds a lagging tick jumped past at once"
+check_contains "$log_out" "toast: 5 minutes left" "daemon: shows only the most urgent of the thresholds crossed (5, not a stale 10)"
+
+log_out="$(run_daemon_oneshot 11)"   # budget 12, used 11: exactly 1 min remaining
+check_contains "$log_out" "current=1 fired={10 5 1} firing={10 5 1}" \
+  "daemon: the 1-minute mark is caught exactly (issue #40's 3rd ask), never skipped between polls"
+check_contains "$log_out" "toast: 1 minute left" "daemon: shows the 1-minute toast, singular"
+
+log_out="$(run_daemon_oneshot 12)"   # budget 12, used 12: 0 remaining -> Time's Up by budget, not lights-out
+check_contains "$log_out" "time's up shown for 'kid-ada'" "daemon: Time's Up fires at 0 remaining by budget (issue #40's other open question)"
+check_not_contains "$log_out" "toast-check" "daemon: no toast-check logged once Time's Up has taken over"
+
+"$CONF" reset kid-ada >/dev/null
+unset XDG_SESSION_ID OMARCHY_KIDS_ACCOUNT
+rm -rf "$DAEMON_RUN"
+set_sessions
 
 echo
 

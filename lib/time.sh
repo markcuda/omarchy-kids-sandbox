@@ -193,6 +193,65 @@ time_remaining_minutes() {
     printf '%s\n' "$remaining"
 }
 
+# time_toast_thresholds PREV CURR THRESHOLDS FIRED — the pure decision
+# behind R-TIME-3's toast warnings (issue #40). Takes no clock, no
+# kid, no files: everything bin/omarchy-kids-time's own daemon loop
+# needs to decide, and nothing it doesn't, so it can be table-tested
+# straight out of lib/time.sh (test/shell.d/time-test.sh does).
+#
+#   PREV        remaining minutes last seen, or "" on the daemon's very
+#                first check (no previous value to compare a downward
+#                crossing against)
+#   CURR        remaining minutes seen now
+#   THRESHOLDS  every warning threshold, space-separated, highest
+#                first (bin/omarchy-kids-time always passes "10 5 1")
+#   FIRED       the subset of THRESHOLDS already fired since CURR last
+#                rose above them, space-separated (possibly empty)
+#
+# Prints two lines: the thresholds that fire on THIS check (space-
+# separated, possibly empty, highest first), then FIRED updated for
+# the caller's next call.
+#
+# A threshold T fires when PREV > T >= CURR (a real downward crossing)
+# and T is not already in FIRED. PREV="" is treated as +infinity, so a
+# daemon that starts already below a threshold (e.g. restarted with 3
+# minutes left) still warns right away, same as before this issue.
+#
+# A grant that raises CURR back above a fired threshold drops it from
+# FIRED first, so it can fire again the next time CURR comes back down
+# past it. This is the actual bug issue #40 reported live: a stale
+# "10 minutes left" toast fired again right after a grant raised the
+# remaining time to 16, because the old code's warned10/5/1 flags only
+# ever reset once Time's Up itself had been shown and dismissed, never
+# on an ordinary grant mid-countdown.
+time_toast_thresholds() {
+    local prev="$1" curr="$2" thresholds="$3" fired="$4"
+    local -a th_arr to_fire=()
+    local t next_fired=""
+
+    read -r -a th_arr <<<"$thresholds"
+
+    # Un-fire anything CURR has now risen back above.
+    for t in "${th_arr[@]+"${th_arr[@]}"}"; do
+        if (( curr <= t )) && [[ " $fired " == *" $t "* ]]; then
+            next_fired+="${next_fired:+ }$t"
+        fi
+    done
+    fired="$next_fired"
+
+    # Fire anything freshly crossed this step, highest threshold first.
+    for t in "${th_arr[@]+"${th_arr[@]}"}"; do
+        if [[ " $fired " != *" $t "* ]] && (( t >= curr )) \
+            && { [[ -z "$prev" ]] || (( prev > t )); }; then
+            to_fire+=("$t")
+            fired+="${fired:+ }$t"
+        fi
+    done
+
+    printf '%s\n' "${to_fire[*]+"${to_fire[*]}"}"
+    printf '%s\n' "$fired"
+}
+
 # time_is_lights_out KID DAY WEEKEND NOW_HM — yes/no: has the clock
 # reached this kid's lights-out for today.
 time_is_lights_out() {

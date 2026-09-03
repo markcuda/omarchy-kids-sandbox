@@ -19,12 +19,16 @@
 #   daemon           Runs until the session ends: every 30s (poll
 #                     interval below), while this session is Active and
 #                     unlocked (`loginctl show-session $XDG_SESSION_ID`),
-#                     shows a small toast at 10/5/1 minutes left
-#                     (SPEC.md R-TIME-3), and a full-screen "Time's Up"
-#                     overlay at 0 remaining or at lights-out (R-TIME-4).
-#                     Meant to be started once, detached, from
-#                     bin/omarchy-kids-session-start -- not run twice in
-#                     one session.
+#                     shows a small toast the first time remaining
+#                     minutes crosses 10/5/1 downward (SPEC.md R-TIME-3;
+#                     lib/time.sh's time_toast_thresholds is the pure
+#                     decision, issue #40 -- a grant that raises
+#                     remaining minutes back above a threshold lets it
+#                     fire again next time it's crossed), and a
+#                     full-screen "Time's Up" overlay at 0 remaining or
+#                     at lights-out (R-TIME-4). Meant to be started
+#                     once, detached, from bin/omarchy-kids-session-start
+#                     -- not run twice in one session.
 #   status [<kid>]    Minutes used, minutes left, and the next boundary
 #                     (budget running out, or lights-out) for <kid>
 #                     (default: this account). Read-only; any account
@@ -200,10 +204,23 @@ session_active_unlocked() {
     [[ "$active" == yes && "$locked" == no ]]
 }
 
+# toast_label THRESHOLD — "1 minute left" / "N minutes left", the text
+# show_toast gets for a fired threshold (singular only at 1).
+toast_label() {
+    local t="$1"
+    if [[ "$t" == 1 ]]; then printf '1 minute left\n'; else printf '%s minutes left\n' "$t"; fi
+}
+
 cmd_daemon() {
     local kid="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
-    local warned10=0 warned5=0 warned1=0 shown=0
-    local now hm day weekend remaining lo
+    # Highest first: time_toast_thresholds (lib/time.sh) fires each of
+    # these only once per downward crossing (R-TIME-3, issue #40) --
+    # see that function's header for the previous/current/fired-set
+    # rule this loop hands it every 30 s.
+    local thresholds="10 5 1"
+    local prev="" fired="" shown=0
+    local now hm day weekend remaining lo decision to_fire
+    local -a fire_arr
 
     while true; do
         if session_active_unlocked && ! time_is_paused "$kid"; then
@@ -218,15 +235,34 @@ cmd_daemon() {
             else
                 if (( shown == 1 )); then
                     dismiss_timesup
-                    shown=0; warned10=0; warned5=0; warned1=0
+                    shown=0; fired=""
                 fi
-                if (( remaining <= 1 && warned1 == 0 )); then
-                    show_toast "1 minute left"; warned1=1
-                elif (( remaining <= 5 && warned5 == 0 )); then
-                    show_toast "5 minutes left"; warned5=1
-                elif (( remaining <= 10 && warned10 == 0 )); then
-                    show_toast "10 minutes left"; warned10=1
+                # Every check is logged with previous/current -- not
+                # just the ones that fire a toast -- so a live run can
+                # prove the 30 s poll actually landed on (or straddled)
+                # the 1-minute mark, per issue #40's third ask. Budget
+                # only ever moves in whole minutes (lib/time.sh's
+                # time_remaining_minutes is integer, written once a
+                # minute by the ledger); this loop polls twice as
+                # often (POLL_INTERVAL=30s default), so the 60 s window
+                # a given remaining value holds always contains at
+                # least one 30 s poll -- the value can never be skipped
+                # entirely, only possibly seen on just one of the two
+                # polls it could have landed on.
+                decision="$(time_toast_thresholds "$prev" "$remaining" "$thresholds" "$fired")"
+                to_fire="$(sed -n '1p' <<<"$decision")"
+                fired="$(sed -n '2p' <<<"$decision")"
+                log "toast-check: kid='$kid' previous=${prev:-none} current=$remaining fired={${fired:-none}} firing={${to_fire:-none}}"
+                if [[ -n "$to_fire" ]]; then
+                    # $to_fire is highest-first; only the most urgent
+                    # (last word) is worth showing if a lagging tick
+                    # crossed more than one threshold in a single poll
+                    # -- the rest stay marked fired above so a stale
+                    # "10 minutes left" can't show up late.
+                    read -r -a fire_arr <<<"$to_fire"
+                    show_toast "$(toast_label "${fire_arr[${#fire_arr[@]}-1]}")"
                 fi
+                prev="$remaining"
             fi
         fi
 

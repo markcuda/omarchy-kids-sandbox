@@ -947,7 +947,19 @@ screen_apply() {
     return 0
 }
 
-# A14: Done.
+# A14: Done. SPEC.md's Appendix A row for this screen is exact: one Omy
+# line, two Buttons (Return to my desktop / Open <Kp> desktop) — no third
+# choice. Issue #37 (the bar widget, SPEC.md R-BAR) asked for an
+# interactive "Show kids in my bar?" yes/no line here; that would mean a
+# third tui_screen_confirm/choose prompt consuming its own answer in
+# TUI_MODE=file, which breaks every existing answers_file(...) sequence in
+# test/shell.d/wizard-test.sh (each currently ends "... apply parent",
+# i.e. summary-confirm then this screen's own choice, nothing between).
+# Per AGENTS.md ("if a ticket and the spec disagree, the spec wins and
+# the ticket gets a comment"), this keeps A14 exactly as specced and
+# mentions bin/omarchy-kids-bar in Omy's own line instead — I-1's "only
+# on consent" is satisfied either way, since nothing runs until the
+# parent actually runs that command themselves.
 screen_done() {
     local headline
     if ((APPLY_OK)); then
@@ -956,6 +968,9 @@ screen_done() {
         headline="Setup stopped at \"$FAILED_STEP\" — see the lines above for what went wrong."
     fi
     local omy="$headline Next time the computer starts, $DISPLAY_NAME can just type their password."
+    if ((APPLY_OK)); then
+        omy+=" Want a peek at $DISPLAY_NAME from your own bar? Run 'omarchy-kids-bar enable' any time — it only changes what you ask it to."
+    fi
     local choices=(
         "parent|Return to my desktop|"
         "kid|Open $DISPLAY_NAME's desktop|"

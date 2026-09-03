@@ -1,0 +1,341 @@
+#!/bin/bash
+# omarchy-kids-bar: the only thing that ever touches the parent's own bar
+# config for Kids Mode (SPEC.md R-BAR, I-1's "Writes into the parent's own
+# files happen only when the parent asks (bar widget, ...)"). See
+# docs/bar.md for the full picture; share/bar/KidsModule.qml is the widget
+# itself.
+#
+# Omarchy 4.0.2's bar is a Quickshell "shell plugin" (confirmed against
+# omacom/omarchy at tag v4.0.2 -- shell/README.md, manual/32-shell-
+# plugins.md): a plugin is a directory with a manifest.json plus QML,
+# dropped into ~/.config/omarchy/plugins/<id>/, and turned on or off by
+# adding or removing its id from the `bar.layout.<section>` array in
+# ~/.config/omarchy/shell.json. The real `omarchy plugin enable/disable`
+# and `omarchy bar put/move` commands are the sanctioned way to do that on
+# a live box; this script edits shell.json directly with jq instead, for
+# two reasons: it needs to work (and be testable against fixtures) without
+# a running `omarchy-shell` or the `omarchy` CLI at all, and it needs to
+# make the exact "back up, idempotent, disable restores" contract this
+# issue asks for (and that a plain `omarchy plugin disable` doesn't fully
+# give you: it removes the layout entry, but was never asked to restore a
+# byte-for-byte original).
+#
+#   enable   Installs share/bar/{manifest.json,KidsModule.qml} into
+#            ~/.config/omarchy/plugins/omarchy-kids.bar/, then adds
+#            {"id": "omarchy-kids.bar"} to shell.json's bar.layout.right
+#            if it isn't already there. If ~/.config/omarchy/shell.json
+#            already exists, it is backed up first (once) to
+#            shell.json.omarchy-kids.bak. If it does not exist yet, this
+#            seeds a new one from $OMARCHY_PATH/config/omarchy/shell.json
+#            (Omarchy's own shipped defaults -- shell.json is per-user
+#            state, not a file "owned by the omarchy package", so this is
+#            not an I-7 core edit) and remembers that it did, so `disable`
+#            can remove the file it created rather than leaving a stray
+#            shell.json a fresh install never had. Refuses to invent a
+#            shell.json from nothing (I-1: never risk silently discarding
+#            whatever else is on the parent's real bar).
+#   disable  Removes the widget from shell.json: restores the backup (and
+#            deletes it) if enable made one, deletes the file entirely if
+#            enable created it, otherwise surgically drops just this
+#            plugin's layout entries. Idempotent: disabling twice, or a
+#            box that was never enabled, is a no-op. The installed plugin
+#            files under ~/.config/omarchy/plugins/ are left in place --
+#            same as `omarchy plugin disable` on a first-party widget
+#            (shell/README.md: "leaving its component available to add
+#            again").
+#   status   Prints "enabled" or "disabled" (for scripts/tests).
+#   grant <kid> <minutes>
+#            What the bar widget's "give N more minutes" menu row actually
+#            runs (bin/omarchy-kids-bar grant kid-ada 15, via a detached
+#            Quickshell Process -- KidsModule.qml never calls
+#            bin/omarchy-kids-time itself). `omarchy-kids-time grant`
+#            refuses to run as anyone but root, and this widget lives in
+#            the parent's own ordinary session, so this opens a real
+#            terminal for a plain `sudo` prompt -- the parent's own login
+#            password (I-8), same mechanism bin/omarchy-kids-wizard's own
+#            Apply step uses, not a polkit action (none is defined for
+#            `omarchy-kids-time grant` -- see bin/omarchy-kids-time's own
+#            header). Prefers Omarchy's
+#            omarchy-launch-floating-terminal-with-presentation helper
+#            (confirmed to exist in omacom/omarchy's bin/ at v4.0.2) and
+#            falls back to `alacritty -e` if it isn't on PATH.
+#   end <kid>
+#            R-BAR-2's "end session" action -- same terminal/sudo shape as
+#            grant, running `loginctl terminate-user <kid>` instead. Not
+#            the kid-side Finish flow (R-EXIT-3's SIGTERM-then-terminate-
+#            session on a known session id, share/exit-modal/shell.qml);
+#            this is the parent doing it from outside with no session id
+#            in hand (status.json's rows carry no session id), so it ends
+#            every session that account has instead of one specific scope.
+#
+# Every path is overridable for tests, same convention as every other
+# command here:
+#   OMARCHY_KIDS_HOME              parent's home (default $HOME)
+#   OMARCHY_KIDS_SHARE             default /usr/share/omarchy-kids
+#                                  (share/bar/manifest.json, KidsModule.qml)
+#   OMARCHY_PATH                   Omarchy's own install root -- this is a
+#                                  real Omarchy session env var (see
+#                                  /usr/share/omarchy/default/bash/env-
+#                                  bootstrap upstream), not one of ours;
+#                                  default /usr/share/omarchy
+#   OMARCHY_KIDS_DEFAULTS_SHELL_JSON  default $OMARCHY_PATH/config/omarchy/shell.json
+#   OMARCHY_KIDS_TIME_BIN           path to omarchy-kids-time (default:
+#                                   resolved beside this script, else
+#                                   /usr/bin/omarchy-kids-time)
+#   OMARCHY_KIDS_TERMINAL_BIN       test hook: force the terminal helper
+#                                   used by `grant` instead of probing PATH
+#   DRY_RUN                        default 1 (AGENTS.md rule 8); --apply
+#                                   or DRY_RUN=0 makes enable/disable real.
+#                                   `grant` always runs for real (it is a
+#                                   parent clicking a button in their own
+#                                   session, same reasoning as
+#                                   bin/omarchy-kids-ask's submit/time/app/
+#                                   plugin/site -- there is no plan to dry-
+#                                   run, only a terminal to open).
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+[[ -f "$SHARE/bar/manifest.json" ]] || SHARE="$DIR/share"
+HOME_DIR="${OMARCHY_KIDS_HOME:-$HOME}"
+OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
+DEFAULTS_SHELL_JSON="${OMARCHY_KIDS_DEFAULTS_SHELL_JSON:-$OMARCHY_PATH/config/omarchy/shell.json}"
+TIME_BIN="${OMARCHY_KIDS_TIME_BIN:-$DIR/bin/omarchy-kids-time}"; [[ -x "$TIME_BIN" ]] || TIME_BIN=/usr/bin/omarchy-kids-time
+
+PLUGIN_ID="omarchy-kids.bar"
+CONFIG_DIR="$HOME_DIR/.config/omarchy"
+PLUGIN_DIR="$CONFIG_DIR/plugins/$PLUGIN_ID"
+SHELL_JSON="$CONFIG_DIR/shell.json"
+BACKUP_FILE="$SHELL_JSON.omarchy-kids.bak"
+CREATED_MARKER="$CONFIG_DIR/.omarchy-kids-bar-created-shell-json"
+
+DRY_RUN="${DRY_RUN:-1}"
+
+die() { echo "omarchy-kids-bar: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<EOF
+Usage: omarchy-kids-bar enable [--apply]
+       omarchy-kids-bar disable [--apply]
+       omarchy-kids-bar status
+       omarchy-kids-bar grant <kid> <minutes>
+       omarchy-kids-bar end <kid>
+
+  enable          Add the Kids Mode widget to your bar (SPEC.md R-BAR-1).
+  disable         Remove it; restores your bar to how it was.
+  status          Print "enabled" or "disabled".
+  grant <kid> <minutes>
+                  Open a terminal to grant more time to <kid> (root, your
+                  own login password) -- what the widget's "give N more
+                  minutes" menu row runs (R-BAR-2).
+  end <kid>       Open a terminal to end <kid>'s session right now (root,
+                  your own login password) -- what the widget's "end
+                  session" menu row runs (R-BAR-2).
+  --apply         Make enable/disable real (default is DRY_RUN=1, prints
+                  the plan -- AGENTS.md rule 8).
+  -h, --help      Show this help and exit.
+EOF
+}
+
+run() {
+    if [[ "$DRY_RUN" == "0" ]]; then
+        "$@"
+    else
+        printf '  [dry-run]'
+        printf ' %q' "$@"
+        printf '\n'
+    fi
+}
+
+require_jq() {
+    command -v jq >/dev/null 2>&1 || die "jq is required (see docs/bar.md)"
+}
+
+# widget_present PATH — 0 if $PLUGIN_ID appears anywhere in PATH's
+# bar.layout.<section> arrays.
+widget_present() {
+    local path="$1"
+    [[ -s "$path" ]] || return 1
+    jq -e --arg id "$PLUGIN_ID" \
+        '[(.bar.layout // {}) | to_entries[] | (.value // [])[] | select(.id == $id)] | length > 0' \
+        "$path" >/dev/null 2>&1
+}
+
+cmd_enable() {
+    require_jq
+    run install -d -m 0755 "$PLUGIN_DIR"
+    run install -m 0644 "$SHARE/bar/manifest.json" "$PLUGIN_DIR/manifest.json"
+    run install -m 0644 "$SHARE/bar/KidsModule.qml" "$PLUGIN_DIR/KidsModule.qml"
+
+    if widget_present "$SHELL_JSON"; then
+        echo "omarchy-kids-bar: already enabled"
+        return 0
+    fi
+
+    local base_json created=0
+    if [[ -s "$SHELL_JSON" ]]; then
+        base_json="$SHELL_JSON"
+    elif [[ -s "$DEFAULTS_SHELL_JSON" ]]; then
+        base_json="$DEFAULTS_SHELL_JSON"
+        created=1
+    else
+        die "no ~/.config/omarchy/shell.json and no defaults at $DEFAULTS_SHELL_JSON -- refusing to invent a bar config from nothing (I-1); is Omarchy installed?" 1
+    fi
+
+    local tmp; tmp="$(mktemp)" || die "could not create a temp file"
+    if ! jq --arg id "$PLUGIN_ID" '
+        .version = (.version // 1)
+        | .bar = (.bar // {})
+        | .bar.layout = (.bar.layout // {})
+        | .bar.layout.right = (.bar.layout.right // [])
+        | .bar.layout.right += [{id: $id}]
+    ' "$base_json" >"$tmp" 2>/dev/null; then
+        rm -f "$tmp"
+        die "could not parse $base_json as JSON"
+    fi
+
+    run install -d -m 0755 "$CONFIG_DIR"
+    if ((created == 0)) && [[ -f "$SHELL_JSON" && ! -f "$BACKUP_FILE" ]]; then
+        run cp "$SHELL_JSON" "$BACKUP_FILE"
+    fi
+    run cp "$tmp" "$SHELL_JSON"
+    rm -f "$tmp"
+    if ((created == 1)); then
+        run touch "$CREATED_MARKER"
+    fi
+
+    if [[ "$DRY_RUN" == "0" ]]; then
+        echo "omarchy-kids-bar: enabled (installed in $PLUGIN_DIR, added to $SHELL_JSON)"
+        # Best-effort: if omarchy-shell is running, tell it to notice the
+        # new plugin now instead of waiting for the next login. Never
+        # fails the command -- see manual/32-shell-plugins.md's own
+        # "Installing by hand" steps (drop it in, rescanPlugins, enable).
+        command -v omarchy-shell >/dev/null 2>&1 && omarchy-shell shell rescanPlugins >/dev/null 2>&1 || true
+    else
+        echo "  (dry-run; pass --apply for real)"
+    fi
+}
+
+cmd_disable() {
+    require_jq
+    if ! widget_present "$SHELL_JSON"; then
+        echo "omarchy-kids-bar: already disabled"
+        return 0
+    fi
+
+    if [[ -f "$CREATED_MARKER" ]]; then
+        run rm -f "$SHELL_JSON"
+        run rm -f "$CREATED_MARKER"
+    elif [[ -f "$BACKUP_FILE" ]]; then
+        run cp "$BACKUP_FILE" "$SHELL_JSON"
+        run rm -f "$BACKUP_FILE"
+    else
+        local tmp; tmp="$(mktemp)" || die "could not create a temp file"
+        if ! jq --arg id "$PLUGIN_ID" '
+            .bar.layout = ((.bar.layout // {}) | with_entries(.value |= [.value[]? | select(.id != $id)]))
+        ' "$SHELL_JSON" >"$tmp" 2>/dev/null; then
+            rm -f "$tmp"
+            die "could not parse $SHELL_JSON as JSON"
+        fi
+        run cp "$tmp" "$SHELL_JSON"
+        rm -f "$tmp"
+    fi
+
+    if [[ "$DRY_RUN" == "0" ]]; then
+        echo "omarchy-kids-bar: disabled"
+        command -v omarchy-shell >/dev/null 2>&1 && omarchy-shell shell reloadConfig >/dev/null 2>&1 || true
+    else
+        echo "  (dry-run; pass --apply for real)"
+    fi
+}
+
+cmd_status() {
+    if widget_present "$SHELL_JSON"; then
+        echo "enabled"
+    else
+        echo "disabled"
+    fi
+}
+
+# open_terminal_running CMD_ARGV... — runs a whole real terminal in the
+# foreground (never `exec`, so a caller can wrap this in `run` if it ever
+# needs to) wrapping CMD_ARGV in `sh -c`, with a trailing prompt so the
+# terminal doesn't vanish before the parent reads the result, and the
+# terminal's own reported exit status is the wrapped command's ($ec), never
+# the trailing `read`'s -- `read` returns non-zero on EOF (no tty, e.g. a
+# test, or the terminal closing early), which must never be mistaken for
+# the wrapped command having failed. Shared by `grant` and `end` (both
+# need root -- see this file's own header for why that means a real
+# terminal and a plain `sudo`, not a polkit action).
+open_terminal_running() {
+    local ok_msg="$1" fail_msg="$2"; shift 2
+    local inner; inner="$(printf '%q ' "$@")"
+    inner+="; ec=\$?; if [ \"\$ec\" -ne 0 ]; then read -r -p $(printf '%q' "$fail_msg (see above) -- press Enter to close ") _; else read -r -p $(printf '%q' "$ok_msg Press Enter to close ") _; fi; exit \"\$ec\""
+
+    local -a term
+    if [[ -n "${OMARCHY_KIDS_TERMINAL_BIN:-}" ]]; then
+        # shellcheck disable=SC2206 # a deliberate word-split test hook, e.g. "alacritty -e"
+        term=(${OMARCHY_KIDS_TERMINAL_BIN})
+    elif command -v omarchy-launch-floating-terminal-with-presentation >/dev/null 2>&1; then
+        term=(omarchy-launch-floating-terminal-with-presentation)
+    else
+        term=(alacritty -e)
+    fi
+    term+=(sh -c "$inner")
+
+    "${term[@]}"
+}
+
+cmd_grant() {
+    local kid="${1:-}" minutes="${2:-}"
+    [[ -n "$kid" && -n "$minutes" ]] || die "grant: needs <kid> <minutes> (see --help)"
+    [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -gt 0 ]] || die "grant: <minutes> must be a positive integer, got '$minutes'"
+    open_terminal_running "Granted." "omarchy-kids-time grant failed" \
+        sudo "$TIME_BIN" grant "$kid" "$minutes"
+}
+
+# cmd_end — R-BAR-2's "end session" action. Not the kid-side Finish flow
+# (R-EXIT-3: SIGTERM to the session scope, then `loginctl terminate-
+# session`, then the greeter -- share/exit-modal/shell.qml, with a real
+# session id in hand and the kid's own password already checked). This is
+# the parent doing it from outside, with no session id handy from
+# status.json (SPEC.md R-BAR-3's rows are `{kid, minutes_left, paused,
+# live}` -- no session id), so it asks logind to end every session that
+# account has instead of one specific scope. `loginctl terminate-user`
+# is real, root-capable logind functionality (not invented for this),
+# but the exact SIGTERM-then-terminate-session sequence R-EXIT-3
+# describes was never confirmed against a real systemd-logind here --
+# see docs/bar.md's "What's unverified".
+cmd_end() {
+    local kid="${1:-}"
+    [[ -n "$kid" ]] || die "end: needs <kid> (see --help)"
+    open_terminal_running "Session ended." "ending the session failed" \
+        sudo loginctl terminate-user "$kid"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+    -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
+esac
+shift
+
+apply_flag=0
+args=()
+for arg in "$@"; do
+    case "$arg" in
+        --apply) apply_flag=1 ;;
+        --dry-run) apply_flag=0; DRY_RUN=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *) args+=("$arg") ;;
+    esac
+done
+((apply_flag)) && DRY_RUN=0
+
+case "$cmd" in
+    enable) cmd_enable ;;
+    disable) cmd_disable ;;
+    status) cmd_status ;;
+    grant) cmd_grant "${args[@]+"${args[@]}"}" ;;
+    end) cmd_end "${args[@]+"${args[@]}"}" ;;
+    *) die "unknown command: '$cmd' (see --help)" ;;
+esac

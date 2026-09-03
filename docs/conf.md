@@ -68,6 +68,23 @@ is what a key falls back to if the band table ever didn't carry it.
 the wizard, used by the desktop session — and are never read through `get`/`set`/`show`, never
 written to a kid's `.conf` file, and aren't part of Appendix B.
 
+### App override keys (issue #24, not Appendix B)
+
+Two more keys live in the same per-kid `.conf` file and go through the same `get`/`set`/`show`/
+`reset` as the table above, but aren't part of Appendix B, so they're kept out of that table and
+out of `omarchy-kids-conf`'s `APPENDIX_B_KEYS`: `bin/omarchy-kids-apps` is their only real caller
+(docs/apps.md), through `hide`/`show`, never by writing the profile file directly.
+
+| Key | Values | Default source | Default |
+| --- | --- | --- | --- |
+| `apps.extra` | comma-separated launcher ids | global | (empty) |
+| `apps.hidden` | comma-separated launcher ids | global | (empty) |
+
+`apps.extra` adds launcher ids on top of the kid's band pack; `apps.hidden` removes ids (from the
+pack or from `apps.extra` alike). `omarchy-kids-apps allowlist <kid>` is what actually combines
+these with `allowlist` (docs/apps.md) — `get`/`show` here only read and write the raw override,
+same as any other key. `reset` clears both, same as every other override.
+
 ### Machine-level keys (`machine.conf`, not profile keys)
 
 `/etc/omarchy-kids/machine.conf` (SPEC.md §5.1) holds settings with no kid to scope them to —

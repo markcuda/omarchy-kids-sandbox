@@ -1,0 +1,19 @@
+[Unit]
+Description=Install queued Omarchy Kids Mode starter-pack apps in the background (SPEC.md R-APPS-3)
+Documentation=file:///usr/share/doc/omarchy-kids/apps.md
+After=network-online.target
+Wants=network-online.target
+# Started on demand by `omarchy-kids-apps install <band>` (`systemctl
+# start --no-block`), never enabled/WantedBy anything -- there is
+# nothing for it to do until something has queued a package. Not
+# Requires=/After= a specific pacman lock or unit: pacman itself is the
+# only thing that serializes concurrent transactions.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/omarchy-kids-apps install-queued
+# Reads/writes only its own queue file and pacman's own state; never a
+# kid's or the parent's home, never reboots, never removes a package.
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes

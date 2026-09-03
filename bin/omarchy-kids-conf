@@ -40,6 +40,19 @@ BAND_KEYS=(level web dns budget_min budget_min_weekend lights_out
 # Resolved from share/packs/<band>.toml when there's no override.
 PACK_KEYS=(allowlist sites)
 VALID_BANDS=("3-5" "6-8" "9-12" "13+")
+# Extension keys (issue #24, docs/apps.md): not in Appendix B, so kept out
+# of APPENDIX_B_KEYS, cmd_show's main table, and "reset"'s identity-key
+# exemption -- but still one KEY=VALUE line in the same profile file,
+# read and written through this same tool (docs/conf.md's "no other
+# command touches a kid's .conf file directly" rule applies to these
+# too). omarchy-kids-apps is the only caller that needs them:
+#   apps.extra   comma-separated launcher ids added on top of the band's
+#                pack for this kid ("hide"/"show" edit this and
+#                apps.hidden through `omarchy-kids-conf set`, never the
+#                raw file)
+#   apps.hidden  comma-separated launcher ids removed from this kid's
+#                allowlist, pack or apps.extra alike
+EXT_KEYS=(apps.extra apps.hidden)
 
 # global_default KEY — prints the Appendix B global default for a key the
 # band table doesn't carry (dns, history_visible, password, onboarded)
@@ -52,6 +65,8 @@ global_default() {
         history_visible) echo yes ;;
         password) echo set ;;
         onboarded) echo no ;;
+        apps.extra) echo "" ;;
+        apps.hidden) echo "" ;;
         *) return 1 ;;
     esac
 }
@@ -79,7 +94,7 @@ die() { echo "omarchy-kids-conf: $1" >&2; exit "${2:-2}"; }
 
 is_valid_key() {
     local key="$1" k
-    for k in "${APPENDIX_B_KEYS[@]}"; do [[ "$k" == "$key" ]] && return 0; done
+    for k in "${APPENDIX_B_KEYS[@]}" "${EXT_KEYS[@]}"; do [[ "$k" == "$key" ]] && return 0; done
     return 1
 }
 
@@ -144,6 +159,9 @@ validate_value() {
             ;;
         password)
             is_in "$value" set none || die "invalid value for 'password': must be set or none"
+            ;;
+        apps.extra|apps.hidden)
+            [[ "$value" =~ ^[a-z0-9_-]+(,[a-z0-9_-]+)*$ || -z "$value" ]] || die "invalid value for '$key': comma-separated launcher ids"
             ;;
         *)
             die "no validator for '$key' (this is a bug)"
@@ -232,7 +250,7 @@ cmd_set() {
 cmd_show() {
     local kid="${1:?omarchy-kids-conf show <kid>}" key out value source
     printf '%-20s %-30s %s\n' KEY VALUE SOURCE
-    for key in "${APPENDIX_B_KEYS[@]}"; do
+    for key in "${APPENDIX_B_KEYS[@]}" "${EXT_KEYS[@]}"; do
         out="$(resolve "$kid" "$key")"
         value="${out%%$'\t'*}"
         source="${out##*$'\t'}"
@@ -244,7 +262,7 @@ cmd_reset() {
     local kid="${1:?omarchy-kids-conf reset <kid>}" profile key
     profile="$(profile_file "$kid")"
     [[ -e "$profile" ]] || die "kid '$kid' has no profile ($profile)"
-    for key in "${APPENDIX_B_KEYS[@]}"; do
+    for key in "${APPENDIX_B_KEYS[@]}" "${EXT_KEYS[@]}"; do
         is_in "$key" band name avatar password onboarded && continue
         conf_del "$profile" "$key"
     done

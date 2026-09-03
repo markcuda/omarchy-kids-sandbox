@@ -270,10 +270,14 @@ build_install() {
 # once, right now" (the loop body always runs at least once before the deadline test).
 
 # assert_session KID [DEADLINE=60] — KID has a live loginctl session within DEADLINE seconds.
+# A seat session of class "user" only: the harness's own ssh logins are sessions too (seat "-"),
+# and scenario 20 once passed on one of those while the screen showed the portal.
+seat_session_filter() { printf "awk -v u='%s' '\$3 == u && \$4 == \"seat0\" && \$6 == \"user\"' | grep -q ." "$1"; }
+
 assert_session() {
   local kid="$1" deadline="${2:-60}" waited=0
   while :; do
-    vmroot "loginctl list-sessions --no-legend | grep -qw '$kid'" 2>/dev/null && return 0
+    vmroot "loginctl list-sessions --no-legend | $(seat_session_filter "$kid")" 2>/dev/null && return 0
     ((waited >= deadline)) && return 1
     sleep 5
     waited=$((waited + 5))
@@ -284,7 +288,7 @@ assert_session() {
 assert_no_session() {
   local kid="$1" deadline="${2:-30}" waited=0
   while :; do
-    vmroot "loginctl list-sessions --no-legend | grep -qw '$kid'" 2>/dev/null || return 0
+    vmroot "loginctl list-sessions --no-legend | $(seat_session_filter "$kid")" 2>/dev/null || return 0
     ((waited >= deadline)) && return 1
     sleep 5
     waited=$((waited + 5))

@@ -21,6 +21,15 @@
 #     Main.qml are only the `config.x || "#hex"` fallback for a box
 #     nothing has provisioned yet, exactly like every other fallback
 #     constant in this repo.
+#
+# Issue #57 also checks that no share/**/*.qml file calls Qt.lighter()/
+# Qt.darker() with a literal numeric factor of its own — every "raised
+# tile"/"sunken input" shade now goes through KidsTheme.qml's own
+# isLight/inputFill/cardFill/tileFill/errorFill/dim properties (that
+# file's own header explains why: a factor tuned to look right against a
+# dark background does the wrong thing against a light one), so the only
+# file allowed to call either function with a literal factor is
+# KidsTheme.qml itself, where those properties are defined.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -76,6 +85,30 @@ for f in "${ALLOWED_FILES[@]}"; do
         pass "$f: still the expected literal-hex exception"
     fi
 done
+
+# Issue #57: Qt.lighter()/Qt.darker() with a literal numeric factor may
+# only appear in share/qml/KidsTheme.qml — every other surface must go
+# through its derived theme.* properties instead (see this file's own
+# header, and KidsTheme.qml's).
+THEME_FILE="share/qml/KidsTheme.qml"
+found_factor_call=0
+while IFS= read -r -d '' file; do
+    rel="${file#"$ROOT"/}"
+    [[ "$rel" == "$THEME_FILE" ]] && continue
+    hits="$(grep -noE 'Qt\.(lighter|darker)\([^,)]*,[[:space:]]*[0-9][0-9.]*' "$file" || true)"
+    if [[ -n "$hits" ]]; then
+        found_factor_call=1
+        fail "$rel: literal-factor Qt.lighter()/Qt.darker() call (use theme.cardFill / theme.tileFill / theme.inputFill / theme.errorFill / theme.dim instead):"
+        while IFS= read -r hit; do fail "    $hit"; done <<<"$hits"
+    fi
+done < <(find "$ROOT/share" -name '*.qml' -print0 | sort -z)
+[[ "$found_factor_call" == 0 ]] && pass "no share/**/*.qml file outside $THEME_FILE calls Qt.lighter()/Qt.darker() with a literal factor"
+
+if ! grep -qoE 'Qt\.(lighter|darker)\([^,)]*,[[:space:]]*[0-9][0-9.]*' "$ROOT/$THEME_FILE"; then
+    fail "$THEME_FILE: expected to still contain a literal-factor Qt.lighter()/Qt.darker() call (e.g. errorFill) — has it changed?"
+else
+    pass "$THEME_FILE: still the expected literal-factor exception"
+fi
 
 echo "qml-theme-static-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

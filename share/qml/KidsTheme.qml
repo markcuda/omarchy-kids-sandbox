@@ -46,10 +46,32 @@
 //     if it doesn't, trigger it from Component.onCompleted instead.
 //
 // Every share/**/*.qml file that isn't this one or share/bar/KidsModule.qml
-// instantiates this directly (`import "../qml"` then `KidsTheme { id:
-// theme }`) rather than using `pragma Singleton`: each shell.qml here is
-// already its own separate process, so there is no cross-file singleton
-// instance worth sharing within one QML engine — see docs/theming.md.
+// instantiates this directly (`KidsTheme { id: theme }`, no import — see
+// this repo's own PKGBUILD, which copies this file beside every standalone
+// surface at install time instead) rather than using `pragma Singleton`:
+// each shell.qml here is already its own separate process, so there is no
+// cross-file singleton instance worth sharing within one QML engine — see
+// docs/theming.md.
+//
+// Issue #57 (light-theme polish): every surface used to derive its own
+// "raised tile"/"sunken input"/"dim scrim" look with a per-file
+// `Qt.lighter(theme.background, 1.6)`-style call and a magic-number
+// factor (this file's own header used to say so — see docs/theming.md's
+// history). That broke under a light Omarchy theme (catppuccin-latte,
+// live finding): Qt.lighter()/Qt.darker() move a color's HSV *value* in
+// one fixed direction regardless of how light the color already is, so
+// lightening an already-light background blows toward white with almost
+// no contrast, and Qt.darker(background, 1.3) — fine against a dark
+// background — lands a light one on a flat mid-grey that reads as a
+// *disabled* control (the exit modal's password field, reported live).
+// The five properties below replace every one of those per-file calls:
+// each one picks its direction from isLight (darker on a light card,
+// lighter on a dark one, never the same direction regardless of theme)
+// and moves the background's own HSL lightness by a fixed amount instead
+// of scaling its HSV value. share/**/*.qml files use these — never a
+// fresh Qt.lighter()/Qt.darker() call with a literal factor of their own
+// (test/shell.d/qml-theme-static-test.sh enforces this: only this file
+// may call Qt.lighter()/Qt.darker() with a literal number).
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -70,6 +92,88 @@ QtObject {
     property color error: "#f7768e"
     property color warning: "#ffd27a"
     property string fontFamily: "JetBrainsMono Nerd Font"
+
+    // --- Derived surface colors (issue #57) -------------------------------
+    // See this file's header for why these exist and the direction rule
+    // they all follow. Every one is a plain property binding, so it
+    // re-evaluates whenever loadColors() above changes root.background —
+    // no explicit Connections/signal needed.
+
+    // isLight — relative luminance (sRGB, linear channel weights — these
+    // are flat UI panel colors, not photographic ones, so the cheap
+    // version is plenty) of the background, Rec. 709 weights, threshold
+    // 0.5. Everything below branches on this rather than hardcoding a
+    // direction, so a theme this repo has never seen still picks the
+    // readable side.
+    property bool isLight: luminance(background) > 0.5
+    function luminance(c) {
+        return 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b
+    }
+
+    // shade(c, delta) — move c's HSL lightness by delta (-1..1), clamped
+    // to [0, 1]. Hue and saturation untouched, so a themed color stays
+    // recognizably itself, only lighter or darker — unlike Qt.lighter()/
+    // Qt.darker(), which scale HSV *value* and so move less (or overflow
+    // sooner) the lighter a color already is. hslHue/hslSaturation/
+    // hslLightness are plain QColor accessors, not something this file
+    // invents.
+    function shade(c, delta) {
+        var l = Math.max(0, Math.min(1, c.hslLightness + delta))
+        return Qt.hsla(c.hslHue, c.hslSaturation, l, c.a)
+    }
+
+    // raise(c, lightAmount, darkAmount) — the one direction rule every
+    // derived color below follows: darken a bit on a light background,
+    // lighten more on a dark one. Dark UIs read a "raised" surface best
+    // with more contrast headroom than light ones need — mirrors how
+    // much further Qt.lighter(theme.background, 1.6)/(2.4) used to move
+    // this repo's own dark palette (see cardFill/tileFill below).
+    function raise(c, lightAmount, darkAmount) {
+        return root.isLight ? root.shade(c, -lightAmount) : root.shade(c, darkAmount)
+    }
+
+    // inputFill — a text field's own fill, one step down from the card:
+    // 6% darker on light, 12% lighter on dark. Replaces every
+    // share/**/*.qml file's own `Qt.darker(theme.background, 1.3)`, which
+    // read as a disabled grey block on catppuccin-latte's light card (the
+    // live finding this issue fixes) even though it looked right on
+    // tokyo-night.
+    property color inputFill: raise(background, 0.06, 0.12)
+
+    // cardFill — the subtle one-step-raised look every card/toast border
+    // and every unselected tile, button, or list item already shared:
+    // they were always the same `Qt.lighter(theme.background, 1.6)` call,
+    // just repeated per file. 8% on dark approximates that call's own
+    // effect on this file's tokyo-night-shaped fallback palette (worked
+    // out in HSL terms: ~+7.7 lightness points); 4% on light keeps the
+    // same subtlety without blowing out a light card.
+    property color cardFill: raise(background, 0.04, 0.08)
+
+    // tileFill — the more prominent two-step-raised look for a selected
+    // action or the current grid tile (every share/**/*.qml file's own
+    // `Qt.lighter(theme.background, 2.4)`; ~+17.6 lightness points on
+    // this file's dark fallback, so 18% on dark approximates it — 9% on
+    // light keeps the same card:tile ratio).
+    property color tileFill: raise(background, 0.09, 0.18)
+
+    // errorFill — the locked-out password field's fill (every exit-modal/
+    // ask `Qt.darker(theme.error, 4)`). Not reported broken on light
+    // themes (issue #57's live finding was inputFill only), so this stays
+    // the exact old formula, just here instead of once per file — the
+    // static test's "no literal-factor Qt.lighter()/darker() outside this
+    // file" rule needs it to live somewhere.
+    property color errorFill: Qt.darker(error, 4)
+
+    // dim — the full-screen scrim every modal draws behind its card
+    // (every share/**/*.qml file's own `Qt.rgba(0, 0, 0, 0.6)`). Black at
+    // 45% reads as a dim on a dark desktop; the same black at 60% crushed
+    // a light desktop nearly to black before the card was even drawn
+    // (issue #57's other live finding, the launcher going very dark
+    // behind the exit modal under catppuccin-latte). On a light theme,
+    // dim the background's own color at 55% instead of pure black, so the
+    // scrim reads as "dimmed", not "gone".
+    property color dim: isLight ? Qt.rgba(background.r, background.g, background.b, 0.55)
+                                 : Qt.rgba(0, 0, 0, 0.45)
 
     // loadColors — one pass over colors.toml's lines, matching plain
     // `key = "#rrggbb"` (or unquoted `key = #rrggbb`) assignments. Copies

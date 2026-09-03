@@ -138,7 +138,7 @@ PanelWindow {
     // --- The card ------------------------------------------------------
     Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.6)
+        color: theme.dim
 
         Rectangle {
             id: card
@@ -147,7 +147,7 @@ PanelWindow {
             height: Math.min(parent.height - 96, 640)
             radius: 24
             color: theme.background
-            border.color: Qt.lighter(theme.background, 1.6)
+            border.color: theme.cardFill
             border.width: 2
 
             FocusScope {
@@ -225,7 +225,7 @@ PanelWindow {
                             width: shelfList.width
                             height: 76
                             radius: 12
-                            color: ListView.isCurrentItem ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
+                            color: ListView.isCurrentItem ? theme.tileFill : theme.cardFill
                             border.width: ListView.isCurrentItem ? 3 : 0
                             border.color: theme.accent
 

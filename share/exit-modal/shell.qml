@@ -233,7 +233,7 @@ PanelWindow {
     // --- The card ----------------------------------------------------------
     Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.6) // dim scrim over whatever was on screen
+        color: theme.dim // dim scrim over whatever was on screen
 
         Rectangle {
             id: card
@@ -241,7 +241,7 @@ PanelWindow {
             width: 440
             radius: 24
             color: theme.background
-            border.color: Qt.lighter(theme.background, 1.6)
+            border.color: theme.cardFill
             border.width: 2
             height: cardColumn.implicitHeight + 64
 
@@ -292,8 +292,8 @@ PanelWindow {
                         width: parent.width
                         height: 48
                         radius: 8
-                        color: root.locked ? Qt.darker(theme.error, 4) : Qt.darker(theme.background, 1.3)
-                        border.color: passwordInput.activeFocus ? theme.accent : Qt.lighter(theme.background, 1.6)
+                        color: root.locked ? theme.errorFill : theme.inputFill
+                        border.color: passwordInput.activeFocus ? theme.accent : theme.cardFill
                         border.width: 2
 
                         TextInput {
@@ -329,7 +329,7 @@ PanelWindow {
                             width: (cardColumn.width - 16) / 2
                             height: 84
                             radius: 12
-                            color: root.selectedAction === 0 ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
+                            color: root.selectedAction === 0 ? theme.tileFill : theme.cardFill
                             opacity: root.pauseAvailable ? 1.0 : 0.55
                             border.width: root.selectedAction === 0 ? 3 : 0
                             border.color: theme.accent
@@ -373,7 +373,7 @@ PanelWindow {
                             width: (cardColumn.width - 16) / 2
                             height: 84
                             radius: 12
-                            color: root.selectedAction === 1 ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
+                            color: root.selectedAction === 1 ? theme.tileFill : theme.cardFill
                             border.width: root.selectedAction === 1 ? 3 : 0
                             border.color: theme.accent
 

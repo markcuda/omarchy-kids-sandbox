@@ -82,7 +82,7 @@ PanelWindow {
         anchors.margins: 8
         radius: 14
         color: theme.background
-        border.color: Qt.lighter(theme.background, 1.6)
+        border.color: theme.cardFill
         border.width: 2
 
         Row {

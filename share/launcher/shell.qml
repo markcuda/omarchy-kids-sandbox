@@ -331,7 +331,7 @@ Window {
                 width: grid.cellWidth - 20
                 height: grid.cellHeight - 20
                 radius: 16
-                color: missing ? theme.background : (GridView.isCurrentItem ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6))
+                color: missing ? theme.background : (GridView.isCurrentItem ? theme.tileFill : theme.cardFill)
                 opacity: missing ? 0.55 : 1.0
                 // Highlight ring in the theme accent (docs/theming.md) --
                 // only the current tile gets a border at all.

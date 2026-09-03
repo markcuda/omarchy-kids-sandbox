@@ -246,7 +246,7 @@ PanelWindow {
 
         Rectangle {
             anchors.fill: parent
-            color: Qt.rgba(0, 0, 0, 0.6)
+            color: theme.dim
 
             Rectangle {
                 id: card
@@ -255,7 +255,7 @@ PanelWindow {
                 height: Math.min(560, cardColumn.implicitHeight + 64)
                 radius: 24
                 color: theme.background
-                border.color: Qt.lighter(theme.background, 1.6)
+                border.color: theme.cardFill
                 border.width: 2
 
                 Column {
@@ -294,7 +294,7 @@ PanelWindow {
                             width: list.width
                             height: 56
                             radius: 10
-                            color: ListView.isCurrentItem ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
+                            color: ListView.isCurrentItem ? theme.tileFill : theme.cardFill
 
                             Row {
                                 anchors.fill: parent
@@ -349,8 +349,8 @@ PanelWindow {
                             width: parent.width
                             height: 48
                             radius: 8
-                            color: Qt.darker(theme.background, 1.3)
-                            border.color: passwordInput.activeFocus ? theme.accent : Qt.lighter(theme.background, 1.6)
+                            color: theme.inputFill
+                            border.color: passwordInput.activeFocus ? theme.accent : theme.cardFill
                             border.width: 2
 
                             TextInput {

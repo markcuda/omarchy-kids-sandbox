@@ -37,6 +37,10 @@ CSV="kid-ada:Ada Lovelace:fox,kid-cy:Cy:panda"
 check "$(portal_kid_index "$CSV" kid-ada)" "0" "portal_kid_index: the first kid is index 0"
 check "$(portal_kid_index "$CSV" kid-cy)" "1" "portal_kid_index: the second kid is index 1"
 check "$(portal_kid_count "$CSV")" "2" "portal_kid_count: two entries"
+TILES=$'kid-ada\nkid-ben\nkid-cy\nkid-vm'
+check "$(portal_tile_index "$TILES" kid-cy)" "2" "portal_tile_index: sorted greeter order, third account is index 2"
+check "$(portal_tile_index "$TILES" kid-vm)" "3" "portal_tile_index: the parent sorts last here"
+portal_tile_index "$TILES" kid-zed >/dev/null && fail "portal_tile_index: unknown account should fail" || pass "portal_tile_index: unknown account fails"
 
 portal_kid_index "$CSV" kid-nope >/dev/null 2>&1
 check_status "$?" "1" "portal_kid_index: an account not in the list fails"

@@ -160,20 +160,20 @@ portal_kid_count() {
 # source, not yet confirmed live against more than two kid tiles — see docs/live-tests.md.
 portal_login() {
     local kid="$1" password="$2" deadline="${3:-90}"
-    local kids_csv index total waited=0 i
-    kids_csv="$(vmroot 'grep "^kids=" /usr/share/sddm/themes/omarchy-kids/theme.conf.user 2>/dev/null | cut -d= -f2-')"
-    if [[ -z "$kids_csv" ]]; then
-        echo "portal_login: no kids= line in theme.conf.user" >&2
-        return 1
-    fi
-    index="$(portal_kid_index "$kids_csv" "$kid")" || {
-        echo "portal_login: $kid not in theme.conf.user's kids= ($kids_csv)" >&2
+    local tiles index total waited=0 i
+    # SDDM's UserModel lists every account with uid in [MinimumUid, MaximumUid], sorted by name,
+    # so the tile order is the sorted account list, not theme.conf.user's kids= order (seen live:
+    # a non-kid test account sorts first and the parent last).
+    tiles="$(vmroot "getent passwd | awk -F: '\$3>=1000 && \$3<65534 {print \$1}' | sort")"
+    index="$(portal_tile_index "$tiles" "$kid")" || {
+        echo "portal_login: $kid is not among the greeter's accounts ($(echo "$tiles" | tr '\n' ' '))" >&2
         return 1
     }
-    total=$(($(portal_kid_count "$kids_csv") + 1)) # +1 for the parent tile
+    total="$(echo "$tiles" | grep -c .)"
 
-    qmp key esc >/dev/null
-    for ((i = 0; i < total - 1; i++)); do qmp key left >/dev/null; done
+    qmp key esc >/dev/null        # close a password field left open by an earlier attempt
+    sleep 0.5
+    for ((i = 0; i < total; i++)); do qmp key left >/dev/null; done   # Left clamps at the first tile
     for ((i = 0; i < index; i++)); do qmp key right >/dev/null; done
     qmp enter >/dev/null
     sleep 1
@@ -185,6 +185,18 @@ portal_login() {
         sleep 5
         waited=$((waited + 5))
     done
+    return 1
+}
+
+# portal_tile_index LIST ACCOUNT — 0-based position of ACCOUNT in LIST (one account per line, in
+# the greeter's sorted order). Pure; unit-tested in test/shell.d/live-lib-test.sh.
+portal_tile_index() {
+    local list="$1" acct="$2" i=0 a
+    while IFS= read -r a; do
+        [[ -z "$a" ]] && continue
+        if [[ "$a" == "$acct" ]]; then echo "$i"; return 0; fi
+        i=$((i + 1))
+    done <<<"$list"
     return 1
 }
 

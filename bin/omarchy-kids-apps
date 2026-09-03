@@ -29,7 +29,7 @@ die() { echo "omarchy-kids-apps: $1" >&2; exit "${2:-2}"; }
 
 usage() {
     cat <<'EOF'
-Usage: omarchy-kids-apps list <band|kid>
+Usage: omarchy-kids-apps list <band|kid> [--json]
        omarchy-kids-apps install <band> [--now] [--apply]
        omarchy-kids-apps install-queued
        omarchy-kids-apps allowlist <kid>
@@ -40,7 +40,9 @@ Usage: omarchy-kids-apps list <band|kid>
        omarchy-kids-apps --help
 
 list          Pack entries for a band (or a kid's own band) with
-              installed/missing state (`pacman -Q`).
+              installed/missing state (`pacman -Q`). --json prints a JSON
+              array (id/label/pkg/state) for callers that would otherwise
+              parse the human table's columns (e.g. lib/panel-kid.sh).
 
 install       Missing pack packages for a band, resolved against the sync
               db first (pacman -Si) so one bad target can't sink the rest.
@@ -153,13 +155,18 @@ allowlist_value() {
 # --- list ----------------------------------------------------------------
 
 cmd_list() {
-    local arg="${1:?omarchy-kids-apps list <band|kid>}" band pack id pkgname state
+    local arg="${1:?omarchy-kids-apps list <band|kid>}" json=0 band pack id pkgname state
+    [[ "${2:-}" == --json ]] && json=1
     band="$(resolve_band "$arg")"
     pack="$(pack_file "$band")"
     [[ -f "$pack" ]] || die "no pack for band '$band' ($pack)"
     pack_ids_array "$band"
+    if ((json)); then
+        command -v jq >/dev/null 2>&1 || die "list --json: needs jq (not found on PATH)"
+    fi
 
-    printf '%-16s %-24s %-28s %s\n' ID LABEL PKG STATE
+    local -a tsv_rows=()
+    ((json)) || printf '%-16s %-24s %-28s %s\n' ID LABEL PKG STATE
     for id in "${PACK_IDS[@]+"${PACK_IDS[@]}"}"; do
         [[ -n "$id" ]] || continue
         pack_app_meta "$pack" "$id"
@@ -169,8 +176,22 @@ cmd_list() {
         else
             state=missing
         fi
-        printf '%-16s %-24s %-28s %s\n' "$id" "$LABEL" "$PKG" "$state"
+        if ((json)); then
+            tsv_rows+=("$id"$'\t'"$LABEL"$'\t'"$PKG"$'\t'"$state")
+        else
+            printf '%-16s %-24s %-28s %s\n' "$id" "$LABEL" "$PKG" "$state"
+        fi
     done
+
+    ((json)) || return 0
+    if ((${#tsv_rows[@]} == 0)); then
+        printf '[]\n'
+        return 0
+    fi
+    printf '%s\n' "${tsv_rows[@]}" | jq -R -s '
+        split("\n") | map(select(length > 0) | split("\t")) |
+        map({id: .[0], label: .[1], pkg: .[2], state: .[3]})
+    '
 }
 
 # --- install / install-queued --------------------------------------------

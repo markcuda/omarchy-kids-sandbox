@@ -66,9 +66,11 @@ dry-run posture is passed through as `--dry-run`.
   to for an approved "ask for a site" request, docs/ask.md) as an add/remove list, editor-free (no
   `$EDITOR` — every line add/remove is its own screen); either edit re-runs
   `omarchy-kids-web install <band> --allow <file> --apply` so the change actually takes effect.
-- **Apps** lists the band's starter pack (`omarchy-kids-apps list <kid>`) against the kid's
-  effective allowlist (`omarchy-kids-apps allowlist <kid>`); Enter on an app toggles it via
-  `omarchy-kids-apps hide`/`show`.
+- **Apps** lists the band's starter pack (`omarchy-kids-apps list <kid> --json`, parsed with `jq`
+  — review 2.6, no more column-offset `cut` on the human table) against the kid's effective
+  allowlist (`omarchy-kids-apps allowlist <kid>`); Enter on an app toggles it via `omarchy-kids-apps
+  hide`/`show`. Its **Plugins shelf** row reads `omarchy-kids-plugins shelf --band <band> --json`
+  the same way.
 - **Data** (R-DATA-1..5, issue #27): read-only. Prints `omarchy-kids-data summary <kid>` (today) and
   `summary <kid> --week` (last 7 days) — minutes, launches, top apps, and top sites, in that order.
   Minutes and launches are unprivileged reads, same as the rest of this panel; sites need root (a

@@ -151,28 +151,22 @@ screen_kid_apps() { # ACCOUNT NAME
     local account="$1" name="$2"
     while true; do
         local list_out allow
-        list_out="$("$APPS_BIN" list "$account" 2>/dev/null)" || {
+        list_out="$("$APPS_BIN" list "$account" --json 2>/dev/null)" || {
             KID_NOTICE="Could not read $name's app pack."
             return 0
         }
         allow="$("$APPS_BIN" allowlist "$account" 2>/dev/null)"
 
         local -a choices=()
-        local first=1 line id label
-        while IFS= read -r line; do
-            if ((first)); then
-                first=0
-                continue
-            fi
-            [[ -z "$line" ]] && continue
-            id="$(awk '{print $1}' <<<"$line")"
-            label="$(cut -c18-41 <<<"$line" | sed 's/[[:space:]]*$//')"
+        local id label
+        while IFS=$'\t' read -r id label; do
+            [[ -n "$id" ]] || continue
             if is_in_csv "$id" "$allow"; then
                 choices+=("$id|$label (shown)|")
             else
                 choices+=("$id|$label (hidden)|")
             fi
-        done <<<"$list_out"
+        done < <(jq -r '.[] | [.id, .label] | @tsv' <<<"$list_out" 2>/dev/null)
         choices+=("plugins|Plugins shelf|Marketplace plugins, category Kids, verified only")
         choices+=("back|Back|")
 
@@ -201,28 +195,21 @@ screen_kid_apps() { # ACCOUNT NAME
 # (SPEC.md R-APPS-7, issue #28): marketplace listings, category Kids,
 # verified only (never --all -- I-6, only what Enter can install shows).
 # Enter installs for this kid, same sudo path as every other write.
-# Parses shelf's table the same way screen_kid_apps parses `apps list`'s.
+# Reads shelf's --json (like screen_kid_apps reads `apps list --json`)
+# instead of parsing the human table's columns.
 screen_kid_plugins() { # ACCOUNT NAME
     local account="$1" name="$2" band
     band="$(kid_conf_get "$account" band)"
     while true; do
         local shelf_out
-        shelf_out="$("$PLUGINS_BIN" shelf --band "$band" 2>/dev/null)" || true
+        shelf_out="$("$PLUGINS_BIN" shelf --band "$band" --json 2>/dev/null)" || true
 
         local -a choices=()
-        local first=1 line id label desc
-        while IFS= read -r line; do
-            if ((first)); then
-                first=0
-                continue
-            fi
-            [[ -z "$line" || "$line" == omarchy-kids-plugins:* ]] && continue
-            id="$(awk '{print $1}' <<<"$line")"
+        local id label desc
+        while IFS=$'\t' read -r id label desc; do
             [[ -n "$id" ]] || continue
-            label="$(cut -c26-49 <<<"$line" | sed 's/[[:space:]]*$//')"
-            desc="$(cut -c69- <<<"$line" 2>/dev/null || true)"
             choices+=("$id|$label|$desc")
-        done <<<"$shelf_out"
+        done < <(jq -r '.[] | [.id, .name, .description] | @tsv' <<<"$shelf_out" 2>/dev/null)
 
         if ((${#choices[@]} == 0)); then
             # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name

@@ -8,7 +8,7 @@ parent's opt-in switch for keeping kids' apps out of their own launcher.
 ## Commands
 
 ```text
-omarchy-kids-apps list <band|kid>
+omarchy-kids-apps list <band|kid> [--json]
 omarchy-kids-apps install <band> [--now] [--apply]
 omarchy-kids-apps install-queued
 omarchy-kids-apps allowlist <kid>
@@ -18,13 +18,17 @@ omarchy-kids-apps hide-from-mine [--apply]
 omarchy-kids-apps show-in-mine [--apply]
 ```text
 
-### `list <band|kid>`
+### `list <band|kid> [--json]`
 
 Prints every app in a band's pack (`share/packs/<band>.toml`) with an `installed`/`missing` state
 from `pacman -Q`. Given a kid account instead of a band, resolves that kid's band first
 (`omarchy-kids-conf get <kid> band`) and lists the same thing — `list` is always about a *pack*,
 never a kid's own allowlist (that's `allowlist`, below). An `aur:`-prefixed `pkg` is checked with
 the prefix stripped (`pacman -Q` doesn't know about it), same as `install`.
+
+`--json` prints a JSON array of `{id, label, pkg, state}` objects instead of the human table —
+for a caller that needs to read the fields back (`lib/panel-kid.sh`'s Apps screen; review 2.6),
+never for a column-offset `cut`. The human table is unchanged.
 
 ### `install <band> [--now]`
 

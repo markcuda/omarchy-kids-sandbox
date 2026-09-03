@@ -472,8 +472,14 @@ cmd_add() {
     # desktop never shows "Pending Omarchy Migrations".
     # omarchy-provision-user refuses to run as root and needs the user's own $HOME; --first-install
     # marks every shipped migration done for a freshly created account (its documented purpose).
+    # Its failure is a warning, not a failed provision: the account, slot, locks and profile
+    # are all in place by now, and on a VM built from the ISO's offline set it fails on a
+    # missing bundled Node tarball (seen live 2026-09-02). Fall back to marking migrations.
     if command -v omarchy-provision-user >/dev/null 2>&1; then
-        run runuser -l "$account" -c "omarchy-provision-user --first-install"
+        if ! run runuser -l "$account" -c "omarchy-provision-user --first-install"; then
+            echo "warning: omarchy-provision-user failed for $account; marking Omarchy migrations done instead" >&2
+            run mark_migrations_done "$account"
+        fi
     else
         run mark_migrations_done "$account"
     fi

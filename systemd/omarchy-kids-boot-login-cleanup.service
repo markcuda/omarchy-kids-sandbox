@@ -5,9 +5,10 @@ After=display-manager.service
 
 [Service]
 Type=oneshot
-# Give SDDM time to have already read the drop-in for this boot's greeter
-# before it disappears, so a later logout (which restarts the greeter)
-# never re-autologs anyone.
+# SDDM reads conf.d once, when this boot's greeter starts, a few seconds after
+# display-manager.service; the drop-in must outlive that read and nothing else,
+# so a later logout (which restarts the greeter) never re-autologs anyone.
+# 20 s is margin over the slowest boot-to-greeter seen in the QEMU VM.
 ExecStartPre=/bin/sleep 20
 ExecStart=/usr/bin/omarchy-kids-boot-login --cleanup
 

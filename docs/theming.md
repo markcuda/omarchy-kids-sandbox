@@ -382,3 +382,20 @@ After #53, same VM: `omarchy-kids-conf set kid-cy theme catppuccin-latte` rewrot
 current theme the way omarchy-theme-set does, and at the next login the launcher and the exit
 modal rendered in that theme's light palette with its blue accent; setting it back to
 tokyo-night restored the dark look. New kids start with the parent's theme.
+
+## Derived colours
+
+`share/qml/KidsTheme.qml` derives every surface shade from the theme's background so a theme this
+repo has never seen still picks the readable side. `isLight` is the background's Rec. 709 relative
+luminance over 0.5. `shade(c, delta)` moves HSL lightness by `delta`, clamped, leaving hue and
+saturation alone, so a themed colour stays itself; `Qt.lighter()`/`Qt.darker()` scale HSV value
+and move less the lighter a colour already is. `raise(c, light, dark)` is the one direction rule:
+darken a little on a light background, lighten more on a dark one, because dark UIs need more
+contrast headroom for a "raised" surface. From those: `inputFill` (6% darker on light, 12% lighter
+on dark; the per-file `Qt.darker(background, 1.3)` read as a disabled grey block on
+catppuccin-latte, issue #57's live finding), `cardFill` (4% / 8%, the old
+`Qt.lighter(background, 1.6)`), `tileFill` (9% / 18%, the old `Qt.lighter(background, 2.4)`),
+`errorFill` (the old `Qt.darker(error, 4)`, unchanged), and `dim` (black at 45% on dark; the
+background itself at 55% on light, because black at 60% crushed a light desktop before the card
+was drawn). A static test keeps literal-factor `Qt.lighter()`/`Qt.darker()` calls out of every
+other QML file.

@@ -261,17 +261,23 @@ _tui_confirm_leave() {
 }
 
 # tui_screen_choose TITLE STEP TOTAL SHOW_OMY OMY_LINE CHOICES_ARRAYNAME \
-#                    [DEFAULT_VALUE] [FOOTER]
+#                    [DEFAULT_VALUE] [FOOTER] [BODY_ARRAYNAME]
 # CHOICES_ARRAYNAME holds "value|label|reason" strings — one choice per
 # screen's worth of options, each with its one-line reason (R-WIZ-3). An
 # answer may be the value, the label, the whole rendered line, or a plain
 # 1-based number (the "number keys" the footer advertises).
+# BODY_ARRAYNAME holds the screen's own facts, rendered inside the card
+# under the title exactly as tui_screen_confirm's body is: card mode
+# clears, so facts a caller echoes first are gone before anyone reads
+# them (review §3.1).
 tui_screen_choose() {
     local title="$1" step="$2" total="$3" show_omy="$4" omy_line="$5"
     local -a _tui_choices
     _tui_array_copy _tui_choices "$6"
     local default_value="${7:-}"
     local footer="${8:-$TUI_FOOTER_DEFAULT}"
+    local -a _tui_choose_body=()
+    [[ -n "${9:-}" ]] && _tui_array_copy _tui_choose_body "$9"
 
     local -a values=() labels=() display=()
     local c rest label reason i=0
@@ -296,7 +302,13 @@ tui_screen_choose() {
     done
 
     while true; do
-        tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
+        if _tui_card_mode; then
+            tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_choose_body
+        else
+            tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
+            local bl
+            for bl in "${_tui_choose_body[@]+"${_tui_choose_body[@]}"}"; do _tui_style -- "$bl"; done
+        fi
 
         # Print the list ourselves only when gum's own widget won't (file
         # mode, or the no-gum fallback below) -- avoids the duplicate list

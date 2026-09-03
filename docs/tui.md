@@ -59,6 +59,19 @@ two ways, decided once per call by `_tui_card_mode`:
 Nothing about the *data* a screen passes changes between the two — a caller never knows or cares
 which one is rendering. Only `lib/tui.sh` itself branches on `_tui_card_mode`.
 
+### A screen's facts belong in the card
+
+Card mode clears the terminal at every step, so anything a caller prints *before* a screen is
+wiped before it can be read. That is what review §3.1 found in the parent panel: every panel
+screen echoed its facts — the kid's band and minutes, the allow list, the whole Data screen —
+and then drew a menu over them, so on a real terminal the parent saw a menu and no facts (file
+mode, which never clears, is what the tests and the live SSH run had used).
+
+So a caller never echoes: `tui_screen_choose` takes an optional `BODY_ARRAYNAME` (its ninth
+argument) exactly like `tui_screen_confirm`'s sixth, and the lines render under the title —
+inside the card in card mode, right under the header box in plain mode, in both cases in the
+theme's own colours, before the choices.
+
 ### The card, roughly
 
 ```text
@@ -125,7 +138,7 @@ idiom pre-4.3 bash has always used). Concretely:
 
 | Function | Array element shape |
 | --- | --- |
-| `tui_screen_choose` | `"value\|label\|reason"` — reason may be empty (`"value\|label\|"`) |
+| `tui_screen_choose` | `"value\|label\|reason"` — reason may be empty (`"value\|label\|"`); its optional body array is plain line strings |
 | `tui_screen_confirm` | plain body line strings |
 | `tui_screen_summary` | `"label\|value"` |
 | `tui_progress` | plain step-label strings |
@@ -199,7 +212,11 @@ web_choices=(
   "garden|Only sites you choose|A short list you can grow. Best for younger kids."
   "filtered|Filtered open web|Adult content blocked, safe search on."
 )
-tui_screen_choose "What can K see on the web?" 7 12 0 "" web_choices "garden"
+# Facts this screen wants read: passed as body, never echoed first.
+web_facts=("K's list has 3 sites on it today.")
+
+# ... choices, then the default, an empty footer (= the standard one), then the body.
+tui_screen_choose "What can K see on the web?" 7 12 0 "" web_choices "garden" "" web_facts
 case $? in
   0)   echo "chose: $TUI_REPLY" ;;
   1)   : ;;  # go back a screen

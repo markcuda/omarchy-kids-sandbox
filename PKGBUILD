@@ -33,8 +33,26 @@ license=('MIT')
 # install already runs NetworkManager for its own Wi-Fi picker
 # (`omarchy-menu` -> Wi-Fi / `omarchy-launch-wifi`), but this is listed
 # explicitly rather than assumed, same reasoning as qt6-svg above.
-depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg' 'networkmanager')
-optdepends=('socat: faster transport between omarchy-kids-parent-auth and omarchy-kids-authd')
+# quickshell (issue #32, R-BUILD-1): bin/omarchy-kids-exit, -ask, and
+# -session-start all `exec quickshell -p ...` with no `command -v` guard
+# -- the exit modal, the ask-a-parent modal, and the Level 1 launcher
+# itself do not run without it, unlike hyprctl/loginctl elsewhere in
+# bin/, which are genuinely optional and guarded. Any current Omarchy
+# install already carries it for the stock desktop's own bar/launcher,
+# but it is listed explicitly, same reasoning as qt6-svg above.
+depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg' 'networkmanager' 'quickshell')
+# snapper / limine-snapper-sync (R-TRUST-1, issue #38): both guarded with
+# `command -v` everywhere they're called (bin/omarchy-kids-assert,
+# -remove) -- the pre-apply snapshot and the hidden-snapshot-entries lock
+# are skipped, not failed, when either is missing, so neither is a hard
+# depends. Any stock Omarchy install already has both (Limine + Snapper
+# is the default), but a parent who removed one shouldn't be blocked
+# from installing Kids Mode over it.
+optdepends=(
+	'socat: faster transport between omarchy-kids-parent-auth and omarchy-kids-authd'
+	'snapper: pre-apply "before Kids Mode" snapshot and Remove Kids Mode snapshot (R-TRUST-1)'
+	'limine-snapper-sync: refresh the boot menu right after hiding/showing snapshot entries (issue #38)'
+)
 install=omarchy-kids.install
 source=()
 backup=('etc/mkinitcpio.conf.d/omarchy_kids.conf')

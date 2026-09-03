@@ -1,0 +1,732 @@
+#!/bin/bash
+# omarchy-kids-panel — everything after the first run (SPEC.md R-WIZ-7,
+# R-WIZ-8, R-ASK-2, R-TIME-4/5, R-FND-6, Appendix A's P1-P5; issue #21).
+# `bin/omarchy-kids` opens this once at least one kid exists; the wizard
+# (bin/omarchy-kids-wizard) stays reachable as `omarchy-kids wizard` and
+# as this panel's own "Add a kid" row (R-WIZ-7: "add-a-kid runs the
+# per-kid screens only").
+#
+# Screens, in Appendix A's own numbering:
+#
+#   P1 Home       One row per kid (name, band, minutes used/left today,
+#                 paused, open requests), then Add a kid, Requests (N),
+#                 Remove Kids Mode, Quit.
+#   P2 Kid        Screen time (budget/lights-out, "give more minutes"),
+#                 Web (mode, and the allow-list editor for a walled
+#                 garden), Apps (hide/show the band's pack), Desktop
+#                 level, Password, Remove this kid, Back.
+#   P3 Requests   Every open "Ask a parent" request, oldest first; Enter
+#                 opens the reason and Approve/Decline.
+#
+# P4 (Machine) and P5 (Confirm remove via the parent password) are not
+# built here: "Remove Kids Mode" (R-TRUST-4) is its own not-yet-written
+# command (nothing in this checkout implements it — see docs/panel.md),
+# so the Home row for it explains that plainly instead of pretending to
+# offer it (I-6). Removing one kid at a time (P2's own row, confirmed by
+# typing that kid's name) is what this issue actually delivers.
+#
+# Every screen is rendered by lib/tui.sh (issue #18) — this file never
+# calls gum directly, and OMARCHY_KIDS_TUI_ANSWERS drives it end to end
+# in tests (see docs/tui.md, docs/panel.md).
+#
+# Root and the one sudo prompt (mirrors bin/omarchy-kids-wizard's own
+# "Root and the one sudo prompt", docs/wizard.md): this panel runs as
+# the parent and is never itself elevated. Reads (omarchy-kids-conf get,
+# omarchy-kids-time status, omarchy-kids-ask's queue, omarchy-kids-apps
+# list/allowlist, omarchy-kids-provision list) are all unprivileged --
+# every file involved is root-owned but world-readable (docs/conf.md,
+# docs/time.md, docs/ask.md). The first time a screen would actually
+# write something, `warm_sudo` explains why on screen and spends one
+# `sudo -v` prompt; every write after that in the same run reuses sudo's
+# cached credential. `run_priv` is the one place a real system change is
+# either printed (DRY_RUN=1, the default -- AGENTS.md rule 8) or run for
+# real under sudo, so `--dry-run` always shows the exact command line.
+#
+#   omarchy-kids-panel [--dry-run] [--apply] [--help]
+#
+# Every path is overridable for tests, same convention as the rest of
+# bin/ (test/shell.d/panel-test.sh runs entirely against scratch trees,
+# with a pass-through `sudo` fake and every helper binary below pointed
+# at a thin spy that logs its own argv and then runs the real thing):
+#   OMARCHY_KIDS_ETC            default /etc/omarchy-kids
+#   OMARCHY_KIDS_SHARE          default /usr/share/omarchy-kids
+#   OMARCHY_KIDS_ROOT           scratch prefix for /var/lib/omarchy-kids
+#                               (the ask queue), same convention as
+#                               bin/omarchy-kids-ask and -time
+#   OMARCHY_KIDS_LIB            lib/ beside bin/, else /usr/lib/omarchy-kids
+#                               (this reads lib/ask.py directly for the
+#                               Requests screen -- see "Reading the
+#                               queue" below)
+#   OMARCHY_KIDS_CONF_PY        python3 interpreter (default: python3)
+#   OMARCHY_KIDS_CONF_BIN       path to omarchy-kids-conf (default: sibling, else PATH)
+#   OMARCHY_KIDS_TIME_BIN       path to omarchy-kids-time (default: sibling, else PATH)
+#   OMARCHY_KIDS_ASK_BIN        path to omarchy-kids-ask (default: sibling, else PATH)
+#   OMARCHY_KIDS_APPS_BIN       path to omarchy-kids-apps (default: sibling, else PATH)
+#   OMARCHY_KIDS_WEB_BIN        path to omarchy-kids-web (default: sibling, else PATH)
+#   OMARCHY_KIDS_PROVISION_BIN  path to omarchy-kids-provision (default: sibling, else PATH)
+#   OMARCHY_KIDS_WIZARD_BIN     path to omarchy-kids-wizard (default: sibling, else PATH)
+#   OMARCHY_KIDS_TUI_ANSWERS    one answer per line; see lib/tui.sh / docs/tui.md
+#   DRY_RUN                     default 1; 0 (or --apply) makes writes real
+#
+# Reading the queue: R-ASK-3 says the queue format is "stable and
+# documented for a future home-network approver" -- this panel is the
+# first such approver, so the Requests screen reads
+# lib/ask.py's own `list-open`/`show` directly (tab-separated, exact
+# fields) instead of scraping omarchy-kids-ask's human-formatted `list`
+# output, which pads columns for a terminal, not a parser.
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/tui.sh
+source "$LIB/tui.sh"
+PY="${OMARCHY_KIDS_CONF_PY:-python3}"
+ASK_PY="$LIB/ask.py"
+
+CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=omarchy-kids-conf
+TIME_BIN="${OMARCHY_KIDS_TIME_BIN:-$DIR/bin/omarchy-kids-time}"; [[ -x "$TIME_BIN" ]] || TIME_BIN=omarchy-kids-time
+ASK_BIN="${OMARCHY_KIDS_ASK_BIN:-$DIR/bin/omarchy-kids-ask}"; [[ -x "$ASK_BIN" ]] || ASK_BIN=omarchy-kids-ask
+APPS_BIN="${OMARCHY_KIDS_APPS_BIN:-$DIR/bin/omarchy-kids-apps}"; [[ -x "$APPS_BIN" ]] || APPS_BIN=omarchy-kids-apps
+WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=omarchy-kids-web
+PROVISION_BIN="${OMARCHY_KIDS_PROVISION_BIN:-$DIR/bin/omarchy-kids-provision}"; [[ -x "$PROVISION_BIN" ]] || PROVISION_BIN=omarchy-kids-provision
+WIZARD_BIN="${OMARCHY_KIDS_WIZARD_BIN:-$DIR/bin/omarchy-kids-wizard}"; [[ -x "$WIZARD_BIN" ]] || WIZARD_BIN=omarchy-kids-wizard
+
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
+SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
+
+DRY_RUN="${DRY_RUN:-1}"
+
+die() { echo "omarchy-kids-panel: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<'EOF'
+Usage: omarchy-kids-panel [--dry-run] [--apply] [--help]
+
+Everything after the first kid (SPEC.md R-WIZ-7, R-WIZ-8): Home lists every
+kid with today's minutes and open requests; per kid, screen time, web,
+apps, desktop level, password, and remove; a Requests screen to approve or
+decline what a kid has asked for.
+
+Keyboard only: Esc (or "Quit"/"Back") leaves a screen, Ctrl+C leaves the
+whole panel with nothing further changed.
+
+This panel runs as the parent, never itself elevated. Every write goes
+through sudo, warmed once (one password prompt, explained on screen) the
+first time something is actually written. DRY_RUN=1 is the default
+(AGENTS.md rule 8): every command a write would run is printed instead of
+run.
+
+  --dry-run   Print every command instead of running it (the default).
+  --apply     Make writes real (same as DRY_RUN=0).
+  -h, --help  Show this help and exit.
+EOF
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=1 ;;
+        --apply) DRY_RUN=0 ;;
+        -h | --help)
+            usage
+            exit 0
+            ;;
+        *) die "unknown argument '$arg' (see --help)" ;;
+    esac
+done
+
+# --- root, once, on first write ------------------------------------------
+
+SUDO_WARMED=0
+warm_sudo() {
+    ((SUDO_WARMED)) && return 0
+    SUDO_WARMED=1
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '  [dry-run] sudo -v   # one password prompt, warmed here, before the first real write\n'
+        return 0
+    fi
+    echo "Kids Mode needs your password once, to make this change."
+    sudo -v
+}
+
+# run_priv CMD... — the one place a real system change is either printed
+# (DRY_RUN=1, the default) or actually run, under sudo. Never used for a
+# command that also needs its own stdin.
+run_priv() {
+    warm_sudo || return 1
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '  [dry-run] sudo'
+        printf ' %q' "$@"
+        printf '\n'
+    else
+        sudo "$@"
+    fi
+}
+
+# write_root_file FILE — reads the new content from stdin and writes it
+# to FILE as root (`sudo tee`), creating FILE's directory first. Used
+# only by the Web screen's allow-list editor: FILE is world-readable but
+# root-owned (docs/conf.md's convention), so an unprivileged edit has to
+# go through sudo the same as every other write here.
+write_root_file() {
+    local file="$1" content
+    content="$(cat)"
+    warm_sudo || return 1
+    if [[ "$DRY_RUN" == "1" ]]; then
+        printf '  [dry-run] sudo install -d -m 0755 %q\n' "$(dirname "$file")"
+        printf '  [dry-run] sudo tee %q\n' "$file"
+    else
+        sudo install -d -m 0755 "$(dirname "$file")" &&
+            printf '%s' "$content" | sudo tee "$file" >/dev/null
+    fi
+}
+
+# --- small helpers ---------------------------------------------------------
+
+is_in_csv() { # NEEDLE CSV
+    local needle="$1" csv="$2" x
+    local IFS=,
+    for x in $csv; do [[ "$x" == "$needle" ]] && return 0; done
+    return 1
+}
+
+human_age() { # SECONDS -> "just now" / "Nm ago" / "Nh ago" / "Nd ago"
+    local s="$1"
+    ((s < 0)) && s=0
+    if ((s < 60)); then
+        echo "just now"
+    elif ((s < 3600)); then
+        echo "$((s / 60))m ago"
+    elif ((s < 86400)); then
+        echo "$((s / 3600))h ago"
+    else
+        echo "$((s / 86400))d ago"
+    fi
+}
+
+friendly_web_mode() {
+    case "$1" in
+        none) echo "No browser" ;;
+        garden) echo "Only sites you choose" ;;
+        filtered) echo "Filtered open web" ;;
+        *) echo "$1" ;;
+    esac
+}
+
+validate_positive_minutes() {
+    [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1)) && return 0
+    echo "A whole number of minutes, at least 1."
+    return 1
+}
+
+validate_budget_minutes() {
+    [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= 1440)) && return 0
+    echo "A number of minutes, 1 to 1440."
+    return 1
+}
+
+validate_lights_out() {
+    [[ "$1" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] && return 0
+    echo "24-hour time, like 19:30."
+    return 1
+}
+
+validate_hostname() {
+    [[ -n "$1" ]] || { echo "Type a hostname, like example.com."; return 1; }
+    [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || {
+        echo "Letters, digits, dots, and hyphens only."
+        return 1
+    }
+    return 0
+}
+
+kid_conf_get() { "$CONF_BIN" get "$1" "$2" 2>/dev/null; }
+
+# count_open_requests [KID] — how many open requests, all kids or one.
+count_open_requests() {
+    local -a args=(list-open "$QUEUE_DIR")
+    [[ -n "${1:-}" ]] && args+=(--kid "$1")
+    local rows
+    rows="$("$PY" "$ASK_PY" "${args[@]}" 2>/dev/null)"
+    [[ -z "$rows" ]] && { echo 0; return 0; }
+    printf '%s\n' "$rows" | grep -c '.'
+}
+
+ask_field() { "$PY" "$ASK_PY" show "$1" --field "$2" 2>/dev/null; } # PATH FIELD
+
+# kid_home_line NAME BAND STATUS_OUT NREQ — one Home-screen line: name,
+# band, paused (if any), minutes used/left today, open request count.
+kid_home_line() {
+    local name="$1" band="$2" status_out="$3" nreq="$4"
+    local used left line paused=0
+    used="$(grep -oE '[0-9]+ min used' <<<"$status_out" | grep -oE '^[0-9]+')"
+    left="$(grep -oE '[0-9]+ min left' <<<"$status_out" | grep -oE '^[0-9]+')"
+    grep -q '^paused:' <<<"$status_out" && paused=1
+    line="$name · $band"
+    ((paused)) && line+=" · paused"
+    [[ -n "$used" && -n "$left" ]] && line+=" · ${used}m used / ${left}m left today"
+    ((nreq > 0)) && line+=" · $nreq request$([[ $nreq == 1 ]] || echo s)"
+    printf '%s' "$line"
+}
+
+# --- P3: Requests -----------------------------------------------------------
+
+screen_request_detail() { # ID
+    local id="$1"
+    local path="$QUEUE_DIR/$id.json"
+    if [[ ! -f "$path" ]]; then
+        echo
+        echo "That request isn't there anymore."
+        return 0
+    fi
+    local kid kind what minutes desc
+    kid="$(ask_field "$path" kid)"
+    kind="$(ask_field "$path" kind)"
+    what="$(ask_field "$path" what)"
+    minutes="$(ask_field "$path" minutes)"
+    if [[ "$kind" == time ]]; then desc="$minutes more minute(s) of screen time"; else desc="$what"; fi
+
+    # shellcheck disable=SC2034 # read by tui_screen_summary via nameref-by-name
+    local rows=("Kid|$kid" "Kind|$kind" "Asked for|$desc")
+    tui_screen_summary "Request from $kid" 1 1 0 "" rows
+
+    # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+    local choices=("approve|Approve|" "decline|Decline|" "back|Back|")
+    tui_screen_choose "Approve or decline?" 1 1 0 "" choices "approve"
+    local rc=$?
+    ((rc == 130)) && return 130
+    ((rc == 0)) || return 0
+    case "$TUI_REPLY" in
+        approve) run_priv "$ASK_BIN" approve "$id" --apply ;;
+        decline) run_priv "$ASK_BIN" decline "$id" --apply ;;
+    esac
+    return 0
+}
+
+screen_requests() {
+    while true; do
+        local rows; rows="$("$PY" "$ASK_PY" list-open "$QUEUE_DIR" 2>/dev/null)"
+        if [[ -z "$rows" ]]; then
+            echo
+            echo "No open requests right now."
+            # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+            local choices=("back|Back|")
+            tui_screen_choose "Requests" 1 1 0 "" choices "back"
+            local rc=$?
+            ((rc == 130)) && return 130
+            return 0
+        fi
+
+        local -a choices=()
+        local id kid kind what minutes asked_at desc age
+        while IFS=$'\t' read -r id kid kind what minutes asked_at; do
+            [[ -z "$id" ]] && continue
+            if [[ "$kind" == time ]]; then desc="$minutes more minute(s)"; else desc="$kind: $what"; fi
+            age="$(human_age $(($(date +%s) - asked_at)))"
+            choices+=("$id|$kid — $desc ($age)|")
+        done <<<"$rows"
+        choices+=("back|Back|")
+
+        tui_screen_choose "Requests" 1 1 0 "" choices ""
+        local rc=$?
+        ((rc == 130)) && return 130
+        ((rc == 0)) || return 0
+        [[ "$TUI_REPLY" == back ]] && return 0
+
+        screen_request_detail "$TUI_REPLY"
+        rc=$?
+        ((rc == 130)) && return 130
+    done
+}
+
+# --- P2: one kid -------------------------------------------------------------
+
+screen_kid_time() { # ACCOUNT NAME
+    local account="$1" name="$2"
+    while true; do
+        local status_out budget lights
+        status_out="$("$TIME_BIN" status "$account" 2>&1)"
+        budget="$(kid_conf_get "$account" budget_min)"
+        lights="$(kid_conf_get "$account" lights_out)"
+        echo
+        printf '%s\n' "$status_out"
+
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local choices=(
+            "grant|Give more minutes today|"
+            "budget|Change today's daily budget (now $budget min)|"
+            "lights|Change lights-out time (now $lights)|"
+            "back|Back|"
+        )
+        tui_screen_choose "$name's screen time" 1 1 0 "" choices "grant"
+        local rc=$?
+        ((rc == 130)) && return 130
+        ((rc == 0)) || return 0
+
+        case "$TUI_REPLY" in
+            grant)
+                tui_screen_input "How many more minutes today?" 1 1 0 "" \
+                    text "A number, like 15." validate_positive_minutes
+                rc=$?
+                ((rc == 130)) && return 130
+                ((rc == 0)) && run_priv "$TIME_BIN" grant "$account" "$TUI_REPLY"
+                ;;
+            budget)
+                tui_screen_input "How many minutes a day?" 1 1 0 "" \
+                    text "A number, 1 to 1440." validate_budget_minutes
+                rc=$?
+                ((rc == 130)) && return 130
+                ((rc == 0)) && run_priv "$CONF_BIN" set "$account" budget_min "$TUI_REPLY"
+                ;;
+            lights)
+                tui_screen_input "Lights out at?" 1 1 0 "" \
+                    text "24-hour time, like 19:30." validate_lights_out
+                rc=$?
+                ((rc == 130)) && return 130
+                ((rc == 0)) && run_priv "$CONF_BIN" set "$account" lights_out "$TUI_REPLY"
+                ;;
+            back) return 0 ;;
+        esac
+    done
+}
+
+screen_kid_web() { # ACCOUNT NAME
+    local account="$1" name="$2" band mode allow_file
+    band="$(kid_conf_get "$account" band)"
+    mode="$(kid_conf_get "$account" web)"
+    allow_file="$ETC/kids/$account/allow.txt"
+
+    if [[ "$mode" != garden ]]; then
+        # shellcheck disable=SC2034 # read by tui_screen_summary via nameref-by-name
+        local rows=("Mode|$(friendly_web_mode "$mode")" "Editable list|No — this mode has no allow list (SPEC.md R-WEB-3)")
+        tui_screen_summary "$name's web" 1 1 0 "" rows
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local choices=("back|Back|")
+        tui_screen_choose "Web" 1 1 0 "" choices "back"
+        local rc=$?
+        ((rc == 130)) && return 130
+        return 0
+    fi
+
+    while true; do
+        local -a lines=()
+        if [[ -r "$allow_file" ]]; then
+            local l
+            while IFS= read -r l; do [[ -n "$l" ]] && lines+=("$l"); done <"$allow_file"
+        fi
+        echo
+        echo "$name's allowed sites (mode: only sites you choose):"
+        if ((${#lines[@]} == 0)); then
+            echo "  (none of the kid's own yet — the band's starter list still applies)"
+        else
+            local l
+            for l in "${lines[@]}"; do echo "  - $l"; done
+        fi
+
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local choices=("add|Add a site|" "remove|Remove a site|" "back|Back|")
+        tui_screen_choose "Web" 1 1 0 "" choices "add"
+        local rc=$?
+        ((rc == 130)) && return 130
+        ((rc == 0)) || return 0
+
+        case "$TUI_REPLY" in
+            add)
+                tui_screen_input "Add which site?" 1 1 0 "" \
+                    text "A hostname, like example.com." validate_hostname
+                rc=$?
+                ((rc == 130)) && return 130
+                if ((rc == 0)); then
+                    lines+=("$TUI_REPLY")
+                    # warm_sudo first, in *this* shell: write_root_file is the
+                    # receiving end of a pipe below, so it runs in a subshell
+                    # that can't set our SUDO_WARMED flag back here — without
+                    # this, the "one warm-up prompt" would print twice.
+                    warm_sudo || continue
+                    printf '%s\n' "${lines[@]}" | write_root_file "$allow_file"
+                    run_priv "$WEB_BIN" install "$band" --allow "$allow_file" --apply
+                fi
+                ;;
+            remove)
+                if ((${#lines[@]} == 0)); then
+                    echo "Nothing to remove yet."
+                    continue
+                fi
+                local -a rchoices=()
+                local site
+                for site in "${lines[@]}"; do rchoices+=("$site|$site|"); done
+                rchoices+=("back|Never mind|")
+                tui_screen_choose "Remove which site?" 1 1 0 "" rchoices "back"
+                rc=$?
+                ((rc == 130)) && return 130
+                if ((rc == 0)) && [[ "$TUI_REPLY" != back ]]; then
+                    local -a kept=()
+                    for site in "${lines[@]}"; do [[ "$site" != "$TUI_REPLY" ]] && kept+=("$site"); done
+                    warm_sudo || continue
+                    if ((${#kept[@]} == 0)); then
+                        write_root_file "$allow_file" </dev/null
+                    else
+                        printf '%s\n' "${kept[@]}" | write_root_file "$allow_file"
+                    fi
+                    run_priv "$WEB_BIN" install "$band" --allow "$allow_file" --apply
+                fi
+                ;;
+            back) return 0 ;;
+        esac
+    done
+}
+
+screen_kid_apps() { # ACCOUNT NAME
+    local account="$1" name="$2"
+    while true; do
+        local list_out allow
+        list_out="$("$APPS_BIN" list "$account" 2>/dev/null)" || {
+            echo "Could not read $name's app pack."
+            return 0
+        }
+        allow="$("$APPS_BIN" allowlist "$account" 2>/dev/null)"
+
+        local -a choices=()
+        local first=1 line id label
+        while IFS= read -r line; do
+            if ((first)); then
+                first=0
+                continue
+            fi
+            [[ -z "$line" ]] && continue
+            id="$(awk '{print $1}' <<<"$line")"
+            label="$(cut -c18-41 <<<"$line" | sed 's/[[:space:]]*$//')"
+            if is_in_csv "$id" "$allow"; then
+                choices+=("$id|$label (shown)|")
+            else
+                choices+=("$id|$label (hidden)|")
+            fi
+        done <<<"$list_out"
+        choices+=("back|Back|")
+
+        tui_screen_choose "$name's apps — Enter toggles" 1 1 0 "" choices "back"
+        local rc=$?
+        ((rc == 130)) && return 130
+        ((rc == 0)) || return 0
+        [[ "$TUI_REPLY" == back ]] && return 0
+
+        if is_in_csv "$TUI_REPLY" "$allow"; then
+            run_priv "$APPS_BIN" hide "$account" "$TUI_REPLY"
+        else
+            run_priv "$APPS_BIN" show "$account" "$TUI_REPLY"
+        fi
+    done
+}
+
+screen_kid_level() { # ACCOUNT NAME
+    local account="$1" name="$2" current
+    current="$(kid_conf_get "$account" level)"
+    # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+    local choices=(
+        "1|One thing at a time|Simplest — one app fills the screen."
+        "2|Two things side by side|Split-screen multitasking."
+        "3|The full desktop|Everything Omarchy normally offers."
+    )
+    tui_screen_choose "$name's desktop" 1 1 0 "" choices "$current"
+    local rc=$?
+    ((rc == 130)) && return 130
+    ((rc == 0)) || return 0
+    [[ "$TUI_REPLY" != "$current" ]] && run_priv "$CONF_BIN" set "$account" level "$TUI_REPLY"
+    return 0
+}
+
+# screen_kid_password ACCOUNT NAME — SPEC.md R-WIZ-8's "reset password"
+# has no real implementation yet (`omarchy-kids-provision` has no
+# `passwd` subcommand today, only `add`/`remove`/`list` — see
+# docs/provision.md); this checks for one anyway (future-proofing, per
+# the issue brief) and otherwise names the exact command a parent runs
+# themselves (I-6: don't claim a control that isn't there).
+screen_kid_password() { # ACCOUNT NAME
+    local account="$1" name="$2"
+    if "$PROVISION_BIN" --help 2>&1 | grep -qE '^ *passwd\b'; then
+        tui_screen_input "New password for $name" 1 1 0 "" \
+            password "Typed once here; never shown, never logged."
+        local rc=$?
+        ((rc == 130)) && return 130
+        ((rc == 0)) || return 0
+        printf '%s\n' "$TUI_REPLY" | {
+            warm_sudo || return 1
+            if [[ "$DRY_RUN" == "1" ]]; then
+                printf '  [dry-run] sudo %s passwd %s --apply\n' "$PROVISION_BIN" "$account"
+                cat >/dev/null
+            else
+                sudo "$PROVISION_BIN" passwd "$account" --apply
+            fi
+        }
+        return 0
+    fi
+
+    # shellcheck disable=SC2034 # read by tui_screen_summary via nameref-by-name
+    local rows=("Account|$account" "Run this|sudo passwd $account")
+    tui_screen_summary "Change $name's password" 1 1 0 "" rows
+    echo
+    echo "There's no panel button for this yet — run the line above in a terminal;"
+    echo "it asks for the new password twice and never shows it on screen."
+    # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+    local choices=("back|Back|")
+    tui_screen_choose "Password" 1 1 0 "" choices "back"
+    local rc=$?
+    ((rc == 130)) && return 130
+    return 0
+}
+
+KID_JUST_REMOVED=0
+screen_kid_remove() { # ACCOUNT NAME
+    local account="$1" name="$2"
+    tui_screen_input "Type \"$name\" to remove this kid's account" 1 1 0 "" \
+        text "Files move to ~parent/Kids Mode/$name/ (SPEC.md R-FND-6); this can't be undone from here."
+    local rc=$?
+    ((rc == 130)) && return 130
+    ((rc == 0)) || return 0
+
+    if [[ "$TUI_REPLY" == "$name" ]]; then
+        run_priv "$PROVISION_BIN" remove "$account" --apply
+        [[ "$DRY_RUN" == "0" ]] && KID_JUST_REMOVED=1
+    else
+        echo
+        echo "That didn't match \"$name\" — nothing was removed."
+    fi
+    return 0
+}
+
+screen_kid() { # ACCOUNT
+    local account="$1" name band
+    KID_JUST_REMOVED=0
+    while true; do
+        name="$(kid_conf_get "$account" name)"
+        band="$(kid_conf_get "$account" band)"
+        local status_out nreq
+        status_out="$("$TIME_BIN" status "$account" 2>&1)"
+        nreq="$(count_open_requests "$account")"
+        echo
+        echo "$name — band $band"
+        printf '%s\n' "$status_out"
+        echo "Open requests: $nreq"
+
+        # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+        local choices=(
+            "time|Screen time|"
+            "web|Web|"
+            "apps|Apps|"
+            "level|Desktop level|"
+            "password|Password|"
+            "remove|Remove this kid|"
+            "back|Back|"
+        )
+        tui_screen_choose "$name" 1 1 0 "" choices "time"
+        local rc=$?
+        case "$rc" in
+            130) return 130 ;;
+            1) return 0 ;;
+        esac
+        ((rc == 0)) || return 0
+
+        case "$TUI_REPLY" in
+            time)
+                screen_kid_time "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            web)
+                screen_kid_web "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            apps)
+                screen_kid_apps "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            level)
+                screen_kid_level "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            password)
+                screen_kid_password "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            remove)
+                screen_kid_remove "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ((KID_JUST_REMOVED)) && return 0
+                ;;
+            back) return 0 ;;
+        esac
+    done
+}
+
+# --- P1: Home ----------------------------------------------------------------
+
+show_remove_kids_mode_placeholder() {
+    echo
+    echo "Remove Kids Mode isn't built yet (SPEC.md R-TRUST-4) — it will reverse every"
+    echo "lock, remove every kid account, and offer the pre-Kids-Mode snapshot. For now,"
+    echo "remove one kid at a time from that kid's own screen."
+}
+
+screen_home() {
+    while true; do
+        local rows_out total_open
+        rows_out="$("$PROVISION_BIN" list 2>/dev/null)"
+        total_open="$(count_open_requests)"
+
+        local -a choices=()
+        if [[ "$rows_out" == *$'\t'* ]]; then
+            local account name band status_out nreq home_line
+            while IFS=$'\t' read -r account name band; do
+                [[ -z "$account" ]] && continue
+                status_out="$("$TIME_BIN" status "$account" 2>/dev/null)"
+                nreq="$(count_open_requests "$account")"
+                home_line="$(kid_home_line "$name" "$band" "$status_out" "$nreq")"
+                choices+=("kid:$account|$home_line|")
+            done <<<"$rows_out"
+        fi
+        choices+=(
+            "add|Add a kid|"
+            "requests|Requests ($total_open)|"
+            "remove_kids_mode|Remove Kids Mode|"
+            "quit|Quit|"
+        )
+
+        tui_screen_choose "Kids Mode" 1 1 0 "" choices "" "Enter select · Esc/q quit"
+        local rc=$?
+        case "$rc" in
+            1) return 1 ;;
+            130) return 130 ;;
+        esac
+        ((rc == 0)) || return 1
+
+        case "$TUI_REPLY" in
+            add) exec "$WIZARD_BIN" ;;
+            requests)
+                screen_requests
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            remove_kids_mode) show_remove_kids_mode_placeholder ;;
+            quit) return 1 ;;
+            kid:*)
+                screen_kid "${TUI_REPLY#kid:}"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+        esac
+    done
+}
+
+# --- main --------------------------------------------------------------------
+
+tui_init || exit $?
+
+screen_home
+rc=$?
+case "$rc" in
+    130)
+        echo "Left Kids Mode." >&2
+        exit 130
+        ;;
+    *)
+        echo "Left Kids Mode."
+        exit 0
+        ;;
+esac

@@ -292,3 +292,6 @@ that includes this issue's changes. Unlike the dropped `portal.json`/XHR design,
 process-environment inheritance to separately confirm here — `theme.conf.user` either shows up in
 `config.parent`/`config.kids` on the next theme load or it doesn't, and a screenshot after step 4
 above settles it directly.
+Later the same night (#15): the parent's password typed on Cy's tile opened Cy's session
+(journal: "Authentication for user kid-cy successful" through the `sddm` stack's parent-unlock
+line), so a parent can open any kid's desktop from the portal without knowing the kid's password.

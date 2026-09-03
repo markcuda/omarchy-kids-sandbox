@@ -30,12 +30,16 @@ run() {
 # shellcheck disable=SC2034 # read by the sourcing command, not here
 VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 
-# is_valid_band BAND — is BAND one of them.
-is_valid_band() {
-    local b="$1" v
-    for v in "${VALID_BANDS[@]}"; do [[ "$v" == "$b" ]] && return 0; done
+# is_in NEEDLE [HAYSTACK...] -- is NEEDLE one of the rest.
+is_in() {
+    local needle="$1" x
+    shift
+    for x in "$@"; do [[ "$x" == "$needle" ]] && return 0; done
     return 1
 }
+
+# is_valid_band BAND — is BAND one of them.
+is_valid_band() { is_in "$1" "${VALID_BANDS[@]}"; }
 
 # group_for_band BAND -- the Unix group for a provisioned band (Appendix
 # C). Accepts both "13+" and "13plus" (a Chromium policy filename can't

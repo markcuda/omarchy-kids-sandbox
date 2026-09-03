@@ -89,13 +89,6 @@ they only print the plan. Pass --apply, or set DRY_RUN=0, to make it real.
 EOF
 }
 
-is_in() {
-    local needle="$1"; shift
-    local h
-    for h in "$@"; do [[ "$h" == "$needle" ]] && return 0; done
-    return 1
-}
-
 is_valid_kind() { is_in "$1" "${VALID_KINDS[@]}"; }
 
 # --- kid-side: open the modal ---------------------------------------------

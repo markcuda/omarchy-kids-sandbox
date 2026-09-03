@@ -133,10 +133,10 @@ stub pgrep 'exit 1'  # restore "not found" for the rest of the suite
 
 : > "$LOG"
 export XDG_SESSION_ID="c7"
-"$EXIT_BIN" --finish >/dev/null 2>&1; st=$?
+OMARCHY_KIDS_EXIT_WAIT=0 "$EXIT_BIN" --finish >/dev/null 2>&1; st=$?
 argv2="$(cat "$LOG")"
 check_eq "$st" 0 "--finish exits 0"
-check_contains "$argv2" "hyprctl dispatch exit" "--finish calls hyprctl dispatch exit"
+check_contains "$argv2" "hyprctl dispatch hl.dsp.exit()" "--finish asks Hyprland to exit with the Lua dispatcher"
 check_contains "$argv2" "loginctl terminate-session c7" "--finish calls loginctl terminate-session with \$XDG_SESSION_ID"
 # hyprctl's line must come first: Hyprland has to actually be asked to
 # exit before the session it belongs to is torn down.
@@ -145,11 +145,21 @@ loginctl_line="$(grep -n loginctl <<<"$argv2" | cut -d: -f1)"
 [[ "$hyprctl_line" -lt "$loginctl_line" ]] && pass "--finish: hyprctl runs before loginctl" \
     || fail "--finish: hyprctl should run before loginctl (got hyprctl on line $hyprctl_line, loginctl on $loginctl_line)"
 
+# --- --finish: the compositor left on its own -> no terminate-session ----
+
+: > "$LOG"
+OMARCHY_KIDS_EXIT_WAIT=2 "$EXIT_BIN" --finish >/dev/null 2>&1; st=$?
+argv3="$(cat "$LOG")"
+check_eq "$st" 0 "--finish exits 0 once Hyprland is gone"
+grep -q "loginctl terminate-session" <<<"$argv3" \
+    && fail "--finish must not terminate the session when Hyprland already exited" \
+    || pass "--finish leaves loginctl alone when Hyprland already exited"
+
 # --- --finish: hyprctl missing is best-effort, loginctl still runs --------
 
 rm -f "$STUBS/hyprctl"
 : > "$LOG"
-"$EXIT_BIN" --finish >/dev/null 2>&1; st=$?
+OMARCHY_KIDS_EXIT_WAIT=0 "$EXIT_BIN" --finish >/dev/null 2>&1; st=$?
 check_eq "$st" 0 "--finish without hyprctl on PATH still exits 0"
 check_contains "$(cat "$LOG")" "loginctl terminate-session c7" "--finish without hyprctl still calls loginctl"
 stub hyprctl  # restore

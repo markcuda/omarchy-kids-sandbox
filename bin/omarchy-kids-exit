@@ -94,12 +94,20 @@ cmd_open() {
 }
 
 cmd_finish() {
-  # Best-effort: hyprctl may already be gone by the time this runs
-  # (the compositor is on its way down), and this must not block the
-  # loginctl call that actually ends the session either way.
+  # Ask the compositor to quit cleanly and wait for it: SDDM starts a new
+  # greeter only after a clean session end. A hard terminate makes
+  # sddm-helper exit 1, SDDM logs "Process crashed" and shows nothing at
+  # all (seen live 2026-09-02). Hyprland 0.56 in Lua-config mode rejects
+  # the classic `dispatch exit`; the dispatcher is a Lua call.
   if command -v hyprctl >/dev/null 2>&1; then
-    hyprctl dispatch exit >/dev/null 2>&1 || true
+    hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1 || hyprctl dispatch exit >/dev/null 2>&1 || true
   fi
+  local waited=0 max="${OMARCHY_KIDS_EXIT_WAIT:-8}"
+  while (( waited < max )); do
+    pgrep -u "$(id -u)" -x Hyprland >/dev/null 2>&1 || exit 0
+    sleep 1; waited=$((waited + 1))
+  done
+  # Last resort only: the compositor ignored the request.
   exec loginctl terminate-session "${XDG_SESSION_ID:?omarchy-kids-exit --finish needs XDG_SESSION_ID}"
 }
 

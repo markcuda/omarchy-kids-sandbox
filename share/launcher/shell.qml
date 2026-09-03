@@ -27,6 +27,13 @@
 //     the shell).
 //   - `Quickshell.Io.Process` — whether `command`/`running` are real
 //     properties and start-on-`running=true` is the right lifecycle.
+//   - issue #43: `columns` below assumes GridView lays tiles out at
+//     exactly `Math.floor(grid.width / grid.cellWidth)` per row (plain
+//     QtQuick GridView behavior in general, but not confirmed against
+//     this Quickshell 0.3.1 build specifically). If the real layout
+//     rounds or reserves space differently, `GridNav.columnsFor()` in
+//     gridnav.js is the one place to correct -- key navigation and the
+//     GridView both read that same value, so a fix there fixes both.
 //
 // What this does NOT depend on the kid's home for (I-3): the tile list
 // comes from $XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json (written by session-start),
@@ -36,6 +43,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "gridnav.js" as GridNav
 
 Window {
     id: root
@@ -54,7 +62,13 @@ Window {
     // allowlist. Read once at startup and again whenever the file
     // changes underneath (a level change, a re-run of session-start).
     property var tiles: []
-    property int columns: 4
+    // issue #43: this used to be a hardcoded `4` that drifted out of
+    // sync with what GridView actually renders (five columns, seen live
+    // with ten tiles). Derived here from the exact same inputs --
+    // grid.width and grid.cellWidth -- GridView itself uses to lay tiles
+    // out, via the shared pure function in gridnav.js, so key navigation
+    // and the rendered layout can never disagree on column count again.
+    readonly property int columns: GridNav.columnsFor(grid.width, grid.cellWidth)
     property int currentIndex: 0
 
     FileView {
@@ -155,21 +169,30 @@ Window {
         anchors.fill: parent
         focus: true
 
+        // issue #43: index math lives in gridnav.js, not here, so it's
+        // one shared implementation instead of four inline expressions
+        // that can each drift from the layout (and from each other)
+        // independently. Left/Right wrap to the previous/next row --
+        // clamping only at the very first/last tile -- since tiles are
+        // laid out row-major and index+/-1 already crosses a row
+        // boundary correctly on its own; see gridnav.js's header for
+        // why that's the design, not a shortcut. Up/Down clamp at the
+        // top/bottom edge (including a ragged last row) rather than
+        // jumping to some other tile.
         Keys.onLeftPressed: (event) => {
-            if (root.currentIndex % root.columns > 0) root.currentIndex -= 1
+            root.currentIndex = GridNav.moveLeft(root.currentIndex)
             event.accepted = true
         }
         Keys.onRightPressed: (event) => {
-            if (root.currentIndex % root.columns < root.columns - 1 && root.currentIndex + 1 < root.tiles.length)
-                root.currentIndex += 1
+            root.currentIndex = GridNav.moveRight(root.currentIndex, root.tiles.length)
             event.accepted = true
         }
         Keys.onUpPressed: (event) => {
-            if (root.currentIndex - root.columns >= 0) root.currentIndex -= root.columns
+            root.currentIndex = GridNav.moveUp(root.currentIndex, root.columns)
             event.accepted = true
         }
         Keys.onDownPressed: (event) => {
-            if (root.currentIndex + root.columns < root.tiles.length) root.currentIndex += root.columns
+            root.currentIndex = GridNav.moveDown(root.currentIndex, root.columns, root.tiles.length)
             event.accepted = true
         }
         Keys.onReturnPressed: (event) => { root.launchCurrent(); event.accepted = true }

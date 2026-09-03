@@ -1,0 +1,108 @@
+#!/bin/bash
+# Tests share/launcher/gridnav.js -- the pure column/index math the Level
+# 1/2 launcher's key navigation and its GridView layout share (issue #43:
+# key nav used a hardcoded `columns: 4` while the GridView actually drew
+# five tiles per row, so Down from row1/col4 landed on row2/col3 instead
+# of row2/col4, and Right from row2/col3 didn't move at all). See
+# docs/levels.md.
+#
+# What this does NOT and cannot check without a real Quickshell/QtQuick
+# environment (see share/launcher/shell.qml's own header):
+#   - that `import "gridnav.js" as GridNav` really resolves at runtime
+#   - that GridView really lays columns out as floor(width/cellWidth)
+#   - that grid.width/grid.cellWidth hold the values this assumes at the
+#     VM's real 1280x800 resolution
+set -uo pipefail
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+JS="$DIR/share/launcher/gridnav.js"
+QML="$DIR/share/launcher/shell.qml"
+
+fail=0
+check() { # got want label
+  if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want '$2', got '$1')"; fail=1; fi
+}
+check_contains() { # haystack needle label
+  if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (want to find '$2' in '$1')"; fail=1; fi
+}
+
+if [[ -f "$JS" ]]; then
+  echo "ok   share/launcher/gridnav.js exists"
+else
+  echo "FAIL share/launcher/gridnav.js missing"
+  fail=1
+fi
+
+qml_content="$(cat "$QML" 2>/dev/null || true)"
+
+check_contains "$qml_content" 'import "gridnav.js" as GridNav' \
+  "shell.qml imports gridnav.js"
+check_contains "$qml_content" 'GridNav.columnsFor(grid.width, grid.cellWidth)' \
+  "shell.qml derives its column count from the GridView's own width/cellWidth, not a hardcoded number"
+check_contains "$qml_content" 'GridNav.moveLeft(root.currentIndex)' \
+  "Left key uses the shared move function"
+check_contains "$qml_content" 'GridNav.moveRight(root.currentIndex, root.tiles.length)' \
+  "Right key uses the shared move function"
+check_contains "$qml_content" 'GridNav.moveUp(root.currentIndex, root.columns)' \
+  "Up key uses the shared move function"
+check_contains "$qml_content" 'GridNav.moveDown(root.currentIndex, root.columns, root.tiles.length)' \
+  "Down key uses the shared move function"
+check_contains "$qml_content" 'Keys.onReturnPressed' "Return launches the highlighted tile"
+check_contains "$qml_content" 'root.launchCurrent()' "Enter/Return calls launchCurrent()"
+
+# issue #43's bug was exactly this: a hardcoded columns count baked into
+# the nav's own `%`/`<` comparisons instead of read from the layout.
+check "$(grep -c 'property int columns: 4' "$QML" || true)" "0" \
+  "shell.qml no longer hardcodes columns: 4"
+
+if command -v node >/dev/null 2>&1; then
+  out="$(node -e "
+    var module = { exports: {} };
+    eval(require('fs').readFileSync(process.argv[1], 'utf8'));
+    var G = module.exports;
+    var results = [];
+
+    // Ten tiles, 800px-wide grid, 160px cells -- five per row, the exact
+    // live scenario in the issue.
+    var cols = G.columnsFor(800, 160);
+    results.push('columns=' + cols);
+
+    // Down from index 3 (row1, 4th tile, 0-indexed col 3) must land on
+    // index 8 (row2, 4th tile), not index 7 (row2, 3rd tile) -- the bug.
+    results.push('down3=' + G.moveDown(3, cols, 10));
+
+    // Right from index 7 (row2, 3rd tile) must move to index 8, not
+    // hold still -- the other half of the bug.
+    results.push('right7=' + G.moveRight(7, 10));
+
+    // Right at the very last tile clamps (does not wrap to index 0).
+    results.push('right9=' + G.moveRight(9, 10));
+
+    // Left at the very first tile clamps.
+    results.push('left0=' + G.moveLeft(0));
+
+    // Left at the first column of row2 (index 5) wraps to the last
+    // tile of row1 (index 4), since tiles are laid out row-major.
+    results.push('left5=' + G.moveLeft(5));
+
+    // Up at the top row clamps.
+    results.push('up2=' + G.moveUp(2, cols));
+
+    // Down at the bottom-right tile (no tile below) clamps.
+    results.push('down9=' + G.moveDown(9, cols, 10));
+
+    // columnsFor() never returns 0 or a negative number, even for
+    // degenerate (not-yet-laid-out) width/cellWidth values -- avoids a
+    // divide-by-zero-shaped bug the moment shell.qml starts up before
+    // GridView has a real width.
+    results.push('cols0=' + G.columnsFor(0, 160));
+    results.push('colsNeg=' + G.columnsFor(800, 0));
+
+    console.log(results.join(' '));
+  " "$JS" 2>&1)"
+  check "$out" "columns=5 down3=8 right7=8 right9=9 left0=0 left5=4 up2=2 down9=9 cols0=1 colsNeg=1" \
+    "gridnav.js index math matches issue #43's live scenario (node)"
+else
+  echo "SKIP gridnav.js index-math check: node not found"
+fi
+
+exit $fail

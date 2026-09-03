@@ -1,0 +1,91 @@
+#!/bin/bash
+# omarchy-kids-super-tap: the "Super pressed three times within 1.5s"
+# half of SPEC.md R-EXIT-1. Meant to be run once per Super *release* --
+# a Hyprland `bindr` (key-release) bind, not a `bind` (key-press) one,
+# so a normal Super+<other key> combo (Super+Home, Super+Shift+K, ...)
+# doesn't also count as a bare tap. See docs/exit.md for why no such
+# bind is actually wired into share/hyprland/L1.lua/L2.lua/L3.lua yet:
+# none of the Omarchy DSL reference material this repo had access to
+# showed a release-bind form (`o.bindr`/`hl.bindr` or otherwise) to
+# confirm the call against, so wiring it is left as a documented gap
+# rather than a guess that could silently do nothing -- or worse, bind
+# the wrong thing -- on a real Hyprland.
+#
+# Each invocation appends "now" (milliseconds since the epoch) to a
+# small per-session file, drops any entries older than the window, and
+# -- once three remain -- clears the file and runs omarchy-kids-exit,
+# so the *next* three taps start a fresh count rather than firing on
+# every release once three have ever landed close together.
+set -uo pipefail
+
+RUN="${OMARCHY_KIDS_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
+FILE="$RUN/super-taps"
+WINDOW_MS="${OMARCHY_KIDS_SUPER_TAP_WINDOW_MS:-1500}"
+EXIT_BIN="${OMARCHY_KIDS_EXIT_BIN:-omarchy-kids-exit}"
+
+usage() {
+  cat <<EOF
+Usage: omarchy-kids-super-tap
+
+Run once per Super key release (a Hyprland \`bindr\` bind -- see this
+file's header for why that bind isn't wired into share/hyprland/*.lua
+yet). Three releases within \${OMARCHY_KIDS_SUPER_TAP_WINDOW_MS:-1500}ms
+run \$OMARCHY_KIDS_EXIT_BIN (default: omarchy-kids-exit).
+
+Env:
+  OMARCHY_KIDS_RUNTIME_DIR       default \$XDG_RUNTIME_DIR/omarchy-kids, else /tmp/omarchy-kids
+  OMARCHY_KIDS_SUPER_TAP_WINDOW_MS  default 1500
+  OMARCHY_KIDS_EXIT_BIN          default omarchy-kids-exit
+  OMARCHY_KIDS_SUPER_TAP_NOW_MS  test hook: use this instead of the real
+                                 clock for "now", so tests never need to
+                                 sleep for real time to pass
+
+  -h, --help  Show this help and exit.
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) usage; exit 0 ;;
+    *) echo "omarchy-kids-super-tap: unknown argument '$arg' (see --help)" >&2; exit 2 ;;
+  esac
+done
+
+# now_ms — milliseconds since the epoch. GNU date (the real target,
+# Arch) supports `%s%N` (seconds and nanoseconds concatenated); BSD date
+# (this repo's macOS dev/test boxes) does not and echoes the literal
+# "N" back, so that shape is detected and a whole-second fallback used
+# instead -- coarser, but this only has to be precise enough to tell
+# "three taps close together" from "three taps spread out", not exact.
+now_ms() {
+  if [[ -n "${OMARCHY_KIDS_SUPER_TAP_NOW_MS:-}" ]]; then
+    printf '%s\n' "$OMARCHY_KIDS_SUPER_TAP_NOW_MS"
+    return 0
+  fi
+  local raw
+  raw="$(date +%s%N 2>/dev/null || true)"
+  if [[ "$raw" =~ ^[0-9]+$ && ${#raw} -gt 10 ]]; then
+    printf '%s\n' $(( raw / 1000000 ))
+  else
+    printf '%s000\n' "$(date +%s)"
+  fi
+}
+
+mkdir -p "$RUN"
+
+now="$(now_ms)"
+kept=()
+if [[ -f "$FILE" ]]; then
+  while IFS= read -r ts || [[ -n "$ts" ]]; do
+    [[ "$ts" =~ ^[0-9]+$ ]] || continue
+    (( now - ts <= WINDOW_MS )) && kept+=("$ts")
+  done < "$FILE"
+fi
+kept+=("$now")
+
+if (( ${#kept[@]} >= 3 )); then
+  : > "$FILE"  # reset: the next three taps start a fresh count
+  exec "$EXIT_BIN"
+fi
+
+printf '%s\n' "${kept[@]}" > "$FILE"

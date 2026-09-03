@@ -70,6 +70,7 @@ L1_WANT=$(sorted \
   'SUPER + RETURN' \
   'SUPER + Q' \
   'SUPER + SHIFT + K' \
+  'SUPER + SUPER_L' \
   'XF86AudioRaiseVolume' \
   'XF86AudioLowerVolume' \
   'XF86AudioMute' \
@@ -85,6 +86,7 @@ L2_WANT=$(sorted \
   'SUPER + RETURN' \
   'SUPER + Q' \
   'SUPER + SHIFT + K' \
+  'SUPER + SUPER_L' \
   'XF86AudioRaiseVolume' \
   'XF86AudioLowerVolume' \
   'XF86AudioMute' \
@@ -121,6 +123,8 @@ l3_content="$(cat "$HYPR/L3.lua")"
 check_contains "$l3_content" 'require("default.hypr.omarchy")' "L3.lua requires default.hypr.omarchy"
 check_contains "$l3_content" 'hl.unbind("SUPER + RETURN")' "L3.lua unbinds the (assumed) terminal bind"
 check_contains "$l3_content" 'o.bind("SUPER + SHIFT + K"' "L3.lua adds the Appendix E exit-modal bind"
+check_contains "$l3_content" 'o.bind("SUPER + SUPER_L", "Kids Mode: exit (tap Super three times)", "omarchy-kids-super-tap", { release = true })' \
+    "L3.lua adds the triple-tap release bind"
 
 # --- session-start writes the expected launcher JSON ---------------------
 

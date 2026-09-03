@@ -1,26 +1,127 @@
 #!/bin/bash
-# omarchy-kids-exit: bound to Super+Shift+K at every level (SPEC.md
-# R-EXIT-1). Meant to open a root-owned overlay with the kid's avatar
-# and name, a password field, and "Pause <name>" / "Finish for <name>".
-# Stub: not built yet -- that's a later issue.
+# omarchy-kids-exit: bound to Super+Shift+K at every level, and to three
+# Super taps within 1.5s via bin/omarchy-kids-super-tap (SPEC.md R-EXIT-1
+# .. R-EXIT-6; docs/exit.md has the full picture, including what's
+# UNTESTED here -- this has never run against a real Hyprland/Quickshell
+# session, so treat every claim below about what actually happens on
+# screen as unverified until it has).
+#
+# --open (the default, and what Super+Shift+K/the triple-tap both run):
+#   if the modal looks like it's already up (a "quickshell -p .../exit-
+#   modal/shell.qml" process is running -- checked with `pgrep`, since
+#   this process --open execs into and therefore can't itself track
+#   "still running" once launched -- see docs/exit.md), do nothing;
+#   otherwise exec the modal (share/exit-modal/shell.qml) with the kid's
+#   name/avatar/account exported from omarchy-kids-conf.
+#
+# --finish (SPEC.md R-EXIT-3, run by the modal's Finish button once the
+#   parent password verifies): ends the kid's session so SDDM returns to
+#   the greeter -- `hyprctl dispatch exit` first, best-effort, if
+#   hyprctl is present, then `loginctl terminate-session "$XDG_SESSION_ID"`.
+#
+# --pause (SPEC.md R-EXIT-3's other half): NOT IMPLEMENTED. Per
+# docs/phase1/V1.md and docs/phase1/DECISIONS-NEEDED.md, SDDM's
+# Seat.SwitchToGreeter() fails outright on Omarchy 4.0.2 while a session
+# holds the seat (HELPER_TTY_ERROR) and even revoked input devices on
+# real hardware until a manual udev re-trigger -- so this deliberately
+# refuses rather than guessing at a mechanism that was found unsafe to
+# even try. share/exit-modal/shell.qml only calls this when
+# OMARCHY_KIDS_PAUSE_AVAILABLE=1 is set (I-6: never offer a control that
+# isn't enforced), which omarchy-kids-exit itself never sets today.
 set -uo pipefail
 
-for arg in "$@"; do
-  case "$arg" in
-    -h|--help)
-      cat <<'EOF'
-Usage: omarchy-kids-exit
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+MODAL_QML="$SHARE/exit-modal/shell.qml"
+
+usage() {
+  cat <<EOF
+Usage: omarchy-kids-exit [--open|--finish|--pause]
 
 Bound to Super+Shift+K in every Kids Mode Hyprland level
-(share/hyprland/L1.lua, L2.lua, L3.lua). Not built yet -- see SPEC.md
-R-EXIT-1.
+(share/hyprland/L1.lua, L2.lua, L3.lua) and to three Super taps within
+1.5s (bin/omarchy-kids-super-tap). See docs/exit.md.
+
+  --open      Show the exit modal (default). A no-op if it looks like
+              one is already up.
+  --finish    End the kid's session cleanly (SPEC.md R-EXIT-3). Run by
+              the modal's own Finish button after the parent password
+              verifies -- not meant to be run directly by a kid.
+  --pause     Not implemented yet (docs/phase1/V1.md, DECISIONS-NEEDED.md).
+              Prints why and exits 2.
+
+Env:
+  OMARCHY_KIDS_SHARE     default /usr/share/omarchy-kids (exit-modal/shell.qml lives under here)
+  OMARCHY_KIDS_CONF_BIN  default: bin/omarchy-kids-conf beside this script, else /usr/bin/omarchy-kids-conf
+  OMARCHY_KIDS_ACCOUNT   default: this process's own user (id -un)
 
   -h, --help  Show this help and exit.
 EOF
-      exit 0
+}
+
+# modal_already_open — best-effort check for a live exit-modal process,
+# so a second Super+Shift+K (or a triple-tap landing while the modal is
+# already showing) doesn't stack a second one on top. UNVERIFIED: no
+# Quickshell was available to confirm `quickshell -p PATH` is what shows
+# up in `pgrep -f`'s process list under that exact invocation.
+modal_already_open() {
+  command -v pgrep >/dev/null 2>&1 || return 1
+  pgrep -f "quickshell -p ${MODAL_QML}" >/dev/null 2>&1
+}
+
+cmd_open() {
+  if modal_already_open; then
+    exit 0
+  fi
+
+  local account name avatar_id
+  account="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+  name="$("$CONF_BIN" get "$account" name)" || {
+    echo "omarchy-kids-exit: could not read '$account's name from omarchy-kids-conf" >&2
+    exit 1
+  }
+  avatar_id="$("$CONF_BIN" get "$account" avatar)" || {
+    echo "omarchy-kids-exit: could not read '$account's avatar from omarchy-kids-conf" >&2
+    exit 1
+  }
+
+  export OMARCHY_KIDS_ACCOUNT="$account"
+  export OMARCHY_KIDS_NAME="$name"
+  export OMARCHY_KIDS_AVATAR="$SHARE/avatars/$avatar_id.svg"
+
+  exec quickshell -p "$MODAL_QML"
+}
+
+cmd_finish() {
+  # Best-effort: hyprctl may already be gone by the time this runs
+  # (the compositor is on its way down), and this must not block the
+  # loginctl call that actually ends the session either way.
+  if command -v hyprctl >/dev/null 2>&1; then
+    hyprctl dispatch exit >/dev/null 2>&1 || true
+  fi
+  exec loginctl terminate-session "${XDG_SESSION_ID:?omarchy-kids-exit --finish needs XDG_SESSION_ID}"
+}
+
+cmd_pause() {
+  echo "Pause is not available on this Omarchy version yet (see docs/phase1/V1.md)" >&2
+  exit 2
+}
+
+action="--open"
+for arg in "$@"; do
+  case "$arg" in
+    --open|--finish|--pause) action="$arg" ;;
+    -h|--help) usage; exit 0 ;;
+    *)
+      echo "omarchy-kids-exit: unknown argument '$arg' (see --help)" >&2
+      exit 2
       ;;
   esac
 done
 
-echo "omarchy-kids-exit: exit modal not built yet" >&2
-exit 1
+case "$action" in
+  --open) cmd_open ;;
+  --finish) cmd_finish ;;
+  --pause) cmd_pause ;;
+esac

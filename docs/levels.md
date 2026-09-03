@@ -13,7 +13,7 @@ Quickshell, so treat everything under "Verify in the VM" as open until it has.
 | `share/launcher/shell.qml` | The Level 1/2 big-tile launcher (Quickshell/QtQuick), R-DESK-5 |
 | `bin/omarchy-kids-session-start` | Runs once per session from each level file's `exec-once`; writes the launcher's tile JSON and starts the right thing for the level |
 | `bin/omarchy-kids-launcher-ctl` | What the Hyprland binds call to show/activate the launcher, so the Lua files don't need Quickshell IPC details |
-| `bin/omarchy-kids-exit` | Stub for Super+Shift+K (R-EXIT-1); not built yet |
+| `bin/omarchy-kids-exit`, `bin/omarchy-kids-super-tap`, `share/exit-modal/shell.qml` | The exit modal for Super+Shift+K and the triple-tap (R-EXIT-1); see `docs/exit.md` |
 | `share/menu/omarchy-kids-trimmed.jsonc` | Best-effort omarchy-menu extension for R-DESK-4 (Install/Update/Setup hidden at Levels 1-2) |
 
 Deployment (R-DESK-1): the package installs these under `/usr/share/omarchy-kids/hyprland/` and
@@ -38,8 +38,9 @@ to do when it's built.
 ## What each level binds (Appendix E)
 
 **Level 1.** `Super+Home` show the launcher · `Super+Return` open the highlighted tile ·
-`Super+Q` close the focused window · `Super+Shift+K` the exit overlay (`omarchy-kids-exit`
-stub) · the five standard volume/brightness media keys. Nothing else — no defaults, no
+`Super+Q` close the focused window · `Super+Shift+K` the exit overlay, and a bare `Super` tap
+three times within 1.5s does the same (`omarchy-kids-exit`, `omarchy-kids-super-tap`,
+`docs/exit.md`) · the five standard volume/brightness media keys. Nothing else — no defaults, no
 `require("default.hypr.bindings.*")`. Every window is forced fullscreen
 (`o.window(".*", { fullscreen = true })`). `test/shell.d/levels-test.sh` greps for exactly this
 set; nothing more, nothing less.
@@ -166,8 +167,7 @@ scripts copied to their spec-required paths and made root-owned):
    that arrows move the highlight, Return launches, Escape does nothing.
 3. `Super+Home` and `Super+Space` (Level 2) bring the launcher back after opening an app;
    `Super+Enter` opens whatever tile is highlighted without needing the launcher already focused.
-4. `Super+Q` closes the focused app; `Super+Shift+K` prints `omarchy-kids-exit`'s stub message
-   (until R-EXIT-1 is built).
+4. `Super+Q` closes the focused app; `Super+Shift+K` opens the exit modal (`docs/exit.md`).
 5. Repeat for `L2.lua` (focus/swap/cheat sheet) and `L3.lua` (real Omarchy desktop minus the
    terminal bind — try `Super+Return` and confirm nothing launches).
 6. Set `OMARCHY_KIDS_BAND=3-5` (or `6-8`) before the `Hyprland --config` run and confirm the

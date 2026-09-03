@@ -62,6 +62,25 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 - Comments in `bin/` and `lib/` trimmed to one-line whys (18% -> 12% of lines); the mechanics
   and audit trails moved into the matching `docs/<command>.md` (#56)
 
+- The structural refactor (#49): shared helpers in `lib/kids.sh`, one header shape and one
+  dispatcher shape per command, `set -e` everywhere it is safe
+- Kids inherit the parent's Omarchy theme at provision and can be given their own with
+  `omarchy-kids-conf set <kid> theme <name>`; every kid-side surface reads the kid's theme (#53)
+- Light themes: readable contrast in every standalone Quickshell surface (#57)
+
+### Fixed (later)
+
+- Launch folding: the ledger unit's `ProtectHome=` hid `/run/user`, so the kid's runtime launch
+  log was never folded into the root ledger (#55)
+
+### Security (round-one review, #51)
+
+- A kid-side process could write `approved` and root applied it; now root verifies every
+  approval itself (the parent's password over the authd socket), the verifier is called by
+  absolute path, the socket path cannot be overridden, the Limine-editor lock is asserted whether
+  or not the boot hook exists, dry-run output no longer prints secrets, and the desktop entry
+  runs the real wizard (`docs/reviews/2026-09-03-antagonistic.md`)
+
 ### Security (round-two review, #58)
 
 - **One trust boundary, enforced by a test.** No environment variable, and nothing a kid can

@@ -92,27 +92,35 @@ least one kid is provisioned (`docs/provision.md`):
 
 1. Build and copy the package over (never `pacman -U` from this dev checkout — build on the test
    machine, per AGENTS.md rule 8 and the PKGBUILD's own header):
+
    ```sh
    ssh vm 'cd ~/omarchy-kids-sandbox && git pull && makepkg -sf --noconfirm'
    ssh vm 'printf "omarchy\n" | sudo -S -p "" pacman -U --noconfirm ~/omarchy-kids-sandbox/omarchy-kids-*.pkg.tar.zst'
    ```
+
 2. Provision at least two kids (one 3-5 band with `--no-password`, one older band with a
    password) plus confirm the parent account exists, so the portal has something interesting to
    show (a "no password" tile, a password tile, and the smaller parent tile last).
 3. Confirm the drop-in landed and re-asserts:
+
    ```sh
    ssh vm 'cat /etc/sddm.conf.d/zz-omarchy-kids-theme.conf'
    ssh vm 'printf "omarchy\n" | sudo -S -p "" omarchy-kids-assert' # expect "ok      sddm-theme" (or "fixed" the first time)
    ```
+
 4. Restart SDDM from the SSH session (this kills the active graphical session on the console —
    expected, that's the point):
+
    ```sh
    ssh vm 'printf "omarchy\n" | sudo -S -p "" systemctl restart sddm'
    ```
+
 5. Screenshot the console over QMP from the Mac (`scripts/vm-qmp.sh`, `docs/vm.md`):
+
    ```sh
    VM_DIR=~/vm scripts/vm-qmp.sh shot portal.png
    ```
+
    Confirm visually: one tile per kid (avatar or fallback letter-circle, name below), the parent
    tile last and visibly smaller, no session-picker dropdown or list anywhere, a clock.
 6. Keyboard-complete (I-5), driven via `scripts/vm-qmp.sh key <qcode>...` (no mouse):

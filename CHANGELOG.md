@@ -46,6 +46,15 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 - `omarchy-provision-user` failing inside `omarchy-kids-provision add` is a warning with a
   migrations fallback, not a failed add (no offline Node tarball in the VM)
 
+### Changed
+
+- `omarchy-kids-ask-grownup` is now `omarchy-kids-blocked`: the "ask a grown-up" screen a kid
+  sees when a check refuses to start their session. `omarchy-kids-time ask-grownup` keeps its
+  name; it is a different action (#56)
+- `omarchy-kids-tui-demo` moved to `scripts/` and is no longer packaged (#56)
+- Comments in `bin/` and `lib/` trimmed to one-line whys (18% -> 12% of lines); the mechanics
+  and audit trails moved into the matching `docs/<command>.md` (#56)
+
 ### Security (round-two review, #58)
 
 - **One trust boundary, enforced by a test.** No environment variable, and nothing a kid can

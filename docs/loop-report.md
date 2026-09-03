@@ -64,11 +64,11 @@ from screenshots. Done since:
 
 - `#2` V1 and `#17` Pause: SDDM on 4.0.2 cannot open a second greeter; a design decision.
 - `#4` V3: the captive-portal window needs a real captive portal to test.
-- `#24` `#26` `#28`: the real pack install, Wi-Fi on real hardware, and a populated plugins
-  catalog need the laptop or upstream.
-- `#45`: small leftovers from the real Remove Kids Mode run (the removal itself worked and the
-  kids' files landed under the owner's "Kids Mode" folder).
-- `#33`: the upstream notes for Pete's PR are written up; posting is yours.
+- `#26` `#28` `#32` `#33`: real Wi-Fi hardware, a populated plugins catalog, the AUR upload and
+  the upstream notes need the laptop or you.
+- `#27` and `#55`: recorded data works except the launch fold (agent in flight).
+- `#45`: leftovers of the real Remove run; `#53`: kids inherit the parent's theme.
+- `#49`: the structural refactor (agent in flight).
 
 Decisions waiting for you: `docs/phase1/DECISIONS-NEEDED.md` (Pause, snapshot entries, AUR
 publish, upstream notes). Blocked items: `docs/phase1/BLOCKED.md`.

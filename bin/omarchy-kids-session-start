@@ -17,10 +17,11 @@
 #              also writing the same allowlist to $RUN/allowlist.json
 #              (docs/apps.md) for the trimmed-menu extension to read.
 #
-# Not yet started: the exit overlay and notifications this file's header
-# comment promises -- those are bin/omarchy-kids-exit (a stub, R-EXIT-1)
-# and a later issue; this file just launches whichever of the above is
-# right for the level, plus the JSON write every level needs regardless.
+# Also starts, detached, the screen-time engine's per-session daemon
+# (bin/omarchy-kids-time daemon, SPEC.md R-TIME-1..5) -- see that
+# file's own header for what it does and lib/time.sh's for the ledger
+# trust boundary. The exit overlay (bin/omarchy-kids-exit, R-EXIT-1) is
+# bound directly in share/hyprland/L1.lua etc., not started from here.
 #
 # Every path below is overridable for tests, same convention as
 # omarchy-kids-conf and docs/conf.md:
@@ -36,15 +37,22 @@
 #   OMARCHY_KIDS_APPS_BIN  path to omarchy-kids-apps, used to resolve the
 #                                   effective allowlist (default: resolved
 #                                   beside this script, else /usr/bin)
+#   OMARCHY_KIDS_TIME_BIN  path to omarchy-kids-time, started detached
+#                                   below for the R-TIME screen-time engine
+#                                   (default: resolved beside this script,
+#                                   else /usr/bin)
 #   OMARCHY_KIDS_SESSION_START_NO_EXEC=1  write the JSON, print the exec
 #                                   line that would run, and return 0
-#                                   instead of exec'ing it (test hook)
+#                                   instead of exec'ing it (test hook --
+#                                   also skips starting omarchy-kids-time,
+#                                   same as it skips the real exec below)
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
 APPS_BIN="${OMARCHY_KIDS_APPS_BIN:-$DIR/bin/omarchy-kids-apps}"; [[ -x "$APPS_BIN" ]] || APPS_BIN=/usr/bin/omarchy-kids-apps
+TIME_BIN="${OMARCHY_KIDS_TIME_BIN:-$DIR/bin/omarchy-kids-time}"; [[ -x "$TIME_BIN" ]] || TIME_BIN=/usr/bin/omarchy-kids-time
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
 PYHELPER="$LIB/conf.py"
 
@@ -247,5 +255,18 @@ if [[ "${OMARCHY_KIDS_SESSION_START_NO_EXEC:-0}" == "1" ]]; then
   printf '%s\n' "${EXEC_LINE[*]}"
   exit 0
 fi
+
+# Screen-time engine (SPEC.md R-TIME-1..5): one per-session accounting/
+# warnings daemon, started once here and left running detached for the
+# life of this session -- it outlives this script's own exec below the
+# same way any backgrounded job does. Runs as the kid; it only ever
+# reads the root-written ledger (bin/omarchy-kids-time-ledger owns every
+# write -- see lib/time.sh's header for the trust boundary). Never
+# fatal: a kid's desktop should still come up even if this can't start
+# (a missing binary logs to its own stderr, swallowed below; there is
+# nothing more useful this script itself can do about it).
+log "starting omarchy-kids-time daemon for '$ACCOUNT'"
+"$TIME_BIN" daemon >/dev/null 2>&1 &
+disown 2>/dev/null || true
 
 exec "${EXEC_LINE[@]}"

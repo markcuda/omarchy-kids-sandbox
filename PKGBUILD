@@ -46,9 +46,10 @@ package() {
 	install -Dm644 etc/mkinitcpio.conf.d/omarchy_kids.conf \
 		"$pkgdir/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 
-	# systemd units (authd socket/service, boot-login + its cleanup unit).
+	# systemd units (authd socket/service, boot-login + its cleanup unit,
+	# the screen-time ledger's timer/service, R-TIME-1).
 	install -dm755 "$pkgdir/usr/lib/systemd/system"
-	install -m644 systemd/*.service systemd/*.socket "$pkgdir/usr/lib/systemd/system/"
+	install -m644 systemd/*.service systemd/*.socket systemd/*.timer "$pkgdir/usr/lib/systemd/system/"
 
 	# Data: bands, packs, hyprland, tui, policy, avatars, menu, sddm-theme.
 	# cp -a preserves the share/ subtree; .gitkeep placeholders are pruned

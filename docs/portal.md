@@ -154,3 +154,17 @@ least one kid is provisioned (`docs/provision.md`):
 - Whether Ctrl+Shift+P actually reaches this QML given the greeter's compositor config, rather
   than being consumed earlier — Omarchy's own `default/sddm/hyprland.lua` has no binds of its own
   (confirmed by reading it), but the greeter's overall input routing wasn't otherwise checked.
+
+## Verified live (2026-09-02, QEMU test VM)
+
+A boot with a disk password whose LUKS slot maps to no kid recorded slot 4, the boot-login
+unit wrote no autologin, and SDDM started the greeter with this theme (journal: `Loading theme
+configuration from /usr/share/sddm/themes/omarchy-kids/theme.conf`, no QML warnings). One
+face tile per account, clock, keyboard highlight. By keyboard only: Left moved the highlight
+to Cy, Enter opened the password field under the tile, the kid password logged in and SDDM
+started `omarchy-kids-session` for kid-cy, whose Hyprland and Level 1 launcher came up.
+Not yet exercised live: the wrong-password shake, the power-off chord, the parent password on
+a kid tile (needs #15), and the display-name and avatar polish in #39. `sddm-greeter-qt6
+--test-mode` aborts inside a Hyprland session (stock theme too), so a real boot into the portal
+is the only way to see the theme.
+

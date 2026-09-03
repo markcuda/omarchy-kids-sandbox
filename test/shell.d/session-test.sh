@@ -129,6 +129,7 @@ export OMARCHY_KIDS_TEST_GETTY_STATE="$GETTY_STATE_FILE"
 export OMARCHY_KIDS_TEST_HYPRLAND_LOG="$HYPRLAND_LOG"
 
 reset_pass() { # everything set up so every check passes
+  rm -f "$PKCHECK_ANSWER_FILE"  # pkcheck stub answers "Not authorized" again
   write_profile garden
   rm -f "$POLICY"; : > "$POLICY"; chmod 644 "$POLICY"
   : > "$POLKIT_ADMIN"

@@ -137,7 +137,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: "Pick one, then press Enter to ask a grown-up."
-                        color: theme.muted
+                        color: theme.caption
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
                     }
@@ -148,7 +148,7 @@ PanelWindow {
                         width: parent.width
                         visible: !root.loaded
                         text: "Looking for apps to add…"
-                        color: theme.muted
+                        color: theme.caption
                         font.pixelSize: 15
                     }
 
@@ -165,7 +165,7 @@ PanelWindow {
                         width: parent.width
                         visible: root.loaded && root.loadError.length === 0 && root.shelf.length === 0
                         text: "Nothing here yet -- check back later!"
-                        color: theme.muted
+                        color: theme.caption
                         font.pixelSize: 15
                         wrapMode: Text.WordWrap
                     }
@@ -210,7 +210,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: modelData.description || ""
-                                    color: theme.muted
+                                    color: theme.caption
                                     font.pixelSize: 13
                                     elide: Text.ElideRight
                                 }

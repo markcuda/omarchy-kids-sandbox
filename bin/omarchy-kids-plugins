@@ -1,0 +1,367 @@
+#!/bin/bash
+# omarchy-kids-plugins — the kids-plugins shelf (SPEC.md R-APPS-7, I-3,
+# I-6; issue #28): marketplace listings filtered to category "Kids",
+# verified only, install/remove into one kid's own account.
+#
+#   shelf [--band BAND] [--all] [--json]
+#       Lists shelf entries: id, name, one-line description, and an age
+#       hint (SPEC.md Appendix C's own `age` = band floor, reused here —
+#       see "Judgment calls" in docs/plugins.md) when the index carries
+#       one. Default: category "Kids" AND verified only. --band keeps
+#       only entries whose age floor is at or below BAND (an entry with
+#       no age floor recorded is never filtered out — an unknown floor
+#       is not the same claim as "too old", I-6). --all also lists
+#       unverified Kids-category listings, with a warning line first
+#       (I-6: never blur "on the shelf" into "verified"); this flag is
+#       parent-only by convention — only the panel passes it, never the
+#       kid-side share/plugins/shell.qml overlay (docs/plugins.md).
+#       --json prints the same, band-filtered set as a JSON array
+#       instead of a table (id/name/description/age/verified) — what
+#       share/plugins/shell.qml reads. Neither flag changes what
+#       `install` will accept: install always refuses anything not
+#       verified, --all or not.
+#
+#   install <plugin> --kid <kid> --apply
+#       Root. Refuses unless <plugin> is on the verified Kids shelf (the
+#       same rule `shelf` applies by default, enforced here again, not
+#       just left to the listing — R-APPS-7: "no plugin may enforce
+#       anything" cuts the other way too: nothing here may be installed
+#       on a shelf-bypassing say-so). Installs it into <kid>'s own
+#       account through Omarchy's own plugin installer
+#       (`omarchy-plugin-add <repo> --enable --yes`, run as that kid via
+#       `runuser -l`, so $HOME/.config/omarchy/plugins is the kid's
+#       own — never root's), then adds the plugin's id to that kid's
+#       `apps.extra` (the same profile key `omarchy-kids-apps allowlist`
+#       already composes over, R-APPS-4) so it shows up the same way any
+#       other allowed app does. DRY_RUN=1 by default (AGENTS.md rule 8);
+#       --apply or DRY_RUN=0 makes it real.
+#
+#   remove <plugin> --kid <kid> --apply
+#       Root. The reverse: `omarchy-plugin-remove <plugin> --yes` as the
+#       kid, then drops the id from `apps.extra` (never touches
+#       `apps.hidden` — a removed plugin isn't hidden, it's gone).
+#
+# No plugin may enforce anything (R-APPS-7's own words; Appendix G's
+# "Kid deletes a launcher plugin -> cosmetic" already covers the
+# reverse). This command never marks anything a lock, never writes
+# under /etc, and never runs as anyone but the parent invoking it (root,
+# by way of the panel's own sudo, same as every other write command
+# here) or the kid it installs into (by way of `runuser -l`).
+#
+# Every path is overridable for tests, same convention as the rest of
+# bin/:
+#   OMARCHY_KIDS_ETC            default /etc/omarchy-kids (kid profiles)
+#   OMARCHY_KIDS_ROOT           scratch prefix for /var/lib/omarchy-kids
+#                                (the cached marketplace index), same
+#                                convention as omarchy-kids-ask/-apps
+#   OMARCHY_KIDS_PLUGIN_INDEX   full path to the marketplace index JSON
+#                                (default $OMARCHY_KIDS_ROOT/var/lib/
+#                                omarchy-kids/plugin-marketplace/
+#                                index.json). Nothing in this issue
+#                                fetches or refreshes this file — see
+#                                "Judgment calls" in docs/plugins.md for
+#                                what that means and what's left undone.
+#   OMARCHY_KIDS_CONF_BIN       path to omarchy-kids-conf (default:
+#                                resolved beside this script, else
+#                                /usr/bin/omarchy-kids-conf)
+#   OMARCHY_KIDS_PLUGIN_ADD_BIN   path to omarchy-plugin-add (default:
+#                                PATH lookup, i.e. Omarchy's own)
+#   OMARCHY_KIDS_PLUGIN_REMOVE_BIN  path to omarchy-plugin-remove (same)
+#   OMARCHY_KIDS_RUNUSER_BIN    path to `runuser` (default: PATH lookup)
+#   DRY_RUN                     default 1; install/remove only. shelf
+#                                never writes, so it is never gated.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+PLUGIN_ADD_BIN="${OMARCHY_KIDS_PLUGIN_ADD_BIN:-omarchy-plugin-add}"
+PLUGIN_REMOVE_BIN="${OMARCHY_KIDS_PLUGIN_REMOVE_BIN:-omarchy-plugin-remove}"
+RUNUSER_BIN="${OMARCHY_KIDS_RUNUSER_BIN:-runuser}"
+
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
+SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+INDEX="${OMARCHY_KIDS_PLUGIN_INDEX:-$SYSROOT/var/lib/omarchy-kids/plugin-marketplace/index.json}"
+
+DRY_RUN="${DRY_RUN:-1}"
+
+VALID_BANDS=("3-5" "6-8" "9-12" "13+")
+
+die() { echo "omarchy-kids-plugins: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<'EOF'
+Usage: omarchy-kids-plugins shelf [--band BAND] [--all] [--json]
+       omarchy-kids-plugins install <plugin> --kid <kid> [--apply]
+       omarchy-kids-plugins remove <plugin> --kid <kid> [--apply]
+       omarchy-kids-plugins --help
+
+shelf     Marketplace listings, category "Kids", verified only by
+          default. --band keeps only entries at or below that band's
+          age floor (an entry with no floor recorded is always kept).
+          --all also lists unverified Kids listings, with a warning
+          (parent-only by convention; install still refuses them).
+          --json prints a JSON array (id/name/description/age/verified)
+          instead of a table -- for share/plugins/shell.qml's kid-side
+          overlay; suppresses the --all warning line.
+
+install   Root. Installs a verified Kids-shelf plugin into <kid>'s own
+          account (Omarchy's own `omarchy-plugin-add`, run as that
+          kid), then adds it to that kid's apps.extra.
+
+remove    Root. The reverse: `omarchy-plugin-remove` as that kid, then
+          drops it from apps.extra.
+
+DRY_RUN=1 is the default for install/remove (AGENTS.md rule 8): they
+only print the plan. Pass --apply, or set DRY_RUN=0, to make it real.
+
+  -h, --help  Show this help and exit.
+EOF
+}
+
+is_in() {
+    local needle="$1"; shift
+    local h
+    for h in "$@"; do [[ "$h" == "$needle" ]] && return 0; done
+    return 1
+}
+
+is_valid_band() { is_in "$1" "${VALID_BANDS[@]}"; }
+
+# band_rank BAND -> its 0-based index in VALID_BANDS, or empty (and a
+# non-zero exit) for an unknown band.
+band_rank() {
+    local b="$1" i=0
+    for v in "${VALID_BANDS[@]}"; do
+        [[ "$v" == "$b" ]] && { printf '%s\n' "$i"; return 0; }
+        i=$((i + 1))
+    done
+    return 1
+}
+
+require_jq() { command -v jq >/dev/null 2>&1 || die "needs jq (not found on PATH)"; }
+
+# run CMD [ARGS...] — DRY_RUN=1 (default) prints the shell-quoted command
+# instead of running it; DRY_RUN=0 (or --apply) runs it for real. Same
+# shape as bin/omarchy-kids-apps and bin/omarchy-kids-ask's own `run`.
+run() {
+    if [[ "$DRY_RUN" == "0" ]]; then
+        "$@"
+    else
+        printf '  [dry-run]'
+        printf ' %q' "$@"
+        printf '\n'
+    fi
+}
+
+# --- the index -------------------------------------------------------------
+
+# index_rows FILTER_EXTRA — jq rows (id, name, description, age,
+# verificationStatus, repo), tab-separated, for every .plugins[] entry
+# matching category=="Kids", installAvailable==true, and FILTER_EXTRA
+# (a jq boolean expression string, evaluated against each entry as `.`).
+# Missing or unreadable index -> no rows, never an error (R-APPS-8's own
+# "offline" framing: not-synced-yet is not a failure).
+index_rows() {
+    local filter_extra="$1"
+    [[ -r "$INDEX" ]] || return 0
+    jq -r --arg extra "$filter_extra" '
+        (.plugins // [])
+        | map(select(.category == "Kids" and (.installAvailable // false)))
+        | map(select(($extra == "verified") as $needverified
+              | if $needverified then (.verificationStatus == "verified") else true end))
+        | sort_by(.name // .id)
+        | .[]
+        | [ (.id // ""), (.name // .id // ""), (.description // ""),
+            (.age // ""), (.verificationStatus // "unverified"), (.repo // "") ]
+        | @tsv
+    ' "$INDEX" 2>/dev/null || true
+}
+
+# index_entry_field ID FIELD -> that field of the one .plugins[] entry
+# with this id (category Kids only), or nothing (empty, non-zero exit)
+# if there is no such entry.
+index_entry_field() {
+    local id="$1" field="$2"
+    [[ -r "$INDEX" ]] || return 1
+    jq -r --arg id "$id" --arg field "$field" '
+        (.plugins // []) | map(select(.id == $id and .category == "Kids"))[0]
+        | if . == null then empty else (.[$field] // "") end
+    ' "$INDEX" 2>/dev/null
+}
+
+# require_verified_kids_plugin ID -> dies unless ID is a verified,
+# installable, category-Kids listing on the index — the one gate
+# `install` never skips, no matter what `shelf` was asked to show.
+require_verified_kids_plugin() {
+    local id="$1" status avail repo
+    [[ -r "$INDEX" ]] || die "no marketplace index at $INDEX yet (not synced) — nothing to install"
+    status="$(index_entry_field "$id" verificationStatus || true)"
+    [[ -n "$status" ]] || die "'$id' is not on the Kids shelf (unknown plugin id)"
+    avail="$(index_entry_field "$id" installAvailable || true)"
+    [[ "$avail" == "true" ]] || die "'$id' has no install command in the marketplace index"
+    [[ "$status" == "verified" ]] || die "'$id' is not verified (status: $status) — install refuses unverified plugins (R-APPS-7)"
+    repo="$(index_entry_field "$id" repo || true)"
+    [[ -n "$repo" ]] || die "'$id' has no repository URL in the marketplace index"
+    printf '%s\n' "$repo"
+}
+
+# --- shelf -------------------------------------------------------------
+
+cmd_shelf() {
+    local band="" all=0 json=0
+    while (($#)); do
+        case "$1" in
+            --band) band="${2:?--band needs a value}"; shift 2 ;;
+            --all) all=1; shift ;;
+            --json) json=1; shift ;;
+            -h|--help) usage; exit 0 ;;
+            *) die "shelf: unknown argument '$1'" ;;
+        esac
+    done
+    if [[ -n "$band" ]]; then
+        is_valid_band "$band" || die "shelf: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
+    fi
+    require_jq
+
+    if ((all)) && ((!json)); then
+        echo "omarchy-kids-plugins: --all: showing unverified Kids listings too — install still refuses anything not verified"
+    fi
+
+    local filter_extra="verified"
+    ((all)) && filter_extra="all"
+
+    local rows; rows="$(index_rows "$filter_extra")"
+
+    local want_rank=""
+    [[ -n "$band" ]] && want_rank="$(band_rank "$band")"
+
+    # Band filtering happens here, once, for both output shapes: an
+    # entry with no recorded age floor is always kept (I-6: an unknown
+    # floor is not the same claim as "too old for this band").
+    local id name desc age status repo row_rank
+    local -a kept=()
+    while IFS=$'\t' read -r id name desc age status repo; do
+        [[ -n "$id" ]] || continue
+        if [[ -n "$want_rank" && -n "$age" ]]; then
+            row_rank="$(band_rank "$age" || true)"
+            if [[ -n "$row_rank" ]] && ((row_rank > want_rank)); then continue; fi
+        fi
+        kept+=("$id"$'\t'"$name"$'\t'"$desc"$'\t'"$age"$'\t'"$status")
+    done <<<"$rows"
+
+    if ((json)); then
+        if ((${#kept[@]} == 0)); then
+            printf '[]\n'
+            return 0
+        fi
+        printf '%s\n' "${kept[@]}" | jq -R -s '
+            split("\n") | map(select(length > 0) | split("\t")) |
+            map({id: .[0], name: .[1], description: .[2], age: .[3], verified: (.[4] == "verified")})
+        '
+        return 0
+    fi
+
+    if [[ -z "$rows" ]]; then
+        echo "omarchy-kids-plugins: nothing on the shelf yet (index missing, not synced, or nothing matches)"
+        return 0
+    fi
+    if ((${#kept[@]} == 0)); then
+        printf '%-24s %-24s %-6s %-10s %s\n' ID NAME AGE VERIFIED DESCRIPTION
+        echo "omarchy-kids-plugins: nothing on the shelf for band '$band'"
+        return 0
+    fi
+
+    printf '%-24s %-24s %-6s %-10s %s\n' ID NAME AGE VERIFIED DESCRIPTION
+    local line
+    for line in "${kept[@]}"; do
+        IFS=$'\t' read -r id name desc age status <<<"$line"
+        printf '%-24s %-24s %-6s %-10s %s\n' "$id" "$name" "$age" "$status" "$desc"
+    done
+}
+
+# --- install / remove ----------------------------------------------------
+
+parse_kid_plugin_args() { # sets PLUGIN, KID; args: "$@" (after the verb)
+    PLUGIN=""; KID=""
+    while (($#)); do
+        case "$1" in
+            --kid) KID="${2:?--kid needs a value}"; shift 2 ;;
+            --apply) DRY_RUN=0; shift ;;
+            -h|--help) usage; exit 0 ;;
+            -*) die "unknown option '$1'" ;;
+            *) if [[ -z "$PLUGIN" ]]; then PLUGIN="$1"; else die "unexpected argument '$1'"; fi; shift ;;
+        esac
+    done
+    [[ -n "$PLUGIN" ]] || die "needs a plugin id"
+    [[ -n "$KID" ]] || die "needs --kid <kid>"
+    [[ -f "$ETC/kids/$KID.conf" ]] || die "'$KID' is not a provisioned kid"
+}
+
+# edit_apps_extra KID ACTION(add|remove) ID — the same idempotent
+# apps.extra edit bin/omarchy-kids-ask's apply_apps_extra makes when a
+# parent grants an "ask for this plugin" request, kept as its own small
+# copy here rather than a shared helper (this repo's own convention for
+# a handful of lines duplicated across bin/omarchy-kids-apps,
+# bin/omarchy-kids-ask, bin/omarchy-kids-web: see e.g. each file's own
+# `is_in`/`run`). Always goes through omarchy-kids-conf (docs/conf.md:
+# nothing else touches a kid's .conf file directly) — the same field
+# `omarchy-kids-apps allowlist` already reads (R-APPS-4), so this is
+# "via omarchy-kids-apps" in the sense that matters: what makes the
+# plugin show up. omarchy-kids-apps itself has no `extra`-editing verb
+# to call instead (only `hide`/`show`, which edit apps.hidden) — see
+# docs/plugins.md's "Judgment calls".
+edit_apps_extra() {
+    local kid="$1" action="$2" id="$3" extra
+    extra="$("$CONF_BIN" get "$kid" apps.extra 2>/dev/null || true)"
+    local -a arr=() out=()
+    IFS=',' read -ra arr <<<"$extra"
+    local x
+    for x in "${arr[@]+"${arr[@]}"}"; do
+        [[ -n "$x" && "$x" != "$id" ]] && out+=("$x")
+    done
+    [[ "$action" == add ]] && out+=("$id")
+    local IFS_SAVE="$IFS" joined
+    IFS=,; joined="${out[*]+"${out[*]}"}"; IFS="$IFS_SAVE"
+    run "$CONF_BIN" set "$kid" apps.extra "$joined"
+}
+
+cmd_install() {
+    require_jq
+    local PLUGIN KID
+    parse_kid_plugin_args "$@"
+
+    local repo; repo="$(require_verified_kids_plugin "$PLUGIN")"
+    [[ "$repo" == *.git ]] || repo="$repo.git"
+
+    echo "omarchy-kids-plugins: installing '$PLUGIN' into $KID's own account"
+    run "$RUNUSER_BIN" -l "$KID" -c "$PLUGIN_ADD_BIN $(printf '%q' "$repo") --enable --yes"
+    edit_apps_extra "$KID" add "$PLUGIN"
+}
+
+cmd_remove() {
+    local PLUGIN KID
+    parse_kid_plugin_args "$@"
+
+    echo "omarchy-kids-plugins: removing '$PLUGIN' from $KID's own account"
+    run "$RUNUSER_BIN" -l "$KID" -c "$PLUGIN_REMOVE_BIN $(printf '%q' "$PLUGIN") --yes"
+    edit_apps_extra "$KID" remove "$PLUGIN"
+}
+
+# --- main --------------------------------------------------------------
+
+main() {
+    local cmd="${1:-}"
+    case "$cmd" in
+        -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
+    esac
+    shift
+
+    case "$cmd" in
+        shelf) cmd_shelf "$@" ;;
+        install) cmd_install "$@" ;;
+        remove) cmd_remove "$@" ;;
+        *) die "unknown command: '$cmd' (see --help)" ;;
+    esac
+}
+
+main "$@"

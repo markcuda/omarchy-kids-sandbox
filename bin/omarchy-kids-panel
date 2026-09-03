@@ -62,6 +62,7 @@
 #   OMARCHY_KIDS_TIME_BIN       path to omarchy-kids-time (default: sibling, else PATH)
 #   OMARCHY_KIDS_ASK_BIN        path to omarchy-kids-ask (default: sibling, else PATH)
 #   OMARCHY_KIDS_APPS_BIN       path to omarchy-kids-apps (default: sibling, else PATH)
+#   OMARCHY_KIDS_PLUGINS_BIN    path to omarchy-kids-plugins (default: sibling, else PATH)
 #   OMARCHY_KIDS_WEB_BIN        path to omarchy-kids-web (default: sibling, else PATH)
 #   OMARCHY_KIDS_PROVISION_BIN  path to omarchy-kids-provision (default: sibling, else PATH)
 #   OMARCHY_KIDS_WIZARD_BIN     path to omarchy-kids-wizard (default: sibling, else PATH)
@@ -87,6 +88,7 @@ CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BI
 TIME_BIN="${OMARCHY_KIDS_TIME_BIN:-$DIR/bin/omarchy-kids-time}"; [[ -x "$TIME_BIN" ]] || TIME_BIN=omarchy-kids-time
 ASK_BIN="${OMARCHY_KIDS_ASK_BIN:-$DIR/bin/omarchy-kids-ask}"; [[ -x "$ASK_BIN" ]] || ASK_BIN=omarchy-kids-ask
 APPS_BIN="${OMARCHY_KIDS_APPS_BIN:-$DIR/bin/omarchy-kids-apps}"; [[ -x "$APPS_BIN" ]] || APPS_BIN=omarchy-kids-apps
+PLUGINS_BIN="${OMARCHY_KIDS_PLUGINS_BIN:-$DIR/bin/omarchy-kids-plugins}"; [[ -x "$PLUGINS_BIN" ]] || PLUGINS_BIN=omarchy-kids-plugins
 WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=omarchy-kids-web
 PROVISION_BIN="${OMARCHY_KIDS_PROVISION_BIN:-$DIR/bin/omarchy-kids-provision}"; [[ -x "$PROVISION_BIN" ]] || PROVISION_BIN=omarchy-kids-provision
 WIZARD_BIN="${OMARCHY_KIDS_WIZARD_BIN:-$DIR/bin/omarchy-kids-wizard}"; [[ -x "$WIZARD_BIN" ]] || WIZARD_BIN=omarchy-kids-wizard
@@ -502,19 +504,84 @@ screen_kid_apps() { # ACCOUNT NAME
                 choices+=("$id|$label (hidden)|")
             fi
         done <<<"$list_out"
+        choices+=("plugins|Plugins shelf|Marketplace plugins, category Kids, verified only")
         choices+=("back|Back|")
 
         tui_screen_choose "$name's apps — Enter toggles" 1 1 0 "" choices "back"
         local rc=$?
         ((rc == 130)) && return 130
         ((rc == 0)) || return 0
+        case "$TUI_REPLY" in
+            back) return 0 ;;
+            plugins)
+                screen_kid_plugins "$account" "$name"
+                rc=$?; ((rc == 130)) && return 130
+                ;;
+            *)
+                if is_in_csv "$TUI_REPLY" "$allow"; then
+                    run_priv "$APPS_BIN" hide "$account" "$TUI_REPLY"
+                else
+                    run_priv "$APPS_BIN" show "$account" "$TUI_REPLY"
+                fi
+                ;;
+        esac
+    done
+}
+
+# screen_kid_plugins ACCOUNT NAME — the "Plugins shelf" row under Apps
+# (SPEC.md R-APPS-7, issue #28): marketplace listings, category Kids,
+# verified only (bin/omarchy-kids-plugins shelf's own default — this
+# screen never passes --all: a parent browsing the panel should only
+# ever see what Enter can actually install, I-6). Enter installs the
+# selected plugin for this kid, same sudo path as every other write
+# here.
+#
+# Parses `shelf`'s human-formatted table the same way screen_kid_apps
+# already parses `omarchy-kids-apps list`'s (fixed columns, first line
+# is the header) -- one of this command's own status lines (prefixed
+# "omarchy-kids-plugins:", printed instead of a table when the shelf is
+# empty or --band leaves nothing) is skipped rather than parsed as a row.
+screen_kid_plugins() { # ACCOUNT NAME
+    local account="$1" name="$2" band
+    band="$(kid_conf_get "$account" band)"
+    while true; do
+        local shelf_out
+        shelf_out="$("$PLUGINS_BIN" shelf --band "$band" 2>/dev/null)" || true
+
+        local -a choices=()
+        local first=1 line id label desc
+        while IFS= read -r line; do
+            if ((first)); then
+                first=0
+                continue
+            fi
+            [[ -z "$line" || "$line" == omarchy-kids-plugins:* ]] && continue
+            id="$(awk '{print $1}' <<<"$line")"
+            [[ -n "$id" ]] || continue
+            label="$(cut -c26-49 <<<"$line" | sed 's/[[:space:]]*$//')"
+            desc="$(cut -c69- <<<"$line" 2>/dev/null || true)"
+            choices+=("$id|$label|$desc")
+        done <<<"$shelf_out"
+
+        if ((${#choices[@]} == 0)); then
+            echo
+            echo "Nothing on the Kids shelf yet for $name's band ($band)."
+            # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
+            local -a empty_choices=("back|Back|")
+            tui_screen_choose "Plugins shelf" 1 1 0 "" empty_choices "back"
+            local rc=$?
+            ((rc == 130)) && return 130
+            return 0
+        fi
+        choices+=("back|Back|")
+
+        tui_screen_choose "$name's plugins shelf — Enter installs" 1 1 0 "" choices "back"
+        local rc=$?
+        ((rc == 130)) && return 130
+        ((rc == 0)) || return 0
         [[ "$TUI_REPLY" == back ]] && return 0
 
-        if is_in_csv "$TUI_REPLY" "$allow"; then
-            run_priv "$APPS_BIN" hide "$account" "$TUI_REPLY"
-        else
-            run_priv "$APPS_BIN" show "$account" "$TUI_REPLY"
-        fi
+        run_priv "$PLUGINS_BIN" install "$TUI_REPLY" --kid "$account" --apply
     done
 }
 

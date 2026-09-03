@@ -185,8 +185,17 @@ EOF
     check "$(jq -r '.account' "$json_path")" "kid-ada" "launcher JSON account"
     check "$(jq -r '.band' "$json_path")" "6-8" "launcher JSON band"
     check "$(jq -r '.level' "$json_path")" "1" "launcher JSON level (band 6-8's default)"
-    check "$(jq -r '.tiles | length' "$json_path")" "8" "launcher JSON has all 8 apps from the 6-8 pack"
+    check "$(jq -r '.tiles | map(select(.id != "more-apps")) | length' "$json_path")" "8" \
+      "launcher JSON has all 8 apps from the 6-8 pack"
     check "$(jq -r '.tiles[0].id' "$json_path")" "gcompris" "launcher JSON keeps pack order (first tile is gcompris)"
+
+    more_apps_tile="$(jq -c '.tiles[] | select(.id == "more-apps")' "$json_path")"
+    check_contains "$more_apps_tile" '"label":"More apps"' \
+      "issue #28: band 6-8 gets a 'More apps' tile at Level 1"
+    check_contains "$more_apps_tile" "OMARCHY_KIDS_BAND='6-8' quickshell -p" \
+      "issue #28: the 'More apps' tile opens share/plugins/shell.qml with the band exported"
+    check_contains "$more_apps_tile" 'plugins/shell.qml' \
+      "issue #28: the 'More apps' tile points at share/plugins/shell.qml"
 
     tuxpaint_tile="$(jq -c '.tiles[] | select(.id == "tuxpaint")' "$json_path")"
     check_contains "$tuxpaint_tile" '"icon":"tuxpaint"' "tuxpaint tile picks up the matched .desktop file's Icon="
@@ -211,6 +220,23 @@ EOF
     bash "$SESSION_START"
   )"
   check "$out2" "omarchy-launch-shell" "session-start prints the Level 2/3 exec line"
+
+  # issue #28: band 3-5 gets no "More apps" tile at all -- not a shelf
+  # that would always show empty (I-6).
+  out3="$(
+    OMARCHY_KIDS_ETC="$ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_RUN="$RUN" \
+    OMARCHY_KIDS_ACCOUNT="kid-ada" \
+    OMARCHY_KIDS_BAND=3-5 \
+    OMARCHY_KIDS_LEVEL=1 \
+    OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
+    OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
+    bash "$SESSION_START"
+  )"
+  check "$out3" "quickshell -p $SHARE/launcher/shell.qml" "session-start (band 3-5) still prints the Level 1 exec line"
+  check "$(jq -r '.tiles | map(select(.id == "more-apps")) | length' "$json_path")" "0" \
+    "issue #28: band 3-5's launcher JSON has no 'more-apps' tile"
 fi
 
 exit $fail

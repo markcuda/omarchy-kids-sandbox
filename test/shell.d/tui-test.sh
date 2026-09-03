@@ -61,8 +61,30 @@ case "${1:-}" in
 esac
 EOF
 chmod +x "$STUBS/gum"
+
+# Fakes for the interactive/"card" path (issue #50): `clear` just logs that
+# it ran, `tput` logs its args and answers `cols` with a fixed width so
+# _tui_measure's math is predictable across machines.
+CLEAR_LOG="$TMP/clear.log"
+cat >"$STUBS/clear" <<'EOF'
+#!/bin/bash
+printf 'cleared\n' >>"${CLEAR_LOG:?CLEAR_LOG must be set}"
+EOF
+chmod +x "$STUBS/clear"
+
+TPUT_LOG="$TMP/tput.log"
+cat >"$STUBS/tput" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >>"${TPUT_LOG:?TPUT_LOG must be set}"
+case "${1:-}" in
+    cols) echo 80 ;;
+    *) exit 0 ;;
+esac
+EOF
+chmod +x "$STUBS/tput"
+
 export PATH="$STUBS:$PATH"
-export GUM_LOG
+export GUM_LOG CLEAR_LOG TPUT_LOG
 
 answers_file() { # writes $1's remaining args, one per line, returns its path
     local f="$TMP/answers.$RANDOM"
@@ -332,6 +354,88 @@ check_contains "$out" "✓" "tui_progress: a done step gets a check mark"
 check_contains "$out" "▸" "tui_progress: the current step gets its marker"
 check_contains "$out" "Create account" "tui_progress: step labels render"
 check_contains "$out" "Grab a coffee." "tui_progress: the tip renders"
+
+# --- issue #50: the interactive/"card" path clears the screen, draws one ---
+# --- bordered card, and never prints gum's own choice list a second time --
+# TUI_MODE is forced to "interactive" the same way earlier tests force
+# "file" — there's no real tty in a test run — with the fake gum from above
+# standing in for a real terminal.
+
+: >"$GUM_LOG"
+: >"$CLEAR_LOG"
+: >"$TPUT_LOG"
+out="$(
+    unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+    # shellcheck source=/dev/null
+    source "$TUI_LIB"
+    tui_init 2>/dev/null  # no tty, no answers file here; force interactive below
+    TUI_MODE="interactive"
+    # shellcheck disable=SC2034 # read by tui_screen_choose in lib/tui.sh (gates gum vs the read fallback)
+    TUI_HAVE_GUM=1
+    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+    web_choices=(
+        "garden|Only sites you choose|A short list you can grow."
+        "filtered|Filtered open web|Adult content blocked."
+    )
+    tui_screen_choose "What can K see?" 2 3 0 "" web_choices "garden" 2>/dev/null
+    echo "rc=$?"
+)" </dev/null
+check_contains "$(cat "$CLEAR_LOG")" "cleared" "tui_header: card mode clears the screen"
+check_contains "$(cat "$TPUT_LOG")" "cols" "tui_header: card mode measures the terminal with tput"
+check_contains "$(cat "$GUM_LOG")" "--border rounded" "tui_header: card mode draws a rounded-border card"
+check_contains "$(cat "$GUM_LOG")" "--margin" "tui_header: card mode centers the card with a margin"
+check_contains "$(cat "$GUM_LOG")" "--width" "tui_header: card mode bounds the card to a max width"
+check_contains "$(cat "$GUM_LOG")" "choose" "tui_screen_choose: card mode still asks gum choose for the list"
+check_not_contains "$out" "Only sites you choose" "tui_screen_choose: card mode never prints gum's own list a second time"
+
+# Plain (file) mode never clears, even for the exact same screen.
+: >"$CLEAR_LOG"
+f="$(answers_file garden)"
+out="$(
+    OMARCHY_KIDS_TUI_ANSWERS="$f"
+    export OMARCHY_KIDS_TUI_ANSWERS
+    # shellcheck source=/dev/null
+    source "$TUI_LIB"
+    tui_init
+    # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
+    web_choices=("garden|Only sites you choose|reason" "filtered|Filtered open web|reason")
+    tui_screen_choose "What can K see?" 2 3 0 "" web_choices "garden"
+    echo "rc=$? reply=$TUI_REPLY"
+)" </dev/null
+check_eq "$(cat "$CLEAR_LOG")" "" "tui_screen_choose: file mode never clears the screen"
+check_contains "$out" "Only sites you choose" "tui_screen_choose: file mode still prints its own list (nothing else will)"
+check_contains "$out" "rc=0 reply=garden" "tui_screen_choose: file mode still answers correctly under the new card logic"
+
+# OMARCHY_KIDS_TUI_PLAIN=1 forces plain rendering even when TUI_MODE would
+# otherwise be interactive.
+: >"$CLEAR_LOG"
+out="$(
+    unset OMARCHY_KIDS_TUI_ANSWERS
+    export OMARCHY_KIDS_TUI_PLAIN=1
+    # shellcheck source=/dev/null
+    source "$TUI_LIB"
+    tui_init 2>/dev/null
+    TUI_MODE="interactive"
+    _tui_card_mode && echo "card" || echo "plain"
+)" </dev/null
+check_contains "$out" "plain" "OMARCHY_KIDS_TUI_PLAIN=1: forces plain mode even in an interactive terminal"
+
+# --- tui_init: an already-set GUM_* var (the theme's own gum_env.lua) is ---
+# --- never overwritten; an unset one gets theme_color's own fallback ------
+
+out="$(
+    unset OMARCHY_KIDS_TUI_ANSWERS
+    export GUM_CHOOSE_CURSOR_FOREGROUND="#custom"
+    unset GUM_INPUT_PROMPT_FOREGROUND
+    # shellcheck source=/dev/null
+    source "$TUI_LIB"
+    f="$(answers_file begin)"
+    OMARCHY_KIDS_TUI_ANSWERS="$f" tui_init >/dev/null 2>&1
+    echo "cursor=$GUM_CHOOSE_CURSOR_FOREGROUND"
+    if [[ -n "$GUM_INPUT_PROMPT_FOREGROUND" ]]; then echo "prompt=set"; else echo "prompt=unset"; fi
+)" </dev/null
+check_contains "$out" "cursor=#custom" "tui_init: an already-set GUM_* var from the theme is never overwritten"
+check_contains "$out" "prompt=set" "tui_init: an unset GUM_* var gets theme_color's own fallback"
 
 # --- the demo binary runs end to end from an answers file -------------------
 

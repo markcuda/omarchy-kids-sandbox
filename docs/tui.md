@@ -20,9 +20,8 @@ whole wizard be driven from a file instead of a keyboard.
 ## Two voices, one header
 
 Spec v1.1: Omy speaks in the first person on Welcome and Done; every other screen is plain. Every
-screen still gets the same bordered header — "Kids Mode", the step counter ("step *n* of *N*"),
-and the screen's title — but the Omy glyph and voice line above it only render when the screen
-asks for them:
+screen still gets the same header pieces — a step line, the screen's title, Omy (sometimes) — but
+the Omy glyph and voice line above it only render when the screen asks for them:
 
 ```text
 tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
@@ -30,6 +29,56 @@ tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
 
 `SHOW_OMY` is `1` on Welcome and Done, `0` everywhere else — pass an empty `OMY_LINE` when it's
 `0`, since it's never shown.
+
+## Two ways to render a screen: plain and card (issue #50)
+
+`tui_header` (and every `tui_screen_*` function, which all call it) lays those pieces out one of
+two ways, decided once per call by `_tui_card_mode`:
+
+- **plain** — the original, non-clearing render: one bordered `gum style` box holding "Kids Mode",
+  the step counter, and the title; nothing is cleared; every screen just prints after the last one.
+  This is what every test in `test/shell.d/tui-test.sh` parses, and it's what runs whenever
+  `OMARCHY_KIDS_TUI_ANSWERS` is set (an answers file is driving the screen — there's no terminal to
+  clear) or `OMARCHY_KIDS_TUI_PLAIN=1` is set explicitly.
+- **card** — a real terminal, neither of those set: clears the screen at every step
+  (`_tui_clear`, the same external `clear` `omarchy-provision-owner`'s `clear_logo` calls at
+  v4.0.2) and draws one centered, width-bounded `gum style --border rounded` card at a stable
+  position (`_tui_measure`). This is issue #50's fix — two screenshots on the issue showed the
+  wizard never clearing (Welcome, the password screen, and the name screen all stacking down the
+  terminal) and printing every `tui_screen_choose` list twice (once by hand, once by `gum choose`
+  itself).
+
+Nothing about the *data* a screen passes changes between the two — a caller never knows or cares
+which one is rendering. Only `lib/tui.sh` itself branches on `_tui_card_mode`.
+
+### The card, roughly
+
+```text
+Kids Mode · Step 3 of 15
+
+╭──────────────────────────────────────────╮
+│                                            │
+│  What can Ada see on the web?             │
+│                                            │
+╰──────────────────────────────────────────╯
+  1) Only sites you choose — A short list you can grow.
+  2) Filtered open web — Adult content blocked, safe search on.
+
+Enter continue · Esc back · Ctrl+C leave (nothing changes)
+```
+
+The step line is deliberately plain and outside the box — "subtle" next to the bordered title.
+Omy (Welcome/Done only) renders the same way, between the step line and the card, styled apart
+from both (bold accent glyph, italic voice line) — never inside the box. A screen with body text
+(`tui_screen_confirm`'s body, `tui_screen_summary`'s rows, `tui_screen_input`'s placeholder) gets
+those lines inside the card, under the title; `gum choose`/`gum input` can't literally nest inside
+a `gum style` box (gum has no such widget), so the chooser or input instead renders directly under
+it, aligned to the same left margin via `_tui_measure`'s `GUM_CHOOSE_PADDING`/`GUM_INPUT_PADDING`/
+`GUM_CONFIRM_PADDING` — the same measure-then-pad-every-widget trick
+`omarchy-provision-owner`'s `measure_terminal` uses at v4.0.2. A failed `tui_screen_input`
+validator turns the *whole* card the theme's error color (gum can't color one line inside a
+`gum style` box differently than the rest) and adds the error text as another line in it, instead
+of printing a separate line off to the side.
 
 ## Colors
 
@@ -40,6 +89,15 @@ its own dark palette (close to upstream's own prompt accent, `#845DF9` from
 `install/provisioning/setup-form.sh`) when that tool or a theme isn't available yet (a dev machine,
 or very early in a fresh install). See `docs/theming.md` for the full plumbing — this is the same
 `theme_color` the SDDM portal uses.
+
+`tui_init` also fills in gum's own environment (issue #50): Omarchy's themed session already
+exports `FOREGROUND`/`BACKGROUND`/`BORDER_FOREGROUND`/`BORDER_BACKGROUND` (for `gum style`) and a
+`GUM_<CMD>_<FIELD>_FOREGROUND`/`BACKGROUND` pair per gum subcommand, once per theme, via
+`default/themed/gum_env.lua.tpl` (fetched at v4.0.2). `_tui_gum_env_default` only fills a var
+that's still empty when `tui_init` runs, so a real Omarchy session's own colors are never
+overwritten — this is "look like Omarchy's own gum screens" using the exact mechanism Omarchy
+itself uses, not a lookalike; `theme_color`'s resolution is only the fallback for a dev shell or CI
+runner where nothing sourced `gum_env.lua` at all.
 
 ## Screen data shapes
 
@@ -86,7 +144,8 @@ means don't proceed — so `$TUI_REPLY` is `"no"` and the exit code is `1` for b
 Every prompt has a non-interactive path, for tests and the acceptance harness:
 
 - **A real terminal** (`stdin` is a tty, `OMARCHY_KIDS_TUI_ANSWERS` unset): gum asks, a human
-  answers.
+  answers, and — unless `OMARCHY_KIDS_TUI_PLAIN=1` is also set — every screen renders as the card
+  described above.
 - **`OMARCHY_KIDS_TUI_ANSWERS=<file>`**: `tui_init` reads the file into memory once; each prompt
   after that consumes the next line. Two reserved lines stand in for keys a file can't press:
   - `@esc` — same as pressing Esc.
@@ -94,11 +153,16 @@ Every prompt has a non-interactive path, for tests and the acceptance harness:
     one more line, `yes` or `no`, answering the leave confirmation (`tui_screen_confirm` treats
     `@ctrlc` as leaving directly, matching gum's own behavior above).
 
-  Every screen still renders to stdout in this mode, exactly as an interactive run would — so a
-  recorded session reads the same way a human's would, and `bin/omarchy-kids-tui-demo`'s output
-  looks identical whether it was you or a file answering.
+  Every screen still renders to stdout in this mode — plain, the same as `OMARCHY_KIDS_TUI_PLAIN=1`
+  — so a recorded session is easy to grep, and `bin/omarchy-kids-tui-demo`'s output looks the same
+  every time it's driven from a file, however the terminal it happens to run in is sized.
 - **Neither** (`stdin` isn't a tty and `OMARCHY_KIDS_TUI_ANSWERS` isn't set): `tui_init` fails
   closed — returns `2` with a message on stderr — rather than hanging or guessing.
+
+`OMARCHY_KIDS_TUI_PLAIN=1` forces the plain render even on a real terminal — useful for capturing a
+screen's output as plain text (a bug report, a doc example) without a card's clearing and centering
+getting in the way. It has no effect on how a prompt is *answered* (that's `OMARCHY_KIDS_TUI_ANSWERS`
+alone); it only changes how a screen is drawn.
 
 A `tui_screen_choose` answer may be the choice's `value`, its `label`, the exact rendered line
 (what an interactive picker returns), or a bare 1-based number — the same number keys the footer

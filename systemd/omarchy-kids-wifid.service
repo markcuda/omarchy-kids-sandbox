@@ -1,0 +1,27 @@
+[Unit]
+Description=Omarchy Kids Mode Wi-Fi helper (R-WIFI-2)
+Documentation=https://github.com/markcuda/omarchy-kids-sandbox/blob/main/docs/wifi.md
+Requires=omarchy-kids-wifid.socket
+After=omarchy-kids-wifid.socket
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/omarchy-kids-wifid
+# Reads /etc/omarchy-kids (via omarchy-kids-conf) and talks to
+# NetworkManager over its D-Bus/nmcli surface; never touches anything
+# else, so lock the rest of the filesystem down the same way authd does.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# AF_UNIX for our own socket and D-Bus (nmcli talks to NetworkManager over
+# the system bus, not netlink, directly).
+RestrictAddressFamilies=AF_UNIX
+Restart=on-failure
+
+[Install]
+Also=omarchy-kids-wifid.socket

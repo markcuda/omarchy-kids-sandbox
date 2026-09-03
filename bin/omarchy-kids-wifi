@@ -1,0 +1,389 @@
+#!/bin/bash
+# omarchy-kids-wifi — the kid-side Wi-Fi commands (SPEC.md R-WIFI-1..4).
+#
+# Kid accounts are polkit-denied from
+# `org.freedesktop.NetworkManager.settings.modify` (lib/posture.sh's
+# 41-omarchy-kids-deny.rules, R-FND-4), so none of the subcommands below
+# ever call `nmcli` themselves. Instead they talk to
+# bin/omarchy-kids-wifid, a root, socket-activated daemon that identifies
+# the caller by Unix peer credentials (SO_PEERCRED — never anything the
+# client claims), looks up that account's `wifi` profile key
+# (bin/omarchy-kids-conf, Appendix B), and refuses outright unless it is
+# `helper`. See docs/wifi.md for the wire protocol and docs/conf.md for
+# the profile key.
+#
+#   list                       Nearby networks: SSID, signal, security.
+#   join <ssid> [--password-stdin]
+#                               Joins (creating it if needed). With
+#                               --password-stdin, reads one line of
+#                               password from stdin (never argv, never
+#                               logged — AGENTS.md's rule); omit it for
+#                               an open network. The daemon always
+#                               creates/targets a `kids-<ssid>`
+#                               connection (never a bare-named one it
+#                               didn't create) with ipv4/ipv6
+#                               ignore-auto-dns forced on and connection
+#                               DNS cleared (R-WIFI-2), so a captive
+#                               network or a school's DNS can never
+#                               weaken the DoH filtering already forced
+#                               in the kid's Chromium policy (R-WEB-6/I-1).
+#   status                      The active connection(s), if any.
+#   forget <ssid>               Deletes `kids-<ssid>` — never a
+#                               bare-named connection this daemon didn't
+#                               create, even one for the same SSID.
+#   portal [--apply]            Opens the band's browser to a known
+#                               captive-portal page with a *temporary*
+#                               allow of that one host (R-WIFI-3). See
+#                               the risk note on cmd_portal below and
+#                               docs/wifi.md.
+#   picker                      Launches the kid-facing Quickshell
+#                               picker (share/wifi/shell.qml). Bound to
+#                               Super+Shift+W at every level
+#                               (share/hyprland/L1.lua, L2.lua, L3.lua);
+#                               the bind is unconditional (the level
+#                               configs are static, R-DESK-1), so this
+#                               command itself is what refuses — with a
+#                               small toast, I-6 — when the profile says
+#                               `parent` instead of `helper`.
+#
+# Every subcommand above (list/join/status/forget/picker/portal) does
+# the same `wifi=helper` check twice: once here, fast and friendly,
+# before ever touching the socket, and once again — authoritatively,
+# server-side, from the kernel's own idea of who's connecting — inside
+# omarchy-kids-wifid. Only the second one is real security; this
+# script's own check exists purely so a `parent`-mode kid gets a plain
+# sentence instead of a raw daemon refusal (I-6).
+#
+# `parent` mode (R-WIFI-4: "the kid-side join opens the ask modal") is
+# NOT wired to bin/omarchy-kids-ask in this issue: Appendix D's queue
+# record `kind` enum is `time|app|plugin|site` and does not include
+# `wifi`, so there is no existing modal/record shape to reuse without
+# extending that contract, which is out of scope here (see docs/wifi.md
+# "Known gap"). Every subcommand instead refuses honestly with a
+# one-line reason (I-6: never fake a control that isn't there) — the
+# same shape bin/omarchy-kids-exit's `--pause` uses for its own
+# not-yet-built path.
+#
+# Every path/binary is overridable for tests, same convention as every
+# other command that shells out to omarchy-kids-conf/omarchy-kids-web:
+#   OMARCHY_KIDS_SHARE       default /usr/share/omarchy-kids (wifi/shell.qml, time/toast.qml)
+#   OMARCHY_KIDS_CONF_BIN    path to omarchy-kids-conf (default: resolved beside this script, else /usr/bin)
+#   OMARCHY_KIDS_WEB_BIN     path to omarchy-kids-web, used by `portal` (same resolution)
+#   OMARCHY_KIDS_ACCOUNT     default: this process's own user (id -un)
+#   OMARCHY_KIDS_WIFID_SOCK  default /run/omarchy-kids/wifi.sock
+#   OMARCHY_KIDS_WIFID_TIMEOUT  seconds, default 10 (nmcli's own wifi rescan can be slow)
+#   DRY_RUN                  default 1 for `portal` (AGENTS.md rule 8); --apply or DRY_RUN=0 does it for real
+set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+WEB_BIN="${OMARCHY_KIDS_WEB_BIN:-$DIR/bin/omarchy-kids-web}"; [[ -x "$WEB_BIN" ]] || WEB_BIN=/usr/bin/omarchy-kids-web
+SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+WIFI_QML="$SHARE/wifi/shell.qml"
+TOAST_QML="$SHARE/time/toast.qml"
+
+SOCK="${OMARCHY_KIDS_WIFID_SOCK:-/run/omarchy-kids/wifi.sock}"
+TIMEOUT="${OMARCHY_KIDS_WIFID_TIMEOUT:-10}"
+
+DRY_RUN="${DRY_RUN:-1}"
+
+die() { echo "omarchy-kids-wifi: $1" >&2; exit "${2:-2}"; }
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") list
+       $(basename "$0") join <ssid> [--password-stdin]
+       $(basename "$0") status
+       $(basename "$0") forget <ssid>
+       $(basename "$0") portal [--apply]
+       $(basename "$0") picker
+       $(basename "$0") --help
+
+Every subcommand needs the caller's profile to say wifi=helper
+(bin/omarchy-kids-conf, Appendix B) — enforced authoritatively by
+bin/omarchy-kids-wifid, the root helper this talks to. See docs/wifi.md.
+
+Env:
+  OMARCHY_KIDS_SHARE          default /usr/share/omarchy-kids
+  OMARCHY_KIDS_CONF_BIN       default: resolved beside this script, else /usr/bin/omarchy-kids-conf
+  OMARCHY_KIDS_WEB_BIN        default: resolved beside this script, else /usr/bin/omarchy-kids-web
+  OMARCHY_KIDS_ACCOUNT        default: this process's own user
+  OMARCHY_KIDS_WIFID_SOCK     default /run/omarchy-kids/wifi.sock
+  OMARCHY_KIDS_WIFID_TIMEOUT  default 10 (seconds)
+  DRY_RUN                     default 1 for "portal" (AGENTS.md rule 8)
+EOF
+}
+
+# run CMD [ARG...] — same dry-run wrapper as bin/omarchy-kids-web: prints
+# the plan (DRY_RUN=1, the default) or actually runs it (DRY_RUN=0/--apply).
+run() {
+    if [[ "$DRY_RUN" == "0" ]]; then
+        "$@"
+    else
+        printf '  [dry-run]'
+        printf ' %q' "$@"
+        printf '\n'
+    fi
+}
+
+account() { printf '%s' "${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"; }
+
+# wifi_mode ACCOUNT — the resolved Appendix B `wifi` value, or empty
+# (with a non-zero return) if it can't be read at all (no profile).
+wifi_mode() {
+    "$CONF_BIN" get "$1" wifi 2>/dev/null
+}
+
+# require_helper — the fast, friendly, non-authoritative half of the
+# wifi=helper gate (see the file header). Exits 3 with a plain sentence
+# if the profile says `parent` or can't be read at all.
+require_helper() {
+    local who mode
+    who="$(account)"
+    if ! mode="$(wifi_mode "$who")"; then
+        die "could not read '$who's Wi-Fi setting (see docs/conf.md)" 1
+    fi
+    if [[ "$mode" != "helper" ]]; then
+        die "Wi-Fi needs a grown-up for '$who' (wifi=${mode:-unset}). Ask a parent to join it for you." 3
+    fi
+}
+
+# show_toast TEXT — the same small, auto-dismissing, no-keyboard-grab
+# overlay bin/omarchy-kids-time uses for its own warnings
+# (share/time/toast.qml); falls back to stderr if Quickshell isn't on
+# PATH (e.g. this host, or a test) so the message is never silently lost.
+show_toast() {
+    local text="$1"
+    if command -v quickshell >/dev/null 2>&1 && [[ -f "$TOAST_QML" ]]; then
+        OMARCHY_KIDS_TOAST_TEXT="$text" quickshell -p "$TOAST_QML" >/dev/null 2>&1 &
+        disown 2>/dev/null || true
+    else
+        echo "omarchy-kids-wifi: $text" >&2
+    fi
+}
+
+# --- wire client (bin/omarchy-kids-wifid) -----------------------------------
+
+# wifid_request HEADER [BODY] — sends "HEADER\n[BODY\n]" and prints
+# whatever the daemon replies with, or nothing on a connect/timeout
+# failure. Same socat-else-python3 shape as bin/omarchy-kids-parent-auth
+# (docs/authd.md) — one dependency either way, both already in this
+# repo's dependency set (PKGBUILD's optdepends/depends).
+wifid_request() {
+    local header="$1" body="${2:-}" payload
+    if [[ -n "$body" ]]; then
+        payload="$header"$'\n'"$body"$'\n'
+    else
+        payload="$header"$'\n'
+    fi
+    if command -v socat >/dev/null 2>&1; then
+        printf '%s' "$payload" | socat -T"$TIMEOUT" - "UNIX-CONNECT:$SOCK" 2>/dev/null
+    else
+        printf '%s' "$payload" | python3 -c '
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(float(sys.argv[2]))
+try:
+    s.connect(sys.argv[1])
+    s.sendall(sys.stdin.buffer.read())
+    s.shutdown(socket.SHUT_WR)
+    data = b""
+    while True:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        data += chunk
+    sys.stdout.buffer.write(data)
+except OSError:
+    pass
+' "$SOCK" "$TIMEOUT" 2>/dev/null
+    fi
+}
+
+# call_wifid HEADER [BODY] — prints the payload on success (OK) and
+# returns 0; prints a one-line reason to stderr and returns non-zero
+# otherwise (3 for the daemon's own REFUSED, 1 for ERROR or no reply at
+# all — e.g. the daemon isn't running).
+call_wifid() {
+    local reply status
+    reply="$(wifid_request "$@")"
+    if [[ -z "$reply" ]]; then
+        echo "omarchy-kids-wifi: no reply from omarchy-kids-wifid (is it running? see systemctl status omarchy-kids-wifid.socket)" >&2
+        return 1
+    fi
+    status="${reply%%$'\n'*}"
+    case "$status" in
+        OK)
+            printf '%s' "${reply#*$'\n'}"
+            return 0
+            ;;
+        REFUSED*)
+            echo "omarchy-kids-wifi: ${status#REFUSED }" >&2
+            return 3
+            ;;
+        ERROR*)
+            echo "omarchy-kids-wifi: ${status#ERROR }" >&2
+            return 1
+            ;;
+        *)
+            echo "omarchy-kids-wifi: unexpected reply from omarchy-kids-wifid: $status" >&2
+            return 1
+            ;;
+    esac
+}
+
+# --- subcommands -------------------------------------------------------
+
+cmd_list() {
+    require_helper
+    call_wifid "LIST"
+}
+
+cmd_status() {
+    require_helper
+    call_wifid "STATUS"
+}
+
+cmd_forget() {
+    local ssid="${1:?omarchy-kids-wifi forget <ssid>}"
+    require_helper
+    call_wifid "FORGET $ssid"
+}
+
+cmd_join() {
+    local ssid="${1:?omarchy-kids-wifi join <ssid> [--password-stdin]}"
+    shift
+    local password_stdin=0 arg
+    for arg in "$@"; do
+        case "$arg" in
+            --password-stdin) password_stdin=1 ;;
+            *) die "join: unknown argument '$arg'" ;;
+        esac
+    done
+    require_helper
+    local password=""
+    if [[ "$password_stdin" == 1 ]]; then
+        IFS= read -r password || true
+    fi
+    call_wifid "JOIN $ssid" "$password"
+}
+
+# cmd_portal — captive-portal helper (R-WIFI-3): opens the band's
+# browser to a known, always-http (never https, so a captive portal's
+# own intercept actually fires) page, temporarily allowing that one
+# host in the kid's Chromium policy for a fixed window.
+#
+# RISK, documented per AGENTS.md rule 6 (I-6, honest UI) and repeated in
+# docs/wifi.md — read this before wiring this into anything automatic:
+#
+#   - This widens the kid's walled garden (R-WEB-3's URLAllowlist) to
+#     include neverssl.com for up to ten minutes, machine-wide for that
+#     band, not just for this one kid or this one Wi-Fi join. Any other
+#     kid on the same band during that window can also reach it.
+#   - The restore is a *scheduled* systemd-run job (`--on-active=10min`),
+#     not something this process waits around to confirm. If the
+#     machine is suspended, powered off, or `systemd-run` itself is
+#     unavailable before the timer fires, the temporary allow silently
+#     outlives its ten minutes until the next `omarchy-kids-web install`
+#     for that band (e.g. the next time a parent changes a setting).
+#     There is no independent watchdog here confirming the restore
+#     actually ran.
+#   - neverssl.com is a fixed, non-secret hostname (deliberately
+#     designed for exactly this purpose, and never user-supplied), so
+#     the exposure is "this one already-public site is reachable a few
+#     minutes longer than intended," not an arbitrary-host allowlist
+#     injection.
+#   - This only ever runs for a `garden` (walled-garden) band; see the
+#     `web` mode switch below for `filtered` (nothing to allow — the
+#     site isn't blocked in the first place) and `none` (no browser to
+#     open at all).
+#   - `omarchy-kids-web install --apply` writes root-owned files under
+#     /etc/chromium/policies/managed/ (R-WEB-1) and the restore's
+#     `systemd-run` job needs root to schedule against the system
+#     manager — this command has no polkit/pkexec wiring of its own to
+#     let an unprivileged kid session trigger either half for real (the
+#     wifid daemon this file otherwise talks to only ever runs `nmcli`,
+#     never `omarchy-kids-web`). Until a follow-up issue adds that path,
+#     `--apply` here is meant for a root context (the panel, a future
+#     helper), not a kid's own session — see docs/wifi.md "Known gap".
+cmd_portal() {
+    local apply=0 arg
+    for arg in "$@"; do
+        case "$arg" in
+            --apply) apply=1 ;;
+            -h|--help) usage; exit 0 ;;
+            *) die "portal: unknown argument '$arg'" ;;
+        esac
+    done
+    [[ "$apply" == 1 ]] && DRY_RUN=0
+
+    require_helper
+    local who band web portal_url="http://neverssl.com"
+    who="$(account)"
+    band="$("$CONF_BIN" get "$who" band)" || die "could not read '$who's band"
+    web="$("$CONF_BIN" get "$who" web)" || die "could not read '$who's web mode"
+
+    case "$web" in
+        none)
+            die "'$who' has no browser at all (web=none); there is nothing for the captive portal to open (I-6)" 3
+            ;;
+        garden)
+            local allow_file
+            allow_file="$(mktemp)"
+            printf 'neverssl.com\n' > "$allow_file"
+            echo "Temporarily allowing neverssl.com for band '$band' for 10 minutes (captive portal, R-WIFI-3)"
+            run "$WEB_BIN" install "$band" --allow "$allow_file" --apply
+            run systemd-run \
+                --unit "omarchy-kids-wifi-portal-restore-$band" \
+                --on-active=10min \
+                --description "Restore band $band's normal web allowlist after the captive-portal window (omarchy-kids-wifi portal)" \
+                -- "$WEB_BIN" install "$band" --apply
+            rm -f "$allow_file"
+            ;;
+        filtered)
+            echo "'$who' is filtered open web: neverssl.com is not blocked, no temporary allow needed"
+            ;;
+        *)
+            die "'$who' has an unrecognized web mode '$web'"
+            ;;
+    esac
+
+    run chromium --new-window "$portal_url"
+}
+
+# cmd_picker — the kid-facing overlay, always bound to Super+Shift+W
+# (share/hyprland/L1.lua, L2.lua, L3.lua: the bind is unconditional
+# because the level configs are static, R-DESK-1 — this command is what
+# actually decides whether anything happens).
+cmd_picker() {
+    local who mode
+    who="$(account)"
+    if ! mode="$(wifi_mode "$who")"; then
+        show_toast "Wi-Fi isn't set up yet. Ask a grown-up."
+        exit 1
+    fi
+    if [[ "$mode" != "helper" ]]; then
+        show_toast "Wi-Fi needs a grown-up. Ask them to turn it on for you."
+        exit 3
+    fi
+    export OMARCHY_KIDS_ACCOUNT="$who"
+    exec quickshell -p "$WIFI_QML"
+}
+
+# --- main --------------------------------------------------------------
+
+main() {
+    local cmd="${1:-}"
+    case "$cmd" in
+        list) shift; cmd_list "$@" ;;
+        join) shift; cmd_join "$@" ;;
+        status) shift; cmd_status "$@" ;;
+        forget) shift; cmd_forget "$@" ;;
+        portal) shift; cmd_portal "$@" ;;
+        picker) shift; cmd_picker "$@" ;;
+        -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
+        *) die "unknown command: '$cmd' (see --help)" ;;
+    esac
+}
+
+main "$@"

@@ -53,6 +53,13 @@
 #                             never executed, for its *_ok functions
 #   OMARCHY_KIDS_RUNUSER_BIN  the runuser binary --live shells out to
 #                             (default: runuser; stub it in tests)
+#   OMARCHY_KIDS_LOGINCTL_BIN the loginctl binary the live tmpfs-noexec
+#                             check uses to find a kid's live session
+#                             (default: loginctl; stub it in tests)
+#   OMARCHY_KIDS_PROC_ROOT    prefix for the /proc/<pid>/mountinfo path
+#                             that check reads (default: /proc; point at
+#                             a fixture tree of <pid>/mountinfo files in
+#                             tests, same idea as OMARCHY_KIDS_HOME_ROOT)
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -66,6 +73,8 @@ source "$LIB/time.sh"
 
 ASSERT_BIN="${OMARCHY_KIDS_ASSERT_BIN:-$DIR/bin/omarchy-kids-assert}"; [[ -x "$ASSERT_BIN" ]] || ASSERT_BIN=/usr/bin/omarchy-kids-assert
 RUNUSER_BIN="${OMARCHY_KIDS_RUNUSER_BIN:-runuser}"
+LOGINCTL_BIN="${OMARCHY_KIDS_LOGINCTL_BIN:-loginctl}"
+PROC_ROOT="${OMARCHY_KIDS_PROC_ROOT:-/proc}"
 
 usage() {
     cat <<'EOF'
@@ -763,6 +772,136 @@ run_firmware_section() {
 
 # --- Live tests (--live only) ------------------------------------------
 
+# kid_uid ACCOUNT — the account's numeric uid via getent, or empty if it
+# can't be resolved (no getent here, unknown account). Used only to find
+# the kid's own /run/user/<uid> — never assume 1000, real machines
+# provision kids in sequence starting well above it.
+kid_uid() {
+    command -v getent >/dev/null 2>&1 || return 0
+    getent passwd "$1" 2>/dev/null | cut -d: -f3
+}
+
+# live_session_leader_pid ACCOUNT — prints the pid of ACCOUNT's live
+# session leader (loginctl's own "Leader=", the process logind recorded
+# as having started the session) and returns 0, or prints nothing and
+# returns 1 if ACCOUNT has no session logind knows about right now.
+# omarchy-kids-session execs Hyprland directly with no intermediate fork
+# (do_start's own `exec "$HYPRLAND_BIN" ...`), so in the real case this
+# IS Hyprland's pid — but any process logind considers the session
+# leader lives inside the session's own mount namespace, which is the
+# only thing this needs (issue #41).
+live_session_leader_pid() {
+    local acct="$1" list sess uid user _rest leader
+    command -v "$LOGINCTL_BIN" >/dev/null 2>&1 || return 1
+    list="$("$LOGINCTL_BIN" --no-legend list-sessions 2>/dev/null || true)"
+    [[ -n "$list" ]] || return 1
+    while read -r sess uid user _rest; do
+        [[ -n "$sess" && "$user" == "$acct" ]] || continue
+        leader="$("$LOGINCTL_BIN" show-session "$sess" -p Leader --value 2>/dev/null || true)"
+        if [[ -n "$leader" && "$leader" != 0 ]]; then
+            printf '%s' "$leader"
+            return 0
+        fi
+    done <<<"$list"
+    return 1
+}
+
+# mountinfo_noexec FILE MOUNTPOINT — reads a /proc/<pid>/mountinfo-shaped
+# FILE and prints "noexec" if the last (i.e. currently active — a later
+# line overmounts an earlier one at the same path) tmpfs mount at
+# MOUNTPOINT carries the noexec flag, "exec" if it's mounted but doesn't,
+# or nothing at all if MOUNTPOINT never appears (unreadable file, or this
+# process was never inside a mount namespace with a private mount
+# there). Per proc_pid_mountinfo(5): fields before the lone "-" field are
+# "mountID parentID maj:min root MOUNTPOINT options [optional...]"; after
+# it, "fstype source super-options" — noexec can show up in either the
+# per-mount options (field 6) or the super options, so this checks both.
+mountinfo_noexec() {
+    local file="$1" mountpoint="$2"
+    [[ -r "$file" ]] || return 0
+    awk -v mp="$mountpoint" '
+        {
+            sep = 0
+            for (i = 1; i <= NF; i++) { if ($i == "-") { sep = i; break } }
+            if (sep == 0 || $5 != mp) next
+            fstype = $(sep + 1)
+            opts = $6 "," $(sep + 3)
+            if (fstype == "tmpfs" && opts ~ /(^|,)noexec(,|$)/) { result = "noexec" }
+            else { result = "exec" }
+        }
+        END { if (result != "") print result }
+    ' "$file"
+}
+
+# live_test_tmpfs_noexec ACCOUNT — session-aware replacement (issue #41)
+# for the old live:$acct:tmp-noexec probe, which ran `findmnt` through
+# `runuser`. runuser's own PAM stack never opens a pam_namespace session
+# (unlike sddm and sddm-autologin, both covered by R-FND-2a), so that
+# probe always saw the machine's global /tmp and /dev/shm and FAILed
+# even when the kid's real session has private noexec tmpfs mounts —
+# seen live and recorded in docs/check.md's "Verified live" section.
+# In order:
+#   1. ACCOUNT has a live session (loginctl): read the session leader's
+#      OWN /proc/<pid>/mountinfo — the mount table that process actually
+#      lives in, not this script's.
+#   2. no live session: fall back to ACCOUNT's last
+#      "omarchy-kids-session --check" log, whose tmp_noexec line already
+#      answered this from inside a real session (that check only ever
+#      reports PASS or WARN, never FAIL — see check_tmp_noexec's own
+#      comment in bin/omarchy-kids-session).
+#   3. neither: WARN, naming the exact command a grown-up can run.
+live_test_tmpfs_noexec() {
+    local acct="$1" pid mountinfo tmp_r shm_r uid logf line detail
+
+    pid="$(live_session_leader_pid "$acct")"
+    if [[ -n "$pid" ]]; then
+        mountinfo="$PROC_ROOT/$pid/mountinfo"
+        if [[ -r "$mountinfo" ]]; then
+            tmp_r="$(mountinfo_noexec "$mountinfo" /tmp)"
+            shm_r="$(mountinfo_noexec "$mountinfo" /dev/shm)"
+            if [[ "$tmp_r" == "noexec" ]]; then
+                add_result "Live tests" "live:$acct:tmp-noexec" pass "$acct: /tmp is a private noexec tmpfs in their live session (session leader pid $pid's own mountinfo, R-FND-2a)"
+            else
+                add_result "Live tests" "live:$acct:tmp-noexec" fail "$acct: /tmp is NOT a private noexec tmpfs in their live session (session leader pid $pid's mountinfo: ${tmp_r:-no tmpfs mounted there at all}) (R-FND-2a)"
+            fi
+            if [[ "$shm_r" == "noexec" ]]; then
+                add_result "Live tests" "live:$acct:shm-noexec" pass "$acct: /dev/shm is a private noexec tmpfs in their live session (session leader pid $pid's own mountinfo, R-FND-2a)"
+            else
+                add_result "Live tests" "live:$acct:shm-noexec" fail "$acct: /dev/shm is NOT a private noexec tmpfs in their live session (session leader pid $pid's mountinfo: ${shm_r:-no tmpfs mounted there at all}) (R-FND-2a)"
+            fi
+            return
+        fi
+        # A session was found but its mountinfo isn't readable right now
+        # (process gone between the loginctl call and this one, or a
+        # genuinely unreadable /proc) -- fall through to the log, same
+        # path as "no session at all".
+    fi
+
+    uid="$(kid_uid "$acct")"
+    if [[ -n "$uid" ]]; then
+        logf="$(posture_root)/run/user/$uid/omarchy-kids/session-$uid.log"
+        if [[ -r "$logf" ]]; then
+            line="$(grep 'check=tmp_noexec ' "$logf" 2>/dev/null | tail -n1)"
+            if [[ -n "$line" ]]; then
+                detail="${line#*detail=}"
+                case "$line" in
+                    *result=PASS*)
+                        add_result "Live tests" "live:$acct:tmp-noexec" pass "$acct: no live session to inspect right now; their last 'omarchy-kids-session --check' log ($logf) recorded PASS for tmp_noexec: $detail" ;;
+                    *result=WARN*)
+                        add_result "Live tests" "live:$acct:tmp-noexec" warn "$acct: no live session to inspect right now; their last 'omarchy-kids-session --check' log ($logf) recorded WARN for tmp_noexec: $detail" ;;
+                    *)
+                        add_result "Live tests" "live:$acct:tmp-noexec" warn "$acct: no live session to inspect, and their last session log's tmp_noexec line ($logf) doesn't parse as PASS or WARN" ;;
+                esac
+                add_result "Live tests" "live:$acct:shm-noexec" skip "$acct: no live session to inspect; the session log only ever records tmp_noexec, not /dev/shm (see live:$acct:tmp-noexec)"
+                return
+            fi
+        fi
+    fi
+
+    add_result "Live tests" "live:$acct:tmp-noexec" warn "$acct: no live session to inspect right now, and no 'omarchy-kids-session --check' log to fall back on -- have $acct log in, then from a grown-up's terminal run: loginctl list-sessions (find their session), then as $acct: omarchy-kids-session --check"
+    add_result "Live tests" "live:$acct:shm-noexec" skip "$acct: no live session or session log to inspect (see live:$acct:tmp-noexec)"
+}
+
 # live_test_pkcheck ACCOUNT ACTION LABEL — same proof method
 # bin/omarchy-kids-session's own check_polkit uses at real login
 # (docs/session.md): ask polkit itself rather than trying to read
@@ -797,12 +936,7 @@ live_test_kid() {
     live_test_pkcheck "$acct" org.freedesktop.NetworkManager.settings.modify.system networkmanager-settings
     live_test_pkcheck "$acct" org.freedesktop.systemd1.manage-units systemd-manage-units
 
-    out="$("$RUNUSER_BIN" -u "$acct" -- findmnt -no OPTIONS /tmp 2>/dev/null || true)"
-    if [[ "$out" == *noexec* ]]; then
-        add_result "Live tests" "live:$acct:tmp-noexec" pass "$acct: /tmp is mounted noexec in their session (R-FND-2a)"
-    else
-        add_result "Live tests" "live:$acct:tmp-noexec" fail "$acct: /tmp is not noexec in their session (options: ${out:-none found}) (R-FND-2a)"
-    fi
+    live_test_tmpfs_noexec "$acct"
 
     out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'f="$HOME/.omarchy-kids-check-live-$$"; printf "#!/bin/sh\necho pwned\n" > "$f" && chmod +x "$f" && "$f"; rc=$?; rm -f "$f"; exit $rc' 2>&1)"
     rc=$?

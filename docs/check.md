@@ -168,9 +168,33 @@ configured:
   `/etc/polkit-1/rules.d` itself is 0750 root:polkitd, unreadable to the kid) refuses both
   `org.freedesktop.NetworkManager.settings.modify` and `org.freedesktop.systemd1.manage-units`
   outright (R-FND-4).
-- `/tmp` is mounted `noexec` in that session (R-FND-2a).
 - Writing an executable into `$HOME` and running it fails (`Permission denied`, exit 126 — noexec
-  home, R-FND-2).
+  home, R-FND-2). `$HOME`'s own noexec mount is a persistent `/etc/fstab` bind line
+  (`lock:fstab:<account>`), not a per-session `pam_namespace` mount, so `runuser` sees it
+  correctly — unlike the two checks below.
+
+`/tmp` and `/dev/shm` (issue #41, `live:<kid>:tmp-noexec` / `live:<kid>:shm-noexec`) are **not**
+proven through `runuser`: `runuser`'s own PAM stack never opens a `pam_namespace` session, so a
+`findmnt` run through it always sees the machine's global `/tmp`/`/dev/shm`, not the kid's private
+one, even when the real session (`sddm` or `sddm-autologin`, both `pam_namespace` stacks per
+R-FND-2a) is correctly fenced — see "Verified live" below. Instead, in order:
+
+1. **A live session for this kid** (`loginctl list-sessions`, filtered by user): read the session
+   leader's *own* `/proc/<pid>/mountinfo` — `bin/omarchy-kids-session`'s `do_start` execs Hyprland
+   directly with no intermediate fork, so the leader is Hyprland itself, but any process logind
+   considers the leader lives inside the session's real mount namespace, which is all this needs.
+   A `tmpfs` at `/tmp`/`/dev/shm` carrying `noexec` is PASS; present but not `noexec` (or no tmpfs
+   there at all) is FAIL — the mount table doesn't lie the way `runuser` did.
+2. **No live session**: fall back to the kid's last `omarchy-kids-session --check` log
+   (`$XDG_RUNTIME_DIR/omarchy-kids/session-<uid>.log`, `docs/session.md`) — its own
+   `check=tmp_noexec name="private /tmp noexec" result=PASS|WARN ...` line (that check is a WARN,
+   never a FAIL, until R-FND-2a is fully rolled out — see `check_tmp_noexec`'s own comment in
+   `bin/omarchy-kids-session`) already answered this from inside a real session, so it's reused
+   as-is (PASS stays PASS, WARN stays WARN). The log only ever records `/tmp`, not `/dev/shm`, so
+   `shm-noexec` reports SKIP alongside it, pointing back at the `tmp-noexec` line.
+3. **Neither**: WARN — "no live session to inspect" — naming the exact commands a parent can run
+   (`loginctl list-sessions` to find the session, then `omarchy-kids-session --check` as the kid)
+   to get a live answer. `shm-noexec` is a SKIP here too.
 
 Skipped, not faked, when `--live` isn't passed or this process isn't root — the section always
 appears, with a line naming why nothing ran.
@@ -247,6 +271,18 @@ Deliberately not the usual 0-good/nonzero-bad shape — same kind of inversion `
   one-line substitution. A `TODO` comment sits directly above `apply_step_safety` in
   `bin/omarchy-kids-wizard`, pointing back here. The panel (P4, not yet built) is a better fit for
   `--json` from the start, since it has no existing human-readable call to replace.
+- **`tmp-noexec`/`shm-noexec` ask a live session's own `/proc/<pid>/mountinfo`, never `runuser`
+  (issue #41).** `runuser`'s PAM stack has no `pam_namespace`, so a probe run through it can only
+  ever see the machine's global `/tmp`/`/dev/shm` — it was structurally incapable of proving the
+  thing R-FND-2a actually promises, no matter how the mount really looked in the kid's session
+  (see "Verified live" below, and the Live tests section above for why the `$HOME` exec test is
+  unaffected). Reading `/proc/<pid>/mountinfo` for a real process inside that session — the
+  session leader `loginctl` reports, which `bin/omarchy-kids-session`'s `do_start` makes Hyprland
+  itself — asks the kernel's own mount table instead of a process that was never inside the
+  private mount namespace to begin with. The `omarchy-kids-session --check` log fallback exists
+  for the gap between kid logins (nothing live to read yet, but a recent real answer on file); the
+  final WARN exists for a machine that has genuinely never seen this kid log in — R-TRUST-2's own
+  "name what it proves and what it cannot," applied to *how* it inspects, not just what it reports.
 
 ## Verified live (2026-09-02, QEMU test VM)
 
@@ -255,3 +291,13 @@ firmware card is the one expected FAIL until a parent marks it done. The live `t
 runs through `runuser`, which does not open a session with `pam_namespace`, so it reports the
 global `/tmp` and FAILs even when the real session has its private mount; treat it as a WARN
 or read the session's own `omarchy-kids-session --check` log instead (issue #41).
+
+**Update:** issue #41's fix above replaces that `runuser`/`findmnt` probe with the session-leader
+`/proc/<pid>/mountinfo` read (live session), the `omarchy-kids-session --check` log (no live
+session), or a WARN naming the exact commands to run (neither) — `test/shell.d/check-test.sh`
+exercises all three paths against fixture `mountinfo` and session-log files (root-simulated via
+`unshare --user --map-root-user`, skipped where that isn't available, e.g. this repo's own macOS
+dev box). Re-verifying against a real kid session on the QEMU VM — the false-FAIL this entry
+originally recorded should now read PASS — is still open; nothing in this repo runs `--apply` or
+provisions kids on a development machine (AGENTS.md rule 8), so that verification happens on the
+laptop, not here.

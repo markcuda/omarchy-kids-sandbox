@@ -27,7 +27,8 @@ omarchy-kids-ask time <minutes>
 omarchy-kids-ask app <package-or-desktop-id>
 omarchy-kids-ask plugin <plugin-id>
 omarchy-kids-ask site <host>
-omarchy-kids-ask submit <kind> <what> --state open|approved --by keyboard [--minutes N]
+omarchy-kids-ask submit <kind> <what> [--minutes N]
+omarchy-kids-ask grant <kind> <what> [--minutes N]
 omarchy-kids-ask collect [--apply]
 omarchy-kids-ask list [<kid>]
 omarchy-kids-ask approve <id> [--apply]

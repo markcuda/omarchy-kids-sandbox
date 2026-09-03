@@ -96,19 +96,12 @@ build on top of.
 
 ## Judgment calls made in this implementation
 
-- **`OMARCHY_KIDS_ROOT` for the Chromium policy and polkit paths.** Neither
-  `/etc/chromium/policies/managed` nor `/etc/polkit-1/rules.d` is owned by this package (the
-  first is Chromium's, the second polkit's), so they don't live under `OMARCHY_KIDS_ETC`. The
-  issue text's env list names only `OMARCHY_KIDS_ETC`, `OMARCHY_KIDS_SHARE`, `OMARCHY_KIDS_RUN_DIR`,
-  and `OMARCHY_KIDS_HYPRLAND_BIN` — reusing `bin/omarchy-kids-provision`'s and `lib/posture.sh`'s
-  own `OMARCHY_KIDS_ROOT` convention for exactly this class of system path (rather than inventing
-  a second, differently-named scratch var, or leaving these two checks untestable without real
-  root) was the more consistent reading, and it's what `test/shell.d/session-test.sh` builds its
-  scratch `/etc/chromium/...` and `/etc/polkit-1/...` under.
-- **`OMARCHY_KIDS_RUN_DIR`'s default is `$XDG_RUNTIME_DIR/omarchy-kids`, not `/run/omarchy-kids`.**
-  The rest of this repo's `/run/omarchy-kids` (session-start's launcher JSON, the boot slot file)
-  is root-owned; `omarchy-kids-session` runs as the kid, who cannot write there. The per-user
-  runtime dir is the one writable place a non-root session process reliably has.
+- **System paths are build-time constants.** Chromium policy and polkit paths use the empty
+  packaged `SYSROOT`; tests substitute it, along with `ETC`, `SHARE`, and `RUN_DIR`, in a copied
+  command. No inherited `OMARCHY_KIDS_*` path variable can redirect a login check.
+- **`RUN_DIR` is fixed to `/run/user/<uid>/omarchy-kids`.** The session derives the uid from
+  `id -u`, so the log stays in the account's own runtime directory without trusting
+  `XDG_RUNTIME_DIR` or another environment-selected path.
 - **`--install-configs` sets mode 0644 only, no `chown`** — the same call `docs/provision.md`
   makes for its own writers: a real run of this always happens as root already (package hooks,
   `omarchy-kids-assert`), at which point everything it creates is already root-owned by virtue of
@@ -116,9 +109,8 @@ build on top of.
   in the scratch trees this had to be built and tested against on a non-root Mac (AGENTS.md rule 8).
 - **No `DRY_RUN` gate on `--install-configs`**, unlike `omarchy-kids-provision`. It's a plain,
   idempotent file copy (no account creation, no LUKS, nothing destructive to reverse), the same
-  risk class as `bin/omarchy-kids-boot-login`'s writes, which also has no `DRY_RUN` — both are
-  made safe for dev/test by their path overrides (`OMARCHY_KIDS_ETC`/`OMARCHY_KIDS_SHARE` here),
-  not by a dry-run flag.
+  risk class as `bin/omarchy-kids-boot-login`'s writes, which also has no `DRY_RUN`. Tests use a
+  copied command with substituted build-time constants, not runtime path overrides.
 - **No associative arrays.** The id → human check-name mapping is a `case` statement
   (`check_name()`), not a `declare -A` table, because this was built and tested on the same bash
   3.2 macOS box `bin/omarchy-kids-session-start`'s header comment calls out (`tr` instead of
@@ -208,17 +200,13 @@ file's own header for what it does and lib/time.sh's for the ledger
 trust boundary. The exit overlay (bin/omarchy-kids-exit, R-EXIT-1) is
 bound directly in share/hyprland/L1.lua etc., not started from here.
 
-The runtime state paths below retain the repository's scratch-tree test
-convention; the installed launcher map and QML path are package constants:
-  OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
-  OMARCHY_KIDS_SHARE   bands.toml, packs/, launcher/ (default /usr/share/omarchy-kids)
-  OMARCHY_KIDS_RUN     runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
-  OMARCHY_KIDS_ROOT    scratch prefix for /var/lib/omarchy-kids (issue
-                                  #42: reads the same apps-queue file
-                                  bin/omarchy-kids-apps writes, to tell
-                                  a merely-missing tile apart from one
-                                  that's mid-install; same convention
-                                  omarchy-kids-apps itself uses)
+Paths are build-time constants: `ETC=/etc/omarchy-kids`,
+`SHARE=/usr/share/omarchy-kids`, `RUN=/run/user/<uid>/omarchy-kids`, and
+`SYSROOT=`, and `QUICKSHELL_BIN=/usr/bin/quickshell`. The launcher map derives
+from `ETC` at `/etc/omarchy-kids/launchers/<account>.json`; the Level 1 QML
+path derives from `SHARE`. Tests substitute these constants only in a copied
+command tree; the session's environment cannot redirect its data or executable
+paths.
   OMARCHY_KIDS_SESSION_START_NO_EXEC=1  write the JSON, print the exec
                                   line that would run, and return 0
                                   instead of exec'ing it (test hook --

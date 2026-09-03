@@ -41,7 +41,7 @@ don't exist yet, not by the package itself).
 | `initcpio/install/omarchy-kids-unlock` | `/usr/lib/initcpio/install/omarchy-kids-unlock` | 755 | mkinitcpio install hook |
 | `initcpio/omarchy-kids-open` | `/usr/lib/initcpio/omarchy-kids-open` | 755 | Shared `cryptsetup open` helper |
 | `etc/mkinitcpio.conf.d/omarchy_kids.conf` | `/etc/mkinitcpio.conf.d/omarchy_kids.conf` | 644 | Inserts the hook into `HOOKS` (R-BOOT-2); a pacman `backup=` file, so a local edit survives an upgrade as a `.pacnew` |
-| `systemd/*.service`, `systemd/*.socket` | `/usr/lib/systemd/system/` | 644 | authd socket/service, boot-login + its cleanup unit |
+| `systemd/*.service`, `systemd/*.socket` | `/usr/lib/systemd/system/` | 644 | authd socket/service, boot-login + its cleanup unit, the boot-time re-assert unit (`docs/assert.md`) |
 | `share/**` (minus `.gitkeep`) | `/usr/share/omarchy-kids/` | — | bands, packs, hyprland, tui, policy, avatars, menu, sddm-theme data |
 | `pacman/omarchy-kids.hook` | `/usr/share/libalpm/hooks/omarchy-kids.hook` | 644 | Re-assert hook (see below) |
 | `desktop/omarchy-kids.desktop` | `/usr/share/applications/omarchy-kids.desktop` | 644 | "Kids Mode" in the app drawer |
@@ -75,9 +75,11 @@ package is not the same as Remove Kids Mode (R-TRUST-4), which is a separate, ex
 `/usr/share/libalpm/hooks/omarchy-kids.hook` fires `omarchy-kids-assert --quiet` after every
 pacman transaction (install, upgrade, *or* remove of any package, not just this one) so that an
 unrelated update -- a kernel bump, a config-file overwrite -- can never silently drop a lock
-(R-TRUST-5, I-4). Right now `omarchy-kids-assert` is a stub that has nothing to assert yet and
-always exits 0; as locks (polkit rules, the boot hook, groups, ...) get built, it grows into the
-one place that re-applies every one of them idempotently.
+(R-TRUST-5, I-4). `omarchy-kids-assert` is the one place that re-applies every lock idempotently
+-- polkit rules, pam_namespace, fstab/mount, group membership, the AccountsService pin, masked
+getty units, the hyprland config copies, Chromium policy file modes, and the boot hook -- for
+every provisioned kid and the machine as a whole; see `docs/assert.md` for the full list, when it
+runs, and its exit codes.
 
 ## Removing
 

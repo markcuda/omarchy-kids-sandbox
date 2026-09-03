@@ -1,0 +1,19 @@
+[Unit]
+Description=Re-assert every Omarchy Kids Mode lock at boot (SPEC.md R-TRUST-5, I-4)
+Documentation=file:///usr/share/doc/omarchy-kids/assert.md
+After=local-fs.target
+Before=display-manager.service
+# Runs unconditionally, every boot: this is exactly what the pacman hook
+# (pacman/omarchy-kids.hook) also calls after every transaction, so a
+# lock that survived to disk but was never re-checked since the last
+# boot (a manual edit, a snapshot rollback) is still caught before a kid
+# could log in on top of it (R-DESK-2's own preflight is the second,
+# per-login line of defense, not the only one).
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/omarchy-kids-assert --quiet
+
+[Install]
+WantedBy=multi-user.target

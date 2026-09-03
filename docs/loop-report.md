@@ -138,6 +138,10 @@ from screenshots. Done since:
   as its placeholder, and the avatar list no longer pages at ten rows).
 - The portal follows the owner's theme: after switching the owner to catppuccin-latte and
   re-asserting, the greeter came up light with the theme's blue on the selected tile.
+- From 17:00, at your request, Codex (gpt-5.6-luna, high) writes the first draft of every
+  ticket, headless from the shell in its own clone; I brief, gate and merge. Its first two jobs:
+  an AUR-maintainer pass over `docs/install.md` and `docs/packaging.md` (merged after checking
+  every claim it wrote against the files) and a maintainer review of main (running).
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

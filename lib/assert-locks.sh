@@ -103,6 +103,10 @@ theme_fix() {
   theme_apply_for "$account" "$expected"
 }
 
+# launcher-map: the root-owned id-to-argv execution authority (finding 2).
+launcher_lock_ok() { launcher_map_ok "$1"; }
+launcher_lock_fix() { launcher_map_fix "$1"; }
+
 # --- machine-level locks ---
 
 # expected in a local first: inline, an unusable parent name would make an

@@ -7,6 +7,11 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ## [Unreleased]
 
+### Security
+
+- Launcher activation now uses root-owned per-kid id-to-argv maps; kid-writable runtime JSON can
+  provide display data only and cannot inject a shell command.
+
 ### Added
 
 - Package skeleton: `PKGBUILD`, `omarchy-kids.install`, the pacman hook, desktop entries, command

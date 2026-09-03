@@ -193,12 +193,13 @@ omarchy-kids-session-start: run once per kid Hyprland session via
 `exec-once`/`hl.on("hyprland.start", ...)` from share/hyprland/L1.lua,
 L2.lua, and L3.lua (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E).
 
-Writes the Level 1/2 launcher's tile list to
-$XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json from the kid's
-effective allowlist (`omarchy-kids-apps allowlist`, R-APPS-4: the
-band's pack plus apps.extra minus apps.hidden -- not the raw
-`omarchy-kids-conf get <kid> allowlist`, so a hide/show lands here too)
-and pack metadata (share/packs/<band>.toml), then starts the right
+Writes display-only tile metadata to
+$XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json. The root-owned
+/etc/omarchy-kids/launchers/<account>.json map is built at provision
+and assert time from the effective allowlist and pack metadata
+(share/packs/<band>.toml); it holds fixed absolute argv arrays, not
+shell strings. The launcher activates by tile id and uses the map's
+argv, so runtime JSON cannot choose what runs. Then starts the right
 thing for the level:
   Level 1 -> the standalone big-tile launcher (quickshell -p ...), the
              *only* thing running (R-DESK-5: not a shell plugin).
@@ -213,8 +214,8 @@ file's own header for what it does and lib/time.sh's for the ledger
 trust boundary. The exit overlay (bin/omarchy-kids-exit, R-EXIT-1) is
 bound directly in share/hyprland/L1.lua etc., not started from here.
 
-Every path below is overridable for tests, same convention as
-omarchy-kids-conf and docs/conf.md:
+The runtime state paths below retain the repository's scratch-tree test
+convention; the installed launcher map and QML path are package constants:
   OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
   OMARCHY_KIDS_SHARE   bands.toml, packs/, launcher/ (default /usr/share/omarchy-kids)
   OMARCHY_KIDS_RUN     runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
@@ -224,12 +225,6 @@ omarchy-kids-conf and docs/conf.md:
                                   a merely-missing tile apart from one
                                   that's mid-install; same convention
                                   omarchy-kids-apps itself uses)
-  OMARCHY_KIDS_ACCOUNT  kid account (default: this process's own user)
-  OMARCHY_KIDS_LEVEL    1/2/3 (default: omarchy-kids-conf get <account> level)
-  OMARCHY_KIDS_BAND     3-5/6-8/9-12/13+ (default: omarchy-kids-conf get <account> band)
-  OMARCHY_KIDS_APPLICATIONS_DIRS  colon-separated .desktop dirs to search
-                                  for a pack app's launcher entry
-                                  (default /usr/share/applications:/usr/local/share/applications)
   OMARCHY_KIDS_SESSION_START_NO_EXEC=1  write the JSON, print the exec
                                   line that would run, and return 0
                                   instead of exec'ing it (test hook --

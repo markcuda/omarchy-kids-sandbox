@@ -84,9 +84,10 @@ plus every id in their `apps.extra`, minus every id in their `apps.hidden` (docs
 extension keys). Order: pack/override ids first in their own order, then any `apps.extra` ids not
 already present, in their own order; anything in `apps.hidden` is dropped from either list.
 
-This is what `bin/omarchy-kids-session-start` calls (instead of reading `allowlist` directly) to
-build the Level 1 tile list and, at Levels 2/3, `$RUN/allowlist.json` (below) — so a `hide`/`show`
-takes effect the next time that kid's session (re)starts.
+This is what `bin/omarchy-kids-session-start` calls (instead of reading `allowlist` directly) for
+the Level 2/3 `$RUN/allowlist.json` (below). The root-owned Level 1 execution map is rebuilt by
+provisioning and `omarchy-kids-assert`, so a `hide`/`show` takes effect in the launcher after the
+next assert and session restart.
 
 ### `hide <kid> <app>` / `show <kid> <app>`
 
@@ -101,8 +102,7 @@ nothing. `<app>` doesn't have to be a pack id: hiding an `apps.extra` id works t
 Nothing else in this repo calls these two.
 
 `hide-from-mine` collects the effective allowlist (see `allowlist` above) of every provisioned
-kid, finds each id's `.desktop` file (same best-effort substring search
-`bin/omarchy-kids-session-start` uses for tiles), and writes an override copy of it into
+kid, finds each id's `.desktop` file in the system application directories, and writes an override copy of it into
 `$HOME/.local/share/applications/<name>.desktop` with `NoDisplay=true` set and a
 `X-OmarchyKidsHideFromMine=true` marker line added — so those apps stop appearing in the *current
 user's own* launcher/menu, without touching the system-wide `.desktop` file, the kid's own account,
@@ -156,12 +156,26 @@ Two calls worth spelling out:
   and is in the official repos today, so a band-13+ kid gets a working starter pack instead of one
   more `aur:` skip.
 
+## Root-owned launcher map (finding 2)
+
+Provisioning and `omarchy-kids-assert` write `/etc/omarchy-kids/launchers/<account>.json` as
+root-owned, mode 0644. It is derived from the band pack and the effective allowlist after hidden
+and extra entries are applied. Each tile has display metadata plus an `argv` array. Desktop-entry
+`Exec=` lines are parsed during this root-side write, field codes are removed, and the executable
+is resolved to an absolute path. Pack fallbacks are also resolved to absolute paths at that time.
+
+The kid's runtime launcher JSON contains display metadata only; it never contains `exec` or `argv`.
+The Level 1 launcher receives an id from that JSON, looks up the same id in the root-owned map, and
+passes the validated argv list directly to Quickshell. If the two files disagree, the root map wins.
+The Web and More apps tiles are fixed absolute argv entries in the map, so neither tile invokes a
+shell string. Re-run `omarchy-kids-assert` after changing installed apps or the effective allowlist.
+
 ## `$RUN/allowlist.json` (R-DESK-4, issue #24)
 
 At Levels 2 and 3, `bin/omarchy-kids-session-start` writes the kid's effective allowlist (the same
 value `omarchy-kids-apps allowlist <kid>` prints) to
-`$XDG_RUNTIME_DIR/omarchy-kids/allowlist.json`, alongside the Level 1/2 tile file
-(`launcher-<uid>.json`, docs unwritten — see that script's own header comment). Shape:
+`$XDG_RUNTIME_DIR/omarchy-kids/allowlist.json`, alongside the Level 1/2 display-only tile file
+(`launcher-<uid>.json`, with execution authority kept in the root-owned map above). Shape:
 
 ```json
 { "account": "kid-ada", "band": "6-8", "allowlist": ["gcompris", "tuxpaint", "..."] }

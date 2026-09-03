@@ -93,6 +93,9 @@ echo 'background = "#1a1b26"' >"$OMARCHY_PATH/themes/tokyo-night/colors.toml"
 
 cp "$ROOT_DIR"/share/hyprland/*.lua "$SHARE/hyprland/"
 cp "$ROOT_DIR"/share/avatars/*.svg "$SHARE/avatars/"
+mkdir -p "$SHARE/bands" "$SHARE/packs"
+cp "$ROOT_DIR/share/bands/bands.toml" "$SHARE/bands/"
+cp "$ROOT_DIR"/share/packs/*.toml "$SHARE/packs/"
 
 # --- stub PATH -----------------------------------------------------------
 
@@ -364,11 +367,31 @@ ln -sf /usr/lib/systemd/system/omarchy-kids-time.timer "$SCRATCH_ROOT/etc/system
 mkdir -p "$ETC/hyprland"
 cp "$SHARE"/hyprland/*.lua "$ETC/hyprland/"
 
+# Launcher maps are rebuilt from root-owned desktop entries and absolute
+# executables, then re-asserted like every other lock.
+mkdir -p "$SCRATCH_ROOT/usr/share/applications"
+stub gcompris
+stub tuxpaint
+cat >"$SCRATCH_ROOT/usr/share/applications/tuxpaint.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Tux Paint
+Exec=tuxpaint %F
+Icon=tuxpaint
+EOF
+DIR="$ROOT_DIR"
+LIB="$ROOT_DIR/lib"
+KIDS_DIR="$ETC/kids"
+CONF_BIN="$ROOT_DIR/bin/omarchy-kids-conf"
+KIDS_PY=python3
+source "$ROOT_DIR/lib/launcher-map.sh"
+
 # chromium policy: one band's file, already 0640
 mkdir -p "$SCRATCH_ROOT/etc/chromium/policies/managed"
 CHROMIUM_FILE="$SCRATCH_ROOT/etc/chromium/policies/managed/omarchy-kids-6-8.json"
 echo '{}' >"$CHROMIUM_FILE"
 chmod 0640 "$CHROMIUM_FILE"
+launcher_map_fix kid-ada
 
 # boot hook: the package's hook file present, a fake UKI to "check", and
 # lsinitcpio's fixture already reporting the hook is in it
@@ -400,7 +423,7 @@ for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
   "pam:sddm" "pam:systemd-user" "pam:sddm-autologin" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
   "getty:tty2" "getty:tty3" "getty:tty4" \
   "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook" \
-  "limine-editor" "limine-snapshots"; do
+  "launcher-map:kid-ada" "limine-editor" "limine-snapshots"; do
   check_status "$out" "$lock" "ok" "first run: $lock is ok"
 done
 
@@ -486,6 +509,19 @@ check_eq "$(cat "$KID_THEME_NAME_FILE" 2>/dev/null)" "tokyo-night" "theme: kid-a
 check_eq "$(cat "$HOMEROOT/home/kid-ada/.local/state/omarchy/current/theme/colors.toml" 2>/dev/null)" \
   "$(cat "$OMARCHY_PATH/themes/tokyo-night/colors.toml")" \
   "theme: kid-ada's colors.toml is back to tokyo-night's own"
+
+# launcher map: a damaged root map is rebuilt from the pack and contains
+# absolute argv with desktop-entry field codes already removed.
+MAP_FILE="$ETC/launchers/kid-ada.json"
+printf '%s\n' '{}' >"$MAP_FILE"
+out="$("$BIN")"
+only_this_lock_changed "$out" "launcher-map:kid-ada" "launcher-map"
+check_eq "$(jq -r '.tiles[] | select(.id == "tuxpaint") | .argv[0]' "$MAP_FILE")" "$STUBS/tuxpaint" \
+  "launcher-map: desktop Exec resolves to an absolute executable"
+check_eq "$(jq -r '.tiles[] | select(.id == "tuxpaint") | .argv | length' "$MAP_FILE")" "1" \
+  "launcher-map: desktop field code is stripped from argv"
+check_eq "$(jq -r '.tiles[] | select(.id == "tuxpaint") | has("exec")' "$MAP_FILE")" "false" \
+  "launcher-map: map has argv, never an exec string"
 
 # theme: no override at all is "ok" (nothing to fix) -- a profile written
 # before issue #53, or a parent with no theme to copy at provision time.

@@ -20,7 +20,6 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HYPR="$DIR/share/hyprland"
-SESSION_START="$DIR/bin/omarchy-kids-session-start"
 
 fail=0
 check() { # got want label
@@ -155,7 +154,8 @@ else
   ETC="$TMP/etc"
   RUN="$TMP/run"
   STUBS="$TMP/stubs"
-  mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$TMP/apps" "$STUBS"
+  mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$TMP/apps" "$STUBS" \
+    "$TMP/root/usr/share/applications"
   cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
   cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
 
@@ -186,8 +186,9 @@ EOF
 [Desktop Entry]
 Name=Tux Paint
 Icon=tuxpaint
-Exec=tuxpaint
+Exec=tuxpaint %F
 EOF
+  cp "$TMP/apps/tuxpaint.desktop" "$TMP/root/usr/share/applications/"
 
   # issue #42: session-start now marks a tile installed:true|false (a
   # matched .desktop file, above, or the resolved exec's first word on
@@ -203,6 +204,7 @@ EOF
 exit 0
 EOF
   chmod +x "$STUBS/gcompris"
+  cp "$STUBS/gcompris" "$STUBS/tuxpaint"
 
   # `id -un`, not $OMARCHY_KIDS_ACCOUNT: which kid a command thinks it is
   # is no longer settable from the environment (review §3.7).
@@ -214,16 +216,41 @@ EOF
   # installed (AGENTS.md, testing rules).
   BASE_PATH="$(kids_base_path "$TMP/base")"
 
+  export PATH="$STUBS:$BASE_PATH"
+  export OMARCHY_KIDS_ETC="$ETC"
+  export OMARCHY_KIDS_SHARE="$SHARE"
+  export OMARCHY_KIDS_ROOT="$TMP/root"
+  LIB="$DIR/lib"
+  KIDS_DIR="$ETC/kids"
+  CONF_BIN="$DIR/bin/omarchy-kids-conf"
+  KIDS_PY=python3
+  source "$DIR/lib/conf.sh"
+  source "$DIR/lib/kids.sh"
+  source "$DIR/lib/launcher-map.sh"
+  launcher_map_fix kid-ada
+  launcher_map_fix kid-two
+  launcher_map_fix kid-tot
+
+  SESSION_ROOT="$TMP/installed"
+  mkdir -p "$SESSION_ROOT/bin"
+  cp -R "$DIR/lib" "$SESSION_ROOT/"
+  cp "$DIR/bin/omarchy-kids-session-start" "$SESSION_ROOT/bin/"
+  cp "$DIR/bin/omarchy-kids-conf" "$SESSION_ROOT/bin/"
+  cp "$DIR/bin/omarchy-kids-apps" "$SESSION_ROOT/bin/"
+  cp "$DIR/bin/omarchy-kids-time" "$SESSION_ROOT/bin/"
+  SESSION_COPY="$SESSION_ROOT/bin/omarchy-kids-session-start"
+  kids_set_const "$SESSION_COPY" LAUNCHER_ETC "$ETC"
+  kids_set_const "$SESSION_COPY" LAUNCHER_QML "$SHARE/launcher/shell.qml"
+
   out="$(
     PATH="$STUBS:$BASE_PATH" \
       OMARCHY_KIDS_ETC="$ETC" \
       OMARCHY_KIDS_SHARE="$SHARE" \
       OMARCHY_KIDS_RUN="$RUN" \
-      OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
       OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
-      bash "$SESSION_START"
+      bash "$SESSION_COPY"
   )"
-  check "$out" "quickshell -p $SHARE/launcher/shell.qml" "session-start prints the Level 1 exec line"
+  check "$out" "/usr/bin/quickshell -p $SHARE/launcher/shell.qml" "session-start prints the Level 1 exec line"
 
   json_path="$RUN/launcher-$(id -u).json"
   if [[ -f "$json_path" ]]; then
@@ -248,17 +275,20 @@ EOF
     more_apps_tile="$(jq -c '.tiles[] | select(.id == "more-apps")' "$json_path")"
     check_contains "$more_apps_tile" '"label":"More apps"' \
       "issue #28: band 6-8 gets a 'More apps' tile at Level 1"
-    check_contains "$more_apps_tile" "OMARCHY_KIDS_BAND='6-8' quickshell -p" \
-      "issue #28: the 'More apps' tile opens share/plugins/shell.qml with the band exported"
-    check_contains "$more_apps_tile" 'plugins/shell.qml' \
-      "issue #28: the 'More apps' tile points at share/plugins/shell.qml"
+    check "$(jq -r '.tiles[] | select(.id == "more-apps") | .installed' "$TMP/etc/launchers/kid-ada.json")" "true" \
+      "issue #28: the 'More apps' tile is installed in the root map"
+    check "$(jq -r '.tiles[] | select(.id == "more-apps") | .argv[1]' "$TMP/etc/launchers/kid-ada.json")" "OMARCHY_KIDS_BAND=6-8" \
+      "issue #28: the 'More apps' argv carries the band"
+    check "$(jq -r '.tiles[] | select(.id == "more-apps") | .argv[4]' "$TMP/etc/launchers/kid-ada.json")" "/usr/share/omarchy-kids/plugins/shell.qml" \
+      "issue #28: the 'More apps' argv points at the packaged plugins shell"
 
     tuxpaint_tile="$(jq -c '.tiles[] | select(.id == "tuxpaint")' "$json_path")"
     check_contains "$tuxpaint_tile" '"icon":"tuxpaint"' "tuxpaint tile picks up the matched .desktop file's Icon="
-    check_contains "$tuxpaint_tile" '"exec":"gtk-launch tuxpaint"' "tuxpaint tile launches via gtk-launch"
+    check "$(jq -r '.tiles[] | select(.id == "tuxpaint") | .argv[0]' "$TMP/etc/launchers/kid-ada.json")" "$STUBS/tuxpaint" \
+      "tuxpaint map uses an absolute executable"
 
-    gcompris_tile="$(jq -c '.tiles[] | select(.id == "gcompris")' "$json_path")"
-    check_contains "$gcompris_tile" '"exec":"gcompris"' "gcompris tile falls back to a bare command with no matching .desktop file"
+    check "$(jq -r '.tiles[] | select(.id == "gcompris") | .argv[0]' "$TMP/etc/launchers/kid-ada.json")" "$STUBS/gcompris" \
+      "gcompris map uses an absolute executable fallback"
 
     check "$(jq -r '.tiles | map(select(.id == "chromium")) | length' "$json_path")" "0" \
       "R-WEB-4: no chromium tile when the band's Chromium policy file doesn't exist"
@@ -271,9 +301,8 @@ EOF
       OMARCHY_KIDS_ETC="$ETC" \
       OMARCHY_KIDS_SHARE="$SHARE" \
       OMARCHY_KIDS_RUN="$RUN" \
-      OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
       OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
-      bash "$SESSION_START"
+      bash "$SESSION_COPY"
   )"
   check "$out2" "/usr/bin/omarchy-launch-shell" "session-start prints the Level 2/3 exec line"
 
@@ -285,11 +314,10 @@ EOF
       OMARCHY_KIDS_ETC="$ETC" \
       OMARCHY_KIDS_SHARE="$SHARE" \
       OMARCHY_KIDS_RUN="$RUN" \
-      OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
       OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
-      bash "$SESSION_START"
+      bash "$SESSION_COPY"
   )"
-  check "$out3" "quickshell -p $SHARE/launcher/shell.qml" "session-start (band 3-5) still prints the Level 1 exec line"
+  check "$out3" "/usr/bin/quickshell -p $SHARE/launcher/shell.qml" "session-start (band 3-5) still prints the Level 1 exec line"
   check "$(jq -r '.tiles | map(select(.id == "more-apps")) | length' "$json_path")" "0" \
     "issue #28: band 3-5's launcher JSON has no 'more-apps' tile"
 fi

@@ -179,14 +179,11 @@ uses.
   internals (which are not a public interface). `apps.extra` is the field that matters here — it's
   what `omarchy-kids-apps allowlist` composes over — so this is "via omarchy-kids-apps" in the
   sense that counts.
-- **The plugin's marketplace `id` stands in for "desktop id".** Quickshell shell plugins (what the
-  real marketplace actually lists) generally have no `.desktop` launcher entry at all — they're bar
-  widgets, panels, and the like, not standalone apps. `apps.extra`'s existing consumers
-  (`omarchy-kids-apps allowlist`, `bin/omarchy-kids-session-start`'s tile builder) already treat an
-  `apps.extra` id as "try to find a `.desktop` file for this, and if none exists, fall back to
-  running the bare id as a command" (`find_desktop_file`/`resolve_tile`) — nothing new had to be
-  built for a plugin id with no matching `.desktop` file; it behaves exactly like any other
-  `apps.extra` entry with no launcher entry does today.
+- **The plugin's marketplace `id` remains an allowlist id, not executable input.** Quickshell shell
+  plugins generally have no `.desktop` launcher entry because they are bar widgets or panels, not
+  standalone apps. The root-owned launcher map may add a desktop-backed `apps.extra` id, but a
+  plugin id with no desktop entry is not turned into a shell command. The Level 1 More apps tile
+  opens this file's packaged plugins shelf through its own fixed argv entry.
 
 ## Verify in the VM
 

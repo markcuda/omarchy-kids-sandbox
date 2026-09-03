@@ -54,6 +54,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `face:<account>` | `/usr/share/sddm/faces/<account>.face.icon` is byte-for-byte the profile's avatar SVG (R-LOGIN, issue #39 — SDDM's `UserModel` reads the avatar from this path, not from AccountsService's `Icon=` key; `docs/portal.md` has the full `UserModel.cpp` citation) | `posture_write_face_icon` |
 | `groups:<account>` | Member of `omarchy-kids` and the band group (`omarchy-kids-3-5`/`6-8`/`9-12`/`13plus`) | `usermod -aG` with only the groups actually missing |
 | `theme:<account>` | The account's own `.../current/theme.name` matches the profile's `theme` override (issue #53, `docs/theming.md`). "ok" (nothing to fix) if the profile carries no `theme` override at all — a box provisioned before issue #53, or a parent with no theme to copy at provision time | `lib/theme.sh`'s `theme_apply_for` — the same writer `omarchy-kids-conf set <kid> theme <name>` uses |
+| `launcher-map:<account>` | `/etc/omarchy-kids/launchers/<account>.json` is mode 0644 and exactly matches the root-derived id-to-argv map | `lib/launcher-map.sh` rebuilds it atomically from the profile, pack, allowlist, and system desktop entries |
 
 ### Machine-level (once per run, only while at least one kid is provisioned — except `units`, which is checked even with zero kids; see below)
 

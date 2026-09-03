@@ -17,6 +17,8 @@ source "$LIB/conf.sh"
 source "$LIB/posture.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
+# shellcheck source=lib/launcher-map.sh
+source "$LIB/launcher-map.sh"
 
 DRY_RUN="${DRY_RUN:-1}"
 

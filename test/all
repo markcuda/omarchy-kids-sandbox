@@ -1,5 +1,6 @@
 #!/bin/bash
 # Runs every test in test/shell.d. Exit non-zero if any fails.
+exec </dev/null  # a test that reads stdin must never block on the caller's terminal or tool
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 fail=0; n=0

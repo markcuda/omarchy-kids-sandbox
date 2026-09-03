@@ -59,23 +59,16 @@ PanelWindow {
         }
     }
 
-    // omarchy-kids-time-ledger.timer's next tick (or a `grant` run in
-    // the meantime) can clear the deficit that put this screen up;
-    // bin/omarchy-kids-time's daemon loop notices that and kills this
-    // process outright (`pkill -f "quickshell -p ..."`, its own
-    // `dismiss_timesup`) rather than telling this file to close itself
-    // -- so there is no "more time arrived" handling here at all, only
-    // the two buttons and the countdown.
+    // A grant (on the spot, or a queued one the ledger's next tick sees)
+    // clears the deficit; bin/omarchy-kids-time's daemon then closes this
+    // process by its pidfile (dismiss_timesup) -- no "more time arrived"
+    // handling lives here, only the two buttons and the countdown.
 
     function doAskGrownup() {
-        // Detached, not a child Process (same reasoning as the exit
-        // modal's onVerified: killing a child right after Qt.quit()
-        // has been seen, live, to kill the child before it runs). This
-        // does NOT close the overlay -- asking isn't the same as
-        // getting (I-6: the button says "ask", not "get"), so the
-        // countdown and the screen both keep going while whatever
-        // omarchy-kids-time ask-grownup does happens in the background.
-        Quickshell.execDetached(["/usr/bin/omarchy-kids-time", "ask-grownup"])
+        // The R-ASK-1 modal (share/ask/shell.qml) opens over this screen:
+        // the parent's password grants on the spot, or the request is
+        // queued. Asking isn't getting (I-6), so the countdown keeps going.
+        Quickshell.execDetached(["/usr/bin/omarchy-kids-ask", "time", "15"])
     }
 
     function doFinish() {

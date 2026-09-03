@@ -48,6 +48,9 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Changed
 
+- Time's Up's "Ask a grown-up" button opens the real R-ASK-1 modal (`omarchy-kids-ask time 15`);
+  `omarchy-kids-time ask-grownup`, a placeholder that showed the "this desktop can't start safely"
+  screen instead, is gone (2026-09-03 maintainer-eye review)
 - `omarchy-kids-ask-grownup` is now `omarchy-kids-blocked`: the "ask a grown-up" screen a kid
   sees when a check refuses to start their session. `omarchy-kids-time ask-grownup` keeps its
   name; it is a different action (#56)

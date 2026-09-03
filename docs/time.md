@@ -34,7 +34,7 @@ package enforces.
 | `lib/time.py` | The one place this needs real calendar math — day rollover and weekday, portable across the dev machine's BSD `date` and the target's GNU `date` (same reasoning as `lib/conf.py`) |
 | `bin/omarchy-kids-time-ledger` | Root: `tick` adds a minute to every active/unlocked/non-paused kid's ledger, and refreshes `/run/omarchy-kids/status.json` (R-BAR-3) |
 | `systemd/omarchy-kids-time.timer` + `omarchy-kids-time-ledger.service` | Runs `tick` once a minute |
-| `bin/omarchy-kids-time` | The kid-side daemon, plus `status`/`grant`/`ask-grownup` |
+| `bin/omarchy-kids-time` | The kid-side daemon, plus `status`/`grant` |
 | `share/time/toast.qml` | The small "N minutes left" warning (R-TIME-3) |
 | `share/time/timesup.qml` | The full-screen "Time's up" overlay (R-TIME-4) |
 
@@ -86,7 +86,6 @@ the trade-off; nothing here tries to hide that.
 omarchy-kids-time daemon           # started detached by omarchy-kids-session-start
 omarchy-kids-time status [<kid>]   # minutes used, left, and the next boundary
 omarchy-kids-time grant <kid> <n>  # root only: +n minutes to <kid>'s budget, today only
-omarchy-kids-time ask-grownup      # see "Ask a grown-up" below
 ```text
 
 `status` (default `<kid>`: this account) prints two lines:
@@ -135,24 +134,27 @@ loses focus to it.
 pattern verified live for `share/exit-modal/shell.qml`), a visible 60 s countdown, and two
 choices:
 
-- **Ask a grown-up for more time** — runs `omarchy-kids-time ask-grownup`, detached. Does *not*
-  close the overlay or grant anything by itself (see below).
+- **Ask a grown-up for more time** — runs `omarchy-kids-ask time 15`, detached: R-ASK-1's own
+  modal opens over this screen (see below). Does *not* close the overlay or grant anything by
+  itself.
 - **Finish** — runs `omarchy-kids-exit --finish`, same as the exit modal's own Finish.
 
 After 60 s with no answer, it runs Finish itself (R-TIME-4: "terminate after 60 s unless a parent
 grants more").
 
-### "Ask a grown-up" is a placeholder, not R-ASK-1
+### "Ask a grown-up" is R-ASK-1's own modal
 
-SPEC.md's real "Ask a parent" flow (R-ASK-1: one modal, parent password grants on the spot or the
-request is queued) is its own ticket. `omarchy-kids-time ask-grownup` runs
-`omarchy-kids-blocked time 15` if that command is on `PATH`, else logs the request and does
-nothing else — it can *ask*, it cannot *grant*. `share/time/timesup.qml`'s button is labeled "Ask
-a grown-up for more time", not "Get more time", for exactly this reason (I-6: don't claim a
-control does something it doesn't). `omarchy-kids-blocked` itself is today's R-DESK-2
-fail-closed placeholder (`docs/session.md`) reused here as a hook, not rebuilt — it will print an
-"Ask a grown-up" screen naming "time 15" as the "check", which reads a little oddly until R-ASK-1
-lands and gives it (or a real ask-modal) the real behavior.
+The button runs `omarchy-kids-ask time 15` (`docs/ask.md`): the "Ask a grown-up" modal opens over
+the Time's Up overlay, and a parent's password grants the minutes on the spot through
+`omarchy-kids-authd`, or "Ask later" queues the request for the panel. Either way the grant lands
+in the ledger, the daemon's next poll sees minutes left, and `dismiss_timesup` closes this overlay.
+The button still says "ask", not "get" (I-6): asking is the kid's part, granting is the parent's.
+
+Until 2026-09-03 this ran `omarchy-kids-time ask-grownup`, a placeholder from before
+`omarchy-kids-ask` existed that showed the R-DESK-2 "this desktop can't start safely" screen with
+"time 15" as the failed check. That subcommand is gone. The ask modal opening *over* the Time's Up
+overlay (two keyboard-exclusive layer surfaces) has not been watched live yet; the modal alone,
+opened over the launcher, has (`docs/ask.md` "Verified live").
 
 ## Pause-awareness (R-TIME-2)
 
@@ -283,15 +285,6 @@ omarchy-kids-time-ledger.
   grant <kid> <n>   Adds <n> minutes to <kid>'s budget for today only
                     (R-TIME-4: "'More time' extends today's budget
                     only"). Root only.
-  ask-grownup       Runs `omarchy-kids-blocked time <n>` if that
-                    command exists, else logs that a grant was asked
-                    for and does nothing else. This is a placeholder
-                    for the real "Ask a parent" flow (SPEC.md R-ASK-1,
-                    a separate ticket): today it can only ask, never
-                    itself grant -- share/time/timesup.qml's "Ask a
-                    grown-up" button runs this, and I-6 ("honest UI")
-                    is why that button's own label says "ask", not
-                    "get", more time.
 
 Every path is overridable for tests, same convention as
 bin/omarchy-kids-session-start and lib/time.sh:
@@ -304,8 +297,6 @@ bin/omarchy-kids-session-start and lib/time.sh:
   OMARCHY_KIDS_TIME_POLL_INTERVAL  daemon's sleep, seconds (default 30)
   OMARCHY_KIDS_TIME_DAEMON_ONESHOT=1  run one daemon iteration and
                         return instead of looping forever (test hook)
-  OMARCHY_KIDS_ASK_GROWNUP_MINUTES  minutes `ask-grownup` names
-                        (default 15)
 ```
 
 ## Source header (moved from `bin/omarchy-kids-time-ledger`, issue #49)

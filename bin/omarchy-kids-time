@@ -1,6 +1,6 @@
 #!/bin/bash
 # omarchy:summary=Track a kid's remaining screen time and show the toasts/Time's Up screen
-# omarchy:args=<daemon|status|grant|ask-grownup> ...
+# omarchy:args=<daemon|status|grant> ...
 # The kid-side half of the screen-time engine: warnings, Time's Up, status, grant (SPEC.md R-TIME-1..5, R-ASK-1, Appendix F).
 # Read-only trust boundary (see lib/time.sh's header). See docs/time.md for every env var.
 set -euo pipefail
@@ -21,7 +21,6 @@ TIMESUP_QML="$SHARE/time/timesup.qml"
 TOAST_PIDFILE="$RUN/toast.pid"
 TIMESUP_PIDFILE="$RUN/timesup.pid"
 POLL_INTERVAL="${OMARCHY_KIDS_TIME_POLL_INTERVAL:-30}"
-ASK_MINUTES="${OMARCHY_KIDS_ASK_GROWNUP_MINUTES:-15}"
 
 die() { echo "omarchy-kids-time: $1" >&2; exit "${2:-2}"; }
 
@@ -30,7 +29,6 @@ usage() {
 Usage: omarchy-kids-time daemon
        omarchy-kids-time status [<kid>]
        omarchy-kids-time grant <kid> <minutes>
-       omarchy-kids-time ask-grownup
 
 daemon        Run this session's screen-time warnings/enforcement loop
               until the session ends (SPEC.md R-TIME-3, R-TIME-4).
@@ -38,7 +36,6 @@ daemon        Run this session's screen-time warnings/enforcement loop
 status        Print <kid>'s minutes used, minutes left, and next
               boundary today (default <kid>: this account).
 grant         Add <minutes> to <kid>'s budget for today only. Root only.
-ask-grownup   Ask for more time (a placeholder for SPEC.md R-ASK-1).
 
   -h, --help  Show this help and exit.
 EOF
@@ -87,17 +84,6 @@ cmd_grant() {
     time_grant_add "$kid" "$day" "$minutes"
     printf '%s: granted %d more minute(s) for today (now %d granted today)\n' \
         "$kid" "$minutes" "$(time_granted_minutes "$kid" "$day")"
-}
-
-# --- ask-grownup ---------------------------------------------------------
-
-cmd_ask_grownup() {
-    local kid; kid="$(id -un)"
-    if command -v omarchy-kids-blocked >/dev/null 2>&1; then
-        log "ask-grownup: '$kid' asked for $ASK_MINUTES more minutes; running omarchy-kids-blocked"
-        exec omarchy-kids-blocked time "$ASK_MINUTES"
-    fi
-    log "ask-grownup: '$kid' asked for $ASK_MINUTES more minutes; no omarchy-kids-blocked on PATH, logging only"
 }
 
 # --- daemon ----------------------------------------------------------------
@@ -206,6 +192,5 @@ case "$1" in
     daemon) shift; cmd_daemon "$@" ;;
     status) shift; cmd_status "$@" ;;
     grant) shift; cmd_grant "$@" ;;
-    ask-grownup) shift; cmd_ask_grownup "$@" ;;
     *) die "unknown command '$1' (see --help)" ;;
 esac

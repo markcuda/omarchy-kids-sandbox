@@ -189,3 +189,13 @@ so this list is exactly the set of R-TIME/R-ASK behaviors this issue's "Done whe
   `omarchy-kids-session-start` before it `exec`s the launcher/shell, actually survives that `exec`
   and keeps running for the life of the session (expected — backgrounded jobs aren't children of
   the `exec`'d process — but never watched happen on a real Hyprland session).
+
+## Verified live (2026-09-02, QEMU test VM)
+
+The kid-side daemon starts with the session (`omarchy-kids-session-start` line in the session
+log). The lights-out rule fired the full-screen Time's Up overlay at login for a 6-8 kid at
+22:29 (band lights-out 19:30): owl avatar, "Time's up, Ben!", a "Finishing in N s" countdown,
+"Ask a grown-up for more time" and "Finish". With no answer it ran Finish after 60 s and the
+portal came back. Two packaging slips found live and fixed: the timer unit did not name its
+ledger service, and the units lock enabled the timers without starting them. The budget path
+(ledger tick, warnings at 10/5/1, Time's Up at 0) is the next live check.

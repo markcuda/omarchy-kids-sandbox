@@ -256,3 +256,13 @@ Apply) is the backstop check, but only when a LUKS slot is actually in play
 dry run shouldn't need a real `omarchy-kids-authd` on the box it's run from. On a real machine,
 `omarchy-kids-authd` should always be running (its socket is enabled by the package), so the
 direct check is the one a parent actually sees in practice.
+
+## Verified live (2026-09-02, QEMU test VM)
+
+Driven by an answers file over `ssh -tt` (sudo's ticket is per-tty): all fifteen screens
+rendered, Apply provisioned Ben (account, LUKS slot 3, band 6-8, avatar owl, the portal
+override file updated), and a cold boot with Ben's disk password went straight to Ben's
+Level 1 launcher. Two things the first run taught: `DRY_RUN=0` does not cross `sudo`, so every
+repo command gets its own `--apply` flag now, and the step marks follow real exit codes. The
+last provisioning step, Omarchy's own `omarchy-provision-user`, fails on this VM (no offline
+Node tarball) and is a warning with the migrations fallback since then.

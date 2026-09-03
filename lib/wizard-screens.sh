@@ -50,13 +50,6 @@ screen_name() {
     ((rc == 0)) || return $rc
     DISPLAY_NAME="$TUI_REPLY"
     ACCOUNT="$("$CONF_BIN" slug "$DISPLAY_NAME")" || die "could not slug '$DISPLAY_NAME'"
-    if [[ -e "$KIDS_DIR/$ACCOUNT.conf" ]]; then
-        echo
-        echo "That'll be close to $ACCOUNT on this computer (a number gets added if it's taken)."
-    else
-        echo
-        echo "That'll be $ACCOUNT on this computer."
-    fi
     return 0
 }
 

@@ -70,8 +70,8 @@ verified live, what is open, and which decisions are still waiting.
 | Parent wizard | Easy path (A-or-B chunks, preselected by age band) or Advanced (a table of toggles). Bash + gum in Omarchy's floating terminal, looks like the installer, Omy where the logo sits |
 | Per-kid provisioning | Real account, no sudo, locked home, polkit denies, the installer path's privilege posture, a LUKS slot for the kid's password, a root-owned Hyprland config for the chosen level |
 | Login portal | Face tiles then password, as an SDDM theme. Parent tile last |
-| Exit modal | Super ×3: parent password, then **Pause** (kid's apps stay open) or **Finish** (closes them) |
-| `omarchy-kids-*` | Feature commands: web policy, screen time, apps, Wi-Fi helper, ask-a-parent queue. `time`, `dns`, `apps` also exposed as `omarchy-parent-<feature>` for the upstream dispatcher |
+| Exit modal | Super ×3: parent password, then **Finish** (closes the kid's apps and returns to the portal). **Pause** is drawn but refused until a design decision lands (`docs/phase1/DECISIONS-NEEDED.md`) |
+| `omarchy-kids-*` | Feature commands: web policy, screen time, apps, Wi-Fi helper, ask-a-parent queue |
 | Safety check | Green/red, at the end of setup and at every kid login, failing closed |
 
 ## What is here now

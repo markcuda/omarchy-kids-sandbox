@@ -18,6 +18,8 @@ if [[ -n "${PAM_TYPE:-}" && "$PAM_TYPE" != "auth" ]]; then
   exit 1
 fi
 
+# Its own check, not lib/kids.sh's: a PAM helper wants the smallest
+# possible surface, so it sources only sock.sh.
 is_root() { [[ "${EUID:-$(id -u)}" == "0" ]]; }
 
 # socket_allowed PATH -- root may point anywhere; else only under the

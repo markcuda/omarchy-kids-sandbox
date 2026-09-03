@@ -276,6 +276,24 @@ getty_fix() {
     systemctl "${root_args[@]}" mask "getty@tty$1.service"
 }
 
+# units (R-BOOT-3, R-SEC-2): the package's units must be enabled or the
+# per-boot autologin drop-in is never written and the owner's stock
+# autologin wins. Path-based check (like getty_ok) so it works on a test
+# root; the fix is plain `systemctl enable`, which also works with --root.
+KIDS_UNITS=(omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service)
+KIDS_SOCKETS=(omarchy-kids-authd.socket)
+unit_link() { printf '%s/etc/systemd/system/%s.wants/%s' "$(posture_root)" "$1" "$2"; }
+units_ok() {
+    local u
+    for u in "${KIDS_UNITS[@]}"; do [[ -L "$(unit_link multi-user.target "$u")" ]] || return 1; done
+    for u in "${KIDS_SOCKETS[@]}"; do [[ -L "$(unit_link sockets.target "$u")" ]] || return 1; done
+}
+units_fix() {
+    local root_args=()
+    [[ -n "$(posture_root)" ]] && root_args=(--root="$(posture_root)")
+    systemctl "${root_args[@]}" enable "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}"
+}
+
 # hyprland configs: every *.lua in $SHARE/hyprland copied verbatim to
 # $ETC/hyprland (R-DESK-1). Prefers omarchy-kids-session --install-configs
 # if that ever exists (it doesn't yet -- verified against this checkout),
@@ -415,6 +433,8 @@ main() {
     for n in 2 3 4 5 6; do
         assert_one "getty:tty$n" getty_ok getty_fix "$n"
     done
+
+    assert_one "units" units_ok units_fix
 
     assert_one "hyprland-configs" hyprland_ok hyprland_fix
 

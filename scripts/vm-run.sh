@@ -5,7 +5,16 @@ set -euo pipefail
 VM="${VM_DIR:-$HOME/vm}"; MODE="${1:-boot}"; MEM="${VM_MEM:-3072}"; SSH_PORT="${VM_SSH_PORT:-2222}"
 cd "$VM"
 case $MODE in
-  stop) [[ -S qmp.sock ]] && printf '{"execute":"qmp_capabilities"}\n{"execute":"quit"}\n' | socat - UNIX-CONNECT:qmp.sock >/dev/null; rm -f qmp.sock; echo stopped; exit 0 ;;
+  stop) # Graceful first: ACPI power button -> the guest shuts down and flushes btrfs. A hard
+        # `quit` right after a write leaves zero-length files (seen once with the unit files).
+        if [[ -S qmp.sock ]]; then
+          printf '{"execute":"qmp_capabilities"}\n{"execute":"system_powerdown"}\n' | socat - UNIX-CONNECT:qmp.sock >/dev/null
+          for _ in $(seq 1 40); do [[ -S qmp.sock ]] && kill -0 "$(cat qemu.pid 2>/dev/null)" 2>/dev/null || break; sleep 1; done
+          if [[ -S qmp.sock ]] && kill -0 "$(cat qemu.pid 2>/dev/null)" 2>/dev/null; then
+            printf '{"execute":"qmp_capabilities"}\n{"execute":"quit"}\n' | socat - UNIX-CONNECT:qmp.sock >/dev/null; echo "stopped (forced)"
+          else echo "stopped (clean)"; fi
+        fi
+        rm -f qmp.sock; exit 0 ;;
   install) extra=(-drive file=omarchy-4.0.2.iso,media=cdrom,if=none,id=cd0 -device ide-cd,drive=cd0,bootindex=0
                   -drive file=cidata.img,format=raw,if=none,id=cidata -device virtio-blk-pci,drive=cidata -no-reboot) ;;
   boot) extra=() ;;

@@ -208,6 +208,14 @@ for n in 2 3 4 5 6; do
     ln -sf /dev/null "$SCRATCH_ROOT/etc/systemd/system/getty@tty$n.service"
 done
 
+# package units already enabled
+for u in omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service; do
+    mkdir -p "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants"
+    ln -sf "/usr/lib/systemd/system/$u" "$SCRATCH_ROOT/etc/systemd/system/multi-user.target.wants/$u"
+done
+mkdir -p "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants"
+ln -sf /usr/lib/systemd/system/omarchy-kids-authd.socket "$SCRATCH_ROOT/etc/systemd/system/sockets.target.wants/omarchy-kids-authd.socket"
+
 # hyprland configs already installed (copied from the real share/hyprland
 # fixture above, so a byte-for-byte cmp against $SHARE/hyprland passes)
 mkdir -p "$ETC/hyprland"
@@ -239,7 +247,7 @@ for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
     "accountsservice:kid-ada" "groups:kid-ada" "polkit-admin" "polkit-deny" \
     "sddm-theme" \
     "pam:sddm" "pam:systemd-user" "getty:tty2" "getty:tty3" "getty:tty4" \
-    "getty:tty5" "getty:tty6" "hyprland-configs" "chromium-policy:6-8" "boot-hook"; do
+    "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook"; do
     check_status "$out" "$lock" "ok" "first run: $lock is ok"
 done
 

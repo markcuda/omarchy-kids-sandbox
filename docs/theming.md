@@ -200,3 +200,14 @@ and the SDDM portal after a provision/assert — to confirm colors actually foll
 of just compiling. Also confirm `share/bar/KidsModule.qml`'s `import qs.Commons` actually resolves
 inside a real `omarchy-shell` plugin load (its own header's still-unconfirmed item), and that
 `Style.selectedFillFor`'s three-argument call really matches what a live `Style.qml` expects.
+
+## Verified live (2026-09-03, QEMU test VM)
+
+Under tokyo-night and catppuccin-latte the portal (theme.conf.user) and the wizard (gum flags
+from `lib/theme.sh`) took each theme's colours. Kid surfaces resolve the kid's own per-user
+theme, which provisioning leaves at Omarchy's default, so they looked the same under both:
+issue #53 makes a kid inherit the parent's theme at provision time and adds a theme cell. One
+packaging fact: Quickshell resolves QML types only inside the shell's own directory, so
+`KidsTheme.qml` is installed beside every standalone surface rather than imported from
+`share/qml`.
+

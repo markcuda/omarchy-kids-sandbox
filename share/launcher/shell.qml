@@ -278,10 +278,21 @@ Window {
         // as the tile count needs (never the full window height, so
         // this sits in the upper third with the rest of the screen
         // empty below it, matching the issue's live screenshots).
+        //
+        // Live at 1280x800 with nine tiles: the clock (top-right, same
+        // root.margin top inset as the grid) overlapped the fifth tile
+        // of the first row -- both sat in the same horizontal band, and
+        // a centred five-wide grid reaches close enough to the right
+        // edge to pass under it. Fixed by giving the clock its own band
+        // above the grid instead: grid top = clock bottom + margin
+        // (clockText's own top inset, root.margin, plus its height,
+        // plus one more root.margin gap before the grid starts) --
+        // never just root.margin on its own, so there is no width past
+        // which the two can touch, regardless of tile count.
         GridView {
             id: grid
             anchors.top: parent.top
-            anchors.topMargin: root.margin
+            anchors.topMargin: root.margin + clockText.height + root.margin
             anchors.horizontalCenter: parent.horizontalCenter
             width: Math.min(root.availableWidth, cellWidth * root.neededColumns)
             height: Math.max(cellHeight, Math.ceil(root.tiles.length / Math.max(1, root.columns)) * cellHeight)
@@ -364,7 +375,11 @@ Window {
                                 text: initial
                                 color: theme.background
                                 font.family: theme.fontFamily
-                                font.pixelSize: 28
+                                // Live review: bumped from 28 to 32 so the
+                                // initial reads at roughly the same visual
+                                // weight as a real 64px icon glyph in the
+                                // same iconSlot, not visibly smaller.
+                                font.pixelSize: 32
                                 font.bold: true
                             }
                         }
@@ -403,10 +418,13 @@ Window {
     }
 
     // --- Clock ---------------------------------------------------------
-    // issue #54: topMargin is root.margin, the same inset the grid's
-    // own anchors.topMargin uses above, so the clock lines up with the
-    // grid's top edge instead of floating at its own hardcoded margin.
+    // issue #54 (live review fix): id: clockText so the grid above can
+    // bind its own top margin to clockText.height -- the clock gets its
+    // own band above the grid (grid top = clock bottom + margin)
+    // instead of sharing the grid's top inset, which overlapped the
+    // fifth tile of row one in the live 1280x800/nine-tile screenshot.
     Text {
+        id: clockText
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.topMargin: root.margin

@@ -21,6 +21,7 @@ ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
 MACHINE_CONF="$ETC/machine.conf"
+SLOTS_FILE="$ETC/luks-slots"
 BANDS_TOML="$SHARE/bands/bands.toml"
 PACKS_DIR="$SHARE/packs"
 PYHELPER="$LIB/conf.py"
@@ -291,6 +292,11 @@ cmd_slug() {
 
 # cmd_machine set parent <name> — machine.conf's parent= (issue #46), the
 # only machine-level write this command offers, on purpose. docs/conf.md.
+# Also makes sure the parent's own LUKS slot is recorded (docs/boot.md
+# step 5): without a "0=<parent>" line in luks-slots, a boot unlocked with
+# the parent's own disk password lands on the portal instead of their
+# desktop -- true on a fresh install and every time after "Remove Kids
+# Mode", since nothing else in this repo ever writes that line.
 cmd_machine() {
   local sub="${1:?omarchy-kids-conf machine set parent <name>}"
   [[ "$sub" == set ]] || die "unknown machine subcommand: '$sub' (see --help)"
@@ -305,6 +311,9 @@ cmd_machine() {
     *) die "unknown machine key: '$key' (only 'parent' is supported)" ;;
   esac
   conf_set "$MACHINE_CONF" "$key" "$value"
+  if [[ "$key" == parent ]]; then
+    luks_slots_record_parent "$SLOTS_FILE" "$KIDS_DIR" "$value" || die "could not record the parent's LUKS slot (see stderr above)"
+  fi
   echo "machine: $key=$value"
 }
 

@@ -172,6 +172,43 @@ posture_write_luks_slots() {
   mv -f "$tmp" "$file"
 }
 
+# luks_slots_record_parent FILE KIDS_DIR PARENT -- makes sure slot 0 maps
+# to PARENT (docs/boot.md step 5): a fresh install, and a machine freshly
+# through "Remove Kids Mode" and provisioned again, both start with no
+# luks-slots file at all, and until now nothing ever wrote a "0=" line --
+# a boot unlocked with the parent's own disk password mapped to nothing
+# and landed on the portal instead of their desktop. Every existing kid
+# entry carries over untouched. An existing "0=" line is always left
+# alone, even one naming someone else -- overwriting it risks pointing a
+# real, already-unlocked LUKS slot at the wrong account -- noted on
+# stderr either way, success or not. The one case that refuses outright:
+# the existing "0=" line names a currently-provisioned kid, meaning slot
+# 0 is already how that kid's own account unlocks -- writing PARENT
+# there too would be a real slot clash, not just an ownership question,
+# so this exits non-zero instead of silently leaving a kid mapped to the
+# slot the parent now thinks is theirs.
+luks_slots_record_parent() {
+  local file="$1" kids_dir="$2" parent="$3"
+  local parent_line existing
+  parent_line="$(luks_slots_parent_line "$file")"
+  if [[ -n "$parent_line" ]]; then
+    existing="${parent_line#0=}"
+    existing="${existing%%:*}"
+    if [[ "$existing" != "$parent" ]] && is_known_kid "$kids_dir" "$existing"; then
+      echo "lib/kids.sh: $file already maps slot 0 to kid account '$existing', not parent '$parent' -- refusing to clash; resolve the LUKS slot mapping by hand" >&2
+      return 1
+    fi
+    echo "lib/kids.sh: $file already has a slot 0 mapping ('$parent_line'); left it alone" >&2
+    return 0
+  fi
+  local entries=() line
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    entries+=("$line")
+  done < <(luks_slots_kid_entries "$file")
+  posture_write_luks_slots "$file" "0=$parent" "${entries[@]+"${entries[@]}"}"
+}
+
 # file_stat FMT FILE -- GNU/BSD stat(1) wrapper, GNU tried first (issue #49, docs/assert.md).
 file_stat() {
   local fmt="$1" file="$2"

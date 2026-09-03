@@ -32,6 +32,12 @@
 # Not meant to be executed directly; source it from a command:
 #   source "$DIR/lib/tui.sh"
 
+# lib/theme.sh's theme_color, for tui_init's colors (below). Sourced here
+# rather than left to each caller, matching how every existing caller of
+# this file only ever sources lib/tui.sh itself (bin/omarchy-kids-tui-demo).
+# shellcheck source=./theme.sh
+source "$(dirname "${BASH_SOURCE[0]}")/theme.sh"
+
 TUI_ANS_ESC="@esc"
 TUI_ANS_CTRLC="@ctrlc"
 
@@ -46,14 +52,16 @@ TUI_NEXT_ANSWER="" # scratch: set by _tui_next_answer, read right after
 declare -a TUI_ANSWERS=()
 TUI_ANSWERS_I=0
 
-# Colors tui_init resolves from the parent's current Omarchy theme, in the
-# hex/256-color form gum's --foreground and --border-foreground already
-# accept. Fallbacks match upstream's own prompt accent (setup-form.sh's
-# --prompt.foreground="#845DF9") and this repo's own omarchy-kids stub
-# (256-color 212), for a machine with no theme read yet.
-TUI_C_ACCENT="212"
+# Colors tui_init resolves via lib/theme.sh's theme_color, in the hex form
+# gum's --foreground and --border-foreground already accept. theme_color's
+# own fallback palette (lib/theme.sh) covers a machine with no theme read
+# yet — its "accent" fallback (#8fb8ff) is a close cousin of upstream's own
+# prompt accent (setup-form.sh's --prompt.foreground="#845DF9"), close
+# enough that nothing here hardcodes a second fallback of its own.
+TUI_C_ACCENT=""
 TUI_C_FG=""
-TUI_C_MUTED="245"
+TUI_C_MUTED=""
+TUI_C_ERROR=""
 
 # tui_init — call once before any tui_screen_* call. Resolves colors and
 # picks how prompts get answered (see the file header). Returns 2 (does
@@ -62,12 +70,10 @@ TUI_C_MUTED="245"
 tui_init() {
     if command -v gum >/dev/null 2>&1; then TUI_HAVE_GUM=1; else TUI_HAVE_GUM=0; fi
 
-    if command -v omarchy-theme-color >/dev/null 2>&1; then
-        local c
-        c="$(omarchy-theme-color accent 2>/dev/null)" && [[ -n "$c" ]] && TUI_C_ACCENT="$c"
-        c="$(omarchy-theme-color foreground 2>/dev/null)" && [[ -n "$c" ]] && TUI_C_FG="$c"
-        c="$(omarchy-theme-color muted 2>/dev/null)" && [[ -n "$c" ]] && TUI_C_MUTED="$c"
-    fi
+    TUI_C_ACCENT="$(theme_color accent)"
+    TUI_C_FG="$(theme_color foreground)"
+    TUI_C_MUTED="$(theme_color muted)"
+    TUI_C_ERROR="$(theme_color error)"
 
     if [[ -n "${OMARCHY_KIDS_TUI_ANSWERS:-}" ]]; then
         if [[ ! -r "$OMARCHY_KIDS_TUI_ANSWERS" ]]; then
@@ -329,7 +335,7 @@ tui_screen_input() {
         if [[ -n "$validator" ]]; then
             local err
             if ! err="$("$validator" "$ans")"; then
-                _tui_style --foreground 1 -- "${err:-That is not valid. Try again.}"
+                _tui_style --foreground "$TUI_C_ERROR" -- "${err:-That is not valid. Try again.}"
                 continue
             fi
         fi

@@ -16,7 +16,7 @@ of Omarchy's own files (I-7).
 | `share/sddm-theme/Main.qml` | The greeter itself — see its own header comment for exactly which SDDM/Qt APIs each piece rests on and where that was confirmed |
 | `share/avatars/*.svg` | Twelve hand-written, flat, single-color 128×128 animal avatars (fox, owl, panda, frog, whale, cat, bear, bee, koala, otter, penguin, tiger), CC0 (`share/avatars/LICENSE`) |
 | `lib/posture.sh`: `posture_write_sddm_theme_dropin` / `posture_remove_sddm_theme_dropin` | Writes/removes `/etc/sddm.conf.d/zz-omarchy-kids-theme.conf` (`[Theme]` `Current=omarchy-kids`) |
-| `lib/posture.sh`: `posture_write_portal_conf` | Writes `/usr/share/sddm/themes/omarchy-kids/theme.conf.user` (root-owned 0644) — SDDM's own theme config override, read automatically, issue #39 |
+| `lib/posture.sh`: `posture_write_portal_conf` | Writes `/usr/share/sddm/themes/omarchy-kids/theme.conf.user` (root-owned 0644) — SDDM's own theme config override, read automatically, issue #39. Since issue #48 this also carries nine color/font keys resolved from the parent's own current Omarchy theme (`lib/theme.sh`) — see `docs/theming.md` |
 | `lib/posture.sh`: `posture_write_face_icon` / `posture_remove_face_icon` | Copies the chosen avatar SVG to `/usr/share/sddm/faces/<account>.face.icon` (root-owned 0644) — the file SDDM's `UserModel` actually reads for the avatar, issue #39 |
 | `omarchy-kids-provision`: `usermod -c "<display name>"` | Sets the passwd GECOS field so the greeter's `realName` role shows the kid's name, issue #39 |
 

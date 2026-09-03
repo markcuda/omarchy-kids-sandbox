@@ -41,6 +41,7 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
 | `share/avatars/*.svg` | Twelve CC0 animals (Q18) |
 | `share/menu/*.jsonc` | Trimmed-menu extension for Levels 1 and 2 (R-DESK-4) |
 | `share/sddm-theme/` | The portal (R-LOGIN) |
+| `share/qml/KidsTheme.qml`, `lib/theme.sh` | Per-theme colors/font, one resolver for QML and one for shell (docs/theming.md) |
 | `initcpio/` | The early-boot hook and its install script (R-BOOT) |
 | `systemd/` | Units and timers |
 | `polkit/`, `sudoers/` | Drop-ins written by `omarchy-kids-provision` and `omarchy-kids-assert` (kept as templates here) |

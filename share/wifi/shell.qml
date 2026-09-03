@@ -46,9 +46,13 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import "../qml"
 
 PanelWindow {
     id: root
+
+    // Theme colors/font (docs/theming.md) — see share/qml/KidsTheme.qml.
+    KidsTheme { id: theme }
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusiveZone: -1
@@ -243,7 +247,7 @@ PanelWindow {
 
         Rectangle {
             anchors.fill: parent
-            color: "#99000000"
+            color: Qt.rgba(0, 0, 0, 0.6)
 
             Rectangle {
                 id: card
@@ -251,8 +255,8 @@ PanelWindow {
                 width: 480
                 height: Math.min(560, cardColumn.implicitHeight + 64)
                 radius: 24
-                color: "#1c1f2b"
-                border.color: "#3a4266"
+                color: theme.background
+                border.color: Qt.lighter(theme.background, 1.6)
                 border.width: 2
 
                 Column {
@@ -265,7 +269,7 @@ PanelWindow {
 
                     Text {
                         text: "Wi-Fi"
-                        color: "white"
+                        color: theme.foreground
                         font.pixelSize: 24
                         font.bold: true
                     }
@@ -273,7 +277,7 @@ PanelWindow {
                     Text {
                         visible: root.loading
                         text: "Looking for networks…"
-                        color: "#c8ccdc"
+                        color: theme.muted
                         font.pixelSize: 14
                     }
 
@@ -291,7 +295,7 @@ PanelWindow {
                             width: list.width
                             height: 56
                             radius: 10
-                            color: ListView.isCurrentItem ? "#3a4266" : "#232838"
+                            color: ListView.isCurrentItem ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
 
                             Row {
                                 anchors.fill: parent
@@ -300,7 +304,7 @@ PanelWindow {
 
                                 Text {
                                     text: modelData.ssid
-                                    color: "white"
+                                    color: theme.foreground
                                     font.pixelSize: 16
                                     font.bold: modelData.inUse
                                     width: parent.width - 140
@@ -308,12 +312,12 @@ PanelWindow {
                                 }
                                 Text {
                                     text: modelData.security.length > 0 ? "🔒" : "open"
-                                    color: "#c8ccdc"
+                                    color: theme.muted
                                     font.pixelSize: 14
                                 }
                                 Text {
                                     text: modelData.signal + "%"
-                                    color: "#c8ccdc"
+                                    color: theme.muted
                                     font.pixelSize: 14
                                 }
                             }
@@ -337,7 +341,7 @@ PanelWindow {
                         Text {
                             width: parent.width
                             text: root.selectedNetwork() ? ("Password for " + root.selectedNetwork().ssid) : ""
-                            color: "white"
+                            color: theme.foreground
                             font.pixelSize: 16
                             wrapMode: Text.WordWrap
                         }
@@ -346,8 +350,8 @@ PanelWindow {
                             width: parent.width
                             height: 48
                             radius: 8
-                            color: "#12141c"
-                            border.color: passwordInput.activeFocus ? "#8fb8ff" : "#3a4266"
+                            color: Qt.darker(theme.background, 1.3)
+                            border.color: passwordInput.activeFocus ? theme.accent : Qt.lighter(theme.background, 1.6)
                             border.width: 2
 
                             TextInput {
@@ -357,7 +361,7 @@ PanelWindow {
                                 echoMode: TextInput.Password
                                 focus: root.showPasswordField
                                 enabled: !root.joining
-                                color: "white"
+                                color: theme.foreground
                                 font.pixelSize: 18
                                 clip: true
                                 text: root.passwordText
@@ -372,7 +376,7 @@ PanelWindow {
                         width: parent.width
                         visible: root.statusText.length > 0
                         text: root.statusText
-                        color: "#ffd27a"
+                        color: theme.warning
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
                     }
@@ -380,7 +384,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: "Enter join · Esc back/close"
-                        color: "#8890a8"
+                        color: theme.muted
                         font.pixelSize: 12
                     }
                 }

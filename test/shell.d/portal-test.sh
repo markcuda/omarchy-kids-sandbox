@@ -272,6 +272,120 @@ else
 fi
 unset OMARCHY_KIDS_ROOT
 
+# --- lib/posture.sh: theme.conf.user's color/font keys (docs/theming.md,
+# issue #48) -- posture_theme_conf_lines' nine [General] keys, layered
+# over theme.conf's own defaults by SDDM's ThemeConfig::setTo() the same
+# way parent=/kids= already are (this file's own header comment). No real
+# "mark" account exists on this dev/test machine, so posture_parent_home
+# falls back to OMARCHY_KIDS_HOME_ROOT-prefixed "/home/mark" -- which has
+# no colors.toml either, so every key below is lib/theme.sh's own
+# fallback palette (the exact values theme.conf itself ships as hardcoded
+# defaults).
+
+OMARCHY_KIDS_ROOT="$TMP/root2b"
+OMARCHY_KIDS_HOME_ROOT="$TMP/homeroot-empty"
+export OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
+posture_write_portal_conf mark \
+    "$(printf 'kid-ada\tAda Lovelace\tfox')"
+PORTAL_CONF2="$OMARCHY_KIDS_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
+if [[ -f "$PORTAL_CONF2" ]]; then
+    check "$(grep -c '^\[General\]$' "$PORTAL_CONF2")" "1" \
+        "theme.conf.user: still exactly one [General] section with color/font keys appended"
+    check "$(grep -c '^backgroundColor=#1a1b26$' "$PORTAL_CONF2")" "1" "theme.conf.user: backgroundColor falls back"
+    check "$(grep -c '^tileColor=#232838$' "$PORTAL_CONF2")" "1" "theme.conf.user: tileColor falls back"
+    check "$(grep -c '^tileHighlightColor=#3a4266$' "$PORTAL_CONF2")" "1" "theme.conf.user: tileHighlightColor falls back"
+    check "$(grep -c '^parentTileColor=#1f2335$' "$PORTAL_CONF2")" "1" "theme.conf.user: parentTileColor falls back"
+    check "$(grep -c '^accentColor=#8fb8ff$' "$PORTAL_CONF2")" "1" "theme.conf.user: accentColor falls back"
+    check "$(grep -c '^textColor=#ffffff$' "$PORTAL_CONF2")" "1" "theme.conf.user: textColor falls back"
+    check "$(grep -c '^mutedTextColor=#9aa5ce$' "$PORTAL_CONF2")" "1" "theme.conf.user: mutedTextColor falls back"
+    check "$(grep -c '^errorColor=#f7768e$' "$PORTAL_CONF2")" "1" "theme.conf.user: errorColor falls back"
+    # Not a specific value: theme_font resolves through the real fc-match
+    # if this machine happens to have one on PATH (test/shell.d/theme-
+    # test.sh already covers theme_font's own fallback in isolation) --
+    # this check is only that posture_theme_conf_lines actually emits the
+    # ninth key at all.
+    check "$(grep -c '^fontFamily=.' "$PORTAL_CONF2")" "1" "theme.conf.user: fontFamily key is present"
+else
+    fail "posture_write_portal_conf did not write $PORTAL_CONF2"
+fi
+unset OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
+
+# --- lib/posture.sh: theme.conf.user's colors actually follow the
+# parent's real theme, not just the fallback (docs/theming.md) -- a
+# fixture colors.toml under a scratch "parent" home, plus a stub
+# omarchy-theme-color on PATH (the real tool's own `--file <path> <key>`
+# shape, matching test/shell.d/theme-test.sh's own fixture stub), proves
+# the whole chain: posture_write_portal_conf -> posture_theme_conf_lines
+# -> posture_parent_home -> lib/theme.sh's theme_color -> the parent's
+# own colors.toml.
+
+STUBS2="$TMP/stubs2"
+mkdir -p "$STUBS2"
+cat >"$STUBS2/omarchy-theme-color" <<'EOF'
+#!/bin/bash
+file="" key=""
+while (( $# > 0 )); do
+    case "$1" in
+        --file) file="$2"; shift 2 ;;
+        --all) key="--all"; shift ;;
+        *) key="$1"; shift ;;
+    esac
+done
+[[ -f "$file" ]] || exit 1
+[[ "$key" == "--all" ]] && exit 0
+value="$(sed -nE "s/^${key}[[:space:]]*=[[:space:]]*[\"']?([^\"']*)[\"']?.*/\1/p" "$file" | head -1)"
+[[ -n "$value" ]] || exit 1
+printf '%s\n' "$value"
+EOF
+chmod +x "$STUBS2/omarchy-theme-color"
+
+HOMEROOT="$TMP/homeroot"
+PARENT_THEME_DIR="$HOMEROOT/home/mark/.local/state/omarchy/current/theme"
+mkdir -p "$PARENT_THEME_DIR"
+cat >"$PARENT_THEME_DIR/colors.toml" <<'EOF'
+background = "#101010"
+foreground = "#f0f0f0"
+accent = "#00ffcc"
+muted = "#606060"
+red = "#ff2222"
+orange = "#ffbb00"
+lighter_background = "#202020"
+dark_background = "#050505"
+selection = "#303030"
+EOF
+
+ORIG_PATH="$PATH"
+OMARCHY_KIDS_ROOT="$TMP/root2c"
+OMARCHY_KIDS_HOME_ROOT="$HOMEROOT"
+PATH="$STUBS2:$PATH"
+export OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT PATH
+# Force lib/theme.sh's own readiness probe to run again: it caches its
+# answer per process (_theme_kids_tool_ready, "one log line, not one per
+# color"), and an earlier scenario above already cached "unavailable"
+# with no omarchy-theme-color on PATH at all.
+_THEME_KIDS_TOOL_STATUS=""
+posture_write_portal_conf mark \
+    "$(printf 'kid-ada\tAda Lovelace\tfox')"
+PORTAL_CONF3="$OMARCHY_KIDS_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
+if [[ -f "$PORTAL_CONF3" ]]; then
+    check "$(grep -c '^backgroundColor=#101010$' "$PORTAL_CONF3")" "1" \
+        "theme.conf.user: backgroundColor reads the parent's real colors.toml"
+    check "$(grep -c '^accentColor=#00ffcc$' "$PORTAL_CONF3")" "1" \
+        "theme.conf.user: accentColor reads the parent's real colors.toml"
+    check "$(grep -c '^errorColor=#ff2222$' "$PORTAL_CONF3")" "1" \
+        "theme.conf.user: errorColor maps to the parent's 'red'"
+    check "$(grep -c '^tileColor=#202020$' "$PORTAL_CONF3")" "1" \
+        "theme.conf.user: tileColor maps to the parent's 'lighter_background'"
+    check "$(grep -c '^tileHighlightColor=#303030$' "$PORTAL_CONF3")" "1" \
+        "theme.conf.user: tileHighlightColor maps to the parent's 'selection'"
+else
+    fail "posture_write_portal_conf did not write $PORTAL_CONF3"
+fi
+unset OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
+PATH="$ORIG_PATH"
+export PATH
+_THEME_KIDS_TOOL_STATUS=""
+
 # --- lib/posture.sh: SDDM face icons (issue #39, live VM finding) ----------
 # SDDM's UserModel reads the avatar from <FacesDir>/<account>.face.icon,
 # not from AccountsService's Icon= key -- see lib/posture.sh's own header

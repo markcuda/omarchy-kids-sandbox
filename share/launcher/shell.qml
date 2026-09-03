@@ -44,9 +44,16 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "gridnav.js" as GridNav
+import "../qml"
 
 Window {
     id: root
+
+    // Theme colors/font (docs/theming.md) — every literal hex below has
+    // been replaced by a `theme.*` reference; see share/qml/KidsTheme.qml
+    // for where these come from and why this file can't `import
+    // qs.Commons` directly.
+    KidsTheme { id: theme }
 
     // A stable, plain-QtQuick-`Window.title` is what
     // bin/omarchy-kids-launcher-ctl matches on with `hyprctl dispatch
@@ -55,7 +62,7 @@ Window {
     title: "Omarchy Kids Launcher"
     visible: true
     visibility: Window.FullScreen
-    color: "#14161f"
+    color: theme.background
 
     // --- Tile data -----------------------------------------------------
     // Written by bin/omarchy-kids-session-start from the kid's resolved
@@ -239,10 +246,10 @@ Window {
                 // >= 96px target per the issue's tap-target floor, well
                 // clear of it at 140px so this also works as a touch
                 // target if the machine has a touchscreen.
-                color: missing ? "#1a1c26" : (GridView.isCurrentItem ? "#3a4266" : "#232838")
+                color: missing ? theme.background : (GridView.isCurrentItem ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6))
                 opacity: missing ? 0.55 : 1.0
                 border.width: GridView.isCurrentItem ? 4 : 0
-                border.color: "#8fb8ff"
+                border.color: theme.accent
 
                 Column {
                     anchors.centerIn: parent
@@ -269,7 +276,7 @@ Window {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: modelData.label || modelData.id || ""
-                        color: "white"
+                        color: theme.foreground
                         font.pixelSize: 18
                         wrapMode: Text.WordWrap
                         width: 120
@@ -285,7 +292,7 @@ Window {
                         anchors.horizontalCenter: parent.horizontalCenter
                         visible: missing && modelData.caption && modelData.caption.length > 0
                         text: modelData.caption || ""
-                        color: "#a8adc0"
+                        color: theme.muted
                         font.pixelSize: 12
                         wrapMode: Text.WordWrap
                         width: 120
@@ -301,7 +308,7 @@ Window {
         anchors.top: parent.top
         anchors.right: parent.right
         anchors.margins: 24
-        color: "white"
+        color: theme.foreground
         font.pixelSize: 28
         text: Qt.formatTime(new Date(), "hh:mm")
 

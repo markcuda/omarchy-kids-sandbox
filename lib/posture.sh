@@ -16,6 +16,14 @@
 # lib/conf.sh, which these functions assume is already loaded for callers
 # that also need conf_get/conf_set, though nothing in here calls them
 # directly).
+#
+# lib/theme.sh (theme_color/theme_font), for posture_theme_conf_lines
+# below — sourced here, not left to each caller, matching how lib/tui.sh
+# sources it for the same reason (every caller of this file already
+# sources it right after lib/conf.sh: bin/omarchy-kids-provision,
+# bin/omarchy-kids-assert, bin/omarchy-kids-remove).
+# shellcheck source=./theme.sh
+source "$(dirname "${BASH_SOURCE[0]}")/theme.sh"
 
 posture_root() { printf '%s' "${OMARCHY_KIDS_ROOT:-}"; }
 posture_polkit_dir() { printf '%s/etc/polkit-1/rules.d' "$(posture_root)"; }
@@ -517,6 +525,57 @@ posture_remove_sddm_theme_dropin() {
 # a secret, and SDDM's greeter runs as an unprivileged user that needs to
 # read it.
 
+# posture_parent_home PARENT — resolves PARENT's $HOME the same way
+# bin/omarchy-kids-provision's own parent_home_dir already does: a real
+# `getent passwd` lookup first (the parent account already exists by the
+# time posture ever writes anything), falling back to
+# OMARCHY_KIDS_HOME_ROOT-prefixed "/home/<parent>" (the same scratch-tree
+# override every other command in bin/ already documents for its own
+# HOME_ROOT) for tests and for a box where the lookup itself fails. Used
+# below to point lib/theme.sh's THEME_KIDS_HOME at the *parent's* theme,
+# not root's — see theme.sh's own header for why there is nothing
+# system-wide to read instead.
+posture_parent_home() {
+    local parent="$1" home
+    if command -v getent >/dev/null 2>&1; then
+        home="$(getent passwd "$parent" 2>/dev/null | cut -d: -f6)"
+        [[ -n "$home" ]] && { printf '%s\n' "$home"; return 0; }
+    fi
+    printf '%s/home/%s\n' "${OMARCHY_KIDS_HOME_ROOT:-}" "$parent"
+}
+
+# posture_theme_conf_lines PARENT — the nine [General] color/font keys
+# theme.conf(.user) carries (share/sddm-theme/theme.conf's own header has
+# the full list and citation), resolved from PARENT's own current Omarchy
+# theme via lib/theme.sh's theme_color/theme_font (THEME_KIDS_HOME set to
+# PARENT's own $HOME, from posture_parent_home above, so this reads the
+# parent's theme even though posture code itself runs as root). SDDM's
+# ThemeConfig::setTo() layers these over theme.conf's own hardcoded
+# defaults the same way it already layers parent=/kids= below (this
+# file's earlier header comment on posture_write_portal_conf has that
+# citation); Main.qml already reads every one of these nine keys as
+# `config.<key>`. Falls back to theme_color/theme_font's own fallback
+# palette (the exact values theme.conf ships as hardcoded defaults) when
+# the parent hasn't set an Omarchy theme yet, so a box with no theme read
+# yet looks unchanged. Run in a subshell so THEME_KIDS_HOME never leaks
+# into the caller's own environment.
+posture_theme_conf_lines() {
+    local parent="$1"
+    (
+        THEME_KIDS_HOME="$(posture_parent_home "$parent")"
+        export THEME_KIDS_HOME
+        printf 'backgroundColor=%s\n' "$(theme_color background)"
+        printf 'tileColor=%s\n' "$(theme_color surface)"
+        printf 'tileHighlightColor=%s\n' "$(theme_color highlight)"
+        printf 'parentTileColor=%s\n' "$(theme_color surface_muted)"
+        printf 'accentColor=%s\n' "$(theme_color accent)"
+        printf 'textColor=%s\n' "$(theme_color foreground)"
+        printf 'mutedTextColor=%s\n' "$(theme_color muted)"
+        printf 'errorColor=%s\n' "$(theme_color error)"
+        printf 'fontFamily=%s\n' "$(theme_font)"
+    )
+}
+
 # posture_portal_conf_text PARENT [ENTRY...] — ENTRY is
 # "account<TAB>name<TAB>avatar" (a tab, not ':' or ',' -- both are used
 # as separators in the "kids=" value below, so callers are responsible
@@ -530,6 +589,10 @@ posture_remove_sddm_theme_dropin() {
 # ever produce:
 #   parent=<account>
 #   kids=<account>:<name>:<avatar>,<account>:<name>:<avatar>,...
+# Followed by posture_theme_conf_lines' nine color/font keys (docs/
+# theming.md, issue #48) — same file, same [General] section, so SDDM's
+# ThemeConfig::setTo() layers all eleven keys over theme.conf's own
+# defaults in one pass.
 posture_portal_conf_text() {
     local parent="$1" kids_field="" sep="" entry account name avatar
     shift
@@ -543,6 +606,7 @@ posture_portal_conf_text() {
 parent=$parent
 kids=$kids_field
 EOF
+    posture_theme_conf_lines "$parent"
 }
 
 # posture_write_portal_conf PARENT [ENTRY...] — path is always

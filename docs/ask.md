@@ -93,7 +93,7 @@ enforces this, not just this script). `DRY_RUN=1` by default; `--apply` makes ei
 
 | Kind | Action |
 | --- | --- |
-| `time` | `omarchy-kids-time grant <kid> <minutes>`, if that command exists on `PATH`. It's being written in a parallel issue; if it isn't there yet, this prints a clear message on stderr and still marks the decision `approved` — the *decision* and its *execution* are different things (see below). |
+| `time` | `omarchy-kids-time grant <kid> <minutes>`, resolved beside `omarchy-kids-ask` itself (`kids_bin`, never `PATH`) — it ships in the same package. |
 | `app`, `plugin` | Appends `<what>` to the kid's `apps.extra` through `omarchy-kids-conf get`/`set` (same mechanism `omarchy-kids-apps hide`/`show` use for `apps.hidden`). Idempotent — asking for the same id twice is a no-op the second time. A plugin is recorded the same way an app is: R-APPS-7 says "no plugin may enforce anything", and `apps.extra` is exactly that — a launcher allow-only list, never a lock. |
 | `site` | Appends `<what>` to `/etc/omarchy-kids/kids/<kid>/allow.txt` (created if missing), then re-runs `omarchy-kids-web install <band> --allow /etc/omarchy-kids/kids/<kid>/allow.txt --apply` for the kid's band. |
 
@@ -110,12 +110,11 @@ enforces this, not just this script). `DRY_RUN=1` by default; `--apply` makes ei
   "the file's bytes never change" — a record legitimately needs its `state`/`decided_at`/`by`
   filled in once, by whoever decides it. What never happens: a second decision on the same record,
   or an edit to `kid`/`kind`/`what`/`minutes`/`asked_at` after the fact.
-- **A "decision" and its "execution" are kept separate on purpose**, specifically for `time`:
-  `omarchy-kids-time` doesn't exist yet (a parallel issue). If it's missing, `apply_time` still
-  reports success so the record is marked `approved` and never gets stuck retrying forever — but
-  it prints a clear, actionable message so the gap is visible, not silently swallowed (I-6). Once
-  `omarchy-kids-time` ships, every already-approved-but-unapplied `time` record needs a manual
-  `omarchy-kids-time grant` — there is no re-scan of old queue records built here.
+- **A "decision" and its "execution" are still separate records**: `lib/ask.py decide` writes
+  `state`/`decided_at`/`by`, and `apply_record` then performs the action. `apply_time` used to
+  carry a "if `omarchy-kids-time` isn't on this box yet" branch from before that command existed;
+  it ships in this same package now, so it is resolved as a sibling (`kids_bin`) and simply run,
+  like every other one (2026-09-03 maintainer-eye review, 1.3).
 - **A site grant is band-wide, not truly per-kid, today.** `omarchy-kids-web install <band>
   --allow FILE` (built in a separate issue) only knows how to render one Chromium policy file per
   *band*, shared by every kid in that band's group. This keeps a genuinely per-kid record

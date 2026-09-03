@@ -73,6 +73,26 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 - Launch folding: the ledger unit's `ProtectHome=` hid `/run/user`, so the kid's runtime launch
   log was never folded into the root ledger (#55)
 
+### Fixed (the first `test/all` on a box with the package installed)
+
+- `omarchy-kids-check --live` aborted mid-report: `pkcheck` exits non-zero for "not authorized",
+  the answer it is looking for, and that status reached the command's own `set -e`
+- `omarchy-kids-wifi` never printed its "no reply from omarchy-kids-wifid" line on any box with
+  `socat` installed — the command just died with exit 1
+- An account with no `colors.toml` got the fallback palette plus one derived black tile:
+  `omarchy-theme-color --all` succeeds with no theme at all, so `lib/theme.sh` checks the file
+- `kids_bin`'s `/usr/bin` fallback was redundant (an installed command's own prefix *is* `/usr`)
+  and hid "not installed yet" wherever the package was installed
+- `omarchy-kids-bar`'s terminal is Omarchy's `omarchy-launch-floating-terminal-with-presentation`,
+  and so is the `kids-data` tile's: the `alacritty -e` fallback and the
+  `kitty`/`alacritty`/`foot`/`wezterm`/`xterm` walk both guessed where a convention exists, and a
+  stock 4.0.2 box has no `alacritty` (2026-09-03 maintainer-eye review, 1.4)
+- `omarchy-kids-ask` resolves `omarchy-kids-time` as a sibling like every other command, not off
+  `PATH`; the "isn't installed yet" branch from before that command existed is gone (same review)
+- Tests: `test/shell.d/lib.sh`'s `kids_file_mode` (GNU `stat` first) and `kids_base_path` (stubs
+  plus a base toolset, nothing else), so a check that needs a command absent means it
+  (docs/live-tests.md, run 6)
+
 ### Security (round-one review, #51)
 
 - A kid-side process could write `approved` and root applied it; now root verifies every

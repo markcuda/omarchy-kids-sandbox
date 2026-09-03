@@ -54,6 +54,16 @@ check_contains "$qml_content" 'GridNav.moveDown(root.currentIndex, root.columns,
   "Down key uses the shared move function"
 check_contains "$qml_content" 'Keys.onReturnPressed' "Return launches the highlighted tile"
 check_contains "$qml_content" 'root.launchCurrent()' "Enter/Return calls launchCurrent()"
+check_contains "$qml_content" 'OMARCHY_KIDS_LAUNCHER_MAP' \
+  "launcher reads the root-owned ID-to-argv map"
+check_contains "$qml_content" 'root.launchInstalled(tile.id || "") !== true' \
+  "activation requires the root map to mark the tile installed"
+check_contains "$qml_content" 'launcherProcess.command = argv' \
+  "activation passes argv directly to Quickshell Process"
+check "$(grep -c 'tile\.exec\|\["sh", "-c"\]' "$QML" || true)" "0" \
+  "shell.qml never evaluates a tile-provided shell command"
+check "$(grep -c 'tile\.installed' "$QML" || true)" "0" \
+  "activation does not trust runtime installed state"
 
 # issue #43's bug was exactly this: a hardcoded columns count baked into
 # the nav's own `%`/`<` comparisons instead of read from the layout.

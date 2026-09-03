@@ -81,11 +81,12 @@ rely on Hyprland's own auto-detection.
 
 ## The launcher's tile list
 
-`bin/omarchy-kids-session-start` resolves the kid's `allowlist` (`omarchy-kids-conf get <kid>
-allowlist`) against `share/packs/<band>.toml`, tries to find each app's real `.desktop` file
-(case-insensitive substring match on the pack `id` or `pkg` against every `.desktop` basename
-under `/usr/share/applications`) to get a `gtk-launch`-able id and an `Icon=` value, and falls
-back to running the pack `id` as a bare command if no `.desktop` file matches. It writes:
+At provision and assert time, `lib/launcher-map.sh` resolves the kid's effective `allowlist`
+against `share/packs/<band>.toml` and writes the execution authority to
+`/etc/omarchy-kids/launchers/<account>.json` (root:root, mode 0644). Desktop entries are read
+only from the system application directories; their `Exec=` line is parsed then, field codes are
+removed, and the executable is resolved to an absolute path. A pack id with no desktop entry may
+use the same root-time resolution for an absolute executable. The map contains:
 
 ```json
 {
@@ -93,21 +94,26 @@ back to running the pack `id` as a bare command if no `.desktop` file matches. I
   "band": "6-8",
   "level": "1",
   "tiles": [
-    { "id": "tuxpaint", "label": "Tux Paint", "icon": "tuxpaint", "exec": "gtk-launch tuxpaint",
-      "installed": true, "caption": "" }
+    { "id": "tuxpaint", "label": "Tux Paint", "icon": "tuxpaint", "pkg": "tuxpaint",
+      "installed": true, "argv": ["/usr/bin/tuxpaint", "--file"] }
   ]
 }
 ```text
 
-to `/run/omarchy-kids/launcher-<uid>.json` (root-owned, tmpfs — never under the kid's home). If
-the kid's `web` key isn't `none` **and** `/etc/chromium/policies/managed/omarchy-kids-<band>.json`
-is readable, a `chromium` tile is appended (R-WEB-4: refuse the browser tile if the policy isn't
-there). The policy file itself is a different issue's deliverable and doesn't exist in this repo
-yet, so today this is always false — the correct fail-closed behavior, not a bug.
+The kid-side session writes only display data to `/run/user/<uid>/omarchy-kids/launcher-<uid>.json`:
+`id`, `label`, `icon`, `installed`, and `caption`. It has no executable field. The launcher uses a
+tile id to look up `argv` in the root map; a conflicting or extra runtime tile cannot launch
+anything. If the root map is missing or the id is absent, activation is a no-op.
 
-**Installed/missing tiles (issue #42, I-6).** Every pack/`apps.extra` tile also carries
-`installed: true|false` — a matched `.desktop` file, or (the bare-command fallback) `command -v`
-on the resolved exec's first word, **never `pacman -Q`**, so this works the same for a pack app,
+If the kid's `web` key isn't `none` **and** `/etc/chromium/policies/managed/omarchy-kids-<band>.json`
+is readable, the root map appends a `chromium` tile with the fixed argv
+`["/usr/bin/omarchy-kids-web", "launch"]` (R-WEB-4). The Level 1 `more-apps` tile likewise uses
+fixed argv for `/usr/bin/quickshell` and the packaged plugins shelf, with the band supplied as an
+environment argument. No tile is evaluated by a shell.
+
+**Installed/missing tiles (issue #42, I-6).** Every pack/`apps.extra` tile in the root map also
+carries `installed: true|false` — a matched `.desktop` file, or (the bare-command fallback)
+`command -v` on the resolved executable, **never `pacman -Q`**, so this works the same for a pack app,
 an `apps.extra` id with no package at all, or any future non-pacman app source. By default
 (`apps.show_missing=no`, docs/conf.md) a missing app's tile is left out of the JSON entirely, with
 one log line naming why (`$RUN/session-<uid>.log`) — the live bug this issue fixes was a tile that
@@ -116,11 +122,12 @@ rendered but did nothing on Enter. With `apps.show_missing=yes` the tile is kept
 `bin/omarchy-kids-apps`' pending install queue (`OMARCHY_KIDS_ROOT/var/lib/omarchy-kids/apps-queue`,
 read here, never written) or `"not installed yet"` otherwise; `share/launcher/shell.qml` renders
 that tile greyed and the caption underneath the label, and refuses to launch it on Enter
-(`installed === false`, checked before `launchCurrent()` runs anything). An installed tile always
-carries `installed: true` and an empty `caption`. The `chromium`/`more-apps`/`kids-data` tiles
-below carry neither key — this is specifically about pack/`apps.extra` app tiles.
+(`installed === false`, checked before `launchCurrent()` runs anything). The session copies this
+state into the display JSON, but the root map wins if the two disagree. An installed tile always
+carries `installed: true` and an empty `caption` in both views. The synthetic
+`chromium`/`more-apps`/`kids-data` tiles are always root-authorized and have fixed argv.
 
-`share/launcher/shell.qml` polls that file, plus a small control file
+`share/launcher/shell.qml` polls the display file and root map, plus a small control file
 (`/run/omarchy-kids/launcher-control`) that `bin/omarchy-kids-launcher-ctl` writes to on
 `Super+Return`, and renders the tiles as a grid with keyboard-only navigation (arrows move the
 highlight, Return/Enter launches, Escape is swallowed and does nothing).
@@ -159,10 +166,9 @@ empty, and ten tiles only filled the top third, with names but no icons. Now:
   entirely, regardless of tile count or screen width.
 
 `test/shell.d/launcher-grid-test.sh` statically checks all of the above against `shell.qml`'s
-source (the grid's anchors, the derived cell-size math, the clock/grid vertical relationship, the
-`Quickshell.iconPath()` call and its rounded-initial fallback, `font.family: theme.fontFamily` on
-every label, no literal hex colour) — see that file's own header for exactly what it can and
-can't check without a real Quickshell.
+source, including that activation passes the root-map argv list directly to Quickshell rather than
+evaluating a runtime string — see that file's own header for exactly what it can and can't check
+without a real Quickshell.
 
 **Issue #43: key navigation must use the layout's own column count.** Seen live in the VM with
 ten tiles rendered five per row: Down from row1/col4 highlighted row2/col3 instead of row2/col4,
@@ -256,8 +262,10 @@ scripts copied to their spec-required paths and made root-owned):
 
 1. From a spare tty (or the omarchy-kids session entry, once `omarchy-kids-session` is built):
    `Hyprland --config /etc/omarchy-kids/hyprland/L1.lua`.
-2. Confirm the launcher appears fullscreen with tiles from `/run/omarchy-kids/launcher-<uid>.json`,
-   that arrows move the highlight, Return launches, Escape does nothing. With a full row of tiles,
+2. Confirm the launcher appears fullscreen with display tiles from
+   `/run/user/<uid>/omarchy-kids/launcher-<uid>.json` and argv from
+   `/etc/omarchy-kids/launchers/<account>.json`, that arrows move the highlight, Return launches,
+   and Escape does nothing. With a full row of tiles,
    confirm Right/Left/Up/Down move to the visually adjacent tile (issue #43) — in particular,
    Right/Left at a row's end wrap to the next/previous row rather than holding still, except at
    the very first/last tile, which clamp; Up/Down clamp at the top/bottom edge. Confirm Enter

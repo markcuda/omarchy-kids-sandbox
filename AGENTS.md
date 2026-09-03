@@ -42,7 +42,7 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
 | `lib/*.sh` | Shared shell: settings helpers (vendored from upstream's `install/helpers/parent.sh`), the `run` dry-run wrapper, logging |
 | `share/bands/bands.toml`, `share/packs/<band>.toml` | Data (Appendix C) |
 | `share/hyprland/L{1,2,3}.lua`, `share/hyprland/band-*.lua` | Root-owned level configs and band overlays (Appendix E) |
-| `share/tui/screens/*.toml`, `lib/tui.sh` | Screens as data, one renderer (R-WIZ-9, Appendix A) |
+| `lib/tui.sh` | One screen renderer over gum, called from `lib/wizard-screens.sh`'s own per-screen functions (R-WIZ-9, Appendix A) |
 | `share/policy/*.json` | Chromium policy templates (R-WEB-2, R-WEB-3) |
 | `share/avatars/*.svg` | Twelve CC0 animals (Q18) |
 | `share/menu/*.jsonc` | Trimmed-menu extension for Levels 1 and 2 (R-DESK-4) |

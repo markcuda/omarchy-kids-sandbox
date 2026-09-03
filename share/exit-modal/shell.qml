@@ -119,8 +119,11 @@ PanelWindow {
 
     // --- Pause availability (I-6: never offer a control that isn't
     //     enforced -- docs/phase1/V1.md, DECISIONS-NEEDED.md: Pause has
-    //     no working mechanism yet on stock Omarchy 4.0.2) -------------
-    property bool pauseAvailable: Quickshell.env("OMARCHY_KIDS_PAUSE_AVAILABLE") === "1"
+    //     no working mechanism yet on stock Omarchy 4.0.2). Hardcoded
+    //     false, not read from the environment (review §6): a kid's own
+    //     session env is theirs to set, so an env-var gate here would be
+    //     a control a kid could enable themselves.
+    property bool pauseAvailable: false
 
     // 0 = Pause, 1 = Finish. Pause is preselected per R-EXIT-1 even
     // though it's disabled -- the highlight communicates "this would be

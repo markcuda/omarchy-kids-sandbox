@@ -153,7 +153,6 @@ queue_has_pkg() {
   grep -qxF "$pkgname" "$QUEUE_FILE" 2>/dev/null
 }
 
-mkdir -p "$RUN"
 TILES_FILE="$(mktemp)"
 trap 'rm -f "$TILES_FILE"' EXIT
 

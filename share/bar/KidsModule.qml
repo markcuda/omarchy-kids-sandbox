@@ -67,9 +67,10 @@ Panel {
 
     // --- external commands, every path overridable for tests/dev ----------
     readonly property string statusPath: Quickshell.env("OMARCHY_KIDS_STATUS_JSON") || "/run/omarchy-kids/status.json"
-    readonly property string askBin: Quickshell.env("OMARCHY_KIDS_ASK_BIN") || "omarchy-kids-ask"
-    readonly property string barCtlBin: Quickshell.env("OMARCHY_KIDS_BAR_BIN") || "omarchy-kids-bar"
-    readonly property string kidsBin: Quickshell.env("OMARCHY_KIDS_BIN") || "omarchy-kids"
+    // Absolute, and not from the environment (AGENTS.md rule 9, review S12).
+    readonly property string askBin: "/usr/bin/omarchy-kids-ask"
+    readonly property string barCtlBin: "/usr/bin/omarchy-kids-bar"
+    readonly property string kidsBin: "/usr/bin/omarchy-kids"
     // How many more minutes one click grants (bin/omarchy-kids-time grant
     // takes any positive integer; this is just this menu's one-click amount).
     readonly property int grantMinutes: 15

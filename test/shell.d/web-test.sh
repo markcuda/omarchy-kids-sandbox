@@ -4,14 +4,17 @@
 #
 # Self-contained: OMARCHY_KIDS_SHARE points at a scratch copy of this
 # repo's real share/bands/ and share/policy/ (same convention
-# test/shell.d/conf-test.sh already uses -- real data, scratch paths),
-# and OMARCHY_KIDS_ROOT points "install" at a scratch tree, never the
-# real /etc (AGENTS.md rule 8).
+# test/shell.d/conf-test.sh already uses -- real data, scratch paths).
+# The /etc prefix is not an env var any more: R-WEB-4's fail-closed check
+# reads it, and a kid must not be able to point a fence check at a tree
+# they own (review §3.8). It is a build-time constant, substituted into a
+# copy of the command the way PKGBUILD substitutes one at package time.
 # shellcheck disable=SC2015 # "A && B || C" below is always used with B, C that can't fail
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$DIR/bin/omarchy-kids-web"
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+BIN=""   # a substituted copy in the scratch tree, set up below
 SESSION_START="$DIR/bin/omarchy-kids-session-start"
 
 if ! command -v jq >/dev/null 2>&1; then
@@ -37,6 +40,21 @@ cp "$DIR"/share/policy/lists/*.txt "$SHARE/policy/lists/"
 cp "$DIR/share/policy/chromium-flags.conf" "$SHARE/policy/"
 
 export OMARCHY_KIDS_SHARE="$SHARE"
+
+STUBS="$TMP/stubs"
+mkdir -p "$STUBS"
+kids_tree "$TMP/tree" "$DIR"
+BIN="$TMP/tree/bin/omarchy-kids-web"
+
+# `launch` resolves the band from the caller's own profile (`id -un`),
+# never $OMARCHY_KIDS_BAND: the band decides which managed policy must be
+# live before Chromium starts (review §3.8).
+ETC_LAUNCH="$TMP/etc-launch"
+mkdir -p "$ETC_LAUNCH/kids"
+printf 'name=Ada\navatar=fox\nband=6-8\n' >"$ETC_LAUNCH/kids/kid-ada.conf"
+printf 'name=Bo\navatar=fox\nband=9-12\n' >"$ETC_LAUNCH/kids/kid-bo.conf"
+kids_id_stub "$STUBS" kid-ada "$(id -u)"
+export PATH="$STUBS:$PATH"
 
 fail=0
 check() { # got want label
@@ -142,7 +160,7 @@ check_contains "$out" "unknown band" "render with an unknown band: names the rea
 
 SYSROOT="$TMP/sysroot"
 mkdir -p "$SYSROOT"
-export OMARCHY_KIDS_ROOT="$SYSROOT"
+kids_set_const "$BIN" SYSROOT "$SYSROOT"
 
 POLICY_FILE="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-6-8.json"
 
@@ -193,23 +211,24 @@ EXPECTED_LAUNCH_ARGV=(
 )
 expected_joined="$(printf '%s\n' "${EXPECTED_LAUNCH_ARGV[@]}")"
 
-argv_out="$(OMARCHY_KIDS_BAND=6-8 OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"; st=$?
+argv_out="$(OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"; st=$?
 check_status "$st" 0 "launch: exits 0"
 check "$argv_out" "$expected_joined" "launch: exact exec argv, no URL"
 check_not_contains "$argv_out" "--load-extension" "launch: never --load-extension (issue #44)"
 
-argv_out_url="$(OMARCHY_KIDS_BAND=6-8 OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch https://pbskids.org 2>&1)"; st=$?
+argv_out_url="$(OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch https://pbskids.org 2>&1)"; st=$?
 check_status "$st" 0 "launch URL: exits 0"
 check "$argv_out_url" "$expected_joined"$'\n'"https://pbskids.org" "launch URL: exact exec argv with the URL appended last"
 
-out="$(OMARCHY_KIDS_BAND=9-12 OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"; st=$?
+out="$(KIDS_TEST_ACCOUNT=kid-bo OMARCHY_KIDS_ETC="$ETC_LAUNCH" OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"; st=$?
 check_status "$st" 1 "launch: refuses when the band's policy isn't installed (exit 1)"
 check_contains "$out" "R-WEB-4" "launch: refusal cites R-WEB-4"
 
-out="$(OMARCHY_KIDS_BAND=6-8 OMARCHY_KIDS_WEB_NO_EXEC=1 OMARCHY_KIDS_CHROMIUM_BIN=/opt/chromium "$BIN" launch 2>&1 | head -1)"
-check "$out" "/opt/chromium" "launch: OMARCHY_KIDS_CHROMIUM_BIN overrides the exec'd binary"
-
-unset OMARCHY_KIDS_ROOT
+# The browser this execs is a constant, not an override: a kid's session
+# must not be able to name the program that opens with their policy.
+grep -q '^    local chromium_bin=/usr/lib/chromium/chromium$' "$DIR/bin/omarchy-kids-web" \
+  && echo "ok   launch: the Chromium path is a hardcoded constant, not an env override" \
+  || { echo "FAIL launch: the Chromium path is no longer a hardcoded constant"; fail=1; }
 
 # =====================================================================
 # --help

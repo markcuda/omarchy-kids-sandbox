@@ -5,11 +5,11 @@
 # See docs/ask.md for the outbox/queue design and every judgment call.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
-PY="${OMARCHY_KIDS_CONF_PY:-python3}"
+PY="$KIDS_PY"
 ASKPY="$LIB/ask.py"
 CONF_BIN="$(kids_bin conf "$DIR")"
 WEB_BIN="$(kids_bin web "$DIR")"
@@ -25,7 +25,9 @@ QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
 OUTBOX_DIR="$RUN/ask-outbox"
 MODAL_QML="$SHARE/ask/shell.qml"
 MODAL_PIDFILE="$RUN/ask-modal.pid"
-AUTH_SOCK="${OMARCHY_KIDS_AUTH_SOCK:-/run/omarchy-kids/auth.sock}"
+# The verifier socket is a constant: a kid may not point a password
+# check anywhere (AGENTS.md, "The trust boundary"; review S4/§2.1).
+AUTH_SOCK=/run/omarchy-kids/auth.sock
 UID_MAP="${OMARCHY_KIDS_UID_MAP:-}"
 
 # shellcheck source=lib/sock.sh
@@ -34,6 +36,10 @@ source "$LIB/sock.sh"
 DRY_RUN="${DRY_RUN:-1}"
 
 VALID_KINDS=(time app plugin site)
+
+# is_known_kid_here ACCOUNT — lib/kids.sh's is_known_kid against this
+# command's own $KIDS_DIR.
+is_known_kid_here() { is_known_kid "$1" "$KIDS_DIR"; }
 
 die() { echo "omarchy-kids-ask: $1" >&2; exit "${2:-2}"; }
 
@@ -103,7 +109,8 @@ open_modal() {
         exit 0
     fi
 
-    export OMARCHY_KIDS_ACCOUNT="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    OMARCHY_KIDS_ACCOUNT="$(id -un)"
+    export OMARCHY_KIDS_ACCOUNT
     export OMARCHY_KIDS_ASK_KIND="$kind"
     export OMARCHY_KIDS_ASK_WHAT="$what"
     export OMARCHY_KIDS_ASK_DESC="$desc"
@@ -164,7 +171,7 @@ cmd_submit() {
     local KIND WHAT MINUTES
     parse_request_args submit "$@"
 
-    local account; account="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    local account; account="$(id -un)"
     install -d -m 0700 "$OUTBOX_DIR"
 
     local -a args=("write" "$OUTBOX_DIR" --kid "$account" --kind "$KIND" --what "$WHAT")
@@ -183,7 +190,7 @@ cmd_grant() {
     local KIND WHAT MINUTES
     parse_request_args grant "$@"
 
-    local account; account="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    local account; account="$(id -un)"
     local password; IFS= read -r password || true
 
     local json
@@ -309,7 +316,6 @@ outbox_owner() {
     printf '%s\n' "${entry%%:*}"
 }
 
-is_known_kid() { [[ -f "$KIDS_DIR/$1.conf" ]]; }
 
 cmd_collect() {
     while (($#)); do
@@ -334,7 +340,7 @@ cmd_collect() {
             echo "omarchy-kids-ask: collect: no account owns $dir; skipped" >&2
             continue
         }
-        if ! is_known_kid "$owner"; then
+        if ! is_known_kid_here "$owner"; then
             echo "omarchy-kids-ask: collect: '$owner' is not a provisioned kid; $dir skipped" >&2
             continue
         fi
@@ -397,17 +403,15 @@ cmd_apply_grant() {
             *) die "apply-grant: unknown argument '$1'" ;;
         esac
     done
-    # Root, or pointed at a scratch tree (OMARCHY_KIDS_ROOT, the same
-    # override every other path here takes). Not a bypass: with a scratch
-    # root nothing real is written, and the grant decision was never this
-    # command's to make -- omarchy-kids-authd made it before calling.
-    [[ "${EUID:-$(id -u)}" == "0" || -n "$SYSROOT" ]] \
-        || die "apply-grant: root only (it is omarchy-kids-authd's callback, not a user command)"
+    # Root, full stop. A scratch root used to satisfy this check too,
+    # which made $OMARCHY_KIDS_ROOT -- a variable a kid's session owns --
+    # the thing that decided whether a root check happened (review §3.6).
+    is_root || die "apply-grant: root only (it is omarchy-kids-authd's callback, not a user command)"
     [[ "$apply_flag" == 1 ]] && DRY_RUN=0
 
     "$PY" "$ASKPY" validate --kid "$kid" --kind "$kind" --what "$what" \
         ${minutes:+--minutes "$minutes"} || die "apply-grant: refused"
-    is_known_kid "$kid" || die "apply-grant: '$kid' is not a provisioned kid account"
+    is_known_kid_here "$kid" || die "apply-grant: '$kid' is not a provisioned kid account"
 
     install -d -m 0755 "$QUEUE_DIR"
     local name

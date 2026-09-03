@@ -193,6 +193,32 @@ else
     fail "parent-auth's TEST_SOCKET_ROOT is not empty in the committed file (review S4)"
 fi
 
+# --- the build-time constants, and only those (AGENTS.md, "The trust
+#     boundary"): the committed files carry the checkout's value, and
+#     PKGBUILD rewrites the one that has to be absolute in a package.
+if grep -qx 'KIDS_PY=python3' "$ROOT/lib/kids.sh"; then
+    pass "lib/kids.sh ships the checkout's KIDS_PY (PATH-resolved python3)"
+else
+    fail "lib/kids.sh's KIDS_PY is no longer the checkout constant"
+fi
+if grep -q "s|\^KIDS_PY=python3\$|KIDS_PY=/usr/bin/python3|" "$PKGBUILD"; then
+    pass "package() bakes the absolute interpreter path into the installed lib/kids.sh"
+else
+    fail "PKGBUILD no longer substitutes KIDS_PY at package time"
+fi
+if grep -qx 'SYSROOT=""' "$ROOT/bin/omarchy-kids-web"; then
+    pass "omarchy-kids-web ships with an empty build-time sysroot (R-WEB-4 reads the real /etc)"
+else
+    fail "omarchy-kids-web's SYSROOT is not empty in the committed file (review §3.8)"
+fi
+
+# --- review §6: the tui demo is not a user command ------------------------
+if grep -q 'rm -f "\$pkgdir/usr/bin/omarchy-kids-tui-demo"' "$PKGBUILD"; then
+    pass "package() does not ship omarchy-kids-tui-demo to /usr/bin"
+else
+    fail "PKGBUILD still ships omarchy-kids-tui-demo (review §6)"
+fi
+
 # --- review §1.5: the app entry marks itself as a human launch ------------
 if grep -q 'Exec=env OMARCHY_KIDS_LAUNCHED_BY=desktop omarchy-kids' "$ROOT/desktop/omarchy-kids.desktop"; then
     pass "desktop entry marks itself so the panel and wizard run for real"

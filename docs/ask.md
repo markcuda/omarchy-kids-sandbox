@@ -170,7 +170,6 @@ hand, the wizard, or the pacman hook (R-TRUST-5) — is enough to make sure it's
 | `OMARCHY_KIDS_RUN` | `$XDG_RUNTIME_DIR/omarchy-kids`, else `/tmp/omarchy-kids` | kid-side outbox root |
 | `OMARCHY_KIDS_RUN_USER_ROOT` | `/run/user` | root-side: where `collect` looks for every kid's own outbox |
 | `OMARCHY_KIDS_ACCOUNT` | `id -un` | kid-side: this session's account |
-| `OMARCHY_KIDS_CONF_BIN`, `OMARCHY_KIDS_WEB_BIN` | resolved beside this script, else `/usr/bin/...` | same convention as every other command here |
 | `DRY_RUN` | `1` | gates `collect`/`approve`/`decline`; `submit` and the kid-side commands are never gated (they only ever touch the kid's own runtime dir) |
 
 ## What's unverified — check in the VM
@@ -310,15 +309,6 @@ omarchy-kids-apps and omarchy-kids-web:
                           (default /run/user, i.e. every logged-in
                           kid's real $XDG_RUNTIME_DIR)
   OMARCHY_KIDS_ACCOUNT    kid-side: this session's account (default `id -un`)
-  OMARCHY_KIDS_CONF_BIN   path to omarchy-kids-conf (default: resolved
-                          beside this script, else /usr/bin/omarchy-kids-conf)
-  OMARCHY_KIDS_WEB_BIN    path to omarchy-kids-web (same resolution)
-  OMARCHY_KIDS_AUTH_SOCK  `grant`'s root socket, default
-                          /run/omarchy-kids/auth.sock. Pointing this
-                          somewhere else grants nothing -- the socket
-                          on the other end is what decides -- so unlike
-                          bin/omarchy-kids-parent-auth this one is not
-                          root-gated.
   OMARCHY_KIDS_UID_MAP    test-only: a file of "uid:account" lines used
                           instead of `getent passwd` when `collect`
                           resolves who owned an outbox. Read from
@@ -330,3 +320,13 @@ omarchy-kids-apps and omarchy-kids-web:
                           are never gated by DRY_RUN (same reasoning as
                           bin/omarchy-kids-super-tap).
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

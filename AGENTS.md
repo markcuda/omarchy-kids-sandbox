@@ -25,13 +25,30 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
    packages. Use drop-ins, hooks, session entries, themes, policy folders, our package.
 8. **Never run `--apply`, `provision`, or anything that writes under `/etc` on a development
    machine.** Real runs happen on the test laptop or in a VM. `DRY_RUN=1` is the default for
-   every non-interactive command — `provision`, `assert`, `web`, `apps`, `remove` — and for every
-   non-interactive *caller*. The two interactive commands are the exception: `omarchy-kids`,
+   every non-interactive command — `provision`, `web`, `apps`, `remove` — and for every
+   non-interactive *caller*. `omarchy-kids-assert` is the documented exception: it defaults to
+   `DRY_RUN=0` because `pacman/omarchy-kids.hook` runs it after every transaction to re-assert
+   the locks (R-TRUST-5), and a lock that only previews its own repair is not a lock. Use
+   `--dry-run` to see what it would do. The two interactive commands are the exception: `omarchy-kids`,
    `omarchy-kids-panel` and `omarchy-kids-wizard` default to a **real** run when a human is
    driving them (a tty, or `desktop/omarchy-kids.desktop`, which sets `OMARCHY_KIDS_LAUNCHED_BY`),
    because the screen the parent confirms is the confirmation. With no tty — a test, a script,
    CI — they still default to `DRY_RUN=1`, and `--dry-run` always forces the preview.
-9. **Nothing about a real child.** No names, ages, photos, or transcripts in code, tests, docs,
+9. **The trust boundary: no environment variable, and nothing a kid can write, selects which
+   code runs or whether a root check happens.** Every `bin/omarchy-kids-*` resolves `lib/` and
+   its sibling commands from its own resolved location (`readlink -f "$0"`) or the installed
+   prefix — never `$OMARCHY_KIDS_LIB`, never a `*_BIN`, `*_PY` or socket-path override. Root
+   checks go through `lib/kids.sh`'s `is_root` and read nothing but `id -u`. Which account a
+   command is, is `id -un`; which account it may act for is SO_PEERCRED or `id -u`. A value a
+   kid can write (their outbox, their runtime log) is validated at read time — types, ranges,
+   allowlists — and root opens a kid-owned path with `O_NOFOLLOW` plus a regular-file and owner
+   check, never through the shell. The one relocation seam is a build-time constant the PKGBUILD
+   rewrites (`KIDS_PY`, `TEST_SOCKET_ROOT`, `omarchy-kids-web`'s `SYSROOT`); tests substitute it
+   into a copy, or run the checkout, and never export a new override. `test/shell.d/trust-boundary-test.sh`
+   enforces all of this and carries the allowlist of the data settings that stay
+   (`OMARCHY_KIDS_TUI_ANSWERS`, `DRY_RUN`, the scratch-tree prefixes), one line of why each.
+
+10. **Nothing about a real child.** No names, ages, photos, or transcripts in code, tests, docs,
    fixtures, or commit messages. Fixtures use `kid-ada` with band `6-8` and nothing else.
 
 ## Layout
@@ -50,8 +67,8 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
 | `share/qml/KidsTheme.qml`, `lib/theme.sh` | Per-theme colors/font, one resolver for QML and one for shell (docs/theming.md) |
 | `initcpio/` | The early-boot hook and its install script (R-BOOT) |
 | `systemd/` | Units and timers |
-| `polkit/`, `sudoers/` | Drop-ins written by `omarchy-kids-provision` and `omarchy-kids-assert` (kept as templates here) |
-| `test/shell.d/*-test.sh` | One test file per command, Omarchy's `test/shell.d` style; `test/all` runs them |
+| `lib/posture.sh` | The polkit rules and sudoers drop-ins, as quoted heredocs — the writers *are* the templates. (There are no `polkit/`, `sudoers/` directories: they held two `.gitkeep` files and nothing else.) |
+| `test/shell.d/*-test.sh` | One test file per command, Omarchy's `test/shell.d` style; `test/all` runs them. `trust-boundary-test.sh` is the cross-cutting one (rule 9); `tree.sh` (not a test) builds the scratch command tree a stub is placed in |
 | `test/acceptance.d/` | VM-only tests (spec §8) |
 | `docs/phase1/V*.md` | Results of the Phase 1 checks, one file each |
 | `PKGBUILD`, `omarchy-kids.install` | The package and its post_install/post_upgrade/post_remove scriptlet; file paths in spec §5.1, walked in `docs/packaging.md` |

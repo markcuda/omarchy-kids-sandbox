@@ -92,11 +92,11 @@ PanelWindow {
         // getting (I-6: the button says "ask", not "get"), so the
         // countdown and the screen both keep going while whatever
         // omarchy-kids-time ask-grownup does happens in the background.
-        Quickshell.execDetached(["omarchy-kids-time", "ask-grownup"])
+        Quickshell.execDetached(["/usr/bin/omarchy-kids-time", "ask-grownup"])
     }
 
     function doFinish() {
-        Quickshell.execDetached(["omarchy-kids-exit", "--finish"])
+        Quickshell.execDetached(["/usr/bin/omarchy-kids-exit", "--finish"])
         Qt.quit()
     }
 

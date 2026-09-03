@@ -5,8 +5,8 @@
 # See docs/session.md for the check list and every env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
@@ -16,7 +16,7 @@ ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 RUN_DIR="${OMARCHY_KIDS_RUN_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-kids}"
-HYPRLAND_BIN="${OMARCHY_KIDS_HYPRLAND_BIN:-Hyprland}"
+HYPRLAND_BIN=/usr/bin/Hyprland
 
 HYPRLAND_DIR="$ETC/hyprland"
 KIDS_DIR="$ETC/kids"
@@ -47,7 +47,7 @@ exits 1 -- fail closed (I-4, I-9). \$HOME/.config/hypr is never read
 
 Env (see this script's header comment for the full list):
   OMARCHY_KIDS_ETC, OMARCHY_KIDS_SHARE, OMARCHY_KIDS_ROOT,
-  OMARCHY_KIDS_RUN_DIR, OMARCHY_KIDS_HYPRLAND_BIN
+  OMARCHY_KIDS_RUN_DIR
 EOF
 }
 
@@ -75,7 +75,7 @@ log() {
 
 # --- the account and its profile ------------------------------------------
 
-ACCOUNT="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+ACCOUNT="$(id -un)"
 PROFILE="$KIDS_DIR/$ACCOUNT.conf"
 
 LEVEL=""

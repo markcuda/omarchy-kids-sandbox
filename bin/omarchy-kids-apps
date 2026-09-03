@@ -5,12 +5,12 @@
 # (SPEC.md R-APPS-2..6, Appendix C; I-1, I-6). See docs/apps.md for every subcommand and env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-PY="${OMARCHY_KIDS_CONF_PY:-python3}"
+PY="$KIDS_PY"
 PYHELPER="$LIB/conf.py"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
@@ -25,7 +25,6 @@ HIDE_MARKER="X-OmarchyKidsHideFromMine=true"
 
 DRY_RUN="${DRY_RUN:-1}"
 
-VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 
 die() { echo "omarchy-kids-apps: $1" >&2; exit "${2:-2}"; }
 
@@ -80,7 +79,6 @@ is_in() { # is_in NEEDLE HAYSTACK...
     return 1
 }
 
-is_valid_band() { is_in "$1" "${VALID_BANDS[@]}"; }
 
 # pkg_resolves PKG — true if PKG is a real target in the sync db right
 # now (`pacman -Si`); catches a mismarked pack entry or a mirror that's

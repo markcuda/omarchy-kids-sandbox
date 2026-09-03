@@ -27,7 +27,9 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$ROOT_DIR/bin/omarchy-kids-panel"
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+BIN=""  # a copy in a scratch tree: the panel resolves every sibling
+        # command beside itself now, so the fakes are placed there.
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "SKIP panel-test.sh: python3 not found (needed by omarchy-kids-conf/-ask)"
@@ -63,6 +65,14 @@ mkdir -p "$ETC/kids" "$SHARE/bands" "$SHARE/packs" "$SHARE/avatars" "$STUBS" "$Q
 cp "$ROOT_DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$ROOT_DIR"/share/packs/*.toml "$SHARE/packs/"
 : >"$ARGV_LOG"
+
+# The panel under test lives in a scratch tree so the spies below can sit
+# beside it; the first section runs against a plain copy, with no fakes.
+kids_tree "$TMP/tree" "$ROOT_DIR"
+BIN="$TMP/tree/bin/omarchy-kids-panel"
+# The commands the panel prints are resolved from its own `readlink -f`,
+# so the expected paths are the resolved ones (on macOS /var is a symlink).
+TREE_BIN="$(cd "$TMP/tree/bin" && pwd -P)"
 
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada
@@ -100,28 +110,28 @@ export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" OMARCHY_KIDS_ROOT="$R
 answers="$(answers_file "kid:kid-ada" time grant 15 back back quit)"
 run_panel "$answers" --dry-run
 check_status "$PANEL_STATUS" 0 "dry-run grant exits 0"
-check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-time grant kid-ada 15" \
+check_contains "$out" "sudo $TREE_BIN/omarchy-kids-time grant kid-ada 15" \
     "dry-run: 'give more minutes' prints the exact grant command"
 
 answers="$(answers_file "kid:kid-ada" time budget 45 back back quit)"
 run_panel "$answers"
-check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-conf set kid-ada budget_min 45" \
+check_contains "$out" "sudo $TREE_BIN/omarchy-kids-conf set kid-ada budget_min 45" \
     "dry-run: changing the budget prints the exact conf-set command"
 
 answers="$(answers_file "kid:kid-ada" apps gcompris back back quit)"
 run_panel "$answers"
-check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-apps hide kid-ada gcompris" \
+check_contains "$out" "sudo $TREE_BIN/omarchy-kids-apps hide kid-ada gcompris" \
     "dry-run: hiding an app prints the exact hide command"
 
 # issue #53: the Desktop screen's two rows, level and theme.
 answers="$(answers_file "kid:kid-ada" desktop level 2 back back quit)"
 run_panel "$answers"
-check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-conf set kid-ada level 2" \
+check_contains "$out" "sudo $TREE_BIN/omarchy-kids-conf set kid-ada level 2" \
     "dry-run: Desktop -> Desktop level prints the exact conf-set command"
 
 answers="$(answers_file "kid:kid-ada" desktop theme catppuccin-latte back back quit)"
 run_panel "$answers"
-check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-conf set kid-ada theme catppuccin-latte" \
+check_contains "$out" "sudo $TREE_BIN/omarchy-kids-conf set kid-ada theme catppuccin-latte" \
     "dry-run: Desktop -> Theme prints the exact conf-set command"
 
 answers="$(answers_file "kid:kid-ada" remove NotAda back quit)"
@@ -132,7 +142,7 @@ check_contains "$out" "didn't match" "dry-run: a wrong confirmation name says so
 
 answers="$(answers_file "kid:kid-ada" remove Ada back quit)"
 run_panel "$answers"
-check_contains "$out" "sudo $ROOT_DIR/bin/omarchy-kids-provision remove kid-ada --apply" \
+check_contains "$out" "sudo $TREE_BIN/omarchy-kids-provision remove kid-ada --apply" \
     "dry-run: the right confirmation name prints the exact remove command"
 
 answers="$(answers_file quit)"
@@ -210,12 +220,11 @@ EOF
 chmod +x "$STUBS/omarchy-kids-provision"
 
 export PATH="$STUBS:$PATH"
-export OMARCHY_KIDS_CONF_BIN="$STUBS/omarchy-kids-conf"
-export OMARCHY_KIDS_TIME_BIN="$STUBS/omarchy-kids-time"
-export OMARCHY_KIDS_ASK_BIN="$STUBS/omarchy-kids-ask"
-export OMARCHY_KIDS_APPS_BIN="$STUBS/omarchy-kids-apps"
-export OMARCHY_KIDS_WEB_BIN="$STUBS/omarchy-kids-web"
-export OMARCHY_KIDS_PROVISION_BIN="$STUBS/omarchy-kids-provision"
+
+for fake in omarchy-kids-conf omarchy-kids-time omarchy-kids-ask \
+            omarchy-kids-apps omarchy-kids-web omarchy-kids-provision; do
+  [[ -f "$STUBS/$fake" ]] && cp "$STUBS/$fake" "$TMP/tree/bin/$fake"
+done
 
 # --- real: grant minutes ------------------------------------------------
 

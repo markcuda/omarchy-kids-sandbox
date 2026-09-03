@@ -5,9 +5,17 @@
 
 # --- Limine editor (V6): the menu editor and "Blank Entry" let anyone append init=/bin/bash ---
 limine_conf() { printf '%s/boot/limine.conf' "$(posture_root)"; }
+# Three-way, and "no Limine at all" is *ok*, not warn: returning 2 on
+# every GRUB or systemd-boot machine left `omarchy-kids-check` exiting 1
+# forever over a bootloader this package does not manage (review S11).
+# A box that *has* Limine but whose config cannot be read (an unmounted
+# /boot) is still 2 -- that one really is "could not look".
 limine_editor_ok() {
     local f; f="$(limine_conf)"
-    [[ -f "$f" ]] || return 2   # no Limine config here (not a Limine box, or /boot is not mounted)
+    if [[ ! -f "$f" ]]; then
+        command -v limine >/dev/null 2>&1 && return 2   # Limine is installed; /boot not mounted?
+        return 0                                        # not a Limine box: nothing to lock
+    fi
     grep -qE '^editor_enabled:[[:space:]]*no[[:space:]]*$' "$f"
 }
 limine_editor_fix() {
@@ -19,7 +27,11 @@ limine_editor_fix() {
     # temp-file-then-rename.
     tmp="$(mktemp "$(dirname "$f")/.limine.conf.XXXXXX")" || return 1
     # Drop any existing editor_enabled line, then put ours first so a regenerated file gets it back.
-    { printf 'editor_enabled: no\n'; grep -vE '^editor_enabled:' "$f"; } > "$tmp" || { rm -f "$tmp"; return 1; }
+    # `|| true` on the grep: a limine.conf whose only line is
+    # "editor_enabled: yes" makes grep -v exit 1 with no output, which used
+    # to delete the (correct) temp file and report FAIL forever (review §2.10).
+    { printf 'editor_enabled: no\n'; grep -vE '^editor_enabled:' "$f" || true; } > "$tmp" \
+        || { rm -f "$tmp"; return 1; }
     chmod --reference="$f" "$tmp" 2>/dev/null || chmod 0644 "$tmp"
     mv -f "$tmp" "$f"
 }

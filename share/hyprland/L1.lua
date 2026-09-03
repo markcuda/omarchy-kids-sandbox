@@ -45,9 +45,12 @@
 --   exactly the kind of home file I-3 says must never matter; bindings
 --   are built by hand below, per Appendix E, per R-DESK-1's "no
 --   defaults" framing for this level.
--- Root-owned config (I-3): search Omarchy's own module path only, never the kid's home.
--- Omarchy's user bootstrap.lua puts ~/.config and ~/.local/state first; a kid could shadow modules there.
-package.path = (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/?.lua;" .. package.path
+-- Root-owned config (I-3): a fixed module path -- not $OMARCHY_PATH, and
+-- not the inherited package.path (Omarchy's user bootstrap.lua puts
+-- ~/.config and ~/.local/state first). Both are set by the session this
+-- file exists to fence, so neither may choose what require() loads
+-- (review §3.5).
+package.path = "/usr/share/omarchy/?.lua;/usr/share/lua/5.4/?.lua;/usr/share/lua/5.4/?/init.lua"
 require("default.hypr.helpers")
 
 require("default.hypr.looknfeel")
@@ -147,10 +150,12 @@ end)
 -- Loaded by fixed, deployed path (R-DESK-1: this file always lives at
 -- /etc/omarchy-kids/hyprland/L1.lua) rather than a `require` search
 -- path, exactly like the real hyprland.lua entry file uses
--- `dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/...")`
--- for its own bootstrap -- `dofile` with a computed path is Omarchy's
--- own idiom for reaching a sibling file outside `require`.
-local HYPRLAND_DIR = os.getenv("OMARCHY_KIDS_HYPRLAND_DIR") or "/etc/omarchy-kids/hyprland"
+-- `dofile(... .. "/...")` for its own bootstrap -- `dofile` with a fixed
+-- path is Omarchy's own idiom for reaching a sibling file outside
+-- `require`.
+-- Fixed, not $OMARCHY_KIDS_HYPRLAND_DIR: dofile runs whatever it is
+-- handed, so the kid's environment must not choose the file (review §3.5).
+local HYPRLAND_DIR = "/etc/omarchy-kids/hyprland"
 local band = os.getenv("OMARCHY_KIDS_BAND")
 if band == "3-5" then
   dofile(HYPRLAND_DIR .. "/band-3-5.lua")

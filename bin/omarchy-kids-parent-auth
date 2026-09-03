@@ -5,12 +5,13 @@
 # it to the verifier socket, exits 0 on "ok" and 1 on anything else.
 #
 # This runs inside the kid's session (hyprlock's PAM stack, the exit modal),
-# so it trusts nothing from its own environment: the socket path is a
-# compiled-in constant unless the caller is already root (review S4).
+# so it reads nothing at all from its own environment -- not the socket
+# path, not lib/ (review S4, §2.1). Both are compiled-in constants; only
+# root may move the socket, and only with an argument.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/sock.sh
 source "$LIB/sock.sh"
 
@@ -37,10 +38,6 @@ socket_allowed() {
 }
 
 SOCK="$DEFAULT_SOCK"
-# The kid owns this environment, so the env var is honoured for root only.
-if is_root && [[ -n "${OMARCHY_KIDS_AUTH_SOCK:-}" ]]; then
-  SOCK="$OMARCHY_KIDS_AUTH_SOCK"
-fi
 
 while (($#)); do
   case "$1" in
@@ -60,8 +57,9 @@ Usage: omarchy-kids-parent-auth [--socket PATH]
 Reads one candidate password from stdin and asks omarchy-kids-authd
 whether it is the parent's. Exit 0 means yes.
 
---socket, and \$OMARCHY_KIDS_AUTH_SOCK, are honoured for root only: this
-command runs inside a session whose environment and PATH the kid owns.
+--socket is honoured for root only, and no environment variable is read
+at all: this command runs inside a session whose environment and PATH
+the kid owns (AGENTS.md, "The trust boundary").
 EOF
       exit 0
       ;;

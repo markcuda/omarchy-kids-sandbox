@@ -76,8 +76,6 @@ into them is that other work's job; this ticket only builds and tests the flag i
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `--install-configs`' source (`hyprland/*.lua`) |
 | `OMARCHY_KIDS_ROOT` | (empty — the real paths) | scratch prefix for the two system paths this doesn't own: `/etc/chromium/policies/managed` (check b) and `/etc/polkit-1/rules.d` (check c). Same convention `bin/omarchy-kids-provision` and `lib/posture.sh` already use for `/etc/polkit-1` et al. — see "Judgment calls" below |
 | `OMARCHY_KIDS_RUN_DIR` | `${XDG_RUNTIME_DIR:-/run/user/<uid>}/omarchy-kids` | where the per-session check log (`session-<uid>.log`) is written |
-| `OMARCHY_KIDS_HYPRLAND_BIN` | `Hyprland` | the compositor binary `exec`'d after every check passes — stub it in tests |
-| `OMARCHY_KIDS_CONF_BIN` | resolved beside this script, else `/usr/bin/omarchy-kids-conf` | how `level`/`band`/`web` are resolved (check a) |
 | `OMARCHY_KIDS_ASK_GROWNUP_BIN` | resolved beside this script, else `/usr/bin/omarchy-kids-ask-grownup` | what runs on the first fail-closed check |
 | `OMARCHY_KIDS_ACCOUNT` | `id -un` | which account's profile/checks run (test hook) |
 | `OMARCHY_KIDS_ASK_GROWNUP_SLEEP` | 15 | (on `omarchy-kids-ask-grownup`) seconds the message holds the screen before exiting — tests set this to 0 |
@@ -232,21 +230,6 @@ omarchy-kids-conf and docs/conf.md:
   OMARCHY_KIDS_APPLICATIONS_DIRS  colon-separated .desktop dirs to search
                                   for a pack app's launcher entry
                                   (default /usr/share/applications:/usr/local/share/applications)
-  OMARCHY_KIDS_APPS_BIN  path to omarchy-kids-apps, used to resolve the
-                                  effective allowlist (default: resolved
-                                  beside this script, else /usr/bin)
-  OMARCHY_KIDS_TIME_BIN  path to omarchy-kids-time, started detached
-                                  below for the R-TIME screen-time engine
-                                  (default: resolved beside this script,
-                                  else /usr/bin)
-  OMARCHY_KIDS_WEB_BIN   path to omarchy-kids-web, whose `launch`
-                                  command the Web tile's exec line runs
-                                  (R-WEB, issue #44; default: resolved
-                                  beside this script, else /usr/bin)
-  OMARCHY_KIDS_DATA_BIN  path to omarchy-kids-data, run from the
-                                  kids-data tile below (R-DATA-3, issue
-                                  #27; default: resolved beside this
-                                  script, else /usr/bin)
   OMARCHY_KIDS_SESSION_START_NO_EXEC=1  write the JSON, print the exec
                                   line that would run, and return 0
                                   instead of exec'ing it (test hook --
@@ -307,12 +290,34 @@ run entirely as a normal user against a scratch tree (AGENTS.md rule
                                 /run/user/<uid>/omarchy-kids) -- deliberately
                                 NOT /run/omarchy-kids, which is root-owned and
                                 this process is never root.
-  OMARCHY_KIDS_HYPRLAND_BIN      compositor binary to exec (default: Hyprland;
-                                stub it in tests)
-  OMARCHY_KIDS_CONF_BIN           path to omarchy-kids-conf (default: resolved
-                                beside this script, else /usr/bin)
   OMARCHY_KIDS_ASK_GROWNUP_BIN    path to omarchy-kids-ask-grownup (default:
                                 resolved beside this script, else /usr/bin)
   OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds omarchy-kids-ask-grownup sleeps for
                                 (default 15; tests set this to 0)
 ```
+
+## Level and band are outputs, not inputs (issue #58)
+
+`bin/omarchy-kids-session-start` used to prefer `$OMARCHY_KIDS_LEVEL` / `$OMARCHY_KIDS_BAND` over
+the root-owned profile, so a 13+ kid on Level 1 could run
+`OMARCHY_KIDS_LEVEL=2 omarchy-kids-session-start` from their terminal and get Omarchy's full shell
+and launcher inside their own session (review §3.4). Both now come from
+`omarchy-kids-conf get <account> <key>` unconditionally, and the account comes from `id -un`.
+
+`bin/omarchy-kids-session` execs `/usr/bin/Hyprland` (a constant, not `$OMARCHY_KIDS_HYPRLAND_BIN`
+and not a bare name resolved through the kid's own `PATH`, which a kid can set through
+`~/.config/environment.d/`). And `share/hyprland/L{1,2,3}.lua` set a fixed `package.path` instead
+of `(os.getenv("OMARCHY_PATH") or …) .. package.path`, and `dofile` the band overlay from a fixed
+`/etc/omarchy-kids/hyprland` — otherwise anything that seeded the session environment could make
+`require("default.hypr.helpers")` load kid-authored Lua at config-parse time, which is the whole
+Level 1 fence (review §3.5).
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

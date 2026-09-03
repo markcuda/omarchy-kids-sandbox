@@ -56,7 +56,14 @@ screen_requests() {
         while IFS=$'\t' read -r id kid kind what minutes asked_at; do
             [[ -z "$id" ]] && continue
             if [[ "$kind" == time ]]; then desc="$minutes more minute(s)"; else desc="$kind: $what"; fi
-            age="$(human_age $(($(date +%s) - asked_at)))"
+            # Never arithmetic on an unchecked field: bash evaluates the
+            # *contents* of a variable named inside $(( )) as an
+            # expression, and an array subscript there runs a command
+            # substitution. lib/ask.py validates this on both sides of
+            # the queue; the panel still refuses to trust it (review
+            # §2.4).
+            [[ "$asked_at" =~ ^[0-9]+$ ]] || asked_at=0
+            age="$(human_age "$(( $(date +%s) - asked_at ))")"
             choices+=("$id|$kid — $desc ($age)|")
         done <<<"$rows"
         choices+=("back|Back|")

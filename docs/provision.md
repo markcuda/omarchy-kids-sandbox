@@ -162,7 +162,6 @@ account being added or removed — never assuming a slot number that wasn't just
 | --- | --- | --- |
 | `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | profiles, `machine.conf`, `luks-slots` |
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `omarchy-kids-conf`'s bands/packs (passed through); the avatar SVG `posture_write_face_icon` copies from (issue #39) |
-| `OMARCHY_KIDS_LIB` | `lib/` beside `bin/`, else `/usr/lib/omarchy-kids` | where `lib/conf.sh`, `lib/posture.sh` are sourced from |
 | `OMARCHY_KIDS_ROOT` | (none — the real paths) | prefixes every path `lib/posture.sh` writes: `/etc/polkit-1`, `/etc/security`, `/etc/pam.d`, `/etc/fstab`, `/var/lib/AccountsService`, `/usr/share/sddm/themes/omarchy-kids` (`theme.conf.user`), `/usr/share/sddm/faces`; also passed to `systemctl --root=` for the console masks |
 | `OMARCHY_KIDS_HOME_ROOT` | (none — the real `/home`) | prefixes `/home/<account>` for every `mount`/`umount`/`mv` this command itself runs (**not** in the spec's original env list — added here; see "Judgment calls" below) |
 | `OMARCHY_KIDS_LUKS_DEVICE` | (none) | `remove`'s LUKS device, since it has no `--luks-device` flag |
@@ -287,7 +286,6 @@ Every path is overridable for tests, so test/shell.d/provision-test.sh
 runs entirely against scratch trees with a stub PATH:
   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (profiles, machine.conf, luks-slots)
   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids   (bands/packs, avatars source)
-  OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
   OMARCHY_KIDS_ROOT       scratch prefix for /etc/polkit-1, /etc/security,
                           /etc/pam.d, /etc/fstab, /var/lib/AccountsService,
                           /etc/sddm.conf.d (lib/posture.sh)
@@ -298,3 +296,13 @@ runs entirely against scratch trees with a stub PATH:
   OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS auto-detection for "remove",
                             which has no --luks-device flag of its own
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

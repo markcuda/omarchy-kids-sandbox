@@ -103,15 +103,18 @@ QUEUE_FILE="$ROOT/var/lib/omarchy-kids/apps-queue"
 mkdir -p "$(dirname "$QUEUE_FILE")"
 printf 'blinken\n' >"$QUEUE_FILE"
 
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+# `id -un` is how a command answers "which account am I?" now -- never
+# $OMARCHY_KIDS_ACCOUNT (review §3.7) -- so this test stubs `id` the way
+# it already stubs the rest of its world. The real uid is kept so every
+# per-uid path (launcher-<uid>.json) still resolves to one place.
+kids_id_stub "$STUBS" "$ACCOUNT" "$(id -u)"
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$ROOT"
 export OMARCHY_KIDS_RUN="$RUN"
 export OMARCHY_KIDS_APPLICATIONS_DIRS="$APPDIR"
-export OMARCHY_KIDS_ACCOUNT="$ACCOUNT"
-export OMARCHY_KIDS_LEVEL="1"
-export OMARCHY_KIDS_BAND="6-8"
 export OMARCHY_KIDS_SESSION_START_NO_EXEC="1"
 
 LAUNCHER_JSON="$RUN/launcher-$(id -u).json"

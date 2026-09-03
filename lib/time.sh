@@ -13,9 +13,10 @@
 
 TIME_SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 TIME_VARLIB="$TIME_SYSROOT/var/lib/omarchy-kids"
-TIME_CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-}"
-TIME_PY="${OMARCHY_KIDS_CONF_PY:-python3}"
-TIME_PYHELPER="${OMARCHY_KIDS_TIME_PY:-}"
+# Set by the sourcing command *after* it sources this file (never from
+# the environment): the omarchy-kids-conf it already resolved. Empty
+# means "resolve it beside this file", which time_conf does.
+TIME_CONF_BIN=""
 
 # time_now — prints "YYYY-MM-DD HH:MM:SS", local wall clock.
 time_now() {
@@ -40,10 +41,10 @@ time_minutes_since_midnight() {
 # time_logical_day NOW — prints "DAY\tWEEKEND" (DAY: YYYY-MM-DD; WEEKEND:
 # yes/no), via lib/time.py (day rolls at 04:00 local, R-TIME-2/Appendix F).
 time_logical_day() {
-    local now="$1" py="$TIME_PYHELPER" out
-    [[ -n "$py" ]] || py="$(dirname "${BASH_SOURCE[0]}")/time.py"
+    local now="$1" py out
+    py="$(dirname "${BASH_SOURCE[0]}")/time.py"
     [[ -f "$py" ]] || py=/usr/lib/omarchy-kids/time.py
-    out="$("$TIME_PY" "$py" logical-day "$now")" || return 1
+    out="$("${KIDS_PY:-python3}" "$py" logical-day "$now")" || return 1
     printf '%s\t%s\n' "$(sed -n '1p' <<<"$out")" "$(sed -n '2p' <<<"$out")"
 }
 

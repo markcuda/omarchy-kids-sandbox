@@ -8,7 +8,7 @@
 show_remove_kids_mode() {
     # Hands off to bin/omarchy-kids-remove (docs/remove.md), which prints its own plan and
     # asks its own confirmation; the panel's dry-run default is passed through.
-    local remove_bin="${OMARCHY_KIDS_REMOVE_BIN:-omarchy-kids-remove}"
+    local remove_bin="$REMOVE_BIN"
     echo
     echo "Remove Kids Mode reverses every lock, removes every kid account (their files are kept"
     echo "under your home in \"Kids Mode/<Name>\"), and offers a snapshot first. It asks again"

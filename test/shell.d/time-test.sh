@@ -101,12 +101,18 @@ exit 1
 EOF
 chmod +x "$STUBS/loginctl"
 
+# `id -un`/`id -u` are what decide "which kid am I?" and "am I root?"
+# now -- never $OMARCHY_KIDS_ACCOUNT or a *_REQUIRE_ROOT escape (review
+# §3.6/§3.7). The ledger tick and `grant` are root, so this suite claims
+# root through the same stub, per call.
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+kids_id_stub "$STUBS" kid-ada "$(id -u)"
+
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$ROOT"
-export OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT=0
-export OMARCHY_KIDS_TIME_REQUIRE_ROOT=0
+export KIDS_TEST_UID=0
 
 USAGE_DIR="$ROOT/var/lib/omarchy-kids/kid-ada/usage"
 
@@ -290,8 +296,8 @@ export OMARCHY_KIDS_NOW="2026-09-10 10:00:00"
 # skip this one assertion if the test suite itself happens to run as
 # root (AGENTS.md's own unshare/root convention).
 if [[ "$(id -u)" != "0" ]]; then
-  OMARCHY_KIDS_TIME_REQUIRE_ROOT=1 "$TIME" grant kid-ada 15 >/dev/null 2>&1
-  check "$?" 1 "grant: refuses to run without root (or the test bypass)"
+  KIDS_TEST_UID="$(command id -u)" "$TIME" grant kid-ada 15 >/dev/null 2>&1
+  check "$?" 1 "grant: refuses to run without root"
 fi
 
 out="$("$TIME" grant kid-ada 15 2>&1)"; st=$?
@@ -331,7 +337,6 @@ mkdir -p "$DAEMON_USAGE_DIR"
 DAEMON_RUN="$TMP/daemon-run"
 DAEMON_LOG="$DAEMON_RUN/session-$(id -u).log"
 export OMARCHY_KIDS_RUN="$DAEMON_RUN"
-export OMARCHY_KIDS_ACCOUNT="kid-ada"
 export XDG_SESSION_ID=1
 set_sessions "1 1000 kid-ada yes no"
 
@@ -360,7 +365,7 @@ check_contains "$log_out" "time's up shown for 'kid-ada'" "daemon: Time's Up fir
 check_not_contains "$log_out" "toast-check" "daemon: no toast-check logged once Time's Up has taken over"
 
 "$CONF" reset kid-ada >/dev/null
-unset XDG_SESSION_ID OMARCHY_KIDS_ACCOUNT
+unset XDG_SESSION_ID
 rm -rf "$DAEMON_RUN"
 set_sessions
 
@@ -379,7 +384,6 @@ chmod +x "$STUBS/omarchy-kids-ask-grownup"
 
 RUN_DIR="$TMP/run"
 export OMARCHY_KIDS_RUN="$RUN_DIR"
-export OMARCHY_KIDS_ACCOUNT="kid-ada"
 
 : >"$ARGV_LOG"
 "$TIME" ask-grownup >/dev/null 2>&1

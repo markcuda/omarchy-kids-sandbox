@@ -59,7 +59,11 @@ SHARE="$TMP/share"
 ROOT="$TMP/root"      # OMARCHY_KIDS_ROOT
 HOMES="$TMP/home"     # OMARCHY_KIDS_HOMES_BASE
 STUBS="$TMP/stubs"
-KID_UID=1500
+# The kid's uid is this test user's own: lib/data.py's fold step opens
+# the runtime log O_NOFOLLOW and refuses it unless the open descriptor is
+# a regular file owned by that kid (review §3.3), and the fixture files
+# are owned by whoever runs the suite.
+KID_UID="$(id -u)"
 
 mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$HOMES/kid-ada/.config/chromium/Default" "$STUBS"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
@@ -71,21 +75,13 @@ avatar=fox
 band=6-8
 EOF
 
-# --- stub `id` — data_kid_uid's only dependency, and require_root_or_self
-# falls back to `id -un` when OMARCHY_KIDS_ACCOUNT isn't set. -----------
-
-cat >"$STUBS/id" <<EOF
-#!/bin/bash
-if [[ "\$1" == "-u" ]]; then
-  case "\$2" in
-    kid-ada) echo $KID_UID ;;
-    *) exit 1 ;;
-  esac
-elif [[ "\$1" == "-un" ]]; then
-  echo "not-a-kid"
-fi
-EOF
-chmod +x "$STUBS/id"
+# --- stub `id` — data_kid_uid's only dependency, and the one thing that
+# now answers "which account am I?" for require_root_or_self and the root
+# gates (review §3.6/§3.7). Default: a caller who is neither root nor the
+# kid; $KIDS_TEST_ACCOUNT / $KIDS_TEST_UID name the two other callers.
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+kids_id_stub "$STUBS" kid-ada "$KID_UID"
+export KIDS_TEST_ACCOUNT="not-a-kid"
 
 # --- stub `loginctl` — no live sessions; the ledger's own tick logic is
 # test/shell.d/time-test.sh's job, this file only cares about the fold
@@ -103,8 +99,9 @@ export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$ROOT"
 export OMARCHY_KIDS_HOMES_BASE="$HOMES"
-export OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT=0
-export OMARCHY_KIDS_DATA_REQUIRE_ROOT=1   # the real gate -- most tests exercise it for real
+# Root is claimed through the `id` stub for the root-only steps (tick,
+# retention --apply); everything else runs as "not-a-kid" so the real
+# gate is exercised.
 
 RUNTIME_LOG="$ROOT/run/user/$KID_UID/omarchy-kids/launches.log"
 ROOT_LOG="$ROOT/var/lib/omarchy-kids/kid-ada/launches.log"
@@ -181,14 +178,14 @@ echo
 
 check_no_file "$ROOT_LOG" "before any tick: no root-owned launches.log yet"
 
-OMARCHY_KIDS_NOW="2026-09-02 09:06:00" "$LEDGER" tick >/dev/null
+OMARCHY_KIDS_NOW="2026-09-02 09:06:00" KIDS_TEST_UID=0 "$LEDGER" tick >/dev/null
 check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "2" "tick: folds both existing launches"
 
-OMARCHY_KIDS_NOW="2026-09-02 09:07:00" "$LEDGER" tick >/dev/null
+OMARCHY_KIDS_NOW="2026-09-02 09:07:00" KIDS_TEST_UID=0 "$LEDGER" tick >/dev/null
 check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "2" "tick: a second tick with nothing new folds nothing again (deduped by offset)"
 
 OMARCHY_KIDS_NOW="2026-09-02 09:08:00" "$LAUNCHER_CTL" log blinken
-OMARCHY_KIDS_NOW="2026-09-02 09:09:00" "$LEDGER" tick >/dev/null
+OMARCHY_KIDS_NOW="2026-09-02 09:09:00" KIDS_TEST_UID=0 "$LEDGER" tick >/dev/null
 check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "3" "tick: a third launch is folded on the next tick"
 check_contains "$(cat "$ROOT_LOG")" "blinken" "tick: the new line's content made it into the root log"
 
@@ -196,7 +193,7 @@ check_contains "$(cat "$ROOT_LOG")" "blinken" "tick: the new line's content made
 # not treat that as corruption, just start over from byte 0.
 : >"$RUNTIME_LOG"
 OMARCHY_KIDS_NOW="2026-09-02 10:00:00" "$LAUNCHER_CTL" log kanagram
-OMARCHY_KIDS_NOW="2026-09-02 10:01:00" "$LEDGER" tick >/dev/null
+OMARCHY_KIDS_NOW="2026-09-02 10:01:00" KIDS_TEST_UID=0 "$LEDGER" tick >/dev/null
 check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "4" "tick: a fresh (shrunk) runtime file after a new login still folds"
 check_contains "$(cat "$ROOT_LOG")" "kanagram" "tick: the post-relogin launch made it in"
 
@@ -211,7 +208,7 @@ check_contains "$(cat "$ROOT_LOG")" "kanagram" "tick: the post-relogin launch ma
 rm -f "$RUNTIME_LOG"
 OMARCHY_KIDS_NOW="2026-09-02 11:00:00" "$LAUNCHER_CTL" log supertuxkart
 OMARCHY_KIDS_NOW="2026-09-02 11:01:00" "$LAUNCHER_CTL" log gcompris
-OMARCHY_KIDS_NOW="2026-09-02 11:02:00" "$LEDGER" tick >/dev/null
+OMARCHY_KIDS_NOW="2026-09-02 11:02:00" KIDS_TEST_UID=0 "$LEDGER" tick >/dev/null
 check "$(wc -l <"$ROOT_LOG" | tr -d '[:space:]')" "6" "tick: a same-path re-login (new inode, not smaller) still folds from its own start"
 check_contains "$(cat "$ROOT_LOG")" "11:00:00 supertuxkart" "tick: the new session's first line is whole, not sliced off by the old offset"
 check_contains "$(cat "$ROOT_LOG")" "11:01:00 gcompris" "tick: the new session's second line made it in too"
@@ -222,21 +219,27 @@ echo
 # launches — reads the root-owned log
 # =========================================================================
 
-out="$("$DATA" launches kid-ada)"
+# The launch log is a record about a kid, for their parent: 0640
+# root:omarchy-parents, and `launches` is root-or-self, so a sibling
+# can't read it any more (review §3.7).
+"$DATA" launches kid-ada >/dev/null 2>&1
+check_status "$?" 1 "launches: refuses for a non-root, non-self caller"
+
+out="$(KIDS_TEST_UID=0 "$DATA" launches kid-ada)"
 check_contains "$out" "app launches" "launches: header line"
 check_contains "$out" "tuxpaint" "launches: shows tuxpaint"
 check_contains "$out" "kanagram" "launches: shows the most recent one too"
 
-out="$(OMARCHY_KIDS_NOW="2026-09-02 10:05:00" "$DATA" launches kid-ada --since 1)"
+out="$(KIDS_TEST_UID=0 OMARCHY_KIDS_NOW="2026-09-02 10:05:00" "$DATA" launches kid-ada --since 1)"
 check_contains "$out" "kanagram" "launches --since 1: still shows today's launch"
 
-out="$(OMARCHY_KIDS_NOW="2026-09-10 10:05:00" "$DATA" launches kid-ada --since 1)"
+out="$(KIDS_TEST_UID=0 OMARCHY_KIDS_NOW="2026-09-10 10:05:00" "$DATA" launches kid-ada --since 1)"
 check_contains "$out" "No app launches recorded" "launches --since 1: nothing in the last day, a week later"
 
-"$DATA" launches kid-ada --since abc >/dev/null 2>&1
+KIDS_TEST_UID=0 "$DATA" launches kid-ada --since abc >/dev/null 2>&1
 check_status "$?" 2 "launches --since: rejects a non-numeric value"
 
-out="$("$DATA" launches kid-nobody)"
+out="$(KIDS_TEST_UID=0 "$DATA" launches kid-nobody)"
 check_contains "$out" "No app launches recorded" "launches: an unknown kid just reads as empty, not an error"
 
 echo
@@ -248,13 +251,13 @@ echo
 HISTORY="$HOMES/kid-ada/.config/chromium/Default/History"
 make_history "$HISTORY"
 
-out="$(OMARCHY_KIDS_ACCOUNT=kid-ada "$DATA" sites kid-ada)"
+out="$(KIDS_TEST_ACCOUNT=kid-ada "$DATA" sites kid-ada)"
 check_contains "$out" "sites visited" "sites: header line (running as the kid needs no root)"
 check_contains "$out" "wikipedia.org" "sites: shows wikipedia.org"
 check_contains "$out" "3 visits" "sites: shows the visit count"
 check_contains "$out" "example.com" "sites: shows the old page too, with no --since"
 
-out="$(OMARCHY_KIDS_ACCOUNT=kid-ada OMARCHY_KIDS_NOW="2026-09-02 10:00:00" "$DATA" sites kid-ada --since 30)"
+out="$(KIDS_TEST_ACCOUNT=kid-ada OMARCHY_KIDS_NOW="2026-09-02 10:00:00" "$DATA" sites kid-ada --since 30)"
 check_contains "$out" "wikipedia.org" "sites --since 30: recent visits still show"
 check_not_contains "$out" "example.com" "sites --since 30: the year-old visit is filtered out"
 
@@ -263,8 +266,8 @@ check_status "$?" 1 "sites: refuses for a non-root, non-self caller"
 out="$("$DATA" sites kid-ada 2>&1 >/dev/null)"
 check_contains "$out" "needs root" "sites: explains why it refused"
 
-out="$(OMARCHY_KIDS_DATA_REQUIRE_ROOT=0 "$DATA" sites kid-ada)"
-check_contains "$out" "wikipedia.org" "sites: the root bypass (test convention) reads it too"
+out="$(KIDS_TEST_UID=0 "$DATA" sites kid-ada)"
+check_contains "$out" "wikipedia.org" "sites: root reads it too"
 
 echo
 
@@ -291,7 +294,7 @@ mkdir -p "$USAGE_DIR"
 echo 23 >"$USAGE_DIR/2026-09-01"
 echo 5 >"$USAGE_DIR/2026-09-02"
 
-out="$(OMARCHY_KIDS_ACCOUNT=kid-ada OMARCHY_KIDS_NOW="2026-09-02 10:00:00" "$DATA" summary kid-ada)"
+out="$(KIDS_TEST_ACCOUNT=kid-ada OMARCHY_KIDS_NOW="2026-09-02 10:00:00" "$DATA" summary kid-ada)"
 check_contains "$out" "today (2026-09-02)" "summary: today's date"
 check_contains "$out" "minutes used: 5" "summary: today's minutes"
 check_contains "$out" "top apps:" "summary: top apps section present"
@@ -299,7 +302,7 @@ check_contains "$out" "gcompris" "summary: gcompris shows among today's top apps
 check_contains "$out" "top sites:" "summary: top sites section present (running as the kid)"
 check_contains "$out" "wikipedia.org" "summary: wikipedia.org among today's top sites"
 
-out="$(OMARCHY_KIDS_ACCOUNT=kid-ada OMARCHY_KIDS_NOW="2026-09-02 10:00:00" "$DATA" summary kid-ada --week)"
+out="$(KIDS_TEST_ACCOUNT=kid-ada OMARCHY_KIDS_NOW="2026-09-02 10:00:00" "$DATA" summary kid-ada --week)"
 check_contains "$out" "minutes per day (last 7 days)" "summary --week: header"
 check_contains "$out" "2026-09-01: 23 min" "summary --week: yesterday's minutes"
 check_contains "$out" "2026-09-02: 5 min" "summary --week: today's minutes"
@@ -321,7 +324,7 @@ echo
 # mine — K5, "What my grown-ups can see"
 # =========================================================================
 
-out="$(OMARCHY_KIDS_ACCOUNT=kid-ada OMARCHY_KIDS_NOW="2026-09-02 10:00:00" "$DATA" mine)"
+out="$(KIDS_TEST_ACCOUNT=kid-ada OMARCHY_KIDS_NOW="2026-09-02 10:00:00" "$DATA" mine)"
 check_contains "$out" "What my grown-ups can see" "mine: title"
 check_contains "$out" "1 year" "mine: states the minutes retention"
 check_contains "$out" "90 days" "mine: states the launches retention"
@@ -332,7 +335,7 @@ check_contains "$out" "minutes used: 5" "mine: last day's summary shows real min
 check_contains "$out" "Nothing you type" "mine: R-DATA-2's never-list, in plain words"
 
 "$CONF" set kid-ada history_visible no >/dev/null
-out="$(OMARCHY_KIDS_ACCOUNT=kid-ada "$DATA" mine)"
+out="$(KIDS_TEST_ACCOUNT=kid-ada "$DATA" mine)"
 check_contains "$out" "turned OFF website history" "mine: says plainly when history is off (R-DATA-4)"
 check_not_contains "$out" "websites you visit. Kept" "mine: doesn't claim to show history when it's off"
 "$CONF" set kid-ada history_visible yes >/dev/null
@@ -359,9 +362,9 @@ echo '{"kid":"kid-ada"}' >"$QUEUE_DIR/${OLD_TS}-kid-ada-time.json"
 echo '{"kid":"kid-ada"}' >"$QUEUE_DIR/${NEW_TS}-kid-ada-time.json"
 
 "$DATA" retention >/dev/null 2>&1
-check_status "$?" 1 "retention: refuses without root (or the test bypass)"
+check_status "$?" 1 "retention: refuses without root"
 
-export OMARCHY_KIDS_DATA_REQUIRE_ROOT=0
+export KIDS_TEST_UID=0   # the rest of this section is the root-only retention path
 NOW="2026-09-02 10:00:00"
 
 out="$(OMARCHY_KIDS_NOW="$NOW" "$DATA" retention)"

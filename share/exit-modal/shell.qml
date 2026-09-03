@@ -125,10 +125,11 @@ PanelWindow {
     //     a control a kid could enable themselves.
     property bool pauseAvailable: false
 
-    // 0 = Pause, 1 = Finish. Pause is preselected per R-EXIT-1 even
-    // though it's disabled -- the highlight communicates "this would be
-    // the default, once it exists", not "this works".
-    property int selectedAction: 0
+    // 0 = Pause, 1 = Finish. Finish is preselected while Pause is
+    // unavailable: preselecting a control that refuses is exactly the
+    // "honest UI" rule read backwards (I-6, review §6/§3.13). R-EXIT-1's
+    // "Pause is the default" applies once Pause has a mechanism.
+    property int selectedAction: root.pauseAvailable ? 0 : 1
 
     // --- Password / verification state -----------------------------------
     property bool locked: false

@@ -20,7 +20,9 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$ROOT_DIR/bin/omarchy-kids-ask"
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+BIN=""  # a copy in a scratch tree: omarchy-kids-conf / -web are resolved
+        # beside it now, so their stubs are placed there, not exported.
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "SKIP ask-test.sh: python3 not found"
@@ -101,13 +103,23 @@ esac
 '
 stub omarchy-kids-web ''
 
+kids_tree "$TMP/tree" "$ROOT_DIR"
+BIN="$TMP/tree/bin/omarchy-kids-ask"
+cp "$STUBS/omarchy-kids-conf" "$STUBS/omarchy-kids-web" "$TMP/tree/bin/"
+
+# The verifier socket is a constant now: point this copy at one that will
+# never exist, so the suite can never reach a real daemon.
+kids_set_const "$BIN" AUTH_SOCK "$TMP/no.sock"
+
+# `id -un`, not $OMARCHY_KIDS_ACCOUNT: which kid this is, is not settable
+# from the environment any more (review §3.7).
+kids_id_stub "$STUBS" kid-ada 1000
+
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_ROOT="$VARLIB_ROOT"
 export OMARCHY_KIDS_RUN_USER_ROOT="$RUN_USER_ROOT"
-export OMARCHY_KIDS_CONF_BIN="$STUBS/omarchy-kids-conf"
-export OMARCHY_KIDS_WEB_BIN="$STUBS/omarchy-kids-web"
 export OMARCHY_KIDS_UID_MAP="$UID_MAP"
 
 argv_since() { tail -n "+$(( $1 + 1 ))" "$LOG"; }
@@ -124,7 +136,7 @@ argv_lines() { wc -l < "$LOG" | tr -d ' '; }
 # Kid-side: time/app/plugin/site open the modal with kid-words env
 # =====================================================================
 
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
     "$BIN" time 15 >/dev/null 2>&1
 argv="$(cat "$LOG")"
 check_contains "$argv" "quickshell -p $SHARE/ask/shell.qml" "time: execs quickshell with the ask modal path"
@@ -142,7 +154,7 @@ EOF
 chmod +x "$STUBS/quickshell"
 
 ENV_DUMP="$TMP/env-dump"
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
     OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" time 15 >/dev/null 2>&1
 env_out="$(cat "$ENV_DUMP" 2>/dev/null || true)"
 check_contains "$env_out" "OMARCHY_KIDS_ACCOUNT=kid-ada" "time: exports OMARCHY_KIDS_ACCOUNT"
@@ -152,21 +164,21 @@ check_contains "$env_out" "OMARCHY_KIDS_ASK_MINUTES=15" "time: exports minutes=1
 check_contains "$env_out" "15 more minute" "time: description is in kid words"
 
 : > "$ENV_DUMP"
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
     OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" app "minecraft" >/dev/null 2>&1
 env_out="$(cat "$ENV_DUMP" 2>/dev/null || true)"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_KIND=app" "app: exports kind=app"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_WHAT=minecraft" "app: exports what=minecraft"
 
 : > "$ENV_DUMP"
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
     OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" site "roblox.com" >/dev/null 2>&1
 env_out="$(cat "$ENV_DUMP" 2>/dev/null || true)"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_KIND=site" "site: exports kind=site"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_WHAT=roblox.com" "site: exports what=roblox.com"
 
 : > "$ENV_DUMP"
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
     OMARCHY_KIDS_TEST_ENV_DUMP="$ENV_DUMP" "$BIN" plugin "weather-widget" >/dev/null 2>&1
 env_out="$(cat "$ENV_DUMP" 2>/dev/null || true)"
 check_contains "$env_out" "OMARCHY_KIDS_ASK_KIND=plugin" "plugin: exports kind=plugin"
@@ -188,7 +200,7 @@ MODAL_RUN="$TMP/kid-runtime"
 mkdir -p "$MODAL_RUN"
 printf '999999\n' > "$MODAL_RUN/ask-modal.pid"
 before="$(argv_lines)"
-OMARCHY_KIDS_RUN="$MODAL_RUN" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+OMARCHY_KIDS_RUN="$MODAL_RUN" \
     "$BIN" time 5 >/dev/null 2>&1
 if grep -qE '^quickshell ' < <(argv_since "$before"); then
     pass "time: a stale modal pidfile never blocks the modal"
@@ -198,7 +210,7 @@ fi
 rm -f "$MODAL_RUN/ask-modal.pid"
 
 before="$(argv_lines)"
-OMARCHY_KIDS_RUN="$MODAL_RUN" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+OMARCHY_KIDS_RUN="$MODAL_RUN" \
     "$BIN" time 5 >/dev/null 2>&1; st=$?
 check_eq "$st" 0 "time: opening the modal exits 0"
 [[ -s "$MODAL_RUN/ask-modal.pid" ]] && pass "time: the modal records its own pid" \
@@ -211,7 +223,7 @@ rm -rf "$MODAL_RUN"
 
 OUTBOX_ADA="$RUN_USER_ROOT/1000/omarchy-kids/ask-outbox"
 
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
     "$BIN" submit time 20 --minutes 20 >/dev/null
 files=("$OUTBOX_ADA"/*-kid-ada-time.json)
 check_eq "${#files[@]}" 1 "submit (open): writes exactly one record"
@@ -224,7 +236,7 @@ rm -f "$rec"
 
 # --- review S1: `submit` has no way to write a decision at all -----------
 
-OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
     "$BIN" submit app firefox >/dev/null
 files=("$OUTBOX_ADA"/*-kid-ada-app.json)
 check_eq "${#files[@]}" 1 "submit: writes exactly one record"
@@ -235,7 +247,7 @@ check_contains "$(cat "$rec")" '"what": "firefox"' "submit: what=firefox"
 rm -f "$rec"
 
 for bad in --state --by; do
-    OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" OMARCHY_KIDS_ACCOUNT="kid-ada" \
+    OMARCHY_KIDS_RUN="$RUN_USER_ROOT/1000/omarchy-kids" \
         "$BIN" submit app firefox "$bad" approved >/dev/null 2>&1
     check_eq "$?" 2 "submit: $bad is not an argument this command has (review S1)"
 done
@@ -361,6 +373,13 @@ check_contains "$out2" "0 request(s) collected" "collect --apply: idempotent onc
 rm -f "$QUEUE_DIR"/*.json          # a clean queue for the sections below
 rm -rf "$ETC/kids/kid-bo"
 
+# apply-grant is root-only, with no environment escape any more: a
+# scratch root used to satisfy that check too (review §3.6). The `id`
+# stub is how this suite claims root, the same way it claims to be a kid.
+"$BIN" apply-grant --kid kid-ada --kind app --what minecraft --apply >/dev/null 2>&1
+check_eq "$?" 2 "apply-grant: refuses a non-root caller even with a scratch root"
+export KIDS_TEST_UID=0
+
 before="$(argv_lines)"
 "$BIN" apply-grant --kid kid-ada --kind app --what minecraft --apply >/dev/null
 after_argv="$(argv_since "$before")"
@@ -391,10 +410,12 @@ done
 
 # --- omarchy-kids-time missing: degrades, never fails ---------------------
 
-rm -f "$STUBS/omarchy-kids-time"
+rm -f "$STUBS/omarchy-kids-time" "$TMP/tree/bin/omarchy-kids-time"
 err="$("$BIN" apply-grant --kid kid-ada --kind time --what 5 --minutes 5 --apply 2>&1 >/dev/null)"
 check_contains "$err" "omarchy-kids-time isn't installed yet" \
     "apply-grant: names the missing command and degrades gracefully"
+
+unset KIDS_TEST_UID
 
 # =====================================================================
 # grant: the kid-side client refuses a bad request before it is sent
@@ -404,12 +425,12 @@ check_contains "$err" "omarchy-kids-time isn't installed yet" \
 # at the connect. A malformed one must fail earlier, without ever putting
 # the typed password on a socket.
 
-out="$(printf 'hunter2\n' | OMARCHY_KIDS_ACCOUNT="kid-ada" OMARCHY_KIDS_AUTH_SOCK="$TMP/no.sock" \
+out="$(printf 'hunter2\n' | \
     "$BIN" grant site "../../etc/passwd" 2>&1)"; st=$?
 check_eq "$st" 2 "grant: a path-like host is refused before anything is sent"
 check_contains "$out" "rejected before it was sent" "grant: says the request never left the session"
 
-out="$(printf 'hunter2\n' | OMARCHY_KIDS_ACCOUNT="kid-ada" OMARCHY_KIDS_AUTH_SOCK="$TMP/no.sock" \
+out="$(printf 'hunter2\n' | \
     "$BIN" grant app minecraft 2>&1)"; st=$?
 check_eq "$st" 1 "grant: no verifier reachable means no grant"
 check_not_contains "$out" "hunter2" "grant: the typed password is never echoed"
@@ -549,6 +570,6 @@ echo "ask-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc
 
 # --- grant time <n>: the minutes travel in <what> (seen live: rejected before it was sent) ---
-out="$(printf 'pw\n' | OMARCHY_KIDS_AUTH_SOCK="$SCRATCH/no-such.sock" "$BIN" grant time 7 2>&1)"; st=$?
+out="$(printf 'pw\n' | "$BIN" grant time 7 2>&1)"; st=$?
 check_not_contains "$out" "rejected before it was sent" "grant time 7 carries minutes into the request"
 [[ $st -ne 0 ]] && pass "grant time 7 fails only on the missing verifier" || fail "grant time 7 should not succeed without a verifier"

@@ -7,8 +7,8 @@
 # See docs/panel.md for --requests and every other flag.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 WIZARD_BIN="$(kids_bin wizard "$DIR")"

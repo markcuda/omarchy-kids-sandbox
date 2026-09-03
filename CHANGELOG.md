@@ -46,6 +46,32 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 - `omarchy-provision-user` failing inside `omarchy-kids-provision add` is a warning with a
   migrations fallback, not a failed add (no offline Node tarball in the VM)
 
+### Security (round-two review, #58)
+
+- **One trust boundary, enforced by a test.** No environment variable, and nothing a kid can
+  write, selects which code runs or whether a root check happens. `$OMARCHY_KIDS_LIB` (read by all
+  21 commands, including the `pam_exec` verifier — a kid could source their own `sock.sh` and
+  unlock the screen with any password), every `*_BIN`/`*_PY` override, both socket paths, and the
+  four `*_REQUIRE_ROOT` escapes are gone. `test/shell.d/trust-boundary-test.sh` walks `bin/` and
+  `lib/` and fails on a new one; `AGENTS.md` rule 9 states the rule.
+- A kid-written `asked_at` no longer reaches bash arithmetic in the parent's panel: `lib/ask.py`
+  validates it on both sides of the queue, and `lib/panel-requests.sh` refuses a non-integer.
+- Root no longer follows a kid-controlled path: `lib/data.py`'s `fold-launches` opens the kid's
+  runtime log `O_NOFOLLOW` and checks the open descriptor (regular file, owned by that kid), and
+  the root-owned `launches.log` is 0640 root:`omarchy-parents`, not world-readable.
+- `lib/posture.sh`'s name guard aborts the write and reports FAIL instead of silently installing
+  an empty polkit admin rule (which made every admin action ask for *root*'s password).
+- `omarchy-kids-time` tracks its overlays by pidfile, not `pgrep -f`, so a kid cannot wedge
+  lights-out shut with a decoy process.
+- `omarchy-kids-wifid` applies R-WIFI-2's DNS lockdown *before* activating a connection, validates
+  the SSID and password, puts `--` before every client value, and deletes the profile on any
+  failure. `omarchy-kids-wifi portal` is removed: a kid could never have run it.
+- `omarchy-kids-authd` caps concurrent client threads, so a kid cannot loop connections until the
+  verifier dies.
+- `README.md`'s "What works today" now says which of those controls are advisory (lights-out for
+  bands with a terminal; the exit modal's password), and `test/live/05-unit-tests-on-vm.sh` runs
+  `test/all` on the VM so the password-verifier and SO_PEERCRED tests actually execute.
+
 ### Known gaps
 
 See `docs/phase1/DECISIONS-NEEDED.md` and `docs/phase1/BLOCKED.md` for what still needs a human

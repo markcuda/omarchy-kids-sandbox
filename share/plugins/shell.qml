@@ -69,8 +69,9 @@ PanelWindow {
     // --- Inputs (bin/omarchy-kids-session-start sets OMARCHY_KIDS_BAND
     //     on the tile's own exec line) -----------------------------------
     property string band: Quickshell.env("OMARCHY_KIDS_BAND") || ""
-    property string pluginsBin: Quickshell.env("OMARCHY_KIDS_PLUGINS_BIN") || "omarchy-kids-plugins"
-    property string askBin: Quickshell.env("OMARCHY_KIDS_ASK_BIN") || "omarchy-kids-ask"
+    readonly property string pluginsBin: "/usr/bin/omarchy-kids-plugins"
+    // Absolute, and not from the environment (AGENTS.md rule 9, review S12).
+    readonly property string askBin: "/usr/bin/omarchy-kids-ask"
 
     // --- Shelf data: `omarchy-kids-plugins shelf --json [--band ...]`,
     //     the same verified-Kids-only filter the panel's own screen

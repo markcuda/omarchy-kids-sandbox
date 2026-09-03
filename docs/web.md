@@ -250,11 +250,6 @@ omarchy-kids-provision and omarchy-kids-session:
                         (default empty, the real path -- same var
                         bin/omarchy-kids-session and lib/posture.sh use
                         for the system paths this package doesn't own)
-  OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf, used to read each
-                        band's `web` mode from share/bands/bands.toml
-                        and (for `launch`) a kid's own band
-                        (default: resolved beside this script, else
-                        /usr/bin)
   OMARCHY_KIDS_ACCOUNT   `launch`: the kid account to resolve a band
                         for when $OMARCHY_KIDS_BAND isn't set (default:
                         this process's own user)
@@ -262,11 +257,33 @@ omarchy-kids-provision and omarchy-kids-session:
                         `omarchy-kids-conf` lookup (set by the Web
                         tile's own exec line, same as the "more-apps"
                         tile sets it for bin/omarchy-kids-session-start)
-  OMARCHY_KIDS_CHROMIUM_BIN  `launch`: the real Chromium binary to exec
-                        (default /usr/lib/chromium/chromium)
   OMARCHY_KIDS_WEB_NO_EXEC=1  `launch`: print the argv that would be
                         exec'd, one argument per line, and return 0
                         instead of exec'ing it (test hook, same
                         convention as bin/omarchy-kids-session-start's
                         OMARCHY_KIDS_SESSION_START_NO_EXEC)
 ```
+
+## `launch`'s fail-closed check reads the real `/etc` (issue #58)
+
+`cmd_launch` refuses to start Chromium unless `/etc/chromium/policies/managed/omarchy-kids-<band>.json`
+is readable (R-WEB-4), and it resolves `<band>` from the caller's own profile (`id -un`, then
+`omarchy-kids-conf get <account> band`). Neither is an environment read any more: `$OMARCHY_KIDS_ROOT`
+used to prefix that path and `$OMARCHY_KIDS_BAND` used to supply the band, so a kid could point a
+fence check at a tree they owned, or name a band whose policy happened to exist (review §3.8). The
+managed policy itself still applied — this was a broken *check*, not a broken fence — but the check
+is what the session and the Web tile rely on.
+
+The prefix is now `SYSROOT`, a build-time constant that is empty in every shipped copy
+(`test/shell.d/pkgbuild-test.sh` asserts it). `test/shell.d/web-test.sh` substitutes its scratch
+root into a copy, the same seam `bin/omarchy-kids-parent-auth`'s `TEST_SOCKET_ROOT` uses.
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

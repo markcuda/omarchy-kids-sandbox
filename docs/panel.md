@@ -211,20 +211,7 @@ at a thin spy that logs its own argv and then runs the real thing):
   OMARCHY_KIDS_ROOT           scratch prefix for /var/lib/omarchy-kids
                               (the ask queue), same convention as
                               bin/omarchy-kids-ask and -time
-  OMARCHY_KIDS_LIB            lib/ beside bin/, else /usr/lib/omarchy-kids
-                              (this reads lib/ask.py directly for the
-                              Requests screen -- see "Reading the
-                              queue" below)
-  OMARCHY_KIDS_CONF_PY        python3 interpreter (default: python3)
-  OMARCHY_KIDS_CONF_BIN       path to omarchy-kids-conf (default: sibling, else PATH)
-  OMARCHY_KIDS_TIME_BIN       path to omarchy-kids-time (default: sibling, else PATH)
   OMARCHY_KIDS_ASK_BIN        path to omarchy-kids-ask (default: sibling, else PATH)
-  OMARCHY_KIDS_APPS_BIN       path to omarchy-kids-apps (default: sibling, else PATH)
-  OMARCHY_KIDS_PLUGINS_BIN    path to omarchy-kids-plugins (default: sibling, else PATH)
-  OMARCHY_KIDS_WEB_BIN        path to omarchy-kids-web (default: sibling, else PATH)
-  OMARCHY_KIDS_PROVISION_BIN  path to omarchy-kids-provision (default: sibling, else PATH)
-  OMARCHY_KIDS_WIZARD_BIN     path to omarchy-kids-wizard (default: sibling, else PATH)
-  OMARCHY_KIDS_DATA_BIN       path to omarchy-kids-data (default: sibling, else PATH)
   OMARCHY_KIDS_TUI_ANSWERS    one answer per line; see lib/tui.sh / docs/tui.md
   DRY_RUN                     default 0 for a human on a tty or the app
                               entry, 1 otherwise; --apply/--dry-run wins
@@ -261,3 +248,13 @@ interactive panel. So this stays a quick, honest summary instead of a
 deep link: omarchy-kids-ask list's own output, the same source of truth
 the panel's Requests screen reads.
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

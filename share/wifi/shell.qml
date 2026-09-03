@@ -206,11 +206,11 @@ PanelWindow {
         root.joining = true
         root.statusText = "Joining " + net.ssid + "…"
         if (root.needsPassword(net)) {
-            joinProcess.command = ["omarchy-kids-wifi", "join", net.ssid, "--password-stdin"]
+            joinProcess.command = ["/usr/bin/omarchy-kids-wifi", "join", net.ssid, "--password-stdin"]
             joinProcess.candidate = root.passwordText
             joinProcess.stdinEnabled = true
         } else {
-            joinProcess.command = ["omarchy-kids-wifi", "join", net.ssid]
+            joinProcess.command = ["/usr/bin/omarchy-kids-wifi", "join", net.ssid]
             joinProcess.stdinEnabled = false
         }
         joinProcess.running = true

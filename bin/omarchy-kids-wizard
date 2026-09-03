@@ -5,8 +5,8 @@
 # See docs/wizard.md for the full screen list, the answers-file format tests drive it with, and every env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/sock.sh
 source "$LIB/sock.sh"
 # shellcheck source=lib/conf.sh
@@ -34,10 +34,12 @@ WEB_BIN="$(kids_bin web "$DIR")"
 ASSERT_BIN="$(kids_bin assert "$DIR")"
 SESSION_BIN="$(kids_bin session "$DIR")"
 APPS_BIN="$(kids_bin apps "$DIR")"
-PY="${OMARCHY_KIDS_CONF_PY:-python3}"
+PY="$KIDS_PY"
 PYHELPER="$LIB/conf.py"
 
-AUTH_SOCK="${OMARCHY_KIDS_AUTH_SOCK:-/run/omarchy-kids/auth.sock}"
+# The verifier socket is a constant: a kid may not point a password
+# check anywhere (AGENTS.md, "The trust boundary"; review S4/§2.1).
+AUTH_SOCK=/run/omarchy-kids/auth.sock
 SETUP_LOG="${OMARCHY_KIDS_SETUP_LOG:-/var/log/omarchy-kids/setup.log}"
 MACHINE_CONF="$ETC/machine.conf"
 # The wizard itself runs unprivileged, as the parent -- so `id -un` here,
@@ -53,17 +55,12 @@ INVOKING_USER="${OMARCHY_KIDS_INVOKING_USER:-$(id -un 2>/dev/null || echo "${USE
 # Interactive: a human's own button press is the confirmation, so the
 # default is a real run (review §1.5). AGENTS.md rule 8's DRY_RUN=1
 # default still holds for every non-interactive caller (no tty).
-launched_by_a_human() {
-    [[ -n "${OMARCHY_KIDS_LAUNCHED_BY:-}" ]] && return 0   # the .desktop entry
-    [[ -t 0 && -t 1 ]]                                     # a terminal
-}
 if launched_by_a_human; then
     DRY_RUN="${DRY_RUN:-0}"
 else
     DRY_RUN="${DRY_RUN:-1}"
 fi
 
-VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 TOTAL_STEPS=15
 
 die() { echo "omarchy-kids-wizard: $1" >&2; exit "${2:-2}"; }
@@ -103,16 +100,11 @@ done
 
 # --- small helpers -----------------------------------------------------
 
-# band_field BAND KEY — one value out of `omarchy-kids-conf band <band>`'s
-# key=value lines (label, blurb, level, web, budget_min, lights_out,
-# terminal, password_min, password_optional, ...). Same shape as
-# bin/omarchy-kids-provision's own band_field; duplicated rather than
-# shared for the same reason that file gives for group_for_band: four to
-# a dozen stable lines, and provision is a script, not a library.
+# band_field BAND KEY — lib/kids.sh's kids_band_field, with this
+# command's own error message. The parsing lives there, once: it is the
+# `sed | head -1` that returned 141 under pipefail (review §2.7).
 band_field() {
-    local band="$1" key="$2" out
-    out="$("$CONF_BIN" band "$band")" || die "could not read band '$band' defaults from $CONF_BIN"
-    printf '%s\n' "$out" | sed -n "s/^${key}=//p" | head -1
+    kids_band_field "$CONF_BIN" "$@" || die "could not read band '$1' defaults from $CONF_BIN"
 }
 
 # pack_field BAND KEY — every value of a `key = "value"` line in that
@@ -289,20 +281,6 @@ validate_kid_password() {
     return 0
 }
 
-validate_budget_minutes() {
-    if [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= 1440)); then
-        return 0
-    fi
-    echo "A number of minutes, 1 to 1440."
-    return 1
-}
-
-validate_lights_out() {
-    [[ "$1" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] && return 0
-    echo "24-hour time, like 19:30."
-    return 1
-}
-
 # verify_parent_password_authd CANDIDATE — the same protocol
 # bin/omarchy-kids-parent-auth speaks to omarchy-kids-authd (docs/authd.md):
 # one line in, "ok"/"no" back, through lib/sock.sh's one client. A missing
@@ -353,15 +331,6 @@ verify_parent_password() {
         echo "omarchy-kids-wizard: omarchy-kids-authd socket not active ($AUTH_SOCK) — verifying the parent password via sudo instead" >&2
     fi
     verify_parent_password_sudo "$candidate"
-}
-
-friendly_web_mode() {
-    case "$1" in
-        none) echo "No browser" ;;
-        garden) echo "Only sites you choose" ;;
-        filtered) echo "Filtered open web" ;;
-        *) echo "$1" ;;
-    esac
 }
 
 friendly_wifi_mode() {

@@ -68,7 +68,9 @@ PanelWindow {
     property string what: Quickshell.env("OMARCHY_KIDS_ASK_WHAT") || ""
     property string desc: Quickshell.env("OMARCHY_KIDS_ASK_DESC") || "this"
     property string minutes: Quickshell.env("OMARCHY_KIDS_ASK_MINUTES") || ""
-    property string askBin: Quickshell.env("OMARCHY_KIDS_ASK_BIN") || "omarchy-kids-ask"
+    // Absolute, and not from the environment: this surface runs inside the
+    // kid's session (AGENTS.md rule 9, review S12).
+    readonly property string askBin: "/usr/bin/omarchy-kids-ask"
 
     // 0 = "A grown-up is here" (needs the password), 1 = "Ask later"
     // (doesn't). "A grown-up is here" is preselected: it's the answer

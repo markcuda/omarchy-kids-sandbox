@@ -40,7 +40,14 @@ license=('MIT')
 # bin/, which are genuinely optional and guarded. Any current Omarchy
 # install already carries it for the stock desktop's own bar/launcher,
 # but it is listed explicitly, same reasoning as qt6-svg above.
-depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg' 'networkmanager' 'quickshell')
+# hyprland and sddm are hard dependencies, not assumptions: the kid
+# session is a Hyprland session (bin/omarchy-kids-session execs
+# /usr/bin/Hyprland) and the portal is an SDDM theme (R-LOGIN). Omarchy
+# itself is installed by its own installer, not from a repo, so it cannot
+# be listed here -- share/hyprland/L*.lua require /usr/share/omarchy/...
+# and bin/omarchy-kids-session-start execs /usr/bin/omarchy-launch-shell,
+# both of which omarchy-kids-check reports on when they are missing.
+depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg' 'networkmanager' 'quickshell' 'hyprland' 'sddm')
 # snapper / limine-snapper-sync (R-TRUST-1, issue #38): both guarded with
 # `command -v` everywhere they're called (bin/omarchy-kids-assert,
 # -remove) -- the pre-apply snapshot and the hidden-snapshot-entries lock
@@ -62,12 +69,24 @@ package() {
 
 	# Commands (R-BUILD-4): every bin/omarchy-kids-* file, whatever exists
 	# today plus whatever lands later -- this glob needs no updating.
+	# omarchy-kids-tui-demo is deliberately not shipped: it is a
+	# screen-renderer demo for developing lib/tui.sh, not a user command.
 	install -dm755 "$pkgdir/usr/bin"
 	install -m755 bin/omarchy-kids bin/omarchy-kids-* "$pkgdir/usr/bin/"
+	rm -f "$pkgdir/usr/bin/omarchy-kids-tui-demo"
 
 	# Early-boot LUKS-unlock hook (R-BOOT).
 	install -dm755 "$pkgdir/usr/lib/omarchy-kids"
 	install -m644 lib/*.sh lib/*.py "$pkgdir/usr/lib/omarchy-kids/"
+
+	# The one build-time constant (AGENTS.md, "The trust boundary"): no
+	# shipped command reads a program, a library or a socket path from its
+	# environment, so the packaged copy has the interpreter's absolute path
+	# baked in here rather than resolving "python3" through $PATH.
+	sed -i 's|^KIDS_PY=python3$|KIDS_PY=/usr/bin/python3|' \
+		"$pkgdir/usr/lib/omarchy-kids/kids.sh"
+	grep -q '^KIDS_PY=/usr/bin/python3$' "$pkgdir/usr/lib/omarchy-kids/kids.sh" \
+		|| { echo "PKGBUILD: KIDS_PY substitution failed" >&2; return 1; }
 	install -dm755 "$pkgdir/usr/lib/initcpio/hooks" "$pkgdir/usr/lib/initcpio/install"
 	install -m755 initcpio/hooks/* "$pkgdir/usr/lib/initcpio/hooks/"
 	install -m755 initcpio/install/* "$pkgdir/usr/lib/initcpio/install/"

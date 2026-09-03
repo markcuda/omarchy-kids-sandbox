@@ -7,8 +7,8 @@
 # every env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/tui.sh
 source "$LIB/tui.sh"
 # shellcheck source=lib/kids.sh
@@ -16,7 +16,7 @@ source "$LIB/kids.sh"
 # theme_list_installed (issue #53): screen_kid_theme's own picker.
 # shellcheck source=lib/theme.sh
 source "$LIB/theme.sh"
-PY="${OMARCHY_KIDS_CONF_PY:-python3}"
+PY="$KIDS_PY"
 ASK_PY="$LIB/ask.py"
 
 CONF_BIN="$(kids_bin conf "$DIR")"
@@ -28,6 +28,7 @@ WEB_BIN="$(kids_bin web "$DIR")"
 PROVISION_BIN="$(kids_bin provision "$DIR")"
 WIZARD_BIN="$(kids_bin wizard "$DIR")"
 DATA_BIN="$(kids_bin data "$DIR")"
+REMOVE_BIN="$(kids_bin remove "$DIR")"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
@@ -43,10 +44,6 @@ QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
 # (provision, assert, web, apps, remove) and for every non-interactive
 # caller of this one: a test, a script or CI has no tty and gets a preview
 # unless it asks otherwise. `--dry-run` is always available for review.
-launched_by_a_human() {
-    [[ -n "${OMARCHY_KIDS_LAUNCHED_BY:-}" ]] && return 0   # the .desktop entry
-    [[ -t 0 && -t 1 ]]                                     # a terminal
-}
 if launched_by_a_human; then
     DRY_RUN="${DRY_RUN:-0}"
 else
@@ -177,30 +174,9 @@ human_age() { # SECONDS -> "just now" / "Nm ago" / "Nh ago" / "Nd ago"
     fi
 }
 
-friendly_web_mode() {
-    case "$1" in
-        none) echo "No browser" ;;
-        garden) echo "Only sites you choose" ;;
-        filtered) echo "Filtered open web" ;;
-        *) echo "$1" ;;
-    esac
-}
-
 validate_positive_minutes() {
     [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1)) && return 0
     echo "A whole number of minutes, at least 1."
-    return 1
-}
-
-validate_budget_minutes() {
-    [[ "$1" =~ ^[0-9]+$ ]] && ((10#$1 >= 1 && 10#$1 <= 1440)) && return 0
-    echo "A number of minutes, 1 to 1440."
-    return 1
-}
-
-validate_lights_out() {
-    [[ "$1" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] && return 0
-    echo "24-hour time, like 19:30."
     return 1
 }
 

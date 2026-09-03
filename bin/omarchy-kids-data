@@ -5,20 +5,19 @@
 # Read-only except retention, which prunes. See docs/data.md for what's recorded, where, and for how long.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-export OMARCHY_KIDS_CONF_BIN="$CONF_BIN" OMARCHY_KIDS_TIME_PY="$LIB/time.py" OMARCHY_KIDS_DATA_PY="$LIB/data.py"
 # shellcheck source=lib/time.sh
 source "$LIB/time.sh"
+TIME_CONF_BIN="$CONF_BIN"
 # shellcheck source=lib/data.sh
 source "$LIB/data.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
-REQUIRE_ROOT="${OMARCHY_KIDS_DATA_REQUIRE_ROOT:-1}"
 
 die() { echo "omarchy-kids-data: $1" >&2; exit "${2:-2}"; }
 
@@ -49,17 +48,15 @@ EOF
 
 # --- small helpers ---------------------------------------------------------
 
-# require_root_or_self KID — 0 if this process may read KID's own
-# Chromium profile: it's root, or it *is* KID (a kid reading their own
-# history needs no elevation — only reaching into another account's
-# home does). OMARCHY_KIDS_DATA_REQUIRE_ROOT=0 bypasses this for tests,
-# same convention as OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT.
+# require_root_or_self KID — 0 if this process may read what has been
+# recorded about KID: it's root, or it *is* KID (a kid reading their own
+# record needs no elevation — only reaching into another account's does).
+# The account comes from `id -un`, never from the environment: this is an
+# authorization decision (review §3.7).
 require_root_or_self() {
-    local kid="$1" me
-    [[ "$REQUIRE_ROOT" == "0" ]] && return 0
-    [[ "$(id -u)" == "0" ]] && return 0
-    me="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
-    [[ "$me" == "$kid" ]] && return 0
+    local kid="$1"
+    is_root && return 0
+    [[ "$(id -un)" == "$kid" ]] && return 0
     return 1
 }
 
@@ -87,6 +84,8 @@ plural() { [[ "$1" == 1 ]] && printf '' || printf 's'; } # N -> "" or "s"
 
 cmd_launches() {
     local kid="$1"; shift
+    require_root_or_self "$kid" \
+        || die "launches: '$kid' is not you, and this is not root (R-DATA-1)" 1
     local since=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -241,7 +240,7 @@ cmd_summary() {
 # --- mine (K5, "What my grown-ups can see") ------------------------------------
 
 cmd_mine() {
-    local kid; kid="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    local kid; kid="$(id -un)"
     local hv; hv="$(data_history_visible "$kid" "$CONF_BIN")"
 
     echo "What my grown-ups can see"
@@ -344,7 +343,7 @@ cmd_retention() {
             *) die "retention: unknown argument '$1'" ;;
         esac
     done
-    if [[ "$REQUIRE_ROOT" != "0" && "$(id -u)" != "0" ]]; then
+    if ! is_root; then
         die "retention must run as root (a daily timer, or a parent via sudo)" 1
     fi
 

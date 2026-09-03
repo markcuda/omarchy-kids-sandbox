@@ -70,8 +70,9 @@ suite never depends on the host's own clock or its `date` binary's flavor.
    first cut for the future parent-bar widget (R-BAR), not consumed by anything in this issue.
    Best-effort: a failure here (missing `jq`, an unwritable `/run`) never fails the tick itself.
 
-Requires root (`OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT=0` skips the check — a test hook, the same
-convention `grant`'s `OMARCHY_KIDS_TIME_REQUIRE_ROOT` below uses).
+Requires root, through `lib/kids.sh`'s `is_root`. There is no environment escape: nothing a kid
+can set may decide whether a root check happens (`AGENTS.md` rule 9). A test that has to be root
+stubs `id` (`test/shell.d/tree.sh`'s `kids_id_stub`, `$KIDS_TEST_UID=0`).
 
 **Resolution note:** SPEC.md R-TIME-1 says "30 s resolution". This ledger writes once a minute
 (matching the timer's own period) — the 30 s figure is met by `omarchy-kids-time daemon`'s own
@@ -99,7 +100,7 @@ next boundary: lights-out at 19:30
 `grant` adds to a *separate* `usage/<day>.grant` file, never subtracted from `usage/<day>` itself
 — "used" always means "used", and "budget" for the day is `budget_min(_weekend) + grant`
 (R-TIME-4: "'More time' extends today's budget only", i.e. just today's file, never tomorrow's).
-It refuses to run as anyone but root (`OMARCHY_KIDS_TIME_REQUIRE_ROOT=0` for tests) — nothing in
+It refuses to run as anyone but root, through `lib/kids.sh`'s `is_root` — nothing in
 this issue calls it from a kid session; it exists for a parent (or a future panel/bar widget,
 R-BAR-2) to run directly.
 
@@ -297,17 +298,12 @@ bin/omarchy-kids-session-start and lib/time.sh:
   OMARCHY_KIDS_ROOT     scratch prefix for /var/lib/omarchy-kids
   OMARCHY_KIDS_RUN      runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
   OMARCHY_KIDS_ACCOUNT  kid account (default: this process's own user)
-  OMARCHY_KIDS_CONF_BIN path to omarchy-kids-conf
-  OMARCHY_KIDS_LIB      lib/ beside bin/, else /usr/lib/omarchy-kids
   OMARCHY_KIDS_NOW      "YYYY-MM-DD HH:MM:SS" clock override (tests)
   OMARCHY_KIDS_TIME_POLL_INTERVAL  daemon's sleep, seconds (default 30)
   OMARCHY_KIDS_TIME_DAEMON_ONESHOT=1  run one daemon iteration and
                         return instead of looping forever (test hook)
   OMARCHY_KIDS_ASK_GROWNUP_MINUTES  minutes `ask-grownup` names
                         (default 15)
-  OMARCHY_KIDS_TIME_REQUIRE_ROOT=0  skip `grant`'s root check (test hook,
-                        same convention as omarchy-kids-time-ledger's
-                        OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT)
 ```
 
 ## Source header (moved from `bin/omarchy-kids-time-ledger`, issue #49)
@@ -353,12 +349,7 @@ bin/omarchy-kids-apps and lib/time.sh:
   OMARCHY_KIDS_ROOT    scratch prefix for /var/lib/omarchy-kids and
                        /run/omarchy-kids
   OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
-  OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf
-  OMARCHY_KIDS_LIB     lib/ beside bin/, else /usr/lib/omarchy-kids
   OMARCHY_KIDS_NOW     "YYYY-MM-DD HH:MM:SS" clock override (tests)
-  OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT=0  skip the EUID check (tests
-                       run as an ordinary user against a scratch
-                       OMARCHY_KIDS_ROOT; set by test/shell.d/time-test.sh)
   OMARCHY_KIDS_RUN_USER_BASE  lib/data.sh's launch-log fold source
                        (default /run/user; see that file's header)
 ```
@@ -404,6 +395,31 @@ Not meant to be executed directly; source it from a command:
 Every path below is overridable the same way bin/omarchy-kids-apps
 and bin/omarchy-kids-assert already are:
   OMARCHY_KIDS_ROOT  scratch prefix for /var/lib/omarchy-kids
-  OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf
-  OMARCHY_KIDS_CONF_PY / OMARCHY_KIDS_LIB  python3 and lib/time.py
 ```
+
+## The overlays are tracked by pidfile (issue #58)
+
+`show_toast`, `show_timesup` and `dismiss_timesup` used `pgrep -f "quickshell -p <path>"` and
+`pkill -f` on the same string. A kid with a terminal (bands 9-12 and 13+ ship one) could start any
+process whose argv contained that string — `exec -a "quickshell -p …/timesup.qml" sleep 99999` —
+and lights-out would think it was already on screen and never draw it (review §2.6).
+
+They now use `lib/kids.sh`'s `modal_already_open` / `modal_write_pid` / `modal_close`, the pidfile
+pair `omarchy-kids-exit` and `omarchy-kids-ask` already used: `$OMARCHY_KIDS_RUN/toast.pid` and
+`timesup.pid`, written by the daemon with the overlay's own pid, checked against
+`/proc/<pid>/comm`, and killed by pid rather than by argv match.
+
+Note what this does *not* fix: the overlay still runs in the kid's own session, so a kid who kills
+it (or never lets the daemon start) sees no Time's Up screen. Nothing root-side ends a session at
+lights-out yet — `README.md` says so under "What works today", and it stays advisory for bands
+with a terminal until the ledger does the terminating.
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

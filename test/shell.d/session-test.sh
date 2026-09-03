@@ -15,7 +15,9 @@
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$ROOT_DIR/bin/omarchy-kids-session"
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+BIN=""   # a copy in the scratch tree below; the compositor it execs is a
+         # build-time constant, so the stub is substituted in, not exported
 
 pass() { echo "PASS  $*"; }
 fail() { echo "FAIL  $*"; rc=1; }
@@ -120,12 +122,24 @@ EOF
 
 chmod +x "$STUBS/findmnt" "$STUBS/systemctl" "$STUBS/Hyprland"
 
+# The command under test runs from a scratch tree: /usr/bin/Hyprland is
+# a constant now (a kid's own environment.d could otherwise point PATH's
+# "Hyprland" at anything and get a session with no level config), so the
+# stub is substituted into a copy the way PKGBUILD substitutes KIDS_PY.
+kids_tree "$TMP/tree" "$ROOT_DIR"
+BIN="$TMP/tree/bin/omarchy-kids-session"
+kids_set_const "$BIN" HYPRLAND_BIN "$STUBS/Hyprland"
+
+# `id -un` is how a command answers "which account am I?" now -- never
+# $OMARCHY_KIDS_ACCOUNT (review §3.7) -- so this test stubs `id` the way
+# it already stubs the rest of its world. The real uid is kept so every
+# per-uid path (launcher-<uid>.json) still resolves to one place.
+kids_id_stub "$STUBS" "$ACCOUNT" "$(id -u)"
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$SYSROOT"
 export OMARCHY_KIDS_RUN_DIR="$RUN"
-export OMARCHY_KIDS_ACCOUNT="$ACCOUNT"
 export OMARCHY_KIDS_ASK_GROWNUP_SLEEP=0
 export HOME="$KIDHOME"
 export OMARCHY_KIDS_TEST_HOME="$KIDHOME"

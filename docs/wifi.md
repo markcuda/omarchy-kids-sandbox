@@ -26,8 +26,7 @@ this daemon at all — R-WIFI-1's other value.
   always with a fixed, hardcoded argument list (`subprocess.run([...])`, never `shell=True`, never
   string interpolation into a command line), so nothing a client sends over the socket can smuggle
   in an extra flag.
-- `bin/omarchy-kids-wifi` — the kid-side (and, for `portal`, band-side) command: `list`, `join`,
-  `status`, `forget`, `portal`, `picker`. Talks to the daemon over the socket; never calls `nmcli`
+- `bin/omarchy-kids-wifi` — the kid-side command: `list`, `join`, `status`, `forget`, `picker`. Talks to the daemon over the socket; never calls `nmcli`
   itself.
 - `share/wifi/shell.qml` — the kid-facing Quickshell picker (`omarchy-kids-wifi picker`).
 - `share/hyprland/L1.lua` / `L2.lua` / `L3.lua` — bind `Super+Shift+W` to `omarchy-kids-wifi
@@ -105,56 +104,35 @@ Every action the picker takes still goes through `omarchy-kids-wifi` → `omarch
 re-checks `SO_PEERCRED` on every single connection — the picker's own check is a UX nicety, not the
 real gate.
 
-## The captive-portal window (`omarchy-kids-wifi portal`)
+## The captive-portal window (R-WIFI-3): removed, not shipped
 
 Some networks (a school's guest Wi-Fi, most cafés) intercept all traffic until you complete a
-captive-portal page, which usually needs to load over plain `http://`, not `https://`. R-WIFI-3
-asks for a helper window that opens one to a known page and briefly relaxes just enough filtering
-to let it load.
+captive-portal page, which usually needs to load over plain `http://`. R-WIFI-3 asks for a helper
+window that opens one and briefly relaxes just enough filtering to let it load.
 
-`omarchy-kids-wifi portal [--apply]` opens `http://neverssl.com` (a site built exactly for this —
-deliberately plain HTTP, so a captive portal's intercept actually fires) and, only for a `garden`
-(walled-garden) band, temporarily adds `neverssl.com` to that band's Chromium
-`URLAllowlist` (R-WEB-3) for ten minutes:
+`omarchy-kids-wifi portal` used to be that helper. **It is gone** (issue #58, the round-two
+review's §3.9). It could not work for the only account that would ever reach it:
 
-```text
-omarchy-kids-web install <band> --allow <tmp-file-with-just-neverssl.com> --apply
-systemd-run --unit omarchy-kids-wifi-portal-restore-<band> --on-active=10min \
-  --description "..." -- omarchy-kids-web install <band> --apply
-```text
+- Its temporary-allow step ran `omarchy-kids-web install <band> --allow … --apply`, which writes
+  root-owned files under `/etc/chromium/policies/managed/`.
+- Its restore step ran `systemd-run --on-active=10min`, which needs
+  `org.freedesktop.systemd1.manage-units` — an action `lib/posture.sh`'s
+  `41-omarchy-kids-deny.rules` denies every kid account outright (R-FND-4).
 
-The second command (no `--allow`) re-renders the band's normal policy ten minutes later,
-restoring the strict allowlist. Like every other command that writes under `/etc`, this is
-`DRY_RUN=1` by default (AGENTS.md rule 8) — pass `--apply` (or `DRY_RUN=0`) to actually write.
+So for a kid it failed at both halves, and in the one context where it *would* have worked (root)
+a failed `systemd-run` left `neverssl.com` allowed for that whole band, for every sibling in it,
+until some unrelated `omarchy-kids-web install` happened to re-render the policy. It also ran a
+bare `chromium --new-window`, with none of the R-WEB-4 fail-closed check `omarchy-kids-web launch`
+and `omarchy-kids-session-start` both enforce.
 
-For a `filtered` band (13+), nothing is blocked by host in the first place (R-WEB-3: "filtered
-open web adds neither" allowlist nor blocklist), so `portal` skips the allow/restore dance
-entirely and just opens the browser. For a `none` band (3-5), there is no browser in the launcher
-at all (R-WEB-3's "No browser" mode), so `portal` refuses outright — there is nothing to open
-(I-6).
+A narrow polkit rule would not have fixed it: the NetworkManager actions a kid could plausibly be
+granted (`org.freedesktop.NetworkManager.network-control`, and
+`org.freedesktop.NetworkManager.settings.modify.system` for a `kids-`-prefixed connection id) are
+about *connections*, not about writing a Chromium policy or starting a transient unit. Rule 6
+(honest UI) says do not ship a control that is not enforced, so the command and its docs are out
+until there is a root-side helper that can do both halves and confirm its own restore.
 
-### Risk, read before wiring this into anything automatic
-
-- **This widens the walled garden band-wide, not kid-wide or connection-wide.** Any kid on that
-  same `garden` band can reach `neverssl.com` for the whole ten-minute window, not just the one
-  who hit the captive portal.
-- **The restore is scheduled, not confirmed.** `systemd-run --on-active=10min` fires ten minutes
-  later regardless of whether anything is watching; if the machine suspends, powers off, or
-  `systemd-run`/the system manager is unavailable before it fires, the temporary allow silently
-  outlives its window until the next unrelated `omarchy-kids-web install` for that band (e.g. a
-  parent changing any other web setting). Nothing here re-checks that the restore job actually
-  ran.
-- **The exposure is bounded to one fixed, non-secret hostname.** `neverssl.com` is hardcoded, never
-  taken from anything the kid or the network supplies, so this cannot be used to smuggle an
-  arbitrary host onto the allowlist.
-- **No unprivileged path yet.** `omarchy-kids-web install --apply` writes root-owned files under
-  `/etc/chromium/policies/managed/` and the restore's `systemd-run` job needs to talk to the
-  system manager as root; `portal` has no polkit/pkexec wiring of its own to let an unprivileged
-  kid session actually run either half for real (`omarchy-kids-wifid`, the one root path this
-  issue adds, only ever runs `nmcli`, never `omarchy-kids-web`). Until a follow-up issue adds that
-  path, `--apply` here is meant for a root context — the panel, or a future dedicated helper — not
-  a kid's own session calling it directly. Treated the same way `omarchy-kids-exit --pause`
-  documents its own not-yet-built mechanism, rather than quietly pretending it works.
+Until then: a parent completes the captive portal from their own session.
 
 ## Known gap: R-WIFI-4 (`parent` mode → ask modal)
 
@@ -181,8 +159,11 @@ claims to open anything it doesn't (I-6).
   all), against a scratch `OMARCHY_KIDS_ETC`/`OMARCHY_KIDS_SHARE` tree, the same convention
   `test/shell.d/conf-test.sh` and `test/shell.d/web-test.sh` use.
 - `omarchy-kids-wifi forget` only ever building a `kids-<ssid>` argument, never a bare SSID.
-- `omarchy-kids-wifi portal`'s temporary-allow-file and `systemd-run` restore command, in
-  `DRY_RUN=1` (the default) — printed, never executed, per AGENTS.md rule 8.
+- `omarchy-kids-wifi portal` exiting 2 as an unknown command: the captive-portal helper is gone,
+  and the test says so, so it cannot come back unnoticed.
+- `cmd_join`'s exact five-call `nmcli` sequence, in order, with the R-WIFI-2 DNS lockdown applied
+  *before* activation, a `--` before every client-supplied value, and a failed activation deleting
+  the half-built profile (review §3.10, §3.11).
 
 ```text
 bash test/shell.d/wifi-test.sh
@@ -200,12 +181,11 @@ bash test/shell.d/wifi-test.sh
   process or write to one's stdin).
 - The `Super+Shift+W` bind actually reaching Hyprland and `omarchy-kids-wifi picker` actually
   showing/hiding the right thing.
-- The whole `portal` flow end to end: a real captive portal intercepting `http://neverssl.com`,
-  the temporary allow actually letting Chromium load it, and the `systemd-run` restore firing on
-  schedule.
-- `nmcli device wifi connect ... name kids-<ssid>` actually creating a *new* connection (not
-  silently reusing/renaming an existing bare-named one) on a real NetworkManager, and
-  `ipv4.ignore-auto-dns`/`ipv6.ignore-auto-dns` actually taking effect after `connection up`.
+- `nmcli connection add type wifi con-name kids-<ssid> autoconnect no …` actually creating a *new*
+  connection (not silently reusing/renaming an existing bare-named one) on a real NetworkManager,
+  `wifi-sec.psk` actually authenticating, and `ipv4.ignore-auto-dns`/`ipv6.ignore-auto-dns` being
+  in force from the first packet — the profile is only brought up after they are set, so there is
+  no window on the network's own DNS at all (review §3.11).
 
 ## Verified live (2026-09-02, QEMU test VM, no wireless device)
 
@@ -265,11 +245,6 @@ the profile key.
   forget <ssid>               Deletes `kids-<ssid>` — never a
                               bare-named connection this daemon didn't
                               create, even one for the same SSID.
-  portal [--apply]            Opens the band's browser to a known
-                              captive-portal page with a *temporary*
-                              allow of that one host (R-WIFI-3). See
-                              the risk note on cmd_portal below and
-                              docs/wifi.md.
   picker                      Launches the kid-facing Quickshell
                               picker (share/wifi/shell.qml). Bound to
                               Super+Shift+W at every level
@@ -280,7 +255,7 @@ the profile key.
                               small toast, I-6 — when the profile says
                               `parent` instead of `helper`.
 
-Every subcommand above (list/join/status/forget/picker/portal) does
+Every subcommand above (list/join/status/forget/picker) does
 the same `wifi=helper` check twice: once here, fast and friendly,
 before ever touching the socket, and once again — authoritatively,
 server-side, from the kernel's own idea of who's connecting — inside
@@ -298,13 +273,18 @@ one-line reason (I-6: never fake a control that isn't there) — the
 same shape bin/omarchy-kids-exit's `--pause` uses for its own
 not-yet-built path.
 
-Every path/binary is overridable for tests, same convention as every
-other command that shells out to omarchy-kids-conf/omarchy-kids-web:
+The daemon socket and every sibling command are constants, not
+environment overrides (AGENTS.md rule 9). What is left:
   OMARCHY_KIDS_SHARE       default /usr/share/omarchy-kids (wifi/shell.qml, time/toast.qml)
-  OMARCHY_KIDS_CONF_BIN    path to omarchy-kids-conf (default: resolved beside this script, else /usr/bin)
-  OMARCHY_KIDS_WEB_BIN     path to omarchy-kids-web, used by `portal` (same resolution)
-  OMARCHY_KIDS_ACCOUNT     default: this process's own user (id -un)
-  OMARCHY_KIDS_WIFID_SOCK  default /run/omarchy-kids/wifi.sock
   OMARCHY_KIDS_WIFID_TIMEOUT  seconds, default 10 (nmcli's own wifi rescan can be slow)
-  DRY_RUN                  default 1 for `portal` (AGENTS.md rule 8); --apply or DRY_RUN=0 does it for real
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

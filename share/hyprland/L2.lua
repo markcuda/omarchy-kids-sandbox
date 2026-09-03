@@ -17,9 +17,12 @@
 -- Same reasoning as L1.lua: looknfeel and input are self-contained (no
 -- nested requires, no home paths); envs is reimplemented directly to
 -- avoid default.hypr.envs's default.hypr.paths (home) dependency.
--- Root-owned config (I-3): search Omarchy's own module path only, never the kid's home.
--- Omarchy's user bootstrap.lua puts ~/.config and ~/.local/state first; a kid could shadow modules there.
-package.path = (os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/?.lua;" .. package.path
+-- Root-owned config (I-3): a fixed module path -- not $OMARCHY_PATH, and
+-- not the inherited package.path (Omarchy's user bootstrap.lua puts
+-- ~/.config and ~/.local/state first). Both are set by the session this
+-- file exists to fence, so neither may choose what require() loads
+-- (review §3.5).
+package.path = "/usr/share/omarchy/?.lua;/usr/share/lua/5.4/?.lua;/usr/share/lua/5.4/?/init.lua"
 require("default.hypr.helpers")
 
 require("default.hypr.looknfeel")
@@ -110,7 +113,9 @@ hl.on("hyprland.start", function()
 end)
 
 -- --- Band overlay ---------------------------------------------------------
-local HYPRLAND_DIR = os.getenv("OMARCHY_KIDS_HYPRLAND_DIR") or "/etc/omarchy-kids/hyprland"
+-- Fixed, not $OMARCHY_KIDS_HYPRLAND_DIR: dofile runs whatever it is
+-- handed, so the kid's environment must not choose the file (review §3.5).
+local HYPRLAND_DIR = "/etc/omarchy-kids/hyprland"
 local band = os.getenv("OMARCHY_KIDS_BAND")
 if band == "3-5" then
   dofile(HYPRLAND_DIR .. "/band-3-5.lua")

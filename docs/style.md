@@ -200,6 +200,14 @@ reimplementing the `EUID` check. Note: this repo's `sudo -v`-then-warm-reuse pat
 upstream's plain `as_root` doesn't need — keep that behavior, just stop reimplementing the base
 `EUID`-or-`sudo` check three times.
 
+**Resolved (issue #58).** `lib/kids.sh`'s `is_root` is that one check, and every root gate in
+`bin/` goes through it — `omarchy-kids-time grant`, `omarchy-kids-time-ledger tick`,
+`omarchy-kids-exit --finish --kid`, `omarchy-kids-data retention`/`launches`/`sites`, and
+`omarchy-kids-ask apply-grant`. The four `*_REQUIRE_ROOT` environment escapes are gone with them:
+nothing a kid's session can set decides whether a root check happens (`AGENTS.md` rule 9), and
+`test/shell.d/trust-boundary-test.sh` fails on a new hand-rolled one. It lives in `lib/kids.sh`
+rather than a new `lib/root.sh` because every command that needs it already sources that file.
+
 ## 7. Config file locations: `~/.config/omarchy` and `/etc`
 
 **Observed.** Upstream's user-writable state lives entirely under `~/.config/omarchy/` —

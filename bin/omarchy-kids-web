@@ -5,18 +5,24 @@
 # See docs/web.md for the template/starter-list format and every env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF="$(kids_bin conf "$DIR")"
 
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
-SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+
+# Build-time constant, empty in every shipped copy (asserted by
+# test/shell.d/pkgbuild-test.sh): the prefix the R-WEB-4 fail-closed check
+# below and the policy writer resolve against. Not an environment read --
+# a kid must not be able to point a fence check at a tree they own
+# (review §3.8). Tests run a copy with their scratch root substituted in,
+# the same seam bin/omarchy-kids-parent-auth's TEST_SOCKET_ROOT uses.
+SYSROOT=""
 
 DRY_RUN="${DRY_RUN:-1}"
 
-VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 
 die() { echo "omarchy-kids-web: $1" >&2; exit "${2:-2}"; }
 
@@ -62,11 +68,6 @@ real too -- it starts a browser, not something that touches /etc.
 EOF
 }
 
-is_valid_band() {
-    local b="$1" v
-    for v in "${VALID_BANDS[@]}"; do [[ "$v" == "$b" ]] && return 0; done
-    return 1
-}
 
 # band_web_mode BAND — none|garden|filtered, from share/bands/bands.toml
 # via omarchy-kids-conf (the one place that table is read from), not a
@@ -74,7 +75,7 @@ is_valid_band() {
 band_web_mode() {
     local band="$1" out
     out="$("$CONF" band "$band" 2>/dev/null)" || die "could not read band '$band' defaults from $CONF (see docs/conf.md)"
-    printf '%s\n' "$out" | sed -n 's/^web=//p' | head -1
+    first_field web "$out"
 }
 
 # list_domains FILE — one host per line, '#' comments (full-line or
@@ -201,17 +202,15 @@ cmd_install() {
 
 # --- launch ------------------------------------------------------------
 
-# resolve_band — $OMARCHY_KIDS_BAND if set (the Web tile's own exec line
-# sets it, same convention bin/omarchy-kids-session-start's "more-apps"
-# tile uses), else `omarchy-kids-conf get <account> band` for
-# $OMARCHY_KIDS_ACCOUNT (default: this process's own user).
+# resolve_band — `omarchy-kids-conf get <account> band` for this
+# process's own account. The band decides which managed policy has to be
+# live before Chromium starts (R-WEB-4), so it is read from the
+# root-owned profile, never from the environment (review §3.8).
 resolve_band() {
-    local band="${OMARCHY_KIDS_BAND:-}"
-    if [[ -z "$band" ]]; then
-        local account="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
-        band="$("$CONF" get "$account" band 2>/dev/null)" \
-            || die "launch: could not resolve a band for '$account' (set \$OMARCHY_KIDS_BAND, or see docs/conf.md)"
-    fi
+    local account band
+    account="$(id -un)"
+    band="$("$CONF" get "$account" band 2>/dev/null)" \
+        || die "launch: could not resolve a band for '$account' (see docs/conf.md)"
     printf '%s\n' "$band"
 }
 
@@ -264,7 +263,7 @@ cmd_launch() {
         [[ -n "$flag" ]] && flags+=("$flag")
     done < <(list_domains "$SHARE/policy/chromium-flags.conf")
 
-    local chromium_bin="${OMARCHY_KIDS_CHROMIUM_BIN:-/usr/lib/chromium/chromium}"
+    local chromium_bin=/usr/lib/chromium/chromium
     local -a argv=(
         "$chromium_bin"
         "${flags[@]+"${flags[@]}"}"

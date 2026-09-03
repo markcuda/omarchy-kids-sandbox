@@ -10,14 +10,19 @@
 # touching a real Hyprland/Quickshell/systemd session. --finish --kid's
 # own root check is exercised against the real, unstubbed `id -u` (the
 # test runner's own, non-root, same convention as time-test.sh's
-# OMARCHY_KIDS_TIME_REQUIRE_ROOT checks) before `id` gets stubbed for
+# root checks) before `id` gets stubbed for
 # everything after.
 # shellcheck disable=SC2015 # "A && B || C" below is always used with B, C that can't fail
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-EXIT_BIN="$ROOT_DIR/bin/omarchy-kids-exit"
-TAP_BIN="$ROOT_DIR/bin/omarchy-kids-super-tap"
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+# Both commands run from a scratch tree: each resolves its siblings from
+# its own `readlink -f "$0"` and nothing else, so a stub omarchy-kids-conf
+# (and, for super-tap, a stub omarchy-kids-exit) is *placed* beside them
+# rather than exported (AGENTS.md, "The trust boundary").
+EXIT_BIN=""
+TAP_BIN=""
 
 pass() { echo "PASS  $*"; }
 fail() { echo "FAIL  $*"; rc=1; }
@@ -59,24 +64,31 @@ EOF
     chmod +x "$f"
 }
 
+kids_tree "$TMP/tree" "$ROOT_DIR"
+EXIT_BIN="$TMP/tree/bin/omarchy-kids-exit"
+TAP_BIN="$TMP/tree/bin/omarchy-kids-super-tap"
+
 stub quickshell
 stub hyprctl
 stub loginctl
 # pgrep "not found" by default (exit 1: no modal already up); flipped to
 # "found" (exit 0) for the one test that needs it.
 stub pgrep 'exit 1'
-# shellcheck disable=SC2016
-stub omarchy-kids-conf '
-case "$3" in
+kids_stub "$TMP/tree" omarchy-kids-conf <<EOF
+#!/bin/bash
+printf 'omarchy-kids-conf %s\n' "\$*" >> "$LOG"
+case "\$3" in
   name) echo "Ada Lovelace" ;;
   avatar) echo "fox" ;;
 esac
-'
+exit 0
+EOF
+
+# `id -un` decides which account this is now, never the environment.
+kids_id_stub "$STUBS" kid-ada "$(id -u)"
 
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_SHARE="$SHARE"
-export OMARCHY_KIDS_CONF_BIN="$STUBS/omarchy-kids-conf"
-export OMARCHY_KIDS_ACCOUNT="kid-ada"
 
 # --- --help / bad args ------------------------------------------------
 
@@ -118,6 +130,7 @@ env_out="$(cat "$ENV_DUMP" 2>/dev/null || true)"
 check_contains "$env_out" "OMARCHY_KIDS_ACCOUNT=kid-ada" "--open exports OMARCHY_KIDS_ACCOUNT"
 check_contains "$env_out" "OMARCHY_KIDS_NAME=Ada Lovelace" "--open exports OMARCHY_KIDS_NAME from omarchy-kids-conf"
 check_contains "$env_out" "OMARCHY_KIDS_AVATAR=$SHARE/avatars/fox.svg" "--open exports OMARCHY_KIDS_AVATAR as a path under \$SHARE/avatars"
+
 stub quickshell  # restore the plain argv-logging stub for the rest of the suite
 
 # --- --open: a no-op if a modal already looks open (review §1.9) ---------
@@ -217,8 +230,8 @@ stub hyprctl  # restore
 # --- refuses without root (the real, unstubbed, non-root test runner) ----
 
 : > "$LOG"
-OMARCHY_KIDS_EXIT_REQUIRE_ROOT=1 "$EXIT_BIN" --finish --kid kid-ada >/dev/null 2>&1
-check_eq "$?" 1 "--finish --kid: refuses to run without root (or the test bypass)"
+"$EXIT_BIN" --finish --kid kid-ada >/dev/null 2>&1
+check_eq "$?" 1 "--finish --kid: refuses to run without root"
 
 # --- --kid only makes sense with --finish ---------------------------------
 
@@ -228,15 +241,11 @@ check_eq "$?" 2 "--kid without --finish is refused"
 "$EXIT_BIN" --finish --kid >/dev/null 2>&1
 check_eq "$?" 2 "--kid with no account is refused"
 
-# From here on, the root check is bypassed (the test hook) and `id` is
-# stubbed: kid-ada is uid 1001, everything else is "no such account".
-export OMARCHY_KIDS_EXIT_REQUIRE_ROOT=0
-# shellcheck disable=SC2016
-stub id '
-if [[ "$1" == "-u" && "$2" == "kid-ada" ]]; then echo 1001; exit 0; fi
-if [[ "$1" == "-u" && -n "${2:-}" ]]; then exit 1; fi
-echo 0
-'
+# From here on `id` answers as root (there is no env hook for the root
+# check any more -- review §3.6): kid-ada is uid 1001, everything else is
+# "no such account".
+kids_id_stub "$STUBS" kid-ada 1001
+export KIDS_TEST_UID=0
 stub runuser
 RUN_ROOT="$TMP/run-user"
 export OMARCHY_KIDS_RUN_USER_ROOT="$RUN_ROOT"
@@ -290,7 +299,7 @@ out4="$("$EXIT_BIN" --finish --kid no-such-kid 2>&1)"; st=$?
 check_eq "$st" 2 "--finish --kid with an unknown account is refused"
 check_contains "$out4" "no such account" "the refusal names why"
 
-unset OMARCHY_KIDS_EXIT_REQUIRE_ROOT OMARCHY_KIDS_RUN_USER_ROOT
+unset KIDS_TEST_UID OMARCHY_KIDS_RUN_USER_ROOT
 stub pgrep 'exit 1'  # restore "not found" for whatever runs next
 
 # --- --pause: not implemented, exits 2, names why -------------------------
@@ -310,15 +319,13 @@ RUNTIME_DIR="$TMP/runtime"
 export OMARCHY_KIDS_RUNTIME_DIR="$RUNTIME_DIR"
 EXIT_LOG="$TMP/exit-calls.log"
 touch "$EXIT_LOG"
-cat > "$STUBS/omarchy-kids-exit" <<EOF
+# super-tap resolves omarchy-kids-exit beside itself (review S12: nothing
+# a kid's session runs is PATH-resolved, and no env var may redirect it),
+# so the stub goes into the same scratch tree.
+kids_stub "$TMP/tree" omarchy-kids-exit <<EOF
 #!/bin/bash
 echo "called with: \$*" >> "$EXIT_LOG"
 EOF
-chmod +x "$STUBS/omarchy-kids-exit"
-# EXIT_BIN's default is /usr/bin/omarchy-kids-exit now (review S12: nothing
-# a kid's session runs may be PATH-resolved), so point the override at the
-# stub rather than relying on $STUBS being first on PATH.
-export OMARCHY_KIDS_EXIT_BIN="$STUBS/omarchy-kids-exit"
 
 # --help
 "$TAP_BIN" --help >/dev/null 2>&1; check_eq "$?" 0 "super-tap --help exits 0"

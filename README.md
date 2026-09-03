@@ -35,22 +35,32 @@ drawn from; nothing here is drawn from the spec alone.
 - The login portal shows one face tile per account and logs a kid straight into their own
   Hyprland session by keyboard alone (`docs/portal.md`).
 - Super×3 and Super+Shift+K both open the exit modal; the parent password on **Finish** ends the
-  kid's session cleanly and SDDM returns to the portal (`docs/exit.md`).
-- Screen time counts real minutes while a kid's session is active, warns before it runs out, and
-  the lights-out "Time's Up" overlay fires and finishes on its own after 60 seconds with no answer
-  (`docs/time.md`).
+  kid's session cleanly and SDDM returns to the portal (`docs/exit.md`). The password gate there
+  is a courtesy, not a lock: a kid can end their own session anyway (`loginctl terminate-session`,
+  or closing every window). **Pause** is rendered but refused — it is not implemented.
+- Screen time counts real minutes while a kid's session is active, in a root-owned ledger, and
+  warns before it runs out (`docs/time.md`). The lights-out "Time's Up" overlay fires and finishes
+  on its own after 60 seconds — but it runs *in the kid's own session*, so for a band with a
+  terminal (9-12, 13+) it is a reminder, not a fence: `pkill quickshell` dismisses it and nothing
+  root-side ends the session. Treat bedtime as advisory until that moves into the root ledger.
 - "Ask a parent" for more time opens over the launcher, and the parent password grants it on the
   spot — the grant shows up in the ledger within the minute (`docs/ask.md`).
 - The parent panel's Home screen shows live per-kid minutes and grants more time for real, run
   over SSH with an answers file (`docs/panel.md`).
 - A kid's Wi-Fi request is correctly refused by default, worded for a kid, and routed through the
   root helper when a kid is allowed to join on their own — confirmed without a wireless device, so
-  a real join is still unverified (`docs/wifi.md`).
+  a real join is still unverified (`docs/wifi.md`). The captive-portal helper is **not** shipped:
+  it needed privileges a kid is denied outright, so it could never have worked for the one account
+  that could reach it.
+
+Everything else in this repository — including anything in "What will be here" below — is either
+unfinished or unverified. If a control is not on this list, do not rely on it as a fence.
 
 **Try it:** [`docs/install.md`](docs/install.md) — prerequisites, the one-command build, and the
-
-The night the code landed is summarised in `docs/loop-report.md` (what is verified live, what is open, decisions waiting).
 honest list of what isn't ready yet.
+
+The night the code landed is summarised in [`docs/loop-report.md`](docs/loop-report.md): what is
+verified live, what is open, and which decisions are still waiting.
 
 ## What will be here
 

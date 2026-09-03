@@ -16,9 +16,10 @@ hardcoded argument list (never a shell, never string interpolation into
 a command line) so nothing a kid sends over the socket can smuggle in an
 extra flag.
 
-Every connection it creates is named `kids-<ssid>` and gets
-`ipv4.ignore-auto-dns yes` / `ipv6.ignore-auto-dns yes` plus cleared
-`ipv4.dns` / `ipv6.dns` (R-WIFI-2: "forces ignore-auto-dns and clears
+Every connection it creates is named `kids-<ssid>`, is built with
+`autoconnect no` and gets `ipv4.ignore-auto-dns yes` /
+`ipv6.ignore-auto-dns yes` plus cleared `ipv4.dns` / `ipv6.dns` *before*
+it is ever brought up, and is deleted again if any step fails (R-WIFI-2: "forces ignore-auto-dns and clears
 connection DNS", so a captive network or a school's DNS server can never
 weaken the DoH filtering in the kid's Chromium policy, R-WEB-6/I-1). It
 never reads or writes a connection whose name doesn't start with
@@ -116,20 +117,23 @@ def authorize(conn: socket.socket, conf_bin: str) -> str:
 # --- nmcli, fixed argument shapes only --------------------------------------
 
 
-def run_nmcli(nmcli: str, args: "list[str]") -> str:
+def run_nmcli(nmcli: str, args: "list[str]", allow_failure: bool = False) -> str:
     """Runs nmcli with a plain argv list (never shell=True, never string
     concatenation into a command line) and returns stdout. Raises Failed
-    with nmcli's own stderr (or a generic message) on a non-zero exit."""
+    with nmcli's own stderr (or a generic message) on a non-zero exit,
+    unless allow_failure (a best-effort cleanup delete)."""
     try:
         result = subprocess.run(
             [nmcli, *args], capture_output=True, text=True, timeout=CLIENT_TIMEOUT, check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
+        if allow_failure:
+            return ""
         # Only the subcommand, never the argument list: JOIN's args carry
         # "password <secret>", and this text is sent straight back to the
         # client and into whatever it logs (review S8).
         raise Failed(f"nmcli {args[0] if args else ''}: {exc}") from exc
-    if result.returncode != 0:
+    if result.returncode != 0 and not allow_failure:
         reason = result.stderr.strip() or f"nmcli exited {result.returncode}"
         raise Failed(reason)
     return result.stdout
@@ -149,32 +153,75 @@ def cmd_status(nmcli: str) -> str:
     return run_nmcli(nmcli, ["-t", "-f", "NAME,TYPE,DEVICE,STATE", "connection", "show", "--active"])
 
 
-def cmd_join(nmcli: str, ssid: str, password: str) -> str:
-    """Creates/activates `kids-<ssid>` (never a bare-named connection --
-    even if one already exists for this SSID, it is not ours to touch),
-    then forces ignore-auto-dns and clears connection DNS on it, then
-    reactivates so the DNS change actually takes on a connection that
-    may already be up (R-WIFI-2)."""
+def validate_ssid(ssid: str) -> str:
+    """The SSID as sent by the client, or Refused. 802.11 caps an SSID at
+    32 bytes; a leading "-" would be read as a flag by nmcli, and a
+    newline would let one request look like two on the wire."""
     if not ssid:
-        raise Failed("empty SSID")
+        raise Refused("empty SSID")
+    if len(ssid.encode("utf-8")) > 32:
+        raise Refused("SSID longer than 32 bytes")
+    if ssid.startswith("-"):
+        raise Refused("SSID may not start with '-'")
+    if any(c in ssid for c in "\r\n\x00"):
+        raise Refused("SSID may not contain a control character")
+    return ssid
+
+
+def validate_password(password: str) -> str:
+    """WPA-PSK is 8..63 ASCII characters (or 64 hex). An empty password
+    means an open network, which is allowed."""
+    if not password:
+        return ""
+    if len(password.encode("utf-8")) > 64:
+        raise Refused("password longer than 64 bytes")
+    if any(c in password for c in "\r\n\x00"):
+        raise Refused("password may not contain a control character")
+    return password
+
+
+def cmd_join(nmcli: str, ssid: str, password: str) -> str:
+    """Builds `kids-<ssid>` with autoconnect off, applies R-WIFI-2's DNS
+    lockdown to the profile, and only then brings it up -- never the
+    other way round. Activating first and locking DNS after leaves the
+    kid connected on the network's own DNS for as long as the second
+    call takes, and permanently if it fails (review §3.11), so any
+    failure here deletes the half-built profile instead of leaving it.
+
+    Every nmcli call is a fixed argv list with "--" before the first
+    client-supplied value, and both values are validated above, so
+    nothing from the socket can become a flag (review §3.10)."""
+    ssid = validate_ssid(ssid)
+    password = validate_password(password)
     name = kids_connection_name(ssid)
 
-    connect_args = ["device", "wifi", "connect", ssid]
-    if password:
-        connect_args += ["password", password]
-    connect_args += ["name", name]
-    run_nmcli(nmcli, connect_args)
+    # A stale profile from an earlier failed join would otherwise make
+    # `connection add` fail on a duplicate name.
+    run_nmcli(nmcli, ["connection", "delete", "--", name], allow_failure=True)
 
     run_nmcli(nmcli, [
-        "connection", "modify", name,
-        "ipv4.ignore-auto-dns", "yes",
-        "ipv6.ignore-auto-dns", "yes",
-        "ipv4.dns", "",
-        "ipv6.dns", "",
-        "connection.zone", "kids",
+        "connection", "add", "type", "wifi", "con-name", name,
+        "autoconnect", "no", "ifname", "*", "ssid", "--", ssid,
     ])
-
-    run_nmcli(nmcli, ["connection", "up", name])
+    try:
+        if password:
+            run_nmcli(nmcli, [
+                "connection", "modify", name,
+                "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", "--", password,
+            ])
+        # R-WIFI-2 before the first byte of the network's DNS can be used.
+        run_nmcli(nmcli, [
+            "connection", "modify", name,
+            "ipv4.ignore-auto-dns", "yes",
+            "ipv6.ignore-auto-dns", "yes",
+            "ipv4.dns", "",
+            "ipv6.dns", "",
+        ])
+        run_nmcli(nmcli, ["connection", "up", name])
+    except (Failed, Refused):
+        # Fail closed: no half-configured profile survives a failed join.
+        run_nmcli(nmcli, ["connection", "delete", "--", name], allow_failure=True)
+        raise
     return f"joined {name}\n"
 
 
@@ -184,7 +231,7 @@ def cmd_forget(nmcli: str, ssid: str) -> str:
     if not ssid:
         raise Failed("empty SSID")
     name = kids_connection_name(ssid)
-    run_nmcli(nmcli, ["connection", "delete", name])
+    run_nmcli(nmcli, ["connection", "delete", "--", name])
     return f"forgot {name}\n"
 
 
@@ -246,9 +293,14 @@ def handle_client(conn: socket.socket, conf_bin: str, nmcli: str):
             elif command == "JOIN":
                 payload = cmd_join(nmcli, arg, body)
             elif command == "FORGET":
-                payload = cmd_forget(nmcli, arg)
+                payload = cmd_forget(nmcli, validate_ssid(arg))
             else:
                 raise Failed(f"unknown command '{command}'")
+        except Refused as exc:
+            # A malformed SSID or password is the client's fault, not
+            # nmcli's: same REFUSED shape the authorization check uses.
+            conn.sendall(f"REFUSED {exc}\n".encode("utf-8", errors="replace"))
+            return
         except Failed as exc:
             conn.sendall(f"ERROR {exc}\n".encode("utf-8", errors="replace"))
             return

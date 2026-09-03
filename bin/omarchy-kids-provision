@@ -8,8 +8,8 @@
 # each step touches.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/conf.sh
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh
@@ -28,7 +28,6 @@ MACHINE_CONF="$ETC/machine.conf"
 
 CONF="$(kids_bin conf "$DIR")"
 
-VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 
 die() { echo "omarchy-kids-provision: $1" >&2; exit "${2:-2}"; }
 
@@ -88,11 +87,6 @@ ensure_parent_unlock_soft() {
     fi
 }
 
-is_valid_band() {
-    local b="$1" v
-    for v in "${VALID_BANDS[@]}"; do [[ "$v" == "$b" ]] && return 0; done
-    return 1
-}
 
 # valid_display_name NAME — see cmd_add's own note (review S10).
 valid_display_name() {
@@ -103,12 +97,10 @@ valid_display_name() {
     return 0
 }
 
-# band_field BAND KEY — one value out of `omarchy-kids-conf band BAND`
-# (password_min, password_optional -- the band-only fields, docs/conf.md).
+# band_field BAND KEY — lib/kids.sh's kids_band_field, with this
+# command's own error message (docs/conf.md).
 band_field() {
-    local band="$1" key="$2" out
-    out="$("$CONF" band "$band")" || die "could not read band '$band' defaults from $CONF"
-    printf '%s\n' "$out" | sed -n "s/^${key}=//p" | head -1
+    kids_band_field "$CONF" "$@" || die "could not read band '$1' defaults from $CONF"
 }
 
 # read_parent — the "parent=" account name from $MACHINE_CONF, via

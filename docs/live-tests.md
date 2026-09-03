@@ -8,7 +8,8 @@ QMP — the same recipe docs/vm.md, docs/laptop-runbook.md, and the reference dr
 a set of scenario scripts, each one a slice of §8's acceptance list, that build the real package,
 install it on the real VM, and drive real logins through real QMP keystrokes. Nothing in here runs
 in CI (there is no VM there); `test/all`/CI only runs the pure parts, in
-`test/shell.d/live-lib-test.sh`.
+`test/shell.d/live-lib-test.sh`. The one scenario that *does* run the unit suite is
+`05-unit-tests-on-vm.sh`, and only because a few of those tests can only really run on Arch.
 
 ## Setup, on a fresh laptop
 
@@ -69,8 +70,9 @@ These are AGENTS.md's rules, restated for this specific harness:
 
 ## What each scenario checks
 
-| Script | §8 item | What it does |
+| Script | Covers | What it does |
 | --- | --- | --- |
+| `05-unit-tests-on-vm.sh` | R-BUILD-3 | Copies this checkout to the VM and runs `test/all` there as a normal user; fails if authd's live password checks or wifi section B still skip. |
 | `10-cold-boot-kid.sh` | 2 (second half) | Boots with the test kid's disk password; expects straight into that kid's `omarchy-kids` session. |
 | `20-cold-boot-owner.sh` | 2 (first half) | Boots with the owner's disk password; expects the owner's own desktop, no kid session (R-BOOT fail-safe). |
 | `30-portal-login-and-finish.sh` | 3 | From the portal: navigate to the kid's tile, log in, triple-tap Super, Finish with the parent password, confirm the portal comes back. |
@@ -78,6 +80,18 @@ These are AGENTS.md's rules, restated for this specific harness:
 | `50-ask-grant.sh` | 6 | `omarchy-kids-ask time 15` from the kid's session, approved on the spot with the parent password, confirms the ledger reflects the grant. |
 | `60-wizard-easy.sh` | 1 | Drives the Easy wizard's fifteen screens over `ssh -tt` with an answers file, Applies for real, cold boots as the kid it provisions. |
 | `90-remove.sh` | 8 | `omarchy-kids-remove --dry-run` (always); under `LIVE_DESTRUCTIVE=1`, a real `omarchy-kids-provision remove` of just the wizard kid. |
+
+`05-unit-tests-on-vm.sh` is the answer to a green `test/all` on the Mac that hid four skipped
+suites (`test/all`'s own header comment). `test/shell.d/authd-test.sh`'s live-daemon password
+checks need a loadable `libcrypt`, and `test/shell.d/wifi-test.sh` section B needs `SO_PEERCRED`
+— neither exists on macOS, so both print a `SKIP` line and the only tests of the password verifier
+and of the Wi-Fi daemon's authorization boundary never run. The scenario tars the working checkout
+(no `.git`, no `test/live/out/`, no `config.env`), unpacks it in `/tmp/omarchy-kids-unit` on the
+VM, runs `bash test/all` there over `vm` (the unprivileged owner account — it asserts the uid is
+not 0, since root would pass the peer-uid checks for the wrong reason), and greps the captured run
+for those two exact `SKIP` lines: either one present is a FAIL, not a pass with an asterisk. The
+full remote output lands in `$LIVE_OUT_DIR/05-unit-tests-on-vm.log`. It needs no package
+installed, so it boots the VM itself only if it finds it down.
 
 Not covered yet: §8 items 4 (browser walled garden / DoH), 7 (`omarchy update` + a kernel update),
 and 9 (changing the parent's login password) — each needs its own scenario and its own care about

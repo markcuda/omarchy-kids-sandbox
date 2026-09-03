@@ -361,15 +361,6 @@ parent
 | --- | --- | --- |
 | `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | kid profiles (only read, to preview slug collisions) |
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `bands.toml`, `packs/<band>.toml`, `avatars/*.svg` |
-| `OMARCHY_KIDS_LIB` | `lib/` beside `bin/`, else `/usr/lib/omarchy-kids` | `lib/conf.sh`, `lib/tui.sh`, `lib/wizard-advanced.sh` (the Advanced-path checklist, issue #20), `lib/conf.py` (the apps checklist's `pack-app`/`pack-sites` lookups), `lib/units.sh` (the units list Apply shares with `omarchy-kids-assert`, issue #46) |
-| `OMARCHY_KIDS_CONF_BIN` | sibling `bin/omarchy-kids-conf`, else `PATH` | reading bands/packs, writing A7/A10/A11 overrides, and (issue #46) Apply's `machine set parent` step |
-| `OMARCHY_KIDS_CONF_PY` | `python3` | running `lib/conf.py` directly for the A9 checklist |
-| `OMARCHY_KIDS_PROVISION_BIN` | sibling `bin/omarchy-kids-provision`, else `PATH` | Apply's account step |
-| `OMARCHY_KIDS_WEB_BIN` | sibling `bin/omarchy-kids-web`, else `PATH` | Apply's web-policy step |
-| `OMARCHY_KIDS_ASSERT_BIN` | sibling `bin/omarchy-kids-assert`, else `PATH` | the safety check |
-| `OMARCHY_KIDS_SESSION_BIN` | sibling `bin/omarchy-kids-session`, else `PATH` | the safety check's `--check` |
-| `OMARCHY_KIDS_APPS_BIN` | sibling `bin/omarchy-kids-apps`, else `PATH` | Apply's starter-pack install step (issue #24) |
-| `OMARCHY_KIDS_AUTH_SOCK` | `/run/omarchy-kids/auth.sock` | A2's parent-password verification (`docs/authd.md`) — used when `omarchy-kids-authd` is running; falls back to `sudo -S -v` otherwise (issue #46) |
 | `OMARCHY_KIDS_INVOKING_USER` | `id -un` | who Apply writes into machine.conf's `parent=` (issue #46 follow-up) |
 | `OMARCHY_KIDS_SETUP_LOG` | `/var/log/omarchy-kids/setup.log` | Apply's technical log (see "Apply's five steps" above) — a real run writes it; `--dry-run` never does |
 | `OMARCHY_KIDS_TUI_ANSWERS` | (unset — real terminal) | see `docs/tui.md` |
@@ -488,28 +479,8 @@ with a stub PATH for gum/pacman/sudo and stub omarchy-kids-provision/
 -web/-assert/-session pointed at by their own env vars below):
   OMARCHY_KIDS_ETC             default /etc/omarchy-kids
   OMARCHY_KIDS_SHARE            default /usr/share/omarchy-kids
-  OMARCHY_KIDS_LIB              default lib/ beside bin/, else /usr/lib/omarchy-kids
-                                 (conf.sh, tui.sh, wizard-advanced.sh — the
-                                 Advanced-path grouped checklist, issue #20 —
-                                 and units.sh, the KIDS_UNITS/KIDS_SOCKETS/
                                  KIDS_TIMERS list Apply shares with
                                  omarchy-kids-assert, issue #46)
-  OMARCHY_KIDS_CONF_BIN          path to omarchy-kids-conf (default: resolved
-                                 beside this script, else PATH)
-  OMARCHY_KIDS_CONF_PY           python3 interpreter for lib/conf.py (default: python3)
-  OMARCHY_KIDS_PROVISION_BIN     path to omarchy-kids-provision (default: sibling, else PATH)
-  OMARCHY_KIDS_WEB_BIN           path to omarchy-kids-web (default: sibling, else PATH)
-  OMARCHY_KIDS_ASSERT_BIN        path to omarchy-kids-assert (default: sibling, else PATH)
-  OMARCHY_KIDS_SESSION_BIN       path to omarchy-kids-session (default: sibling, else PATH)
-  OMARCHY_KIDS_APPS_BIN          path to omarchy-kids-apps (default: sibling, else PATH)
-  OMARCHY_KIDS_AUTH_SOCK         the parent-password verifier socket (default
-                                 /run/omarchy-kids/auth.sock, same var
-                                 bin/omarchy-kids-parent-auth uses). A2 uses
-                                 it when it's active *and* machine.conf
-                                 actually names a parent, and falls back to
-                                 `sudo -S -v` with the typed password
-                                 otherwise -- see verify_parent_password
-                                 and authd_verifiable (issue #46)
   OMARCHY_KIDS_INVOKING_USER     who Apply's first step writes into
                                  machine.conf's parent= (default: `id -un`,
                                  since the wizard itself always runs
@@ -567,3 +538,13 @@ every one of them to this band's default; nothing here ever calls
 omarchy-kids-conf itself — only Apply (apply_step_account's
 maybe_override calls) ever writes anything.
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

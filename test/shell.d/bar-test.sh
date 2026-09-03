@@ -11,8 +11,9 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BAR="$DIR/bin/omarchy-kids-bar"
-LEDGER="$DIR/bin/omarchy-kids-time-ledger"
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+BAR=""     # a copy in a scratch tree, so the stub omarchy-kids-time /
+LEDGER=""  # -exit sit beside it: no *_BIN env override exists any more.
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "SKIP bar-test.sh: jq not found"
@@ -42,6 +43,10 @@ cp "$DIR/share/bar/manifest.json" "$DIR/share/bar/KidsModule.qml" "$SHARE/bar/"
 
 export OMARCHY_KIDS_SHARE="$SHARE"
 
+kids_tree "$TMP/tree" "$DIR"
+BAR="$TMP/tree/bin/omarchy-kids-bar"
+LEDGER="$TMP/tree/bin/omarchy-kids-time-ledger"
+
 plugin_id="omarchy-kids.bar"
 
 # ===========================================================================
@@ -51,7 +56,10 @@ plugin_id="omarchy-kids.bar"
 # ===========================================================================
 HOME1="$TMP/home1"
 mkdir -p "$HOME1"
-out="$(OMARCHY_KIDS_HOME="$HOME1" OMARCHY_KIDS_DEFAULTS_SHELL_JSON="$TMP/no-such-defaults.json" \
+# The defaults file is $OMARCHY_PATH/config/omarchy/shell.json -- Omarchy's
+# own variable, pointed at a scratch tree here. There is no
+# OMARCHY_KIDS_* override for it any more (AGENTS.md, "The trust boundary").
+out="$(OMARCHY_KIDS_HOME="$HOME1" OMARCHY_PATH="$TMP/no-such-omarchy" \
   "$BAR" enable --apply 2>&1)"
 status=$?
 check_status "$status" 1 "enable refuses when there is no shell.json and no defaults to seed from"
@@ -82,7 +90,7 @@ cat >"$DEFAULTS2" <<'EOF'
 }
 EOF
 
-env2() { OMARCHY_KIDS_HOME="$HOME2" OMARCHY_KIDS_DEFAULTS_SHELL_JSON="$DEFAULTS2" "$@"; }
+env2() { OMARCHY_KIDS_HOME="$HOME2" OMARCHY_PATH="$TMP/defaults2" "$@"; }
 
 out="$(env2 "$BAR" status)"
 check "$out" "disabled" "status: disabled before enable"
@@ -159,7 +167,7 @@ cat >"$SHELL_JSON3" <<'EOF'
 EOF
 original3="$(cat "$SHELL_JSON3")"
 
-env3() { OMARCHY_KIDS_HOME="$HOME3" OMARCHY_KIDS_DEFAULTS_SHELL_JSON="$TMP/unused-defaults.json" "$@"; }
+env3() { OMARCHY_KIDS_HOME="$HOME3" OMARCHY_PATH="$TMP/unused-omarchy" "$@"; }
 
 env3 "$BAR" enable --apply >/dev/null
 check "$([[ -f "$BACKUP3" ]] && echo yes || echo no)" "yes" \
@@ -203,32 +211,31 @@ exec "$@"
 EOF
 chmod +x "$STUBS4/sudo"
 
-cat >"$STUBS4/omarchy-kids-time" <<'EOF'
+# The two sibling commands are resolved beside omarchy-kids-bar itself,
+# so their stubs go into the scratch tree, not onto PATH.
+kids_stub "$TMP/tree" omarchy-kids-time <<'EOF'
 #!/bin/bash
 echo "TIME $*" >>"$LOGFILE"
 exit 0
 EOF
-chmod +x "$STUBS4/omarchy-kids-time"
-
-cat >"$STUBS4/omarchy-kids-exit" <<'EOF'
+kids_stub "$TMP/tree" omarchy-kids-exit <<'EOF'
 #!/bin/bash
 echo "EXIT $*" >>"$LOGFILE"
 exit 0
 EOF
-chmod +x "$STUBS4/omarchy-kids-exit"
 
-cat >"$STUBS4/term-capture" <<'EOF'
+# The terminal is discovered, never named by an env var: the floating
+# helper if it is on PATH, else alacritty.
+cat >"$STUBS4/omarchy-launch-floating-terminal-with-presentation" <<'EOF'
 #!/bin/bash
 echo "TERM $*" >>"$LOGFILE"
 exec "$@"
 EOF
-chmod +x "$STUBS4/term-capture"
+chmod +x "$STUBS4/omarchy-launch-floating-terminal-with-presentation"
 
 LOGFILE="$TMP/grant.log"
 : >"$LOGFILE"
 out="$(PATH="$STUBS4:$PATH" LOGFILE="$LOGFILE" \
-  OMARCHY_KIDS_TIME_BIN="$STUBS4/omarchy-kids-time" \
-  OMARCHY_KIDS_TERMINAL_BIN="$STUBS4/term-capture" \
   "$BAR" grant kid-ada 15 </dev/null 2>&1)"
 check_status "$?" 0 "grant exits 0 when the terminal/sudo/time chain succeeds"
 log="$(cat "$LOGFILE")"
@@ -250,8 +257,6 @@ check_contains "$out" "positive integer" "the refusal explains why"
 LOGFILE3="$TMP/end.log"
 : >"$LOGFILE3"
 out="$(PATH="$STUBS4:$PATH" LOGFILE="$LOGFILE3" \
-  OMARCHY_KIDS_EXIT_BIN="$STUBS4/omarchy-kids-exit" \
-  OMARCHY_KIDS_TERMINAL_BIN="$STUBS4/term-capture" \
   "$BAR" end kid-ada </dev/null 2>&1)"
 check_status "$?" 0 "end exits 0 when the terminal/sudo/omarchy-kids-exit chain succeeds"
 log3="$(cat "$LOGFILE3")"
@@ -263,23 +268,21 @@ check "$(grep -c loginctl "$LOGFILE3")" "0" "end never calls loginctl directly"
 out="$("$BAR" end 2>&1)"
 check_status "$?" 2 "end with no kid is refused"
 
-# --- terminal fallback: no OMARCHY_KIDS_TERMINAL_BIN override, no
-#     floating-terminal helper on PATH -> falls back to alacritty ----------
+# --- terminal fallback: no floating-terminal helper on PATH -> alacritty
 STUBS5="$TMP/stubs5"
 mkdir -p "$STUBS5"
-cp "$STUBS4/sudo" "$STUBS4/omarchy-kids-time" "$STUBS5/"
+cp "$STUBS4/sudo" "$STUBS5/"
 cat >"$STUBS5/alacritty" <<'EOF'
 #!/bin/bash
 echo "ALACRITTY $*" >>"$LOGFILE"
 shift  # drop -e
 exec "$@"
 EOF
-chmod +x "$STUBS5/sudo" "$STUBS5/omarchy-kids-time" "$STUBS5/alacritty"
+chmod +x "$STUBS5/sudo" "$STUBS5/alacritty"
 
 LOGFILE2="$TMP/grant2.log"
 : >"$LOGFILE2"
-PATH="$STUBS5:$PATH" LOGFILE="$LOGFILE2" OMARCHY_KIDS_TIME_BIN="$STUBS5/omarchy-kids-time" \
-  "$BAR" grant kid-ada 15 </dev/null >/dev/null 2>&1
+PATH="$STUBS5:$PATH" LOGFILE="$LOGFILE2" "$BAR" grant kid-ada 15 </dev/null >/dev/null 2>&1
 log2="$(cat "$LOGFILE2")"
 check_contains "$log2" "ALACRITTY -e sh -c" "no floating-terminal helper on PATH falls back to alacritty -e"
 
@@ -302,14 +305,16 @@ name=Ada
 avatar=fox
 band=6-8
 EOF
-  CONF_BIN="$DIR/bin/omarchy-kids-conf"
   export OMARCHY_KIDS_SHARE="$SHARE"  # harmless: conf.sh only reads bands/packs it needs
   mkdir -p "$SHARE/bands" "$SHARE/packs"
   cp "$DIR/share/bands/bands.toml" "$SHARE/bands/" 2>/dev/null || true
   cp "$DIR"/share/packs/*.toml "$SHARE/packs/" 2>/dev/null || true
 
-  OMARCHY_KIDS_ETC="$ETC5" OMARCHY_KIDS_ROOT="$ROOT5" \
-    OMARCHY_KIDS_CONF_BIN="$CONF_BIN" OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT=0 \
+  STUBS_LEDGER="$TMP/stubs-ledger"
+  mkdir -p "$STUBS_LEDGER"
+  kids_id_stub "$STUBS_LEDGER" kid-ada "$(id -u)"
+  PATH="$STUBS_LEDGER:$PATH" KIDS_TEST_UID=0 \
+    OMARCHY_KIDS_ETC="$ETC5" OMARCHY_KIDS_ROOT="$ROOT5" \
     OMARCHY_KIDS_NOW="2026-09-01 12:00:00" \
     "$LEDGER" tick >/dev/null 2>&1
 

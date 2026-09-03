@@ -234,7 +234,6 @@ under this dev checkout's real /etc, /var, or /home is ever touched by
 test/shell.d/assert-test.sh:
   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (kid profiles, machine.conf)
   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids  (hyprland/*.lua and avatars source)
-  OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
   OMARCHY_KIDS_ROOT       scratch prefix for every real machine path this
                           touches: /etc/polkit-1, /etc/security, /etc/pam.d,
                           /etc/fstab, /var/lib/AccountsService,
@@ -251,3 +250,13 @@ test/shell.d/assert-test.sh:
                           instead of the first /boot/EFI/Linux/*.efi found
 shellcheck disable=SC2329 # every *_ok/*_fix below is invoked indirectly through assert_one's "$check" "$@" / "$fix" "$@"
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

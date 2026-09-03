@@ -156,6 +156,23 @@ avatar=fox
 band=6-8
 EOF
 
+  # Level and band are read from the profile now, never from the
+  # environment (review §3.4), so the two cases below are two profiles
+  # and an `id` that answers as each in turn -- not two env vars.
+  cat >"$ETC/kids/kid-two.conf" <<'EOF'
+name=Two
+avatar=fox
+band=6-8
+level=2
+EOF
+
+  cat >"$ETC/kids/kid-tot.conf" <<'EOF'
+name=Tot
+avatar=fox
+band=3-5
+level=1
+EOF
+
   cat >"$TMP/apps/tuxpaint.desktop" <<'EOF'
 [Desktop Entry]
 Name=Tux Paint
@@ -178,12 +195,16 @@ exit 0
 EOF
   chmod +x "$STUBS/gcompris"
 
+  # `id -un`, not $OMARCHY_KIDS_ACCOUNT: which kid a command thinks it is
+  # is no longer settable from the environment (review §3.7).
+  source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+  kids_id_stub "$STUBS" kid-ada "$(id -u)"
+
   out="$(
     PATH="$STUBS:$PATH" \
     OMARCHY_KIDS_ETC="$ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
     OMARCHY_KIDS_RUN="$RUN" \
-    OMARCHY_KIDS_ACCOUNT="kid-ada" \
     OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
     OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
     bash "$SESSION_START"
@@ -231,11 +252,11 @@ EOF
 
   # Level 2/3 exec the real Omarchy shell command.
   out2="$(
+    PATH="$STUBS:$PATH" \
+    KIDS_TEST_ACCOUNT=kid-two \
     OMARCHY_KIDS_ETC="$ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
     OMARCHY_KIDS_RUN="$RUN" \
-    OMARCHY_KIDS_ACCOUNT="kid-ada" \
-    OMARCHY_KIDS_LEVEL=2 \
     OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
     OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
     bash "$SESSION_START"
@@ -245,12 +266,11 @@ EOF
   # issue #28: band 3-5 gets no "More apps" tile at all -- not a shelf
   # that would always show empty (I-6).
   out3="$(
+    PATH="$STUBS:$PATH" \
+    KIDS_TEST_ACCOUNT=kid-tot \
     OMARCHY_KIDS_ETC="$ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
     OMARCHY_KIDS_RUN="$RUN" \
-    OMARCHY_KIDS_ACCOUNT="kid-ada" \
-    OMARCHY_KIDS_BAND=3-5 \
-    OMARCHY_KIDS_LEVEL=1 \
     OMARCHY_KIDS_APPLICATIONS_DIRS="$TMP/apps" \
     OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
     bash "$SESSION_START"

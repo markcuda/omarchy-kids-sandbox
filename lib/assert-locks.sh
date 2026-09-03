@@ -124,12 +124,17 @@ theme_fix() {
 
 # --- machine-level locks ----------------------------------------------------
 
+# The expected text goes into a local first: inline, an unusable parent
+# name makes posture_polkit_admin_rule_text print nothing and an empty
+# rule file compares equal to it -- green forever over a polkit that has
+# no admin rule at all (review §2.2).
 polkit_admin_ok() {
-    local parent file
+    local parent file expected
     parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
     [[ -n "$parent" ]] || return 1
+    expected="$(posture_polkit_admin_rule_text "$parent")" || return 1
     file="$(posture_polkit_dir)/40-omarchy-kids.rules"
-    [[ -f "$file" ]] && [[ "$(cat "$file")" == "$(posture_polkit_admin_rule_text "$parent")" ]]
+    [[ -f "$file" ]] && [[ "$(cat "$file")" == "$expected" ]]
 }
 polkit_admin_fix() {
     local parent
@@ -265,10 +270,10 @@ parent_group_fix() {
 }
 
 # hyprland configs: every *.lua in $SHARE/hyprland copied verbatim to
-# $ETC/hyprland (R-DESK-1). Prefers omarchy-kids-session --install-configs
-# if that ever exists (it doesn't yet -- verified against this checkout),
-# so this starts using the real thing automatically once it lands,
-# without needing to change here.
+# $ETC/hyprland (R-DESK-1). Uses `omarchy-kids-session --install-configs`
+# when it is on PATH (bin/omarchy-kids-session implements it), and falls
+# back to copying the files here when it is not -- an installed package
+# always has it; a scratch tree may not.
 HYPR_SHARE="$SHARE/hyprland"
 HYPR_ETC="$ETC/hyprland"
 hyprland_ok() {
@@ -305,13 +310,28 @@ hyprland_fix() {
 # docs/provision.md's own stated reasoning: real runs are always root, at
 # which point every file this creates is already root-owned anyway.
 chromium_dir() { printf '%s/etc/chromium/policies/managed' "$(posture_root)"; }
-chromium_ok() { [[ "$(file_stat a "$1")" == "640" ]]; }
+# The group is part of the lock, not a best-effort afterthought: 0640
+# root:<band group> is what makes the file readable to that band and to
+# nobody else. It used to be chowned best-effort and `return 0` either
+# way, so a file owned by the wrong group reported `fixed` forever
+# (review S11). Where that group does not exist on this box at all (a dev
+# box, a scratch tree), the group half is skipped rather than guessed --
+# every real machine has it, because omarchy-kids-provision created it.
+chromium_ok() {
+    local file="$1" band="${2:-}" group
+    [[ "$(file_stat a "$file")" == "640" ]] || return 1
+    group="$(group_for_band "$band" 2>/dev/null || true)"
+    [[ -n "$group" ]] || return 0
+    command -v getent >/dev/null 2>&1 && getent group "$group" >/dev/null 2>&1 || return 0
+    [[ "$(file_stat G "$file")" == "$group" ]]
+}
 chromium_fix() {
-    local file="$1" band="$2" group
+    local file="$1" band="${2:-}" group
     chmod 0640 "$file" || return 1
     group="$(group_for_band "$band" 2>/dev/null || true)"
-    [[ -n "$group" ]] && chown "root:$group" "$file" >/dev/null 2>&1
-    return 0
+    [[ -n "$group" ]] || return 0
+    command -v getent >/dev/null 2>&1 && getent group "$group" >/dev/null 2>&1 || return 0
+    chown "root:$group" "$file"
 }
 
 # Boot hook (R-BOOT-5): only checked if the hook file the package installs

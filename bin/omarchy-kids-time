@@ -5,19 +5,21 @@
 # Read-only trust boundary (see lib/time.sh's header). See docs/time.md for every env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-export OMARCHY_KIDS_CONF_BIN="$CONF_BIN" OMARCHY_KIDS_TIME_PY="$LIB/time.py"
 # shellcheck source=lib/time.sh
 source "$LIB/time.sh"
+TIME_CONF_BIN="$CONF_BIN"
 
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
 TOAST_QML="$SHARE/time/toast.qml"
 TIMESUP_QML="$SHARE/time/timesup.qml"
+TOAST_PIDFILE="$RUN/toast.pid"
+TIMESUP_PIDFILE="$RUN/timesup.pid"
 POLL_INTERVAL="${OMARCHY_KIDS_TIME_POLL_INTERVAL:-30}"
 ASK_MINUTES="${OMARCHY_KIDS_ASK_GROWNUP_MINUTES:-15}"
 
@@ -49,7 +51,7 @@ log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/
 # --- status ----------------------------------------------------------------
 
 cmd_status() {
-    local kid="${1:-${OMARCHY_KIDS_ACCOUNT:-$(id -un)}}"
+    local kid="${1:-$(id -un)}"
     local now hm day weekend used granted budget remaining kind at
     now="$(time_now)"; hm="$(time_hm "$now")"
     IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
@@ -77,7 +79,7 @@ cmd_grant() {
     local kid="${1:-}" minutes="${2:-}" now day weekend
     [[ -n "$kid" && -n "$minutes" ]] || die "grant: needs <kid> <minutes> (see --help)"
     [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -gt 0 ]] || die "grant: <minutes> must be a positive integer, got '$minutes'"
-    if [[ "${OMARCHY_KIDS_TIME_REQUIRE_ROOT:-1}" == "1" && "$(id -u)" != "0" ]]; then
+    if ! is_root; then
         die "grant: must run as root (a parent action, R-TIME-4 -- see docs/time.md)" 1
     fi
     now="$(time_now)"
@@ -90,7 +92,7 @@ cmd_grant() {
 # --- ask-grownup ---------------------------------------------------------
 
 cmd_ask_grownup() {
-    local kid="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    local kid; kid="$(id -un)"
     if command -v omarchy-kids-ask-grownup >/dev/null 2>&1; then
         log "ask-grownup: '$kid' asked for $ASK_MINUTES more minutes; running omarchy-kids-ask-grownup"
         exec omarchy-kids-ask-grownup time "$ASK_MINUTES"
@@ -100,36 +102,39 @@ cmd_ask_grownup() {
 
 # --- daemon ----------------------------------------------------------------
 
-# overlay_running QML — 0 if a `quickshell -p QML` process is already
-# up (same pgrep pattern bin/omarchy-kids-exit uses for its own modal).
-overlay_running() {
-    command -v pgrep >/dev/null 2>&1 || return 1
-    pgrep -f "quickshell -p $1" >/dev/null 2>&1
-}
-
+# The overlays are tracked by the pidfile pair in lib/kids.sh, not by
+# `pgrep -f "quickshell -p ..."`: a kid with a terminal (bands 9-12 and
+# 13+ ship one) can start any process whose argv contains that string,
+# and lights-out would then think it was already on screen and never
+# draw it (review §2.6).
 show_toast() {
     local text="$1"
-    overlay_running "$TOAST_QML" && return 0
+    modal_already_open "$TOAST_PIDFILE" && return 0
+    install -d -m 0700 "$RUN"
     OMARCHY_KIDS_TOAST_TEXT="$text" quickshell -p "$TOAST_QML" >/dev/null 2>&1 &
+    modal_write_pid "$TOAST_PIDFILE" "$!"
     disown 2>/dev/null || true
     log "toast: $text"
 }
 
 show_timesup() {
-    overlay_running "$TIMESUP_QML" && return 0
-    local kid="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}" name avatar_id
+    modal_already_open "$TIMESUP_PIDFILE" && return 0
+    local kid name avatar_id
+    kid="$(id -un)"
     name="$("$CONF_BIN" get "$kid" name 2>/dev/null || echo "$kid")"
     avatar_id="$("$CONF_BIN" get "$kid" avatar 2>/dev/null || echo "")"
+    install -d -m 0700 "$RUN"
     OMARCHY_KIDS_ACCOUNT="$kid" OMARCHY_KIDS_NAME="$name" \
         OMARCHY_KIDS_AVATAR="$SHARE/avatars/$avatar_id.svg" \
         quickshell -p "$TIMESUP_QML" >/dev/null 2>&1 &
+    modal_write_pid "$TIMESUP_PIDFILE" "$!"
     disown 2>/dev/null || true
     log "time's up shown for '$kid'"
 }
 
 dismiss_timesup() {
-    overlay_running "$TIMESUP_QML" || return 0
-    pkill -f "quickshell -p $TIMESUP_QML" >/dev/null 2>&1 || true
+    modal_already_open "$TIMESUP_PIDFILE" || return 0
+    modal_close "$TIMESUP_PIDFILE"
     log "time's up dismissed (more time granted)"
 }
 
@@ -152,7 +157,7 @@ toast_label() {
 }
 
 cmd_daemon() {
-    local kid="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+    local kid; kid="$(id -un)"
     # Highest first: time_toast_thresholds (lib/time.sh) fires each of
     # these only once per downward crossing (R-TIME-3, issue #40) --
     # see that function's header for the previous/current/fired-set

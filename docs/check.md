@@ -357,7 +357,6 @@ builds on both):
   OMARCHY_KIDS_ETC          kid profiles, machine.conf (via the sourced
                             omarchy-kids-assert; default /etc/omarchy-kids)
   OMARCHY_KIDS_SHARE        package data root (default /usr/share/omarchy-kids)
-  OMARCHY_KIDS_LIB          lib/ beside bin/, else /usr/lib/omarchy-kids
   OMARCHY_KIDS_ROOT         scratch prefix for every real machine path this
                             touches indirectly through the sourced
                             omarchy-kids-assert/lib/posture.sh/lib/time.sh
@@ -368,14 +367,6 @@ builds on both):
   OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS device auto-detection for the
                             boot:luks-slots check (same var
                             bin/omarchy-kids-provision's "remove" uses)
-  OMARCHY_KIDS_ASSERT_BIN   path to omarchy-kids-assert (default: sibling,
-                            else /usr/bin/omarchy-kids-assert) — sourced,
-                            never executed, for its *_ok functions
-  OMARCHY_KIDS_RUNUSER_BIN  the runuser binary --live shells out to
-                            (default: runuser; stub it in tests)
-  OMARCHY_KIDS_LOGINCTL_BIN the loginctl binary the live tmpfs-noexec
-                            check uses to find a kid's live session
-                            (default: loginctl; stub it in tests)
   OMARCHY_KIDS_PROC_ROOT    prefix for the /proc/<pid>/mountinfo path
                             that check reads (default: /proc; point at
                             a fixture tree of <pid>/mountinfo files in
@@ -410,3 +401,13 @@ Env:
                                   this to 0 so the suite doesn't sit
                                   through it)
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

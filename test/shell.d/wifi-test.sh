@@ -23,6 +23,7 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 WIFID="$DIR/bin/omarchy-kids-wifid"
 WIFI="$DIR/bin/omarchy-kids-wifi"
 CONF_BIN="$DIR/bin/omarchy-kids-conf"
@@ -101,7 +102,7 @@ check(wifid.kids_connection_name("HomeNet"), "kids-HomeNet", "kids_connection_na
 calls = []
 
 
-def fake_run_nmcli(nmcli, args):
+def fake_run_nmcli(nmcli, args, allow_failure=False):
     calls.append(list(args))
     return ""
 
@@ -110,25 +111,72 @@ wifid.run_nmcli = fake_run_nmcli
 
 calls.clear()
 wifid.cmd_join("/usr/bin/nmcli", "HomeNet", "hunter2")
-check(calls[0], ["device", "wifi", "connect", "HomeNet", "password", "hunter2", "name", "kids-HomeNet"],
-      "cmd_join: connect argv includes password + forces the kids- connection name")
+check(calls[0], ["connection", "delete", "--", "kids-HomeNet"],
+      "cmd_join: clears any stale kids- profile first")
 check(calls[1],
+      ["connection", "add", "type", "wifi", "con-name", "kids-HomeNet",
+       "autoconnect", "no", "ifname", "*", "ssid", "--", "HomeNet"],
+      "cmd_join: builds the profile with autoconnect off, SSID after a -- separator")
+check(calls[2],
+      ["connection", "modify", "kids-HomeNet",
+       "wifi-sec.key-mgmt", "wpa-psk", "wifi-sec.psk", "--", "hunter2"],
+      "cmd_join: the password goes on after a -- separator too")
+check(calls[3],
       ["connection", "modify", "kids-HomeNet",
        "ipv4.ignore-auto-dns", "yes", "ipv6.ignore-auto-dns", "yes",
-       "ipv4.dns", "", "ipv6.dns", "", "connection.zone", "kids"],
-      "cmd_join: modify argv forces ignore-auto-dns on both stacks and clears connection DNS (R-WIFI-2)")
-check(calls[2], ["connection", "up", "kids-HomeNet"], "cmd_join: reactivates kids-<ssid>")
-check(len(calls), 3, "cmd_join: exactly 3 nmcli calls, no more")
+       "ipv4.dns", "", "ipv6.dns", ""],
+      "cmd_join: forces ignore-auto-dns on both stacks and clears connection DNS (R-WIFI-2)")
+check(calls[4], ["connection", "up", "kids-HomeNet"], "cmd_join: brings it up LAST")
+check(len(calls), 5, "cmd_join: exactly 5 nmcli calls, no more")
+dns_at = calls.index([
+    "connection", "modify", "kids-HomeNet",
+    "ipv4.ignore-auto-dns", "yes", "ipv6.ignore-auto-dns", "yes",
+    "ipv4.dns", "", "ipv6.dns", ""])
+up_at = calls.index(["connection", "up", "kids-HomeNet"])
+check(dns_at < up_at, True,
+      "cmd_join: R-WIFI-2's DNS lockdown is applied BEFORE activation (review §3.11)")
 
 calls.clear()
 wifid.cmd_join("/usr/bin/nmcli", "OpenNet", "")
-check(calls[0], ["device", "wifi", "connect", "OpenNet", "name", "kids-OpenNet"],
-      "cmd_join: open network (empty password) has no password argument at all")
+check(calls[1], ["connection", "add", "type", "wifi", "con-name", "kids-OpenNet",
+                 "autoconnect", "no", "ifname", "*", "ssid", "--", "OpenNet"],
+      "cmd_join: open network (empty password) sets no wifi-sec key at all")
+check(len(calls), 4, "cmd_join: open network is one call shorter")
+
+# A failed activation must not leave a half-built profile behind: the kid
+# would be connected on the network's own DNS (review §3.11).
+def failing_run_nmcli(nmcli, args, allow_failure=False):
+    calls.append(list(args))
+    if args[:2] == ["connection", "up"] and not allow_failure:
+        raise wifid.Failed("activation failed")
+    return ""
+
+wifid.run_nmcli = failing_run_nmcli
+calls.clear()
+try:
+    wifid.cmd_join("/usr/bin/nmcli", "HomeNet", "hunter2")
+    check("no exception", "Failed", "cmd_join: a failed activation raises")
+except wifid.Failed:
+    print("ok   cmd_join: a failed activation raises")
+check(calls[-1], ["connection", "delete", "--", "kids-HomeNet"],
+      "cmd_join: a failed activation deletes the profile instead of leaving it (fail closed)")
+wifid.run_nmcli = fake_run_nmcli
+
+# Neither value from the socket can become an nmcli flag (review §3.10).
+for bad, label in ((("-x", "hunter2"), "an SSID starting with '-'"),
+                   (("A" * 33, "hunter2"), "an SSID longer than 32 bytes"),
+                   (("Ok", "p" * 65), "a password longer than 64 bytes"),
+                   (("Ok\nJOIN Other", "hunter2"), "an SSID with a newline")):
+    try:
+        wifid.cmd_join("/usr/bin/nmcli", bad[0], bad[1])
+        check("no exception", "Refused", f"cmd_join: refuses {label}")
+    except wifid.Refused:
+        print(f"ok   cmd_join: refuses {label}")
 
 # --- cmd_forget only ever touches kids-<ssid>, never a bare SSID -----------
 calls.clear()
 wifid.cmd_forget("/usr/bin/nmcli", "HomeNet")
-check(calls, [["connection", "delete", "kids-HomeNet"]],
+check(calls, [["connection", "delete", "--", "kids-HomeNet"]],
       "cmd_forget: deletes kids-<ssid> only, never a bare-named connection this daemon didn't create")
 
 # --- cmd_list / cmd_status: fixed, terse argv -------------------------------
@@ -232,8 +280,12 @@ EOF
     echo "FAIL wifi-test.sh section B: daemon never created $SOCK"
     fail=1
   else
-    export OMARCHY_KIDS_WIFID_SOCK="$SOCK" OMARCHY_KIDS_ACCOUNT="$WHOAMI" \
-           OMARCHY_KIDS_CONF_BIN="$CONF_BIN"
+    # The client's socket path is a build-time constant now, and it
+    # resolves omarchy-kids-conf beside itself -- nothing here is an env
+    # override (AGENTS.md, "The trust boundary").
+    kids_tree "$TMP/tree" "$DIR"
+    WIFI="$TMP/tree/bin/omarchy-kids-wifi"
+    kids_set_const "$WIFI" SOCK "$SOCK"
 
     out="$("$WIFI" list)"; st=$?
     check_status "$st" 0 "wifi list: exits 0 for wifi=helper"
@@ -242,15 +294,17 @@ EOF
     out="$(printf 'hunter2\n' | "$WIFI" join TestNet --password-stdin)"; st=$?
     check_status "$st" 0 "wifi join: exits 0"
     argv_log="$(cat "$ARGV_LOG")"
-    check_contains "$argv_log" "device wifi connect TestNet password hunter2 name kids-TestNet" \
-      "wifi join: end-to-end connect argv reaches nmcli via the daemon"
+    check_contains "$argv_log" "connection add type wifi con-name kids-TestNet autoconnect no" \
+      "wifi join: end-to-end add argv reaches nmcli via the daemon"
     check_contains "$argv_log" "connection modify kids-TestNet ipv4.ignore-auto-dns yes ipv6.ignore-auto-dns yes" \
       "wifi join: end-to-end modify argv forces ignore-auto-dns"
+    check_contains "$argv_log" "connection up kids-TestNet" \
+      "wifi join: end-to-end activation happens after the DNS lockdown"
 
     : > "$ARGV_LOG"
     out="$("$WIFI" forget TestNet)"; st=$?
     check_status "$st" 0 "wifi forget: exits 0"
-    check "$(cat "$ARGV_LOG")" "connection delete kids-TestNet" \
+    check "$(cat "$ARGV_LOG")" "connection delete -- kids-TestNet" \
       "wifi forget: end-to-end argv only ever deletes kids-<ssid>"
 
     out="$("$WIFI" status)"; st=$?
@@ -305,11 +359,20 @@ avatar=owl
 band=6-8
 EOF
 
+# The account comes from `id -un` and the socket from a constant, so the
+# scratch copy + an `id` stub replace what used to be two env vars.
+STUBS_C="$TMP_C/stubs"
+mkdir -p "$STUBS_C"
+kids_id_stub "$STUBS_C" kid-helper "$(id -u)"
+kids_tree "$TMP_C/tree" "$DIR"
+WIFI_C="$TMP_C/tree/bin/omarchy-kids-wifi"
+kids_set_const "$WIFI_C" SOCK "$TMP_C/no-such.sock"
+
 run_wifi_c() { # ACCOUNT SUBCOMMAND... -> combined output on stdout; exit status is the command's
   local account="$1"; shift
-  OMARCHY_KIDS_ETC="$ETC_C" OMARCHY_KIDS_SHARE="$SHARE_C" OMARCHY_KIDS_CONF_BIN="$CONF_BIN" \
-  OMARCHY_KIDS_ACCOUNT="$account" OMARCHY_KIDS_WIFID_SOCK="$TMP_C/no-such.sock" \
-    "$WIFI" "$@" 2>&1
+  PATH="$STUBS_C:$PATH" KIDS_TEST_ACCOUNT="$account" \
+  OMARCHY_KIDS_ETC="$ETC_C" OMARCHY_KIDS_SHARE="$SHARE_C" \
+    "$WIFI_C" "$@" 2>&1
 }
 
 out="$(run_wifi_c kid-parent list)"; st=$?
@@ -340,71 +403,10 @@ check_contains "$out" "grown-up" "wifi picker: falls back to a stderr message wh
 trap - EXIT
 cleanup_c
 
-# =====================================================================
-# D. omarchy-kids-wifi portal: DRY_RUN=1 (default) never executes
-# =====================================================================
-
-TMP_D="$(mktemp -d)"
-cleanup_d() { rm -rf "$TMP_D"; }
-trap cleanup_d EXIT
-
-ETC_D="$TMP_D/etc"
-SHARE_D="$TMP_D/share"
-mkdir -p "$ETC_D/kids" "$SHARE_D/bands" "$SHARE_D/packs" "$SHARE_D/policy/lists"
-cp "$DIR/share/bands/bands.toml" "$SHARE_D/bands/"
-cp "$DIR"/share/packs/*.toml "$SHARE_D/packs/"
-cp "$DIR"/share/policy/*.json "$SHARE_D/policy/"
-cp "$DIR"/share/policy/lists/*.txt "$SHARE_D/policy/lists/"
-
-cat > "$ETC_D/kids/kid-garden.conf" <<'EOF'
-name=Garden
-avatar=fox
-band=6-8
-wifi=helper
-EOF
-cat > "$ETC_D/kids/kid-filtered.conf" <<'EOF'
-name=Filtered
-avatar=owl
-band=13+
-wifi=helper
-EOF
-cat > "$ETC_D/kids/kid-nobrowser.conf" <<'EOF'
-name=NoBrowser
-avatar=owl
-band=3-5
-wifi=helper
-EOF
-
-run_portal_d() { # ACCOUNT [ARGS...] -> combined output on stdout; exit status is the command's
-  local account="$1"; shift
-  OMARCHY_KIDS_ETC="$ETC_D" OMARCHY_KIDS_SHARE="$SHARE_D" OMARCHY_KIDS_CONF_BIN="$CONF_BIN" \
-  OMARCHY_KIDS_WEB_BIN="$DIR/bin/omarchy-kids-web" OMARCHY_KIDS_ACCOUNT="$account" \
-    "$WIFI" portal "$@" 2>&1
-}
-
-out="$(run_portal_d kid-garden)"; st=$?
-check_status "$st" 0 "portal: garden band exits 0 under the DRY_RUN=1 default"
-check_contains "$out" "[dry-run]" "portal: garden band's install/systemd-run are printed, not executed (DRY_RUN=1 default)"
-check_contains "$out" "omarchy-kids-web install 6-8 --allow" "portal: temporary-allow install command names the band and --allow"
-check_contains "$out" "--apply" "portal: temporary-allow install command includes --apply (only meaningful once DRY_RUN=0)"
-check_contains "$out" "systemd-run" "portal: schedules the restore via systemd-run"
-check_contains "$out" "--on-active=10min" "portal: restore job fires after 10 minutes"
-check_contains "$out" "omarchy-kids-web install 6-8 --apply" "portal: restore command re-installs the band's normal (unallowed) policy"
-check_contains "$out" "chromium --new-window http://neverssl.com" "portal: opens the captive-portal page over plain http"
-
-out="$(run_portal_d kid-filtered)"; st=$?
-check_status "$st" 0 "portal: filtered band exits 0"
-check_contains "$out" "not blocked" "portal: filtered band skips the allow/restore dance (nothing is blocked by host)"
-if [[ "$out" == *"omarchy-kids-web install"* ]]; then
-  echo "FAIL portal: filtered band should never call omarchy-kids-web at all"
-  fail=1
-else
-  echo "ok   portal: filtered band never calls omarchy-kids-web"
-fi
-check_contains "$out" "chromium --new-window http://neverssl.com" "portal: filtered band still opens the browser"
-
-out="$(run_portal_d kid-nobrowser)"; st=$?
-check_status "$st" 3 "portal: web=none band refuses (exit 3) -- there is no browser to open (I-6)"
+# `omarchy-kids-wifi portal` used to be tested here. The command is gone
+# (see this file's header): a kid could never have run it.
+out="$("$WIFI" portal 2>&1)"; st=$?
+check_status "$st" 2 "portal: the command a kid could never run is gone (I-6)"
 
 # =====================================================================
 # review S8: the Wi-Fi password is never echoed back to the caller
@@ -439,9 +441,6 @@ case "$leak_out" in
   *device*) echo "ok   S8: the error still names the nmcli subcommand, so it is diagnosable" ;;
   *) echo "FAIL S8: the error names nothing useful ($leak_out)"; fail=1 ;;
 esac
-
-trap - EXIT
-cleanup_d
 
 echo "wifi-test RESULT: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"
 exit $fail

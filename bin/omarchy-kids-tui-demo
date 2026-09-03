@@ -10,7 +10,7 @@
 # See docs/tui.md for the answers-file format (one answer per line, plus
 # the reserved @esc / @ctrlc lines).
 set -euo pipefail
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 # shellcheck source=../lib/tui.sh
 source "$DIR/lib/tui.sh"
 

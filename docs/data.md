@@ -263,14 +263,9 @@ bin/omarchy-kids-time-ledger:
   OMARCHY_KIDS_ROOT             scratch prefix for /var/lib/omarchy-kids
   OMARCHY_KIDS_HOMES_BASE       lib/data.sh: default /home
   OMARCHY_KIDS_RUN_USER_BASE    lib/data.sh: default /run/user
-  OMARCHY_KIDS_CONF_BIN         path to omarchy-kids-conf
-  OMARCHY_KIDS_LIB              lib/ beside bin/, else /usr/lib/omarchy-kids
   OMARCHY_KIDS_NOW              "YYYY-MM-DD HH:MM:SS" clock override (tests)
   OMARCHY_KIDS_ACCOUNT          this account's name, for `mine` and the
                                 require_root_or_self check (default: `id -un`)
-  OMARCHY_KIDS_DATA_REQUIRE_ROOT=0  skip the root/self checks below
-                                (tests run as an ordinary user against a
-                                scratch tree; set by test/shell.d/data-test.sh)
 ```
 
 ## Source header (moved from `lib/data.sh`, issue #49)
@@ -330,5 +325,30 @@ Every path is overridable for tests, same convention as lib/time.sh:
                                is assumed to be <base>/<uid>, systemd-logind's
                                own convention)
   OMARCHY_KIDS_HOMES_BASE     default /home (a kid's home is <base>/<kid>)
-  OMARCHY_KIDS_CONF_PY / OMARCHY_KIDS_DATA_PY  python3 and lib/data.py
 ```
+
+## Root reading a kid's own file (issue #58)
+
+`data_fold_launches` is the one place root reads a path a kid controls: their
+`$XDG_RUNTIME_DIR/omarchy-kids/launches.log`. It used to be a shell `[[ -r "$src" ]]` followed by
+`tail -c "+$off" "$src" >> "$dest"` — both of which follow symlinks. A kid who replaced that file
+with a link to `/etc/shadow` had the parent's password hash copied into their own 0644
+`/var/lib/omarchy-kids/<kid>/launches.log` on the next ledger tick (review §3.3).
+
+The read now happens in `lib/data.py`'s `fold-launches`, which opens the source `O_NOFOLLOW` and
+then checks the *open descriptor*: regular file, owned by that kid's uid, one link. Anything else
+is refused with a one-line reason and the tick moves on. The destination is opened `O_NOFOLLOW`
+too and created 0640 root:`omarchy-parents` — like `status.json` — because it is a record about a
+kid for their parent, and it was world-readable to every sibling (review §3.7). `omarchy-kids-data
+launches` is root-or-self for the same reason, and answers "which account am I?" with `id -un`,
+never `$OMARCHY_KIDS_ACCOUNT`.
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

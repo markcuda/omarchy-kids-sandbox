@@ -41,6 +41,7 @@ CLIENT_TIMEOUT = 5.0  # seconds, per connection
 LOCK_AFTER_3 = 30  # seconds
 LOCK_AFTER_10 = 300  # seconds
 DECAY_AFTER = 300  # seconds of quiet before a peer's miss count is forgiven
+MAX_INFLIGHT = 16  # concurrent client threads; see accept loop (review §2.5)
 
 DEFAULT_SOCKET = "/run/omarchy-kids/auth.sock"
 DEFAULT_SHADOW = "/etc/shadow"
@@ -323,7 +324,7 @@ def read_candidate_line(conn: socket.socket, buf: bytearray) -> "bytes | None":
     return line
 
 
-def handle_client(conn: socket.socket, cfg, limiter: RateLimiter):
+def handle_client(conn: socket.socket, cfg, limiter: RateLimiter, slot=None):
     conn.settimeout(CLIENT_TIMEOUT)
     buf = bytearray()
     try:
@@ -355,6 +356,8 @@ def handle_client(conn: socket.socket, cfg, limiter: RateLimiter):
             conn.close()
         except OSError:
             pass
+        if slot is not None:
+            slot.release()
 
 
 def get_systemd_socket() -> "socket.socket | None":
@@ -429,6 +432,7 @@ def main(argv=None) -> int:
         sock = bind_unix_socket(args.socket)
         owns_socket_file = True
     sock.listen(5)
+    inflight = threading.Semaphore(MAX_INFLIGHT)
 
     def _terminate(signum, frame):  # noqa: ARG001
         raise SystemExit(0)
@@ -446,8 +450,23 @@ def main(argv=None) -> int:
             # connection open no longer serializes everyone else's
             # verification behind it. The limiter is the only shared
             # state and takes its own lock.
+            #
+            # Capped, though (review §2.5): the socket is 0666, so a kid
+            # looping `socat - UNIX-CONNECT:...` without sending a line
+            # would otherwise spawn root threads until Python refuses to
+            # make another and the unit dies -- taking the exit modal and
+            # every GRANT with it. Over the cap, the connection is
+            # answered "busy" and closed on this thread instead.
+            if not inflight.acquire(blocking=False):
+                try:
+                    conn.sendall(b"no busy\n")
+                except OSError:
+                    pass
+                finally:
+                    conn.close()
+                continue
             threading.Thread(
-                target=handle_client, args=(conn, cfg, limiter), daemon=True
+                target=handle_client, args=(conn, cfg, limiter, inflight), daemon=True
             ).start()
     finally:
         sock.close()

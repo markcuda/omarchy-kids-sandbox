@@ -5,8 +5,8 @@
 # (SPEC.md R-TRUST-1, R-TRUST-4, R-FND-6). See docs/remove.md for the exact order and what's deliberately left behind.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/conf.sh
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh

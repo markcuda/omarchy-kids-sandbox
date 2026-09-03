@@ -126,10 +126,6 @@ the shelf command's stdout, which nothing else in this repo does yet).
 | `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | kid profiles (`install`/`remove`'s provisioned-kid check, `apps.extra`) |
 | `OMARCHY_KIDS_ROOT` | (empty — the real paths) | scratch prefix for `/var/lib/omarchy-kids`, same convention as `omarchy-kids-ask`/`-apps` |
 | `OMARCHY_KIDS_PLUGIN_INDEX` | `$OMARCHY_KIDS_ROOT/var/lib/omarchy-kids/plugin-marketplace/index.json` | the marketplace index `shelf`/`install`/`remove` read |
-| `OMARCHY_KIDS_CONF_BIN` | resolved beside this script, else `/usr/bin/omarchy-kids-conf` | `apps.extra` reads/writes |
-| `OMARCHY_KIDS_PLUGIN_ADD_BIN` | `omarchy-plugin-add` (PATH) | `install`'s call into Omarchy |
-| `OMARCHY_KIDS_PLUGIN_REMOVE_BIN` | `omarchy-plugin-remove` (PATH) | `remove`'s call into Omarchy |
-| `OMARCHY_KIDS_RUNUSER_BIN` | `runuser` (PATH) | how `install`/`remove` become the kid |
 | `DRY_RUN` | `1` | `install`/`remove` only — `shelf` never writes, so it's never gated |
 
 `test/shell.d/plugins-test.sh` runs entirely against a scratch `OMARCHY_KIDS_ETC`/
@@ -273,13 +269,17 @@ bin/:
                                fetches or refreshes this file — see
                                "Judgment calls" in docs/plugins.md for
                                what that means and what's left undone.
-  OMARCHY_KIDS_CONF_BIN       path to omarchy-kids-conf (default:
-                               resolved beside this script, else
-                               /usr/bin/omarchy-kids-conf)
-  OMARCHY_KIDS_PLUGIN_ADD_BIN   path to omarchy-plugin-add (default:
                                PATH lookup, i.e. Omarchy's own)
-  OMARCHY_KIDS_PLUGIN_REMOVE_BIN  path to omarchy-plugin-remove (same)
-  OMARCHY_KIDS_RUNUSER_BIN    path to `runuser` (default: PATH lookup)
   DRY_RUN                     default 1; install/remove only. shelf
                                never writes, so it is never gated.
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

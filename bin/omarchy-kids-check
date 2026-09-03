@@ -6,8 +6,8 @@
 # See docs/check.md for the full section list and every judgment call.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/conf.sh
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh
@@ -18,8 +18,8 @@ source "$LIB/time.sh"
 source "$LIB/kids.sh"
 
 ASSERT_BIN="$(kids_bin assert "$DIR")"
-RUNUSER_BIN="${OMARCHY_KIDS_RUNUSER_BIN:-runuser}"
-LOGINCTL_BIN="${OMARCHY_KIDS_LOGINCTL_BIN:-loginctl}"
+RUNUSER_BIN=runuser
+LOGINCTL_BIN=loginctl
 PROC_ROOT="${OMARCHY_KIDS_PROC_ROOT:-/proc}"
 
 usage() {

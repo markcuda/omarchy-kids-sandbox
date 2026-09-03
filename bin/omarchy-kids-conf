@@ -10,10 +10,13 @@
 # docs/conf.md for the precedence, the extension keys, and every env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 # lib/ sits beside bin/ in the repo; the package installs it to /usr/lib/omarchy-kids.
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 source "$LIB/conf.sh"
+# KIDS_PY, the one build-time interpreter constant.
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
 # theme_list_installed/theme_apply_for/theme_reload_if_live (issue #53):
 # `set <kid> theme <name>` is the one key here with a real side effect --
 # applying the theme to disk as root, docs/theming.md.
@@ -26,7 +29,7 @@ KIDS_DIR="$ETC/kids"
 MACHINE_CONF="$ETC/machine.conf"
 BANDS_TOML="$SHARE/bands/bands.toml"
 PACKS_DIR="$SHARE/packs"
-PY="${OMARCHY_KIDS_CONF_PY:-python3}"
+PY="$KIDS_PY"
 PYHELPER="$LIB/conf.py"
 
 # Appendix B, in table order. theme (issue #53) sits with level/menu --
@@ -46,7 +49,6 @@ BAND_KEYS=(level web dns budget_min budget_min_weekend lights_out
     lights_out_weekend wifi history_visible menu)
 # Resolved from share/packs/<band>.toml when there's no override.
 PACK_KEYS=(allowlist sites)
-VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 # Extension keys (issue #24): outside Appendix B, but the same profile
 # file and tool as everything else. See docs/conf.md for what each means.
 EXT_KEYS=(apps.extra apps.hidden apps.show_missing)

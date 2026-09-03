@@ -30,6 +30,11 @@ Usage:
         (lib/ask.py, real `time.time()`) is stamped in real epoch, so
         only its retention pruning needs this instead of since-cutoff.
 
+    data.py fold-launches SRC DEST UID SAVED_INODE SAVED_OFFSET
+        Appends whatever is new in the kid-owned runtime log SRC onto the
+        root-owned DEST and prints "INODE SIZE". SRC is opened
+        O_NOFOLLOW and must be a regular file owned by UID.
+
     data.py filter-log FILE CUTOFF
         Prints every line of FILE (one "TIMESTAMP REST..." line, same
         shape as launches.log) whose first field is a timestamp >=
@@ -57,7 +62,9 @@ argument or an unreadable/malformed database -- never a Python
 traceback (same contract as lib/time.py and lib/ask.py).
 """
 import datetime
+import os
 import sqlite3
+import stat
 import sys
 from urllib.parse import urlsplit
 
@@ -229,8 +236,82 @@ def cmd_chromium_top_sites(argv):
         print(f"{host}\t{entry['visits']}\t{entry['last']}")
 
 
+def cmd_fold_launches(argv):
+    """fold-launches SRC DEST UID SAVED_INODE SAVED_OFFSET
+
+    The one step that promotes a kid's own runtime log into the
+    root-owned one, and the only place in this package where root reads a
+    path a kid controls. SRC is opened with O_NOFOLLOW and checked
+    (regular file, owned by UID, single link) *on the open file
+    descriptor*, so neither a symlink nor a swap between the check and
+    the read can point root at /etc/shadow (review §3.3).
+
+    Prints "INODE SIZE" -- what data_write_offset should record. Prints
+    "skip" and exits 0 when there is nothing to fold (no session yet), or
+    "refused REASON" on stderr and exits 3 when SRC is not the plain file
+    it must be.
+    """
+    if len(argv) != 5:
+        die("fold-launches: needs SRC DEST UID SAVED_INODE SAVED_OFFSET")
+    src, dest = argv[0], argv[1]
+    try:
+        want_uid, saved_inode, saved_off = (int(argv[2]), int(argv[3]), int(argv[4]))
+    except ValueError:
+        die("fold-launches: UID, SAVED_INODE and SAVED_OFFSET must be integers")
+
+    try:
+        fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0))
+    except FileNotFoundError:
+        print("skip")
+        return
+    except OSError as exc:  # ELOOP (a symlink), EACCES, ...
+        print(f"data.py: fold-launches: refusing to read {src}: {exc}", file=sys.stderr)
+        sys.exit(3)
+
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            print(f"data.py: fold-launches: {src} is not a regular file", file=sys.stderr)
+            sys.exit(3)
+        if st.st_uid != want_uid:
+            print(
+                f"data.py: fold-launches: {src} is owned by uid {st.st_uid}, not {want_uid}",
+                file=sys.stderr,
+            )
+            sys.exit(3)
+        if st.st_nlink != 1:
+            print(f"data.py: fold-launches: {src} has {st.st_nlink} links", file=sys.stderr)
+            sys.exit(3)
+
+        size = st.st_size
+        off = saved_off
+        if st.st_ino != saved_inode or off > size:
+            off = 0  # a fresh login's new tmpfs file, or a truncated one
+        if size > off:
+            os.makedirs(os.path.dirname(dest) or ".", mode=0o755, exist_ok=True)
+            # 0640 root:omarchy-parents, like status.json: this is a
+            # record *about* a kid, for their parent, and it was
+            # world-readable to every sibling (review §3.7). The group is
+            # set by the caller, which knows whether it exists.
+            dfd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW, 0o640)
+            try:
+                os.lseek(fd, off, os.SEEK_SET)
+                while off < size:
+                    chunk = os.read(fd, min(65536, size - off))
+                    if not chunk:
+                        break
+                    os.write(dfd, chunk)
+                    off += len(chunk)
+            finally:
+                os.close(dfd)
+        print(f"{st.st_ino} {size}")
+    finally:
+        os.close(fd)
+
+
 COMMANDS = {
     "since-cutoff": cmd_since_cutoff,
+    "fold-launches": cmd_fold_launches,
     "since-epoch": cmd_since_epoch,
     "filter-log": cmd_filter_log,
     "chromium-visits": cmd_chromium_visits,

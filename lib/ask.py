@@ -55,6 +55,25 @@ RE_ID = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9._+@-]{0,127}\Z")
 RE_HOST = re.compile(r"\A[A-Za-z0-9][A-Za-z0-9.-]{0,253}\Z")
 
 
+def valid_epoch(value):
+    """VALUE as an int Unix timestamp, or None. Every field a kid's own
+    outbox can set is validated here at read time, not just the four
+    validate_grant already covered: `asked_at` reaches bash arithmetic in
+    the parent's panel, where an unvalidated string is an *expression*
+    (review §2.4). Bounded as well as typed -- a 20-digit number is not a
+    timestamp, and "0001-01-01" is not either."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return None
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    # 2001-09-09 .. 2286-11-20: any real request stamp, nothing wilder.
+    if n < 1000000000 or n > 9999999999:
+        return None
+    return n
+
+
 def valid_account(name) -> bool:
     """A Unix account name we are willing to hand to root as a path
     component. Deliberately narrower than useradd's own rules."""
@@ -238,15 +257,30 @@ def cmd_list_open(argv):
             continue
         if want_kid and record.get("kid") != want_kid:
             continue
+        # The queue is root-owned, but every value in it started as a
+        # line a kid wrote, and this row is rendered by the parent's
+        # panel -- so it is re-validated on the way out, not just on the
+        # way in (review §2.4).
+        kid = record.get("kid")
+        kind = record.get("kind")
+        what = record.get("what")
+        minutes = record.get("minutes")
+        if validate_grant(kid, kind, what, minutes) is not None:
+            continue
+        asked_at = valid_epoch(record.get("asked_at"))
+        if asked_at is None:
+            continue
         record_id = os.path.basename(path)[: -len(".json")]
+        if not RE_ID.match(record_id):
+            continue
         rows.append(
             (
                 record_id,
-                record.get("kid", ""),
-                record.get("kind", ""),
-                record.get("what", ""),
-                record.get("minutes", ""),
-                record.get("asked_at", ""),
+                kid,
+                kind,
+                what,
+                int(minutes) if kind == "time" else "",
+                asked_at,
             )
         )
     for row in rows:
@@ -282,7 +316,8 @@ def cmd_reopen(argv):
         "kid": kid,
         "kind": kind,
         "what": what,
-        "asked_at": record.get("asked_at") or int(time.time()),
+        # Never the kid's own string: a validated int, or this instant.
+        "asked_at": valid_epoch(record.get("asked_at")) or int(time.time()),
         "state": "open",
     }
     if kind == "time":

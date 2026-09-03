@@ -189,12 +189,15 @@ PYEOF
 HOSTILE_PID=$!
 for _ in $(seq 1 50); do [[ -S "$HOSTILE/yes.sock" ]] && break; sleep 0.1; done
 
-# A kid's environment says "ask this socket instead". It must be ignored.
+# A kid's environment says "ask this socket instead". The verifier reads
+# no environment at all now (review §2.1), so this must be ignored.
 if OMARCHY_KIDS_AUTH_SOCK="$HOSTILE/yes.sock" bash -c "echo anything | '$CLIENT'"; then
-  bad "S4: OMARCHY_KIDS_AUTH_SOCK from a non-root caller was honoured"
+  bad "S4: OMARCHY_KIDS_AUTH_SOCK was honoured"
 else
-  ok "S4: OMARCHY_KIDS_AUTH_SOCK is ignored for a non-root caller"
+  ok "S4: OMARCHY_KIDS_AUTH_SOCK is ignored (the verifier reads no environment)"
 fi
+check "$(grep -c 'OMARCHY_KIDS_' "$CLIENT")" "0" \
+  "S4: the verifier's source mentions no OMARCHY_KIDS_* variable at all"
 
 # ...and so must the flag.
 if bash -c "echo anything | '$CLIENT' --socket '$HOSTILE/yes.sock'"; then
@@ -208,10 +211,13 @@ fi
 check "$(grep -c '^TEST_SOCKET_ROOT=""$' "$CLIENT")" "1" \
   "S4: the shipped verifier has an empty build-time test socket root"
 
-TESTCLIENT="$TMP/omarchy-kids-parent-auth"
+# The copy runs from a scratch tree (lib/ beside it), because it resolves
+# lib/ from its own `readlink -f "$0"` and from nowhere else.
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+kids_tree "$TMP/tree" "$DIR"
+TESTCLIENT="$TMP/tree/bin/omarchy-kids-parent-auth"
 sed "s|^TEST_SOCKET_ROOT=\"\"$|TEST_SOCKET_ROOT=\"$TMP\"|" "$CLIENT" > "$TESTCLIENT"
 chmod +x "$TESTCLIENT"
-export OMARCHY_KIDS_LIB="$DIR/lib"   # the copy lives outside the repo tree
 
 # Sanity: the copy really can speak to a socket under its own test root,
 # so the refusals below are refusals, not a broken script.

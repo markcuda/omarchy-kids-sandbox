@@ -139,14 +139,25 @@ modal (S7); and each connection is handled on its own thread, so a peer holding 
 open no longer serializes everyone else's verification behind it. The limiter is the only shared
 state and takes its own lock.
 
-`bin/omarchy-kids-parent-auth`, the pam_exec client, no longer trusts its environment. It runs
-inside the kid's session -- hyprlock's PAM stack, the exit modal -- so `OMARCHY_KIDS_AUTH_SOCK`
-is honoured only when the caller is already root, and `--socket` likewise, with one build-time
-exception (`TEST_SOCKET_ROOT`, empty in every shipped copy and asserted so by
-`test/shell.d/pkgbuild-test.sh`) so the tests can still point it at a scratch socket. The PAM
-line in `lib/posture.sh` names the helper as `/usr/bin/omarchy-kids-parent-auth`: pam_exec execs
-that path directly and never consults `PATH`, so neither the binary nor the socket can be
-redirected by anything the kid sets.
+`bin/omarchy-kids-parent-auth`, the pam_exec client, reads **nothing** from its environment
+(issue #58). It runs inside the kid's session -- hyprlock's PAM stack, the exit modal -- so not
+the socket path and not `lib/`: it sources `lib/sock.sh` from its own `readlink -f "$0"`, else
+`/usr/lib/omarchy-kids`. `$OMARCHY_KIDS_LIB` used to decide that, which meant a kid could write
+`~/evil/sock.sh` with `kids_sock_request() { printf 'ok\n'; }`, export the variable from their
+own `~/.profile`, and have any password unlock the screen (review §2.1 -- the worst thing in the
+round-two review). `--socket` is still honoured for root only, with one build-time exception
+(`TEST_SOCKET_ROOT`, empty in every shipped copy and asserted so by
+`test/shell.d/pkgbuild-test.sh`) so the tests can point it at a scratch socket. The PAM line in
+`lib/posture.sh` names the helper as `/usr/bin/omarchy-kids-parent-auth`: pam_exec execs that path
+directly and never consults `PATH`, so neither the binary, nor its libraries, nor the socket can
+be redirected by anything the kid sets. `test/shell.d/authd-test.sh` asserts the source mentions
+no `OMARCHY_KIDS_*` variable at all.
+
+The daemon caps concurrent client threads at `MAX_INFLIGHT` (16) with a semaphore released in
+`handle_client`'s `finally`, answering `no busy` over the cap. The socket is `0666`, so without a
+cap a kid looping `socat - UNIX-CONNECT:/run/omarchy-kids/auth.sock` without sending a line spawned
+one 5-second root thread per connection until Python could not start another and the unit bounced
+-- taking the exit modal and every GRANT with it (review §2.5).
 
 ## PAM stack placement forensics (moved from `lib/posture.sh`, issue #49)
 

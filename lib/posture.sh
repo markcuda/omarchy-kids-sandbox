@@ -72,10 +72,16 @@ polkit.addAdminRule(function(action, subject) {
 RULES
 }
 
+# The text is built into a local *first*: a `$(...)` in an argument list
+# swallows its own non-zero exit even under `set -e`, so the guard above
+# used to end up writing an empty admin rule and reporting it fixed --
+# polkit then asks for root's password, the exact failure the guard
+# exists to prevent (review §2.2).
 posture_write_polkit_admin_rule() {
-    local parent="$1" file
+    local parent="$1" file text
     file="$(posture_polkit_dir)/40-omarchy-kids.rules"
-    posture_install_if_changed "$file" "$(posture_polkit_admin_rule_text "$parent")" 0644
+    text="$(posture_polkit_admin_rule_text "$parent")" || return 1
+    posture_install_if_changed "$file" "$text" 0644
 }
 
 # posture_polkit_deny_rule_text — 41-omarchy-kids-deny.rules: outright
@@ -489,12 +495,16 @@ EOF
 # above for why this isn't a caller-supplied FILE argument the way
 # portal.json's writer took one: this is the one installed theme
 # directory, not a scratch-overridable ETC path).
+# Same shape as posture_write_polkit_admin_rule: the text first, so an
+# unusable parent name aborts the write instead of silently producing a
+# greeter with no parent= and no kids= line (review §2.2).
 posture_write_portal_conf() {
     local parent="$1"
     shift
-    local file
+    local file text
     file="$(posture_sddm_theme_dir)/theme.conf.user"
-    posture_install_if_changed "$file" "$(posture_portal_conf_text "$parent" "$@")" 0644
+    text="$(posture_portal_conf_text "$parent" "$@")" || return 1
+    posture_install_if_changed "$file" "$text" 0644
 }
 
 # --- luks-slots (R-SEC-4, and the "LUKS2 reuses slot numbers" finding) -----

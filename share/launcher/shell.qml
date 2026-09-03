@@ -222,7 +222,7 @@ Window {
         // below, never launched -- Enter on it is a no-op, same as
         // Escape everywhere else in this file.
         if (tile.installed === false) return
-        logProcess.command = ["omarchy-kids-launcher-ctl", "log", tile.id || ""]
+        logProcess.command = ["/usr/bin/omarchy-kids-launcher-ctl", "log", tile.id || ""]
         logProcess.running = true
         launcherProcess.command = ["sh", "-c", tile.exec]
         launcherProcess.running = true

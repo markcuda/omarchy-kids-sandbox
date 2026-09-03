@@ -205,9 +205,6 @@ this issue's two spec-vs-ticket comments.
 | `OMARCHY_KIDS_HOME` | `$HOME` | the parent's home |
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `share/bar/manifest.json`, `KidsModule.qml` |
 | `OMARCHY_PATH` | `/usr/share/omarchy` | Omarchy's own install root (a real Omarchy session var, confirmed against `etc/profile.d/omarchy.sh` / `default/bash/env-bootstrap` upstream -- not one of ours) |
-| `OMARCHY_KIDS_DEFAULTS_SHELL_JSON` | `$OMARCHY_PATH/config/omarchy/shell.json` | seed for a shell.json `enable` has to create from scratch |
-| `OMARCHY_KIDS_TIME_BIN` | resolved beside this script, else `/usr/bin/omarchy-kids-time` | what `grant` runs under `sudo` |
-| `OMARCHY_KIDS_TERMINAL_BIN` | (probe `PATH`) | test hook: force `grant`'s terminal instead of probing for the floating-terminal helper / `alacritty` |
 | `DRY_RUN` | `1` | gates `enable`/`disable` |
 
 `share/bar/KidsModule.qml` reads its own env at runtime (`Quickshell.env(...)`, not a shell var):
@@ -357,16 +354,6 @@ command here:
                                  /usr/share/omarchy/default/bash/env-
                                  bootstrap upstream), not one of ours;
                                  default /usr/share/omarchy
-  OMARCHY_KIDS_DEFAULTS_SHELL_JSON  default $OMARCHY_PATH/config/omarchy/shell.json
-  OMARCHY_KIDS_TIME_BIN           path to omarchy-kids-time (default:
-                                  resolved beside this script, else
-                                  /usr/bin/omarchy-kids-time)
-  OMARCHY_KIDS_EXIT_BIN           path to omarchy-kids-exit (default:
-                                  resolved beside this script, else
-                                  /usr/bin/omarchy-kids-exit)
-  OMARCHY_KIDS_TERMINAL_BIN       test hook: force the terminal helper
-                                  used by `grant`/`end` instead of
-                                  probing PATH
   DRY_RUN                        default 1 (AGENTS.md rule 8); --apply
                                   or DRY_RUN=0 makes enable/disable real.
                                   `grant` always runs for real (it is a
@@ -376,3 +363,13 @@ command here:
                                   plugin/site -- there is no plan to dry-
                                   run, only a terminal to open).
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

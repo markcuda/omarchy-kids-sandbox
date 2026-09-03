@@ -5,14 +5,14 @@
 # See lib/time.sh's header for the trust boundary this enforces, and docs/time.md for every env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-export OMARCHY_KIDS_CONF_BIN="$CONF_BIN" OMARCHY_KIDS_TIME_PY="$LIB/time.py"
 # shellcheck source=lib/time.sh
 source "$LIB/time.sh"
+TIME_CONF_BIN="$CONF_BIN"
 # shellcheck source=lib/data.sh
 source "$LIB/data.sh"
 
@@ -21,6 +21,10 @@ SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 KIDS_DIR="$ETC/kids"
 RUN_DIR="$SYSROOT/run/omarchy-kids"
 STATUS_JSON="$RUN_DIR/status.json"
+
+# is_known_kid_here ACCOUNT — lib/kids.sh's is_known_kid against this
+# command's own $KIDS_DIR.
+is_known_kid_here() { is_known_kid "$1" "$KIDS_DIR"; }
 
 die() { echo "omarchy-kids-time-ledger: $1" >&2; exit "${2:-2}"; }
 
@@ -38,9 +42,6 @@ systemd/omarchy-kids-time.timer, not by hand.
 EOF
 }
 
-# is_known_kid ACCOUNT — 0 if ACCOUNT has a profile under $KIDS_DIR.
-is_known_kid() { [[ -f "$KIDS_DIR/$1.conf" ]]; }
-
 # session_prop ID PROP — one `loginctl show-session` property's value.
 # Filters for the "PROP=" line rather than trusting the output to be
 # exactly one line: real loginctl with a single -p prints just that,
@@ -50,7 +51,7 @@ is_known_kid() { [[ -f "$KIDS_DIR/$1.conf" ]]; }
 session_prop() {
     local id="$1" prop="$2" out
     out="$(loginctl show-session "$id" -p "$prop" 2>/dev/null)" || return 1
-    sed -n "s/^${prop}=//p" <<<"$out" | head -n1
+    first_field "$prop" "$out"
 }
 
 # active_kid_sessions — one account per line, deduplicated, for every
@@ -64,7 +65,7 @@ active_kid_sessions() {
         id="$(awk '{print $1}' <<<"$line")"
         user="$(awk '{print $3}' <<<"$line")"
         [[ -n "$id" && -n "$user" ]] || continue
-        is_known_kid "$user" || continue
+        is_known_kid_here "$user" || continue
         [[ "$seen" == *$'\n'"$user"$'\n'* ]] && continue
         active="$(session_prop "$id" Active || true)"
         locked="$(session_prop "$id" LockedHint || true)"
@@ -103,7 +104,7 @@ write_status_json() {
 }
 
 cmd_tick() {
-    if [[ "${OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT:-1}" == "1" && "$(id -u)" != "0" ]]; then
+    if ! is_root; then
         die "tick must run as root (it is meant to be run by systemd/omarchy-kids-time.timer)" 1
     fi
     local now day weekend kid

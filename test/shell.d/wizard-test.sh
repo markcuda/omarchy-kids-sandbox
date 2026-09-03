@@ -14,7 +14,26 @@
 set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$DIR/bin/omarchy-kids-wizard"
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+BIN=""  # a copy in a scratch tree per stub set: the wizard resolves
+        # every sibling command beside itself now (AGENTS.md, "The trust
+        # boundary"), so each fake is placed there rather than exported.
+
+# wizard_for STUBDIR [AUTH_SOCK] — prints the path of a wizard copy whose
+# siblings are STUBDIR's fakes and whose verifier socket is AUTH_SOCK (by
+# default one that cannot exist, so no run here can ever reach a real
+# omarchy-kids-authd -- on the VM there is one). Both are build-time
+# constants in a copy, never environment overrides.
+wizard_for() {
+    local stubs="$1" tree="$1.tree" sock f
+    sock="${2:-$stubs/no-such-auth.sock}"
+    kids_tree "$tree" "$DIR"
+    for f in "$stubs"/omarchy-kids-*; do
+        [[ -e "$f" ]] && cp "$f" "$tree/bin/"
+    done
+    kids_set_const "$tree/bin/omarchy-kids-wizard" AUTH_SOCK "$sock"
+    printf '%s\n' "$tree/bin/omarchy-kids-wizard"
+}
 
 if ! command -v python3 >/dev/null 2>&1; then
     echo "SKIP wizard-test.sh: python3 not found (needed by omarchy-kids-conf)"
@@ -104,11 +123,7 @@ chmod +x "$STUBS"/*
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
-export OMARCHY_KIDS_PROVISION_BIN="$STUBS/omarchy-kids-provision"
-export OMARCHY_KIDS_WEB_BIN="$STUBS/omarchy-kids-web"
-export OMARCHY_KIDS_ASSERT_BIN="$STUBS/omarchy-kids-assert"
-export OMARCHY_KIDS_SESSION_BIN="$STUBS/omarchy-kids-session"
-export OMARCHY_KIDS_APPS_BIN="$STUBS/omarchy-kids-apps"
+BIN="$(wizard_for "$STUBS")"
 # Pinned rather than left to `id -un` (issue #46), so the machine-set-parent
 # checks below don't depend on whoever happens to run this suite.
 export OMARCHY_KIDS_INVOKING_USER="mark"
@@ -399,11 +414,9 @@ rm_out="$(
     PATH="$RM_STUBS:$PATH" \
     OMARCHY_KIDS_ETC="$RM_ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_PROVISION_BIN="$RM_STUBS/omarchy-kids-provision" \
-    OMARCHY_KIDS_WEB_BIN="$RM_STUBS/omarchy-kids-web" \
     OMARCHY_KIDS_SETUP_LOG="$RM_LOG" \
     OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin parentpw123 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
-    DRY_RUN=0 "$BIN" 2>&1
+    DRY_RUN=0 "$(wizard_for "$RM_STUBS")" 2>&1
 )"
 rm_status=$?
 check_status "$rm_status" 0 "a real run still exits 0 even when Apply fails (Done still shows what happened)"
@@ -480,16 +493,10 @@ rm3a_out="$(
     PATH="$RM3_STUBS:$PATH" \
     OMARCHY_KIDS_ETC="$RM3_ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_PROVISION_BIN="$RM3_STUBS/omarchy-kids-provision" \
-    OMARCHY_KIDS_WEB_BIN="$RM3_STUBS/omarchy-kids-web" \
-    OMARCHY_KIDS_APPS_BIN="$RM3_STUBS/omarchy-kids-apps" \
-    OMARCHY_KIDS_ASSERT_BIN="$RM3_STUBS/omarchy-kids-assert" \
-    OMARCHY_KIDS_SESSION_BIN="$RM3_STUBS/omarchy-kids-session" \
-    OMARCHY_KIDS_AUTH_SOCK="$RM3_TMP/no-such-auth.sock" \
     OMARCHY_KIDS_SETUP_LOG="$RM3_TMP/setup.log" \
     CORRECT_PW="hunter2" \
     OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
-    DRY_RUN=0 "$BIN" 2>&1
+    DRY_RUN=0 "$(wizard_for "$RM3_STUBS")" 2>&1
 )"
 rm3a_status=$?
 check_status "$rm3a_status" 0 "sudo fallback, correct password: the wizard completes"
@@ -510,11 +517,9 @@ rm3b_out="$(
     PATH="$RM3_STUBS:$PATH" \
     OMARCHY_KIDS_ETC="$RM3_ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_PROVISION_BIN="$RM3_STUBS/omarchy-kids-provision" \
-    OMARCHY_KIDS_AUTH_SOCK="$RM3_TMP/no-such-auth.sock" \
     CORRECT_PW="hunter2" \
     OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin wrong1 wrong2 wrong3)" \
-    DRY_RUN=0 "$BIN" 2>&1
+    DRY_RUN=0 "$(wizard_for "$RM3_STUBS")" 2>&1
 )"
 rm3b_status=$?
 check_status "$rm3b_status" 130 "sudo fallback, three wrong passwords: leaves (same exit as Ctrl+C)"
@@ -596,16 +601,10 @@ EOF
         PATH="$RM4_STUBS:$PATH" \
         OMARCHY_KIDS_ETC="$RM4_ETC" \
         OMARCHY_KIDS_SHARE="$SHARE" \
-        OMARCHY_KIDS_PROVISION_BIN="$RM4_STUBS/omarchy-kids-provision" \
-        OMARCHY_KIDS_WEB_BIN="$RM4_STUBS/omarchy-kids-web" \
-        OMARCHY_KIDS_APPS_BIN="$RM4_STUBS/omarchy-kids-apps" \
-        OMARCHY_KIDS_ASSERT_BIN="$RM4_STUBS/omarchy-kids-assert" \
-        OMARCHY_KIDS_SESSION_BIN="$RM4_STUBS/omarchy-kids-session" \
-        OMARCHY_KIDS_AUTH_SOCK="$RM4_SOCK" \
         OMARCHY_KIDS_SETUP_LOG="$RM4_TMP/setup.log" \
         CORRECT_PW="hunter2" \
         OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
-        DRY_RUN=0 "$BIN" 2>&1
+        DRY_RUN=0 "$(wizard_for "$RM4_STUBS" "$RM4_SOCK")" 2>&1
     )"
     rm4_status=$?
     check_status "$rm4_status" 0 "socket active, no parent configured: the sudo fallback still lets the right password through"
@@ -664,13 +663,9 @@ rm2_out="$(
     PATH="$RM2_STUBS:$PATH" \
     OMARCHY_KIDS_ETC="$RM2_ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_PROVISION_BIN="$RM2_STUBS/omarchy-kids-provision" \
-    OMARCHY_KIDS_WEB_BIN="$RM2_STUBS/omarchy-kids-web" \
-    OMARCHY_KIDS_APPS_BIN="$RM2_STUBS/omarchy-kids-apps" \
-    OMARCHY_KIDS_ASSERT_BIN="$RM2_STUBS/omarchy-kids-assert" \
     OMARCHY_KIDS_SETUP_LOG="$RM2_TMP/setup.log" \
     OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin parentpw123 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
-    DRY_RUN=0 "$BIN" 2>&1
+    DRY_RUN=0 "$(wizard_for "$RM2_STUBS")" 2>&1
 )"
 rm2_status=$?
 check_status "$rm2_status" 0 "real mode with every fake succeeding still exits 0"
@@ -713,15 +708,10 @@ wizard_launched_by_desktop() { # -> the run's output
     PATH="$DEF_STUBS:$PATH" \
     OMARCHY_KIDS_ETC="$DEF_ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_PROVISION_BIN="$DEF_STUBS/omarchy-kids-provision" \
-    OMARCHY_KIDS_WEB_BIN="$DEF_STUBS/omarchy-kids-web" \
-    OMARCHY_KIDS_APPS_BIN="$DEF_STUBS/omarchy-kids-apps" \
-    OMARCHY_KIDS_SESSION_BIN="$DEF_STUBS/omarchy-kids-session" \
-    OMARCHY_KIDS_ASSERT_BIN="$DEF_STUBS/omarchy-kids-assert" \
     OMARCHY_KIDS_SETUP_LOG="$DEF_TMP/setup.log" \
     OMARCHY_KIDS_LAUNCHED_BY=desktop \
     DRY_RUN='' \
-    "$BIN" "${@:2}" 2>&1
+    "$(wizard_for "$DEF_STUBS")" "${@:2}" 2>&1
 }
 
 ans="$(answers_file begin parentpw123 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)"
@@ -747,7 +737,7 @@ fi
 # No terminal and no app entry (a script, CI): the safe default holds.
 : > "$DEF_MARK"
 def_out="$(OMARCHY_KIDS_TUI_ANSWERS="$ans" OMARCHY_KIDS_ETC="$DEF_ETC" OMARCHY_KIDS_SHARE="$SHARE" \
-    OMARCHY_KIDS_PROVISION_BIN="$DEF_STUBS/omarchy-kids-provision" DRY_RUN='' "$BIN" 2>&1)"
+    DRY_RUN='' "$(wizard_for "$DEF_STUBS")" 2>&1)"
 check_contains "$def_out" "[dry-run]" "no tty and no app entry: still previews by default (AGENTS.md rule 8)"
 
 rm -rf "$DEF_TMP" "$RM_STUBS_SUDO"

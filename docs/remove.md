@@ -203,7 +203,6 @@ reports `skipped`, with no separate `rm -rf` or move needed.
 | Env var | Default | Affects |
 | --- | --- | --- |
 | `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | profiles, `luks-slots` |
-| `OMARCHY_KIDS_LIB` | `lib/` beside `bin/`, else `/usr/lib/omarchy-kids` | where `lib/conf.sh`, `lib/posture.sh` are sourced from |
 | `OMARCHY_KIDS_ROOT` | (none — the real paths) | every real machine path this touches: `lib/posture.sh`'s own list, plus `/etc/systemd/system` (getty masks, package units), `/etc/chromium/policies/managed`, `/etc/mkinitcpio.conf.d`, `/etc/default/limine`, and `/root` (the pre-delete tarball) |
 | `OMARCHY_KIDS_HOME_ROOT` | (none — the real `/home`) | prefixes `/home/<account>` and `<parent>`'s own home for `umount`/`mv`/`rm` (`parent_home_dir` falls back to this prefix when `getent` isn't available) |
 | `OMARCHY_KIDS_LUKS_DEVICE` | (none) | the LUKS device, since `remove` has no `--luks-device` flag (same as `omarchy-kids-provision remove`) |
@@ -272,7 +271,6 @@ deliberate exception -- the snapshot offer).
 Every path is overridable for tests, the same convention every other
 command in this repo uses:
   OMARCHY_KIDS_ETC          default /etc/omarchy-kids (profiles, luks-slots)
-  OMARCHY_KIDS_LIB          default lib/ beside bin/, else /usr/lib/omarchy-kids
   OMARCHY_KIDS_ROOT         scratch prefix for every real machine path this
                             touches: lib/posture.sh's own list, plus
                             /etc/systemd/system (getty, package units),
@@ -284,3 +282,13 @@ command in this repo uses:
                             --luks-device flag, same as
                             omarchy-kids-provision remove
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

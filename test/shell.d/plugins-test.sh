@@ -172,7 +172,6 @@ stub omarchy-plugin-remove ''
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_PLUGIN_INDEX="$IDX"
-export OMARCHY_KIDS_CONF_BIN="$CONF"
 
 argv_since() { tail -n "+$(( $1 + 1 ))" "$ARGV_LOG"; } # LINE_COUNT -> lines appended since
 argv_lines() { wc -l <"$ARGV_LOG" | tr -d ' '; }

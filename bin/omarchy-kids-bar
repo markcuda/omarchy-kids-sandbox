@@ -5,15 +5,15 @@
 # See docs/bar.md for the full design, every env var, and the terminal-fallback rationale.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 [[ -f "$SHARE/bar/manifest.json" ]] || SHARE="$DIR/share"
 HOME_DIR="${OMARCHY_KIDS_HOME:-$HOME}"
 OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
-DEFAULTS_SHELL_JSON="${OMARCHY_KIDS_DEFAULTS_SHELL_JSON:-$OMARCHY_PATH/config/omarchy/shell.json}"
+DEFAULTS_SHELL_JSON="$OMARCHY_PATH/config/omarchy/shell.json"
 TIME_BIN="$(kids_bin time "$DIR")"
 EXIT_BIN="$(kids_bin exit "$DIR")"
 
@@ -178,10 +178,7 @@ open_terminal_running() {
     inner+="; ec=\$?; if [ \"\$ec\" -ne 0 ]; then read -r -p $(printf '%q' "$fail_msg (see above) -- press Enter to close ") _; else read -r -p $(printf '%q' "$ok_msg Press Enter to close ") _; fi; exit \"\$ec\""
 
     local -a term
-    if [[ -n "${OMARCHY_KIDS_TERMINAL_BIN:-}" ]]; then
-        # shellcheck disable=SC2206 # a deliberate word-split test hook, e.g. "alacritty -e"
-        term=(${OMARCHY_KIDS_TERMINAL_BIN})
-    elif command -v omarchy-launch-floating-terminal-with-presentation >/dev/null 2>&1; then
+    if command -v omarchy-launch-floating-terminal-with-presentation >/dev/null 2>&1; then
         term=(omarchy-launch-floating-terminal-with-presentation)
     else
         term=(alacritty -e)

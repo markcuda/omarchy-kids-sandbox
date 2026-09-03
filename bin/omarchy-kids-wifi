@@ -1,26 +1,28 @@
 #!/bin/bash
-# omarchy:summary=The kid-side Wi-Fi commands: list, join, status, forget, portal, picker
-# omarchy:args=<list|join|status|forget|portal|picker> [args]
-# The kid-side Wi-Fi commands (SPEC.md R-WIFI-1..4): list, join, status, forget, portal, picker.
+# omarchy:summary=The kid-side Wi-Fi commands: list, join, status, forget, picker
+# omarchy:args=<list|join|status|forget|picker> [args]
+# The kid-side Wi-Fi commands (SPEC.md R-WIFI-1..2, R-WIFI-4): list, join, status, forget, picker.
+# R-WIFI-3's captive-portal helper is not here: it needed a root write to
+# /etc/chromium/policies/managed and org.freedesktop.systemd1.manage-units,
+# neither of which a kid has or should have (I-6 -- see docs/wifi.md).
 # See docs/wifi.md for the helper-vs-locked-down design and every env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/sock.sh
 source "$LIB/sock.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-WEB_BIN="$(kids_bin web "$DIR")"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 WIFI_QML="$SHARE/wifi/shell.qml"
 TOAST_QML="$SHARE/time/toast.qml"
 
-SOCK="${OMARCHY_KIDS_WIFID_SOCK:-/run/omarchy-kids/wifi.sock}"
+# The wifid socket is a constant, for the same reason the verifier
+# socket is (AGENTS.md, "The trust boundary").
+SOCK=/run/omarchy-kids/wifi.sock
 TIMEOUT="${OMARCHY_KIDS_WIFID_TIMEOUT:-10}"
-
-DRY_RUN="${DRY_RUN:-1}"
 
 die() { echo "omarchy-kids-wifi: $1" >&2; exit "${2:-2}"; }
 
@@ -30,7 +32,6 @@ Usage: $(basename "$0") list
        $(basename "$0") join <ssid> [--password-stdin]
        $(basename "$0") status
        $(basename "$0") forget <ssid>
-       $(basename "$0") portal [--apply]
        $(basename "$0") picker
        $(basename "$0") --help
 
@@ -40,16 +41,11 @@ bin/omarchy-kids-wifid, the root helper this talks to. See docs/wifi.md.
 
 Env:
   OMARCHY_KIDS_SHARE          default /usr/share/omarchy-kids
-  OMARCHY_KIDS_CONF_BIN       default: resolved beside this script, else /usr/bin/omarchy-kids-conf
-  OMARCHY_KIDS_WEB_BIN        default: resolved beside this script, else /usr/bin/omarchy-kids-web
-  OMARCHY_KIDS_ACCOUNT        default: this process's own user
-  OMARCHY_KIDS_WIFID_SOCK     default /run/omarchy-kids/wifi.sock
   OMARCHY_KIDS_WIFID_TIMEOUT  default 10 (seconds)
-  DRY_RUN                     default 1 for "portal" (AGENTS.md rule 8)
 EOF
 }
 
-account() { printf '%s' "${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"; }
+account() { id -un; }
 
 # wifi_mode ACCOUNT — the resolved Appendix B `wifi` value, or empty
 # (with a non-zero return) if it can't be read at all (no profile).
@@ -170,55 +166,6 @@ cmd_join() {
     call_wifid "JOIN $ssid" "$password"
 }
 
-# cmd_portal — captive-portal helper (R-WIFI-3): opens an always-http
-# page, temporarily widening the band's Chromium allowlist for a fixed
-# window (garden bands only). RISK and every edge case (the restore's no
-# watchdog, --apply needs a root context): docs/wifi.md.
-cmd_portal() {
-    local apply=0 arg
-    for arg in "$@"; do
-        case "$arg" in
-            --apply) apply=1 ;;
-            -h|--help) usage; exit 0 ;;
-            *) die "portal: unknown argument '$arg'" ;;
-        esac
-    done
-    [[ "$apply" == 1 ]] && DRY_RUN=0
-
-    require_helper
-    local who band web portal_url="http://neverssl.com"
-    who="$(account)"
-    band="$("$CONF_BIN" get "$who" band)" || die "could not read '$who's band"
-    web="$("$CONF_BIN" get "$who" web)" || die "could not read '$who's web mode"
-
-    case "$web" in
-        none)
-            die "'$who' has no browser at all (web=none); there is nothing for the captive portal to open (I-6)" 3
-            ;;
-        garden)
-            local allow_file
-            allow_file="$(mktemp)"
-            printf 'neverssl.com\n' > "$allow_file"
-            echo "Temporarily allowing neverssl.com for band '$band' for 10 minutes (captive portal, R-WIFI-3)"
-            run "$WEB_BIN" install "$band" --allow "$allow_file" --apply
-            run systemd-run \
-                --unit "omarchy-kids-wifi-portal-restore-$band" \
-                --on-active=10min \
-                --description "Restore band $band's normal web allowlist after the captive-portal window (omarchy-kids-wifi portal)" \
-                -- "$WEB_BIN" install "$band" --apply
-            rm -f "$allow_file"
-            ;;
-        filtered)
-            echo "'$who' is filtered open web: neverssl.com is not blocked, no temporary allow needed"
-            ;;
-        *)
-            die "'$who' has an unrecognized web mode '$web'"
-            ;;
-    esac
-
-    run chromium --new-window "$portal_url"
-}
-
 # cmd_picker — the kid-facing overlay, always bound to Super+Shift+W
 # (share/hyprland/L1.lua, L2.lua, L3.lua: the bind is unconditional
 # because the level configs are static, R-DESK-1 — this command is what
@@ -247,7 +194,6 @@ main() {
         join) shift; cmd_join "$@" ;;
         status) shift; cmd_status "$@" ;;
         forget) shift; cmd_forget "$@" ;;
-        portal) shift; cmd_portal "$@" ;;
         picker) shift; cmd_picker "$@" ;;
         -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
         *) die "unknown command: '$cmd' (see --help)" ;;

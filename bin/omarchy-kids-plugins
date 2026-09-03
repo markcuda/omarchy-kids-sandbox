@@ -5,14 +5,16 @@
 # into one kid's account (SPEC.md R-APPS-7, I-3, I-6). See docs/plugins.md for the marketplace format and every env var.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-PLUGIN_ADD_BIN="${OMARCHY_KIDS_PLUGIN_ADD_BIN:-omarchy-plugin-add}"
-PLUGIN_REMOVE_BIN="${OMARCHY_KIDS_PLUGIN_REMOVE_BIN:-omarchy-plugin-remove}"
-RUNUSER_BIN="${OMARCHY_KIDS_RUNUSER_BIN:-runuser}"
+# Fixed names, never an environment override: this command runs as root
+# (AGENTS.md, "The trust boundary").
+PLUGIN_ADD_BIN=omarchy-plugin-add
+PLUGIN_REMOVE_BIN=omarchy-plugin-remove
+RUNUSER_BIN=runuser
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
@@ -20,7 +22,6 @@ INDEX="${OMARCHY_KIDS_PLUGIN_INDEX:-$SYSROOT/var/lib/omarchy-kids/plugin-marketp
 
 DRY_RUN="${DRY_RUN:-1}"
 
-VALID_BANDS=("3-5" "6-8" "9-12" "13+")
 
 die() { echo "omarchy-kids-plugins: $1" >&2; exit "${2:-2}"; }
 
@@ -61,7 +62,6 @@ is_in() {
     return 1
 }
 
-is_valid_band() { is_in "$1" "${VALID_BANDS[@]}"; }
 
 # band_rank BAND -> its 0-based index in VALID_BANDS, or empty (and a
 # non-zero exit) for an unknown band.

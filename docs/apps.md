@@ -181,7 +181,6 @@ something correct to read from day one.
 | `OMARCHY_KIDS_ROOT` | (empty — the real paths) | scratch prefix for `/var/lib/omarchy-kids` (the install queue) — same convention `bin/omarchy-kids-assert` and `lib/posture.sh` use for system paths this package doesn't own |
 | `OMARCHY_KIDS_HOME` | `$HOME` | `hide-from-mine`/`show-in-mine`'s target home — always the account running the command, never a kid's |
 | `OMARCHY_KIDS_APPLICATIONS_DIRS` | `/usr/share/applications:/usr/local/share/applications` | `hide-from-mine`'s `.desktop` search |
-| `OMARCHY_KIDS_CONF_BIN` | resolved beside this script, else `/usr/bin/omarchy-kids-conf` | every key read/write |
 | `DRY_RUN` | `1` | `install` and `hide-from-mine`/`show-in-mine`; see "Judgment calls" |
 
 `test/shell.d/apps-test.sh` runs entirely against a scratch `OMARCHY_KIDS_ETC`/`OMARCHY_KIDS_SHARE`/
@@ -342,8 +341,14 @@ omarchy-kids-conf and bin/omarchy-kids-assert:
   OMARCHY_KIDS_APPLICATIONS_DIRS  colon-separated .desktop search dirs
                        for hide-from-mine (default
                        /usr/share/applications:/usr/local/share/applications)
-  OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf (default: resolved
-                       beside this script, else /usr/bin/omarchy-kids-conf)
-  OMARCHY_KIDS_CONF_PY  python3 by default (also read by omarchy-kids-conf)
-  OMARCHY_KIDS_LIB     lib/ beside bin/, else /usr/lib/omarchy-kids
 ```
+
+## The trust boundary (issue #58)
+
+This command resolves `lib/` and every sibling `omarchy-kids-*` from its own resolved location
+(`readlink -f "$0"`), else the installed prefix — never from the environment. `$OMARCHY_KIDS_LIB`,
+the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escapes are gone:
+`AGENTS.md` rule 9 states the rule and `test/shell.d/trust-boundary-test.sh` enforces it, with the
+allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
+command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
+`PKGBUILD` substitutes `KIDS_PY` at package time.

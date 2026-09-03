@@ -732,11 +732,23 @@ check_eq "$(head -1 "$SCRATCH_ROOT/boot/limine.conf")" "editor_enabled: no" \
 out="$("$BIN" 2>&1)"
 check_status "$out" "limine-editor" "ok" "no hook file: limine-editor stays ok on the next run"
 
-# ...and with no limine.conf either, it warns rather than reading green.
+# ...and with no limine.conf and no `limine` on PATH, this is not a Limine
+# box: there is no menu editor to disable, so the lock is ok rather than a
+# permanent warn that made omarchy-kids-check exit 1 on every GRUB or
+# systemd-boot machine (review S11, issue #58). A box that *does* have
+# limine installed but no readable config still warns.
 rm -f "$SCRATCH_ROOT/boot/limine.conf"
 out="$("$BIN" 2>&1)"
+check_status "$out" "limine-editor" "ok" \
+    "no limine.conf and no limine installed: nothing to lock, so ok (review S11)"
+
+LIMINE_STUB="$(mktemp -d)"
+printf '#!/bin/bash\nexit 0\n' >"$LIMINE_STUB/limine"
+chmod +x "$LIMINE_STUB/limine"
+out="$(PATH="$LIMINE_STUB:$PATH" "$BIN" 2>&1)"
 check_status "$out" "limine-editor" "warn" \
-    "no limine.conf: limine-editor reports warn, never a silent ok (review S11)"
+    "limine installed but no readable limine.conf: warn, never a silent ok (review S11)"
+rm -rf "$LIMINE_STUB"
 
 mv "$SCRATCH_ROOT/hook.bak" "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock"
 

@@ -115,7 +115,7 @@ PanelWindow {
     // --- The card ------------------------------------------------------
     Rectangle {
         anchors.fill: parent
-        color: Qt.rgba(0, 0, 0, 0.6)
+        color: theme.dim
 
         Rectangle {
             id: card
@@ -123,7 +123,7 @@ PanelWindow {
             width: 480
             radius: 24
             color: theme.background
-            border.color: Qt.lighter(theme.background, 1.6)
+            border.color: theme.cardFill
             border.width: 2
             height: cardColumn.implicitHeight + 64
 
@@ -190,7 +190,7 @@ PanelWindow {
                             width: (cardColumn.width - 16) / 2
                             height: 84
                             radius: 12
-                            color: root.selectedAction === 0 ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
+                            color: root.selectedAction === 0 ? theme.tileFill : theme.cardFill
                             border.width: root.selectedAction === 0 ? 3 : 0
                             border.color: theme.accent
 
@@ -231,7 +231,7 @@ PanelWindow {
                             width: (cardColumn.width - 16) / 2
                             height: 84
                             radius: 12
-                            color: root.selectedAction === 1 ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
+                            color: root.selectedAction === 1 ? theme.tileFill : theme.cardFill
                             border.width: root.selectedAction === 1 ? 3 : 0
                             border.color: theme.accent
 

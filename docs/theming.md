@@ -100,18 +100,31 @@ It's a plain `QtObject`, not a `pragma Singleton`: every file that wants it just
 own copy —
 
 ```qml
-import "../qml"
-// ...
 KidsTheme { id: theme }
 // ...
 color: theme.background
 ```
 
-— because each `shell.qml` here is already its own separate process; there's no cross-file
-singleton worth sharing within one QML engine the way the real shell needs one. Every color a
-file needs beyond the six names (a "raised tile" look, a highlighted state) is derived from those
-six with `Qt.lighter()`/`Qt.darker()` rather than adding more names to the shared contract — see
-any of `share/launcher/shell.qml`, `share/exit-modal/shell.qml`, etc. for the pattern.
+— no import: `KidsTheme.qml` is installed beside every standalone surface's own `shell.qml` at
+package-install time (`PKGBUILD`'s own copy step — Quickshell resolves QML types only inside the
+shell's own directory, "Verified live" below), not read from `share/qml` at runtime — because each
+`shell.qml` here is already its own separate process; there's no cross-file singleton worth
+sharing within one QML engine the way the real shell needs one.
+
+**Derived surface colors (issue #57)**: `KidsTheme.qml` also exposes `isLight`, `inputFill`,
+`cardFill`, `tileFill`, `errorFill`, and `dim` — one place each surface goes for a "raised tile"
+look, a sunken input fill, or a full-screen dim scrim, rather than every `share/**/*.qml` file
+calling `Qt.lighter()`/`Qt.darker()` on `theme.background` with its own magic-number factor (what
+every surface did before this issue, and the live bug that came from it: a factor tuned to look
+right against a dark background does the wrong thing against a light one — lightening an
+already-light background blows out toward white, and darkening it by a fixed factor lands on a
+flat grey that reads as a *disabled* control, not a themed one — the exit modal's password field
+under catppuccin-latte). Each of the five derived colors instead picks its direction from
+`isLight` (darker on a light background, lighter on a dark one) and moves the background's own HSL
+lightness by a fixed amount — see `KidsTheme.qml`'s own header and each property's comment for the
+exact numbers and reasoning. `test/shell.d/qml-theme-static-test.sh` enforces this: no
+`share/**/*.qml` file may call `Qt.lighter()`/`Qt.darker()` with a literal factor outside
+`KidsTheme.qml` itself.
 
 **`share/bar/KidsModule.qml` is the one exception**: it really does run inside `omarchy-shell`, as
 a first-party-style plugin (its own header cites `manual/32-shell-plugins.md` and the real

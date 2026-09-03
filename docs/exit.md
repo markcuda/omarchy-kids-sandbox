@@ -176,3 +176,31 @@ are on the box (`docs/vm.md` has the SSH/VNC details):
    `omarchy-kids-super-tap` can also be exercised directly, without Hyprland at all:
    `omarchy-kids-super-tap; omarchy-kids-super-tap; omarchy-kids-super-tap` run three times within
    1.5 seconds should call `omarchy-kids-exit` the same way.
+
+## Verified live (2026-09-02, QEMU test VM)
+
+From the portal: Left to Cy's tile, Enter, kid password, the Level 1 launcher. Three taps of
+Super within 1.5 s (the `{ release = true }` bind in every level config) opened the modal as a
+Quickshell overlay: fox avatar, the kid's name, a focused password field, Pause greyed as
+"coming soon", Finish. Parent password, Tab to Finish, Enter: the verifier said yes, Hyprland
+exited cleanly, and SDDM started a new greeter with the Kids theme.
+
+Four things had to change to get there, all found live and now in the code:
+
+- The overlay needs `WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive`; without it the
+  keys went to the launcher underneath.
+- `omarchy-kids-parent-auth` reads one line instead of waiting for EOF; the modal's Process
+  kept stdin open and the helper hung.
+- The chosen action runs through `Quickshell.execDetached`; a child `Process` started right
+  before `Qt.quit()` died with the modal.
+- `--finish` asks Hyprland to exit with `hyprctl dispatch 'hl.dsp.exit()'` (Hyprland 0.56 in
+  Lua-config mode rejects `dispatch exit`) and waits for it. A hard
+  `loginctl terminate-session` makes sddm-helper exit 1, SDDM logs "Process crashed" and starts
+  no greeter at all: a black screen until `systemctl restart sddm`. It stays as the last resort
+  only.
+
+Not yet exercised live: the wrong-password shake and the 30 s lockout, Esc to close, Pause
+(needs the decision in docs/phase1/DECISIONS-NEEDED.md), and the parent password on a kid's
+tile at the portal (#15's PAM line is installed; a portal login with the parent password is
+the next check).
+

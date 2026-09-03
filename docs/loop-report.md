@@ -80,14 +80,42 @@ from screenshots. Done since:
 - A third review is reading the repo with a maintainer's eye (taste and conventions, not
   security); its notes will be `docs/reviews/2026-09-03-maintainer-eye.md`.
 
+## Round three (the morning after)
+
+- The unit suite now runs on the VM as live scenario 05, and it is the gate: 61 checks in 16
+  files had only ever passed on the Mac (BSD `stat`, tools assumed absent from `PATH`, the
+  package assumed uninstalled). `test/shell.d/lib.sh` gives every test one portable `stat` and
+  a sealed `PATH`. The same run found four real Linux-only bugs: `check --live` aborted on
+  `pkcheck`'s non-zero "not authorized", `omarchy-kids-wifi` died silently when `socat` found
+  no socket, an account without `colors.toml` got a black parent tile on the portal, and
+  `kids_bin`'s `/usr/bin` fallback made "not installed yet" untestable on an installed box.
+- A maintainer-eye review (`docs/reviews/2026-09-03-maintainer-eye.md`, taste and conventions
+  rather than security) found 33 things; about 30 are applied. The visible ones: every panel
+  screen now shows its facts inside the card instead of echoing them above a menu that cleared
+  the screen (verified by screenshot under tokyo-night and catppuccin-latte); Time's Up's
+  "Ask a grown-up" opens the real ask modal; a wrong parent password shows on the redrawn card;
+  Omy's welcome is two sentences; the PKGBUILD reads like code with its reasoning in
+  `docs/packaging.md`; one `account_home`, one `is_in`, no `TIME_CONF_BIN` handshake, no
+  `PY` aliases, `apps list --json` instead of parsing a table by column offset.
+- Harness run 6 after all of that: six of eight scenarios green in one run; the two failures
+  were SSH timeouts through the laptop, and both scenarios passed on their own straight after.
+- Two things I could not settle and left as findings: the greeter stopped answering Left and
+  Right after a password field had been opened and closed once, so a parent could not arrow
+  from a kid's tile to their own (needs a fresh-greeter reproduction, then likely a
+  `forceActiveFocus()` after Escape in `share/sddm-theme/Main.qml`); and scenario 20's
+  "the owner's session is live" check passed while the screen showed the portal, so it may be
+  counting an SSH session (`assert_session` should require seat0).
+- Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3), plus
+  the two findings above. One thing to know: an agent installed Homebrew bash 5.3 on the Mac
+  without being asked; it is harmless and still there.
+
 ## What is open
 
 - `#2` V1 and `#17` Pause: SDDM on 4.0.2 cannot open a second greeter; a design decision.
 - `#4` V3: the captive-portal window needs a real captive portal to test.
 - `#26` `#28` `#32` `#33`: real Wi-Fi hardware, a populated plugins catalog, the AUR upload and
   the upstream notes need the laptop or you.
-- The unit suite on Arch (branch `vmtests`, agent in flight) and the maintainer-eye review
-  (branch `review3`). Both merge only when the suite is green on the Mac and on the VM.
+- The greeter arrow-key focus question and the scenario-20 assertion (round three, above).
 
 Decisions waiting for you: `docs/phase1/DECISIONS-NEEDED.md` (Pause, snapshot entries, AUR
 publish, upstream notes). Blocked items: `docs/phase1/BLOCKED.md`.

@@ -26,9 +26,23 @@ launcher_map_find_desktop() {
   return 1
 }
 
+# launcher_map_executable_ok FILE — the first argv item must not be mutable by a kid.
+launcher_map_executable_ok() {
+  local file="$1" mode
+  [[ "$file" == /* && -f "$file" && ! -L "$file" && -x "$file" ]] || return 1
+  is_root || return 0
+  mode="$(file_stat a "$file")"
+  [[ "$(file_stat u "$file")" == 0 ]] || return 1
+  [[ "${mode: -3:1}" != [2367] && "${mode: -1}" != [2367] ]]
+}
+
 # launcher_map_exec_json FILE — fixed absolute argv from a trusted desktop entry.
 launcher_map_exec_json() {
-  "$KIDS_PY" "$LIB/conf.py" desktop-argv "$1"
+  local argv executable
+  argv="$("$KIDS_PY" "$LIB/conf.py" desktop-argv "$1")" || return 1
+  executable="$(jq -r '.[0]' <<<"$argv")"
+  launcher_map_executable_ok "$executable" || return 1
+  printf '%s\n' "$argv"
 }
 
 # launcher_map_bare_json ID — resolves a pack fallback while root owns the map.
@@ -36,12 +50,13 @@ launcher_map_bare_json() {
   local executable
   executable="$(command -v "$1" 2>/dev/null || true)"
   [[ "$executable" == /* && -x "$executable" ]] || return 1
+  launcher_map_executable_ok "$executable" || return 2
   jq -n --arg executable "$executable" '[$executable]'
 }
 
 # launcher_map_render ACCOUNT OUTPUT — derives one map from the root profile.
 launcher_map_render() {
-  local account="$1" output="$2" band level web allowlist pack id meta label pkg desktop icon argv_json installed
+  local account="$1" output="$2" band level web allowlist pack id meta label pkg desktop icon argv_json installed known bare_rc
   local entries
   local -a ids
   local sysroot="${OMARCHY_KIDS_ROOT:-}" apps_bin
@@ -62,21 +77,43 @@ launcher_map_render() {
   for id in "${ids[@]+"${ids[@]}"}"; do
     [[ -n "$id" ]] || continue
     desktop=""
+    known=true
     if meta="$("$KIDS_PY" "$LIB/conf.py" pack-app "$pack" "$id" 2>/dev/null)"; then
       IFS=$'\t' read -r label pkg _web <<<"$meta"
     else
       # Extra ids have no pack row; desktop metadata still gives them a fixed tile.
       label="$id"
       pkg="$id"
+      known=false
     fi
     icon=""
     argv_json='[]'
     if desktop="$(launcher_map_find_desktop "$id" "$pkg")"; then
       icon="$(grep -m1 '^Icon=' "$desktop" | cut -d= -f2- || true)"
-      argv_json="$(launcher_map_exec_json "$desktop" 2>/dev/null || echo '[]')"
+      if ! argv_json="$(launcher_map_exec_json "$desktop" 2>/dev/null)"; then
+        echo "launcher-map: desktop entry for '$id' has no trusted executable" >&2
+        rm -f "$entries"
+        return 1
+      fi
     fi
     if [[ "$argv_json" == '[]' ]]; then
-      argv_json="$(launcher_map_bare_json "$id" 2>/dev/null || echo '[]')"
+      if argv_json="$(launcher_map_bare_json "$id" 2>/dev/null)"; then
+        :
+      else
+        bare_rc=$?
+        [[ "$bare_rc" == 2 ]] || bare_rc=0
+        if [[ "$bare_rc" == 2 ]]; then
+          echo "launcher-map: executable for '$id' is mutable" >&2
+          rm -f "$entries"
+          return 1
+        fi
+        argv_json='[]'
+      fi
+    fi
+    if [[ "$known" == false && "$argv_json" == '[]' ]]; then
+      echo "launcher-map: unknown launcher id '$id'" >&2
+      rm -f "$entries"
+      return 1
     fi
     installed=false
     [[ "$argv_json" != '[]' ]] && installed=true

@@ -59,6 +59,26 @@ that's decided, has nothing left to figure out.
   release changelog — there has been no tagged release — so everything so far sits under
   `[Unreleased]`.
 
+### Why each depend
+
+- `qt6-svg`: the portal's avatars are SVGs; without Qt's SVG image plugin the greeter shows the
+  letter-circle fallback forever. Listed explicitly because it is unverified whether `sddm` or
+  `qt6-declarative` pull it in transitively on a stock 4.0.2 box, and an already-satisfied
+  depend costs nothing (#39).
+- `networkmanager`: `omarchy-kids-wifid` shells out to `nmcli` with fixed argument shapes (#26,
+  R-WIFI-2). Every Omarchy install already runs NetworkManager for its own Wi-Fi picker.
+- `quickshell`: the exit modal, the ask-a-parent modal and the Level 1 launcher `exec quickshell`
+  with no `command -v` guard; without it none of them run (#32, R-BUILD-1). `hyprctl` and
+  `loginctl` elsewhere in `bin/` are optional and guarded.
+- `hyprland`, `sddm`: the kid session execs `/usr/bin/Hyprland` and the portal is an SDDM theme
+  (R-LOGIN). Omarchy itself is installed by its own installer, not from a repo, so it cannot be
+  a depend; `share/hyprland/L*.lua` and `omarchy-kids-session-start` need its files, and
+  `omarchy-kids-check` reports when they are missing.
+- `snapper` and `limine-snapper-sync` are `optdepends`: both are guarded with `command -v` in
+  `omarchy-kids-assert` and `-remove`, so the pre-apply snapshot and the hidden-snapshot-entries
+  lock are skipped, not failed, without them (#38, R-TRUST-1). A parent who removed either is
+  not blocked from installing Kids Mode.
+
 ## What gets installed where
 
 Mirrors SPEC.md §5.1, restricted to what package() actually lays down today (some of §5.1's

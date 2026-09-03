@@ -24,16 +24,11 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
 7. **Core untouched** (I-7). Never edit a file owned by the `omarchy` or `omarchy-settings`
    packages. Use drop-ins, hooks, session entries, themes, policy folders, our package.
 8. **Never run `--apply`, `provision`, or anything that writes under `/etc` on a development
-   machine.** Real runs happen on the test laptop or in a VM. `DRY_RUN=1` is the default for
-   every non-interactive command — `provision`, `web`, `apps`, `remove` — and for every
-   non-interactive *caller*. `omarchy-kids-assert` is the documented exception: it defaults to
-   `DRY_RUN=0` because `pacman/omarchy-kids.hook` runs it after every transaction to re-assert
-   the locks (R-TRUST-5), and a lock that only previews its own repair is not a lock. Use
-   `--dry-run` to see what it would do. The two interactive commands are the exception: `omarchy-kids`,
-   `omarchy-kids-panel` and `omarchy-kids-wizard` default to a **real** run when a human is
-   driving them (a tty, or `desktop/omarchy-kids.desktop`, which sets `OMARCHY_KIDS_LAUNCHED_BY`),
-   because the screen the parent confirms is the confirmation. With no tty — a test, a script,
-   CI — they still default to `DRY_RUN=1`, and `--dry-run` always forces the preview.
+   machine.** Real runs happen on the test laptop or in a VM. Library commands (`provision`,
+   `web`, `apps`, `remove`) default to `DRY_RUN=1`; `omarchy-kids-assert` runs for real because
+   the pacman hook relies on it (R-TRUST-5); the interactive commands (`omarchy-kids`, `-panel`,
+   `-wizard`) run for real when a human drives them (a tty or the desktop entry) and preview
+   otherwise. `--dry-run` always forces the preview.
 9. **The trust boundary: no environment variable, and nothing a kid can write, selects which
    code runs or whether a root check happens.** Every `bin/omarchy-kids-*` resolves `lib/` and
    its sibling commands from its own resolved location (`readlink -f "$0"`) or the installed

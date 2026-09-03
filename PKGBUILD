@@ -15,46 +15,16 @@
 pkgname=omarchy-kids
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="Kids Mode for Omarchy: a Kids Mode app on a normal Omarchy install (sandbox path)"
+pkgdesc="Kids Mode as an app on a normal Omarchy install"
 arch=('x86_64')
 url="https://github.com/markcuda/omarchy-kids-sandbox"
 license=('MIT')
-# qt6-svg (issue #39): the portal's avatars (share/avatars/*.svg) only
-# rasterize in the SDDM greeter if Qt's SVG image plugin is loaded.
-# UNVERIFIED whether sddm/qt6-declarative already pull this in
-# transitively on a real Omarchy 4.0.2 box -- there is no pacman on this
-# dev machine to confirm with `pacman -Si sddm`'s own dependency tree,
-# and docs/portal.md's "Verified live" run predates this fix. Listed
-# explicitly rather than assumed, since an extra depends= on an already-
-# satisfied package is a no-op, but a missing one silently ships the
-# letter-circle fallback forever.
-# networkmanager (issue #26, R-WIFI-2): bin/omarchy-kids-wifid shells
-# out to `nmcli` with fixed argument shapes; every current Omarchy
-# install already runs NetworkManager for its own Wi-Fi picker
-# (`omarchy-menu` -> Wi-Fi / `omarchy-launch-wifi`), but this is listed
-# explicitly rather than assumed, same reasoning as qt6-svg above.
-# quickshell (issue #32, R-BUILD-1): bin/omarchy-kids-exit, -ask, and
-# -session-start all `exec quickshell -p ...` with no `command -v` guard
-# -- the exit modal, the ask-a-parent modal, and the Level 1 launcher
-# itself do not run without it, unlike hyprctl/loginctl elsewhere in
-# bin/, which are genuinely optional and guarded. Any current Omarchy
-# install already carries it for the stock desktop's own bar/launcher,
-# but it is listed explicitly, same reasoning as qt6-svg above.
-# hyprland and sddm are hard dependencies, not assumptions: the kid
-# session is a Hyprland session (bin/omarchy-kids-session execs
-# /usr/bin/Hyprland) and the portal is an SDDM theme (R-LOGIN). Omarchy
-# itself is installed by its own installer, not from a repo, so it cannot
-# be listed here -- share/hyprland/L*.lua require /usr/share/omarchy/...
-# and bin/omarchy-kids-session-start execs /usr/bin/omarchy-launch-shell,
-# both of which omarchy-kids-check reports on when they are missing.
+# qt6-svg: SDDM renders share/avatars/*.svg (#39). networkmanager: wifid drives nmcli (#26).
+# quickshell: the modals and the Level 1 launcher exec it (#32). hyprland, sddm: the kid session
+# and the portal. Omarchy itself comes from its own installer, so it cannot be listed;
+# omarchy-kids-check reports when its files are missing. docs/packaging.md has the reasoning.
 depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg' 'networkmanager' 'quickshell' 'hyprland' 'sddm')
-# snapper / limine-snapper-sync (R-TRUST-1, issue #38): both guarded with
-# `command -v` everywhere they're called (bin/omarchy-kids-assert,
-# -remove) -- the pre-apply snapshot and the hidden-snapshot-entries lock
-# are skipped, not failed, when either is missing, so neither is a hard
-# depends. Any stock Omarchy install already has both (Limine + Snapper
-# is the default), but a parent who removed one shouldn't be blocked
-# from installing Kids Mode over it.
+# snapper and limine-snapper-sync are guarded with command -v: skipped, never failed (#38).
 optdepends=(
 	'socat: faster transport between omarchy-kids-parent-auth and omarchy-kids-authd'
 	'snapper: pre-apply "before Kids Mode" snapshot and Remove Kids Mode snapshot (R-TRUST-1)'

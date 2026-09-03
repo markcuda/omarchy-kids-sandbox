@@ -4,9 +4,9 @@
 #
 # Fully self-contained: findmnt, systemctl, and Hyprland are all fakes on
 # a stub PATH under this test's own scratch tree (never the real ones),
-# and every path omarchy-kids-session touches is redirected via its
-# OMARCHY_KIDS_* env vars -- nothing here reads or writes the real /etc,
-# /run, or /home (AGENTS.md rule 8). The three test-only
+# and every path omarchy-kids-session touches is redirected by substituting
+# build-time constants in a copied command -- nothing here reads or writes
+# the real /etc, /run, or /home (AGENTS.md rule 8). The test-only
 # OMARCHY_KIDS_TEST_* env vars below aren't part of omarchy-kids-session's
 # own contract -- they're how this file's findmnt/systemctl/Hyprland
 # stubs (single-quoted heredocs, so nothing in them is expanded until the
@@ -65,7 +65,8 @@ LOG_FILE="$RUN/session-$(id -u).log"
 HYPRLAND_LOG="$TMP/hyprland-argv.log"
 HOME_OPTS_FILE="$TMP/home-opts"
 TMP_OPTS_FILE="$TMP/tmp-opts"
-GETTY_STATE_FILE="$TMP/getty-state"
+SHM_OPTS_FILE="$TMP/shm-opts"
+GETTY_STATE_DIR="$TMP/getty-state.d"
 
 write_profile() { # write_profile WEB
   cat >"$PROFILE" <<EOF
@@ -98,6 +99,8 @@ if [[ "$target" == "$OMARCHY_KIDS_TEST_HOME" ]]; then
   cat "$OMARCHY_KIDS_TEST_HOME_OPTS"
 elif [[ "$target" == "/tmp" ]]; then
   cat "$OMARCHY_KIDS_TEST_TMP_OPTS"
+elif [[ "$target" == "/dev/shm" ]]; then
+  cat "$OMARCHY_KIDS_TEST_SHM_OPTS"
 else
   exit 1
 fi
@@ -106,8 +109,19 @@ EOF
 cat >"$STUBS/systemctl" <<'EOF'
 #!/bin/bash
 # Real usage this stub needs to answer:
-# `systemctl [--root=...] is-enabled getty@tty2.service`.
-cat "$OMARCHY_KIDS_TEST_GETTY_STATE"
+# `systemctl [--root=...] is-enabled getty@ttyN.service`.
+unit="${*: -1}"
+cat "$OMARCHY_KIDS_TEST_GETTY_STATE_DIR/$unit"
+EOF
+
+cat >"$STUBS/getent" <<'EOF'
+#!/bin/bash
+if [[ "${1:-}" == passwd ]]; then
+  account="${2:-}"
+  printf '%s:x:%s:%s::%s:/bin/bash\n' "$account" "$(id -u)" "$(id -u)" "$OMARCHY_KIDS_TEST_HOME"
+  exit 0
+fi
+exit 1
 EOF
 
 cat >"$STUBS/Hyprland" <<'EOF'
@@ -127,7 +141,7 @@ fi
 EOF
 
 cp "$STUBS/Hyprland" "$STUBS/start-hyprland" # the launcher takes the same argv
-chmod +x "$STUBS/findmnt" "$STUBS/systemctl" "$STUBS/Hyprland" "$STUBS/start-hyprland"
+chmod +x "$STUBS/findmnt" "$STUBS/systemctl" "$STUBS/getent" "$STUBS/Hyprland" "$STUBS/start-hyprland"
 
 # The command under test runs from a scratch tree: /usr/bin/Hyprland is
 # a constant now (a kid's own environment.d could otherwise point PATH's
@@ -135,6 +149,11 @@ chmod +x "$STUBS/findmnt" "$STUBS/systemctl" "$STUBS/Hyprland" "$STUBS/start-hyp
 # stub is substituted into a copy the way PKGBUILD substitutes KIDS_PY.
 kids_tree "$TMP/tree" "$ROOT_DIR"
 BIN="$TMP/tree/bin/omarchy-kids-session"
+kids_set_const "$BIN" ETC "$ETC"
+kids_set_const "$BIN" SHARE "$SHARE"
+kids_set_const "$BIN" SYSROOT "$SYSROOT"
+kids_set_const "$BIN" RUNTIME_DIR "$RUN"
+kids_set_const "$BIN" RUN_DIR "$RUN"
 kids_set_const "$BIN" HYPRLAND_BIN "$STUBS/Hyprland"
 kids_set_const "$BIN" HYPRLAND_START "$STUBS/start-hyprland"
 
@@ -144,16 +163,13 @@ kids_set_const "$BIN" HYPRLAND_START "$STUBS/start-hyprland"
 # per-uid path (launcher-<uid>.json) still resolves to one place.
 kids_id_stub "$STUBS" "$ACCOUNT" "$(id -u)"
 export PATH="$STUBS:$PATH"
-export OMARCHY_KIDS_ETC="$ETC"
-export OMARCHY_KIDS_SHARE="$SHARE"
-export OMARCHY_KIDS_ROOT="$SYSROOT"
-export OMARCHY_KIDS_RUN_DIR="$RUN"
 export OMARCHY_KIDS_BLOCKED_SLEEP=0
 export HOME="$KIDHOME"
 export OMARCHY_KIDS_TEST_HOME="$KIDHOME"
 export OMARCHY_KIDS_TEST_HOME_OPTS="$HOME_OPTS_FILE"
 export OMARCHY_KIDS_TEST_TMP_OPTS="$TMP_OPTS_FILE"
-export OMARCHY_KIDS_TEST_GETTY_STATE="$GETTY_STATE_FILE"
+export OMARCHY_KIDS_TEST_SHM_OPTS="$SHM_OPTS_FILE"
+export OMARCHY_KIDS_TEST_GETTY_STATE_DIR="$GETTY_STATE_DIR"
 export OMARCHY_KIDS_TEST_HYPRLAND_LOG="$HYPRLAND_LOG"
 
 reset_pass() {                                     # everything set up so every check passes
@@ -166,8 +182,10 @@ reset_pass() {                                     # everything set up so every 
   : >"$POLKIT_DENY"
   : >"$LEVEL_CONF"
   echo "rw,nosuid,nodev,noexec,relatime" >"$HOME_OPTS_FILE"
-  echo "rw,nosuid,nodev,noexec,relatime" >"$TMP_OPTS_FILE"
-  echo "masked" >"$GETTY_STATE_FILE"
+  echo "tmpfs rw,nosuid,nodev,noexec,relatime private" >"$TMP_OPTS_FILE"
+  echo "tmpfs rw,nosuid,nodev,noexec,relatime private" >"$SHM_OPTS_FILE"
+  mkdir -p "$GETTY_STATE_DIR"
+  for n in 2 3 4 5 6; do echo "masked" >"$GETTY_STATE_DIR/getty@tty$n.service"; done
   rm -f "$LOG_FILE" "$HYPRLAND_LOG"
 }
 
@@ -223,27 +241,24 @@ break_home() { echo "rw,nosuid,nodev,relatime" >"$HOME_OPTS_FILE"; }
 run_fail_case "home not noexec" break_home home_noexec "home noexec"
 
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"
-break_getty() { echo "enabled" >"$GETTY_STATE_FILE"; }
-run_fail_case "getty@tty2 not masked" break_getty consoles_masked "consoles masked"
+break_getty() { echo "enabled" >"$GETTY_STATE_DIR/getty@tty3.service"; }
+run_fail_case "getty@tty3 not masked" break_getty consoles_masked "consoles masked"
 
 # shellcheck disable=SC2329 # invoked indirectly, via run_fail_case's "$break_fn"
 break_level_conf() { rm -f "$LEVEL_CONF"; }
 run_fail_case "level config missing" break_level_conf level_config "level config present"
 
 # =====================================================================
-# 3. /tmp not noexec is a WARNING, not fail-closed: prints, continues,
-#    still starts Hyprland (R-FND-2a).
+# 3. Both namespace mounts are required to be private tmpfs mounts with
+#    nosuid,nodev,noexec (R-FND-2a).
 # =====================================================================
 
 reset_pass
-echo "rw,nosuid,nodev,relatime" >"$TMP_OPTS_FILE"
-out="$("$BIN" 2>&1)"
-st=$?
-check_eq "$st" 0 "/tmp not noexec: still starts (warning, not fail-closed)"
-check_contains "$out" "WARN" "/tmp not noexec: warns"
-[[ -e "$HYPRLAND_LOG" ]] && pass "/tmp not noexec: Hyprland still started" || fail "/tmp not noexec: Hyprland did not start"
-check_contains "$(cat "$LOG_FILE" 2>/dev/null)" "check=tmp_noexec name=\"private /tmp noexec\" result=WARN" \
-  "/tmp not noexec: log records WARN for tmp_noexec"
+break_tmp() { echo "tmpfs rw,nosuid,nodev,relatime private" >"$TMP_OPTS_FILE"; }
+run_fail_case "/tmp is executable" break_tmp tmp_noexec "private /tmp noexec"
+
+break_shm() { echo "tmpfs rw,nosuid,nodev,noexec,relatime shared" >"$SHM_OPTS_FILE"; }
+run_fail_case "/dev/shm is shared" break_shm shm_noexec "private /dev/shm noexec"
 
 # =====================================================================
 # 4. web=none skips the browser policy check entirely, even with no
@@ -312,7 +327,9 @@ printf -- '-- L2\n' >"$INSTALL_SHARE/hyprland/L2.lua"
 printf -- '-- L3\n' >"$INSTALL_SHARE/hyprland/L3.lua"
 printf 'not a lua file\n' >"$INSTALL_SHARE/hyprland/README"
 
-out="$(OMARCHY_KIDS_ETC="$INSTALL_ETC" OMARCHY_KIDS_SHARE="$INSTALL_SHARE" "$BIN" --install-configs 2>&1)"
+kids_set_const "$BIN" ETC "$INSTALL_ETC"
+kids_set_const "$BIN" SHARE "$INSTALL_SHARE"
+out="$("$BIN" --install-configs 2>&1)"
 st=$?
 check_eq "$st" 0 "--install-configs: exits 0"
 for n in L1 L2 L3; do

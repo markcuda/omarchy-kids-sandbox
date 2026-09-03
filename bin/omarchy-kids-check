@@ -76,6 +76,8 @@ source_assert() {
   source "$ASSERT_BIN"
 }
 source_assert
+TIME_SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+TIME_VARLIB="$TIME_SYSROOT/var/lib/omarchy-kids"
 
 G=$'\033[32m'
 R=$'\033[31m'

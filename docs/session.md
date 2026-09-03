@@ -8,19 +8,18 @@ so this is the whole session command SDDM invokes for a kid tile.
 
 ## What it does
 
-1. Figures out the account: `id -un`. (`OMARCHY_KIDS_ACCOUNT` overrides this for tests.)
+1. Figures out the account: `id -un`.
 2. Runs every R-DESK-2 check below, in order.
 3. On the first check that fails closed: shows a full-screen "Ask a grown-up" naming the check
    (`omarchy-kids-blocked "<check name>"`) and exits 1. **Fail closed** — a kid never lands
    on an unfenced desktop because a lock silently went missing (I-4, I-9).
 4. Once every fail-closed check passes: exports `OMARCHY_KIDS_ACCOUNT`, `OMARCHY_KIDS_LEVEL`,
    `OMARCHY_KIDS_BAND`, `OMARCHY_KIDS_HYPRLAND_DIR` and `exec`s
-   `Hyprland --config /etc/omarchy-kids/hyprland/L<level>.lua` (or whatever
-   `OMARCHY_KIDS_HYPRLAND_BIN` names, for tests). The kid's own `~/.config/hypr` is never read
+   `Hyprland --config /etc/omarchy-kids/hyprland/L<level>.lua`. The kid's own `~/.config/hypr` is never read
    (R-DESK-6): `--config` picks the root-owned file exclusively.
 
-Every check's result — PASS, FAIL, or WARN — is logged, one line per check, to
-`$OMARCHY_KIDS_RUN_DIR/session-<uid>.log` (default `$XDG_RUNTIME_DIR/omarchy-kids/session-<uid>.log`
+Every check's result — PASS or FAIL — is logged, one line per check, to
+`/run/user/<uid>/omarchy-kids/session-<uid>.log`
 — deliberately *not* `/run/omarchy-kids`, which is root-owned and this process never is root).
 
 ## The checks (R-DESK-2), in order
@@ -30,17 +29,15 @@ Every check's result — PASS, FAIL, or WARN — is logged, one line per check, 
 | a | Profile present at `/etc/omarchy-kids/kids/<account>.conf`, and `level`/`band`/`web` resolve | `profile present` | Yes |
 | b | `/etc/chromium/policies/managed/omarchy-kids-<band>.json` readable by this account, **unless** the profile's `web` is `none` (R-WEB-4) | `browser policy readable` | Yes |
 | c | `/etc/polkit-1/rules.d/40-omarchy-kids.rules` and `41-omarchy-kids-deny.rules` both exist | `polkit rules present` | Yes |
-| d | `findmnt -no OPTIONS "$HOME"` contains `noexec` | `home noexec` | Yes |
-| e | `findmnt -no OPTIONS /tmp` contains `noexec` | `private /tmp noexec` | **No — WARN only, for now** |
-| f | `systemctl is-enabled getty@tty2.service` prints `masked` | `consoles masked` | Yes |
-| g | `/etc/omarchy-kids/hyprland/L<level>.lua` exists | `level config present` | Yes |
+| d | The mount containing the home from `getent passwd "$(id -un)"` contains `noexec` | `home noexec` | Yes |
+| e | `/tmp` is a private `tmpfs` with `nosuid,nodev,noexec` | `private /tmp noexec` | Yes |
+| f | `getty@tty2.service` through `getty@tty6.service` are all masked | `consoles masked` | Yes |
+| g | `/dev/shm` is a private `tmpfs` with `nosuid,nodev,noexec` | `private /dev/shm noexec` | Yes |
+| h | `/etc/omarchy-kids/hyprland/L<level>.lua` exists | `level config present` | Yes |
 
-Check (e) is a warning, not a fail-closed check, because `pam_namespace` for `/tmp` (R-FND-2a) is
-new and not yet verified everywhere it needs to run; locking every kid out over a fence that isn't
-fully rolled out would be worse than warning. `omarchy-kids-session` still logs it every run
-(`result=WARN`) so it shows up in `--check`'s table and the session log — once R-FND-2a is
-verified end to end, flipping it to fail-closed is a one-line change (move `check_tmp_noexec`'s
-logic to return 1 with `RESULT=FAIL` like the others).
+The home, `/tmp`, and `/dev/shm` checks fail closed. Each mount must be private and carry all
+three execution fences: `nosuid,nodev,noexec`. This prevents a kid from moving executable content
+outside their home and avoids shared temporary-memory paths.
 
 A missing profile ((a)) is also how a non-kid account gets refused: if `id -un` isn't a
 provisioned kid, there's no profile, check (a) fails, and the session refuses to start — the same
@@ -50,39 +47,36 @@ fail-closed path as every other check, not a special case.
 
 Runs every check above (not stopping at the first failure — it always produces the full table)
 and prints a `CHECK / RESULT / DETAIL` table instead of starting anything. Exits 0 if nothing
-FAILed (a WARN doesn't fail this), 1 if anything did. Built so `omarchy-kids-check` (the
+FAILed, 1 if anything did. Built so `omarchy-kids-check` (the
 green/red "is it safe?" tool, currently a stub of its own from an earlier issue) can shell out to
 this instead of re-implementing R-DESK-2's checks a second time — that wiring is that command's
 own issue, not this one's; this ticket only builds the flag.
 
 ## `omarchy-kids-session --install-configs`
 
-Copies every `*.lua` under `$OMARCHY_KIDS_SHARE/hyprland/` (the package's
-`/usr/share/omarchy-kids/hyprland/`) to `$OMARCHY_KIDS_ETC/hyprland/` (`/etc/omarchy-kids/hyprland/`)
+Copies every `*.lua` under `/usr/share/omarchy-kids/hyprland/` (the package's
+`/usr/share/omarchy-kids/hyprland/`) to `/etc/omarchy-kids/hyprland/`
 with mode 0644. This is the root-owned copy that `L1.lua`/`L2.lua`/`L3.lua`'s band overlays
 `dofile()` at Hyprland config-parse time (`docs/levels.md`) — it has to exist and stay current, or
-check (g) above fails closed and every kid is locked out after an update that touched those Lua
+check (h) above fails closed and every kid is locked out after an update that touched those Lua
 files. Meant to be called by the package's `post_install`/`post_upgrade` hook
 (`omarchy-kids.install`) and by `omarchy-kids-assert` (R-TRUST-5), so this copy can never go stale
 after a pacman transaction — **neither of those exists yet** (`omarchy-kids-assert` is still a
 stub from its own issue, and `omarchy-kids.install` doesn't call this flag). Wiring `--install-configs`
 into them is that other work's job; this ticket only builds and tests the flag itself.
 
-## Env (every path overridable — nothing here ever runs as root in dev, per AGENTS.md rule 8)
+## Build-time paths
 
-| Var | Default | Affects |
+| Constant | Installed value | Purpose |
 | --- | --- | --- |
-| `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | the kid's profile (`kids/<account>.conf`); `--install-configs`' destination (`hyprland/`); check (g)'s level config path |
-| `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `--install-configs`' source (`hyprland/*.lua`) |
-| `OMARCHY_KIDS_ROOT` | (empty — the real paths) | scratch prefix for the two system paths this doesn't own: `/etc/chromium/policies/managed` (check b) and `/etc/polkit-1/rules.d` (check c). Same convention `bin/omarchy-kids-provision` and `lib/posture.sh` already use for `/etc/polkit-1` et al. — see "Judgment calls" below |
-| `OMARCHY_KIDS_RUN_DIR` | `${XDG_RUNTIME_DIR:-/run/user/<uid>}/omarchy-kids` | where the per-session check log (`session-<uid>.log`) is written |
-| `OMARCHY_KIDS_BLOCKED_BIN` | resolved beside this script, else `/usr/bin/omarchy-kids-blocked` | what runs on the first fail-closed check |
-| `OMARCHY_KIDS_ACCOUNT` | `id -un` | which account's profile/checks run (test hook) |
+| `ETC` | `/etc/omarchy-kids` | root-owned profiles and Hyprland configs |
+| `SHARE` | `/usr/share/omarchy-kids` | packaged policy, Lua, and modal data |
+| `SYSROOT` | empty | test-only scratch prefix substituted into copied commands |
+| `RUN_DIR` | `/run/user/<uid>/omarchy-kids` | this account's session log |
 | `OMARCHY_KIDS_BLOCKED_SLEEP` | 15 | (on `omarchy-kids-blocked`) seconds the message holds the screen before exiting — tests set this to 0 |
 
-`test/shell.d/session-test.sh` runs entirely against scratch trees built from these, with stub
-`findmnt`, `systemctl`, and `Hyprland` on a stub `PATH` that read/report from small control files
-this test writes per scenario — see that file's header comment for exactly how.
+`test/shell.d/session-test.sh` copies the command and substitutes these constants with
+`kids_set_const`; no inherited environment variable can redirect the check.
 
 ## `omarchy-kids-blocked`
 
@@ -154,7 +148,7 @@ open until it has:
    force it by hand, `Session=omarchy-kids` / `XSession=omarchy-kids` in
    `/var/lib/AccountsService/users/<account>`).
 2. Run `omarchy-kids session --install-configs` (or run it manually as root once) so
-   `/etc/omarchy-kids/hyprland/L<level>.lua` exists — check (g) fails closed without it.
+   `/etc/omarchy-kids/hyprland/L<level>.lua` exists — check (h) fails closed without it.
 3. Log in as the kid at the SDDM portal. Confirm: the level's Hyprland session starts, the kid's
    own `~/.config/hypr` is never touched, and `Super+Home`/the level's other binds
    (`docs/levels.md`) work.
@@ -169,7 +163,7 @@ open until it has:
 ## Verified live (2026-09-02, QEMU test VM)
 
 Cold boot with a kid's password → LUKS slot recorded → per-boot autologin into the `omarchy-kids`
-session → every R-DESK-2 check passed (private `/tmp` a warning) → `Hyprland --config
+session → every R-DESK-2 check passed (private `/tmp` and `/dev/shm` verified) → `Hyprland --config
 /etc/omarchy-kids/hyprland/L1.lua` → `omarchy-kids-session-start` wrote the tile file and started
 the Level 1 launcher (Quickshell): nine tiles for the 6-8 pack plus the web app, a clock, keyboard
 highlight. Fixes that came out of the run: the polkit check goes through `pkcheck` (the rules
@@ -253,42 +247,22 @@ passes, export the account/level/band and exec Hyprland with the
 level's root-owned config -- never the kid's own `~/.config/hypr`
 (R-DESK-6, I-3).
 
---check runs every check and prints a PASS/FAIL/WARN table without
+--check runs every check and prints a PASS/FAIL table without
 starting anything, for `omarchy-kids-check` to reuse.
 
 --install-configs copies the level configs this package ships
-($OMARCHY_KIDS_SHARE/hyprland/*.lua) to the root-owned copy under
-$OMARCHY_KIDS_ETC/hyprland the level files' band overlays `dofile()`
+(/usr/share/omarchy-kids/hyprland/*.lua) to the root-owned copy under
+/etc/omarchy-kids/hyprland the level files' band overlays `dofile()`
 at Hyprland config-parse time. Meant to be called by the package's
 post_install/post_upgrade hook and by `omarchy-kids-assert`
 (R-TRUST-5) so that copy can never silently go stale -- neither of
 those callers exists yet (both are separate issues' stubs as of this
 one); wiring this flag into them is that issue's job, not this one's.
 
-Never runs anything as root itself and never assumes it -- every path
-below is overridable so this (and test/shell.d/session-test.sh) can
-run entirely as a normal user against a scratch tree (AGENTS.md rule
-8):
-  OMARCHY_KIDS_ETC              kid overrides root (default /etc/omarchy-kids;
-                                the level configs this reads/writes for
-                                --install-configs live at $OMARCHY_KIDS_ETC/hyprland)
-  OMARCHY_KIDS_SHARE            package data root (default /usr/share/omarchy-kids;
-                                --install-configs' source is $OMARCHY_KIDS_SHARE/hyprland)
-  OMARCHY_KIDS_ROOT             scratch prefix for the system paths this
-                                doesn't own -- /etc/chromium/policies/managed
-                                and /etc/polkit-1/rules.d -- default empty
-                                (the real paths); same convention
-                                bin/omarchy-kids-provision and lib/posture.sh
-                                already use for /etc/polkit-1 et al.
-  OMARCHY_KIDS_RUN_DIR           per-session log directory. Default
-                                $XDG_RUNTIME_DIR/omarchy-kids (falling back to
-                                /run/user/<uid>/omarchy-kids) -- deliberately
-                                NOT /run/omarchy-kids, which is root-owned and
-                                this process is never root.
-  OMARCHY_KIDS_BLOCKED_BIN    path to omarchy-kids-blocked (default:
-                                resolved beside this script, else /usr/bin)
-  OMARCHY_KIDS_BLOCKED_SLEEP  seconds omarchy-kids-blocked sleeps for
-                                (default 15; tests set this to 0)
+Paths are build-time constants: `ETC=/etc/omarchy-kids`,
+`SHARE=/usr/share/omarchy-kids`, `RUN_DIR=/run/user/<uid>/omarchy-kids`, and
+`SYSROOT=`. Tests substitute these constants only in a copied command tree.
+The sole runtime setting here is the test-only `OMARCHY_KIDS_BLOCKED_SLEEP`.
 ```
 
 ## Level and band are outputs, not inputs (issue #58)

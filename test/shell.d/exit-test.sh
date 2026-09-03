@@ -70,6 +70,12 @@ EOF
 kids_tree "$TMP/tree" "$ROOT_DIR"
 EXIT_BIN="$TMP/tree/bin/omarchy-kids-exit"
 TAP_BIN="$TMP/tree/bin/omarchy-kids-super-tap"
+kids_set_const "$EXIT_BIN" ETC "$TMP/etc/omarchy-kids"
+kids_set_const "$EXIT_BIN" SHARE "$SHARE"
+kids_set_const "$EXIT_BIN" RUN "$TMP/default-runtime"
+kids_set_const "$EXIT_BIN" RUN_USER_ROOT "$TMP/default-run-user"
+kids_set_const "$EXIT_BIN" QUICKSHELL_BIN "$STUBS/quickshell"
+kids_set_const "$TAP_BIN" RUN "$TMP/default-tap-runtime"
 
 stub quickshell
 stub hyprctl
@@ -91,7 +97,6 @@ EOF
 kids_id_stub "$STUBS" kid-ada "$(id -u)"
 
 export PATH="$STUBS:$PATH"
-export OMARCHY_KIDS_SHARE="$SHARE"
 
 # --- --help / bad args ------------------------------------------------
 
@@ -147,7 +152,7 @@ stub quickshell # restore the plain argv-logging stub for the rest of the suite
 # kid wedge the parent's exit modal shut forever.
 
 MODAL_RUN="$TMP/exit-runtime"
-export OMARCHY_KIDS_RUNTIME_DIR="$MODAL_RUN"
+kids_set_const "$EXIT_BIN" RUN "$MODAL_RUN"
 mkdir -p "$MODAL_RUN"
 
 # A live pid whose /proc comm is not quickshell (or which has no /proc at
@@ -193,7 +198,7 @@ else
   fail "--open did not write the modal pidfile"
 fi
 rm -rf "$MODAL_RUN"
-unset OMARCHY_KIDS_RUNTIME_DIR
+kids_set_const "$EXIT_BIN" RUN "$TMP/default-runtime"
 
 # --- --finish: hyprctl dispatch exit, then loginctl terminate-session -----
 
@@ -259,7 +264,7 @@ kids_id_stub "$STUBS" kid-ada 1001
 export KIDS_TEST_UID=0
 stub runuser
 RUN_ROOT="$TMP/run-user"
-export OMARCHY_KIDS_RUN_USER_ROOT="$RUN_ROOT"
+kids_set_const "$EXIT_BIN" RUN_USER_ROOT "$RUN_ROOT"
 
 # --- a signature is found: runuser dispatches the Lua exit into kid-ada's
 #     own Hyprland instance, and Hyprland leaving on its own means
@@ -314,7 +319,7 @@ st=$?
 check_eq "$st" 2 "--finish --kid with an unknown account is refused"
 check_contains "$out4" "no such account" "the refusal names why"
 
-unset KIDS_TEST_UID OMARCHY_KIDS_RUN_USER_ROOT
+unset KIDS_TEST_UID
 stub pgrep 'exit 1' # restore "not found" for whatever runs next
 
 # --- --pause: not implemented, exits 2, names why -------------------------
@@ -332,7 +337,7 @@ echo
 # =====================================================================
 
 RUNTIME_DIR="$TMP/runtime"
-export OMARCHY_KIDS_RUNTIME_DIR="$RUNTIME_DIR"
+kids_set_const "$TAP_BIN" RUN "$RUNTIME_DIR"
 EXIT_LOG="$TMP/exit-calls.log"
 touch "$EXIT_LOG"
 # super-tap resolves omarchy-kids-exit beside itself (review S12: nothing

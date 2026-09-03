@@ -2,7 +2,7 @@
 # omarchy:summary=Launch a kid's Wayland session after every fail-closed check passes
 # omarchy:args=[--check | --install-configs]
 # The kid session launcher: every fail-closed check (SPEC.md R-DESK-1, R-DESK-2, I-3, I-4, I-9), then exec Hyprland.
-# See docs/session.md for the check list and every env var.
+# See docs/session.md for the check list and build-time path constants.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -13,12 +13,14 @@ source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
 BLOCKED_BIN="$(kids_bin blocked "$DIR")"
 
-ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
-SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
-SYSROOT="${OMARCHY_KIDS_ROOT:-}"
-RUN_DIR="${OMARCHY_KIDS_RUN_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-kids}"
+ETC=/etc/omarchy-kids
+SHARE=/usr/share/omarchy-kids
+SYSROOT=""
+RUNTIME_DIR="/run/user/$(id -u)"
+RUN_DIR="$RUNTIME_DIR/omarchy-kids"
 HYPRLAND_BIN=/usr/bin/Hyprland         # --verify-config
 HYPRLAND_START=/usr/bin/start-hyprland # Hyprland's own watchdog launcher; args go after --
+export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE"
 
 HYPRLAND_DIR="$ETC/hyprland"
 KIDS_DIR="$ETC/kids"
@@ -39,17 +41,14 @@ exits 1 -- fail closed (I-4, I-9). \$HOME/.config/hypr is never read
   --check             Run every R-DESK-2 check and print a PASS/FAIL/WARN
                       table without starting Hyprland. Exits 1 if any
                       check FAILs (a WARN does not fail this).
-  --install-configs   Copy the level configs from \$OMARCHY_KIDS_SHARE/hyprland
-                      to \$OMARCHY_KIDS_ETC/hyprland (mode 0644), the
+  --install-configs   Copy the level configs from $SHARE/hyprland to
+                      $ETC/hyprland (mode 0644), the
                       root-owned copy the level files' band overlays
                       dofile() at Hyprland config-parse time. Meant to be
                       called by the package's install hook and by
                       omarchy-kids-assert (R-TRUST-5).
   -h, --help          Show this help and exit.
 
-Env (docs/session.md has every one):
-  OMARCHY_KIDS_ETC, OMARCHY_KIDS_SHARE, OMARCHY_KIDS_ROOT,
-  OMARCHY_KIDS_RUN_DIR
 EOF
 }
 
@@ -86,6 +85,7 @@ log() {
 
 ACCOUNT="$(id -un)"
 PROFILE="$KIDS_DIR/$ACCOUNT.conf"
+HOME_DIR="$(getent passwd "$ACCOUNT" 2>/dev/null | cut -d: -f6)"
 
 LEVEL=""
 BAND=""
@@ -167,46 +167,65 @@ check_polkit() {
 
 check_home_noexec() {
   local opts
-  opts="$(findmnt -no OPTIONS "$HOME" 2>/dev/null || true)"
+  [[ -n "$HOME_DIR" && "$HOME_DIR" == /* ]] || {
+    RESULT=FAIL
+    DETAIL="could not resolve '$ACCOUNT' home through getent"
+    return 1
+  }
+  opts="$(findmnt -no OPTIONS "$HOME_DIR" 2>/dev/null || true)"
   if [[ "$opts" == *noexec* ]]; then
     RESULT=PASS
-    DETAIL="\$HOME ($HOME) mounted noexec"
+    DETAIL="home ($HOME_DIR) mounted noexec"
     return 0
   fi
   RESULT=FAIL
-  DETAIL="\$HOME ($HOME) is not mounted noexec (options: ${opts:-none found})"
+  DETAIL="home ($HOME_DIR) is not mounted noexec (options: ${opts:-none found})"
   return 1
 }
 
 check_tmp_noexec() {
-  # R-FND-2a: pam_namespace is new, so this is a WARNING for now, not a
-  # fail-closed check -- print and continue rather than lock a kid out
-  # over a fence that isn't fully rolled out yet.
-  local opts
-  opts="$(findmnt -no OPTIONS /tmp 2>/dev/null || true)"
-  if [[ "$opts" == *noexec* ]]; then
+  local info
+  info="$(findmnt -no FSTYPE,OPTIONS,PROPAGATION /tmp 2>/dev/null || true)"
+  if [[ "$info" == tmpfs* && "$info" == *nosuid* && "$info" == *nodev* &&
+    "$info" == *noexec* && "$info" == *private* ]]; then
     RESULT=PASS
-    DETAIL="/tmp mounted noexec"
+    DETAIL="/tmp is a private tmpfs mounted nosuid,nodev,noexec"
     return 0
   fi
-  RESULT=WARN
-  DETAIL="/tmp is not a private noexec mount yet (options: ${opts:-none found}) -- R-FND-2a, warning only for now"
-  return 0
+  RESULT=FAIL
+  DETAIL="/tmp is not a private tmpfs nosuid,nodev,noexec mount (mount: ${info:-none found})"
+  return 1
+}
+
+check_shm_noexec() {
+  local info
+  info="$(findmnt -no FSTYPE,OPTIONS,PROPAGATION /dev/shm 2>/dev/null || true)"
+  if [[ "$info" == tmpfs* && "$info" == *nosuid* && "$info" == *nodev* &&
+    "$info" == *noexec* && "$info" == *private* ]]; then
+    RESULT=PASS
+    DETAIL="/dev/shm is a private tmpfs mounted nosuid,nodev,noexec"
+    return 0
+  fi
+  RESULT=FAIL
+  DETAIL="/dev/shm is not a private tmpfs nosuid,nodev,noexec mount (mount: ${info:-none found})"
+  return 1
 }
 
 check_consoles_masked() {
   local sysctl_root=()
   [[ -n "$SYSROOT" ]] && sysctl_root=(--root="$SYSROOT")
-  local state
-  state="$(systemctl "${sysctl_root[@]+"${sysctl_root[@]}"}" is-enabled getty@tty2.service 2>/dev/null || true)"
-  if [[ "$state" == "masked" ]]; then
-    RESULT=PASS
-    DETAIL="getty@tty2.service is masked"
-    return 0
-  fi
-  RESULT=FAIL
-  DETAIL="getty@tty2.service is not masked (state: ${state:-unknown})"
-  return 1
+  local n state
+  for n in 2 3 4 5 6; do
+    state="$(systemctl "${sysctl_root[@]+"${sysctl_root[@]}"}" is-enabled "getty@tty$n.service" 2>/dev/null || true)"
+    [[ "$state" == "masked" ]] || {
+      RESULT=FAIL
+      DETAIL="getty@tty$n.service is not masked (state: ${state:-unknown})"
+      return 1
+    }
+  done
+  RESULT=PASS
+  DETAIL="getty@tty2.service through getty@tty6.service are masked"
+  return 0
 }
 
 check_level_config() {
@@ -219,9 +238,9 @@ check_level_config() {
   # A config error puts Hyprland in emergency mode, which binds a terminal: fail closed instead.
   # Hyprland aborts without XDG_RUNTIME_DIR even in verify mode; a real session has it, --check from
   # a plain shell may not.
-  local rt="${XDG_RUNTIME_DIR:-}"
+  local rt="$RUNTIME_DIR"
   local tmp_rt=""
-  if [[ -z "$rt" || ! -d "$rt" ]]; then
+  if [[ ! -d "$rt" ]]; then
     tmp_rt="$(mktemp -d)"
     rt="$tmp_rt"
   fi
@@ -238,7 +257,7 @@ check_level_config() {
 }
 
 # Checks in R-DESK-2 order.
-CHECK_IDS=(profile policy polkit home_noexec tmp_noexec consoles_masked level_config)
+CHECK_IDS=(profile policy polkit home_noexec tmp_noexec shm_noexec consoles_masked level_config)
 
 check_name() { # check_name ID -> the human-readable name shown in the
   # table and passed to omarchy-kids-blocked.
@@ -248,6 +267,7 @@ check_name() { # check_name ID -> the human-readable name shown in the
     polkit) echo "polkit rules present" ;;
     home_noexec) echo "home noexec" ;;
     tmp_noexec) echo "private /tmp noexec" ;;
+    shm_noexec) echo "private /dev/shm noexec" ;;
     consoles_masked) echo "consoles masked" ;;
     level_config) echo "level config present" ;;
     *) echo "$1" ;;

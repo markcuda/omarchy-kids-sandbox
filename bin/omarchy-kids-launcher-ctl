@@ -5,8 +5,8 @@
 # Lua files never guess a socket path. See docs/launcher-ctl.md for the show/activate/log protocol.
 set -euo pipefail
 
-CONTROL="${OMARCHY_KIDS_LAUNCHER_CONTROL:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids/launcher-control}"
-LAUNCHES_LOG="${OMARCHY_KIDS_LAUNCHES_LOG:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids/launches.log}"
+CONTROL="/run/user/$(id -u)/omarchy-kids/launcher-control"
+LAUNCHES_LOG="/run/user/$(id -u)/omarchy-kids/launches.log"
 TITLE="Omarchy Kids Launcher"
 
 usage() {
@@ -21,8 +21,6 @@ Usage: omarchy-kids-launcher-ctl <show|activate|log ID>
             launches log; never touches the root-owned one directly.
 
 Env:
-  OMARCHY_KIDS_LAUNCHER_CONTROL  control file path (default \$XDG_RUNTIME_DIR/omarchy-kids/launcher-control)
-  OMARCHY_KIDS_LAUNCHES_LOG      log's own target file (default \$XDG_RUNTIME_DIR/omarchy-kids/launches.log)
   OMARCHY_KIDS_NOW               "YYYY-MM-DD HH:MM:SS" clock override for log (tests)
 
   -h, --help  Show this help and exit.

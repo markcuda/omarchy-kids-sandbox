@@ -10,7 +10,7 @@ LIB="$DIR/lib"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 
-RUN="${OMARCHY_KIDS_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
+RUN="/run/user/$(id -u)/omarchy-kids"
 FILE="$RUN/super-taps"
 WINDOW_MS="${OMARCHY_KIDS_SUPER_TAP_WINDOW_MS:-1500}"
 EXIT_BIN="$(kids_bin exit "$DIR")"
@@ -26,7 +26,6 @@ omarchy-kids-exit (resolved beside this script, else
 /usr/bin/omarchy-kids-exit -- never from the environment).
 
 Env:
-  OMARCHY_KIDS_RUNTIME_DIR       default \$XDG_RUNTIME_DIR/omarchy-kids, else /tmp/omarchy-kids
   OMARCHY_KIDS_SUPER_TAP_WINDOW_MS  default 1500
   OMARCHY_KIDS_SUPER_TAP_NOW_MS  test hook: use this instead of the real
                                  clock for "now", so tests never need to

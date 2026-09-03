@@ -123,3 +123,11 @@ what state it leaves the VM in; left for a follow-on issue rather than guessed a
 - **`50-ask-grant.sh`'s in-session command** (harvesting the launcher process's Wayland/D-Bus
   environment to run `omarchy-kids-ask` "as" the kid) is the same technique docs/ask.md's own
   "Verified live" section used — it hasn't been re-verified against this exact harness script yet.
+
+## Runs so far
+
+- 2026-09-02, first run: 10, 20, 60, 90 passed; 30, 40, 50 failed on the harness's own reset
+  and navigation (fixed the same night: clean compositor exit, sorted account order, newest
+  Hyprland instance dir).
+- 2026-09-03, second full run after the theme, packs, launcher and wizard-look merges: all seven
+  scenarios passed in one `test/live/all -k` run.

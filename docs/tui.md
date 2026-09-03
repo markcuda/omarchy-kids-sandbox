@@ -212,3 +212,9 @@ $ OMARCHY_KIDS_TUI_ANSWERS=/tmp/answers bin/omarchy-kids-tui-demo
 
 See `bin/omarchy-kids-tui-demo` for a full three-screen walk (Welcome, a choice screen, Done), and
 `test/shell.d/tui-test.sh` for every case above driven through a fake `gum`.
+
+## Verified live (2026-09-03, QEMU test VM, foot)
+
+Each step draws one closed rounded card (step line, title, Omy's line where the screen has
+one, body) centred at up to 72 columns, with the chooser or input indented beneath it and no
+duplicate header or default help line; the colours followed tokyo-night and catppuccin-latte.

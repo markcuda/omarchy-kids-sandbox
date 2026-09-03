@@ -226,3 +226,9 @@ typed parent password from stdin and sends `GRANT <json>\n<password>\n` to root'
 fakes it fakes only the message their own modal shows them. The modal's `--open` guard is a
 pidfile under the kid's runtime dir now, not a `pgrep -f` substring match that any process could
 satisfy (review §1.9).
+
+After the security review (2026-09-03): a forged `approved` record in the kid's outbox only
+became an open request and granted nothing; a socket redirect from the kid's environment was
+ignored; the real on-the-spot grant through `omarchy-kids-ask grant` and authd's `GRANT`
+line added minutes from the modal after three live fixes (the time request's minutes, the
+verifier's line reader keeping its remainder, and writable state paths in the service unit).

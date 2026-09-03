@@ -415,6 +415,21 @@ units_fix() {
     [[ -n "$(posture_root)" ]] || systemctl start "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"
 }
 
+# parent-group (R-BAR-3, issue #37): the owner must be in omarchy-parents to read
+# /run/omarchy-kids/status.json (0640 root:omarchy-parents); the bar module renders
+# nothing otherwise (seen live). Membership applies to new sessions only.
+parent_group_ok() {
+    local parent; parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 0
+    has_group "$(current_groups "$parent")" omarchy-parents
+}
+parent_group_fix() {
+    local parent; parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
+    [[ -n "$parent" ]] || return 0
+    groupadd -f omarchy-parents 2>/dev/null || true
+    usermod -aG omarchy-parents "$parent"
+}
+
 # hyprland configs: every *.lua in $SHARE/hyprland copied verbatim to
 # $ETC/hyprland (R-DESK-1). Prefers omarchy-kids-session --install-configs
 # if that ever exists (it doesn't yet -- verified against this checkout),
@@ -634,6 +649,7 @@ main() {
     assert_one "portal-conf" portal_conf_ok portal_conf_fix
     assert_one "pam:sddm" pam_ok pam_fix sddm
     assert_one "pam:systemd-user" pam_ok pam_fix systemd-user
+    assert_one "pam:sddm-autologin" pam_ok pam_fix sddm-autologin
 
     local lock_stack
     lock_stack="$(posture_parent_unlock_lock_stack)"
@@ -646,6 +662,7 @@ main() {
     done
 
     assert_one "units" units_ok units_fix
+    assert_one "parent-group" parent_group_ok parent_group_fix
 
     assert_one "hyprland-configs" hyprland_ok hyprland_fix
 

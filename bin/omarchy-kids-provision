@@ -412,6 +412,8 @@ cmd_add() {
     run posture_ensure_pam_namespace sddm
     run posture_ensure_pam_namespace systemd-user
 
+    run posture_ensure_pam_namespace sddm-autologin
+
     # R-SEC-2: the parent-unlock verifier line (docs/authd.md), machine-level
     # and idempotent -- every kid's "add" calls this, but lib/posture.sh's
     # own marker check means only the first one that finds each stack ready

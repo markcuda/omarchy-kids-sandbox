@@ -257,8 +257,24 @@ auth       required                    pam_faillock.so authsucc
 account    include                     system-local-login
 EOF
 
+cat > "$SCRATCH_ROOT/etc/pam.d/sddm-autologin" <<'EOF'
+#%PAM-1.0
+auth        required    pam_env.so
+auth        required    pam_faillock.so preauth
+-auth       [success=2 default=ignore] pam_systemd_home.so
+auth        required    pam_permit.so
+auth        required    pam_faillock.so authsucc
+-auth       optional    pam_kwallet5.so
+account     include     system-login
+password    include     system-login
+session     optional    pam_keyinit.so          force revoke
+session     include     system-login
+-session    optional    pam_gnome_keyring.so    auto_start
+-session    optional    pam_kwallet5.so         auto_start
+EOF
 posture_ensure_pam_namespace sddm
 posture_ensure_pam_namespace systemd-user
+posture_ensure_pam_namespace sddm-autologin
 posture_write_polkit_admin_rule mark
 posture_write_polkit_deny_rule
 posture_write_sddm_theme_dropin
@@ -325,7 +341,7 @@ check_eq "$st" 0 "a fully-provisioned, untouched tree exits 0"
 for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
     "accountsservice:kid-ada" "gecos:kid-ada" "face:kid-ada" "groups:kid-ada" "polkit-admin" "polkit-deny" \
     "sddm-theme" "portal-conf" \
-    "pam:sddm" "pam:systemd-user" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
+    "pam:sddm" "pam:systemd-user" "pam:sddm-autologin" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
     "getty:tty2" "getty:tty3" "getty:tty4" \
     "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook"; do
     check_status "$out" "$lock" "ok" "first run: $lock is ok"

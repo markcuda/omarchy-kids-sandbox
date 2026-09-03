@@ -794,7 +794,7 @@ live_test_kid() {
         add_result "Live tests" "live:$acct:sudo" pass "$acct: 'sudo -n true' is refused (R-FND-3)"
     fi
 
-    live_test_pkcheck "$acct" org.freedesktop.NetworkManager.settings.modify networkmanager-settings
+    live_test_pkcheck "$acct" org.freedesktop.NetworkManager.settings.modify.system networkmanager-settings
     live_test_pkcheck "$acct" org.freedesktop.systemd1.manage-units systemd-manage-units
 
     out="$("$RUNUSER_BIN" -u "$acct" -- findmnt -no OPTIONS /tmp 2>/dev/null || true)"

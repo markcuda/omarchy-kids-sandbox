@@ -55,12 +55,12 @@ longer than the one verification call needs it for.
 
 ## `bin/omarchy-kids-exit`
 
-```
+```text
 omarchy-kids-exit            # same as --open
 omarchy-kids-exit --open     # show the modal (a no-op if one looks already up)
 omarchy-kids-exit --finish   # end the kid's session (R-EXIT-3) -- run by the modal, not a kid
 omarchy-kids-exit --pause    # not implemented; prints why and exits 2
-```
+```text
 
 `--open` execs `quickshell -p $OMARCHY_KIDS_SHARE/exit-modal/shell.qml`, first exporting
 `OMARCHY_KIDS_ACCOUNT`/`OMARCHY_KIDS_NAME`/`OMARCHY_KIDS_AVATAR` read from `omarchy-kids-conf`
@@ -108,7 +108,7 @@ as a direct `omarchy-kids-exit` bind, and the triple-tap as a `release`-triggere
 ```lua
 o.bind("SUPER + SHIFT + K", "Kids Mode: parent", "omarchy-kids-exit")
 o.bind("SUPER + SUPER_L", "Kids Mode: exit (tap Super three times)", "omarchy-kids-super-tap", { release = true })
-```
+```text
 
 The release-bind form is real, not a guess: `/usr/share/omarchy/default/hypr/bindings/voxtype.lua`
 ships `o.bind("F9", "Stop dictation (push-to-talk)", "voxtype record stop", { release = true })`,
@@ -154,7 +154,7 @@ are on the box (`docs/vm.md` has the SSH/VNC details):
    ```sh
    PID="$(pgrep -u "$(id -un)" -x Hyprland | head -1)"
    eval "$(tr '\0' '\n' < /proc/$PID/environ | grep -E '^(WAYLAND_DISPLAY|HYPRLAND_INSTANCE_SIGNATURE|XDG_RUNTIME_DIR)=' | sed 's/^/export /')"
-   ```
+   ```text
 
 2. `omarchy-kids-exit --open` and confirm over VNC (`127.0.0.1:5905`, `scripts/vm-qmp.sh shot
    out.png` for a screenshot) that the modal actually appears **on top of** whatever the kid's

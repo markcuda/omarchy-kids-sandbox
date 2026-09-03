@@ -12,12 +12,12 @@ kid_uid() {
 # (loginctl's Leader=), or nothing + return 1. docs/check.md's "Live tests".
 live_session_leader_pid() {
     local acct="$1" list sess uid user _rest leader
-    command -v "$LOGINCTL_BIN" >/dev/null 2>&1 || return 1
-    list="$("$LOGINCTL_BIN" --no-legend list-sessions 2>/dev/null || true)"
+    command -v loginctl >/dev/null 2>&1 || return 1
+    list="$(loginctl --no-legend list-sessions 2>/dev/null || true)"
     [[ -n "$list" ]] || return 1
     while read -r sess uid user _rest; do
         [[ -n "$sess" && "$user" == "$acct" ]] || continue
-        leader="$("$LOGINCTL_BIN" show-session "$sess" -p Leader --value 2>/dev/null || true)"
+        leader="$(loginctl show-session "$sess" -p Leader --value 2>/dev/null || true)"
         if [[ -n "$leader" && "$leader" != 0 ]]; then
             printf '%s' "$leader"
             return 0
@@ -103,7 +103,7 @@ live_test_pkcheck() {
     local acct="$1" action="$2" label="$3" out
     # pkcheck exits non-zero for "not authorized" -- the answer we want --
     # so never let the assignment's status reach omarchy-kids-check's set -e.
-    out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'pkcheck --action-id "$1" --process "$$" 2>&1' _ "$action")" || true
+    out="$(runuser -u "$acct" -- bash -c 'pkcheck --action-id "$1" --process "$$" 2>&1' _ "$action")" || true
     case "$out" in
         *"Not authorized"*|*"not authorized"*)
             add_result "Live tests" "live:$acct:pkcheck-$label" pass "$acct: polkit refuses $action outright (R-FND-4)" ;;
@@ -119,7 +119,7 @@ live_test_pkcheck() {
 live_test_kid() {
     local acct="$1" out rc
 
-    if "$RUNUSER_BIN" -u "$acct" -- sudo -n true >/dev/null 2>&1; then
+    if runuser -u "$acct" -- sudo -n true >/dev/null 2>&1; then
         add_result "Live tests" "live:$acct:sudo" fail "$acct: 'sudo -n true' SUCCEEDED — $acct has passwordless sudo (R-FND-3)"
     else
         add_result "Live tests" "live:$acct:sudo" pass "$acct: 'sudo -n true' is refused (R-FND-3)"
@@ -132,7 +132,7 @@ live_test_kid() {
 
     # A refused exec is the pass here, so capture rc without set -e seeing it.
     rc=0
-    out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'f="$HOME/.omarchy-kids-check-live-$$"; printf "#!/bin/sh\necho pwned\n" > "$f" && chmod +x "$f" && "$f"; rc=$?; rm -f "$f"; exit $rc' 2>&1)" || rc=$?
+    out="$(runuser -u "$acct" -- bash -c 'f="$HOME/.omarchy-kids-check-live-$$"; printf "#!/bin/sh\necho pwned\n" > "$f" && chmod +x "$f" && "$f"; rc=$?; rm -f "$f"; exit $rc' 2>&1)" || rc=$?
     if [[ "$rc" != 0 && ( "$out" == *"Permission denied"* || "$rc" == 126 ) ]]; then
         add_result "Live tests" "live:$acct:home-noexec-run" pass "$acct: running a freshly-written executable in \$HOME fails (Permission denied) (R-FND-2)"
     elif [[ "$rc" == 0 ]]; then

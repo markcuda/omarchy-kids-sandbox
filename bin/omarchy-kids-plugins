@@ -10,11 +10,6 @@ LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-# Fixed names, never an environment override: this command runs as root
-# (AGENTS.md, "The trust boundary").
-PLUGIN_ADD_BIN=omarchy-plugin-add
-PLUGIN_REMOVE_BIN=omarchy-plugin-remove
-RUNUSER_BIN=runuser
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
@@ -241,7 +236,7 @@ cmd_install() {
     [[ "$repo" == *.git ]] || repo="$repo.git"
 
     echo "omarchy-kids-plugins: installing '$PLUGIN' into $KID's own account"
-    run "$RUNUSER_BIN" -l "$KID" -c "$PLUGIN_ADD_BIN $(printf '%q' "$repo") --enable --yes"
+    run runuser -l "$KID" -c "omarchy-plugin-add $(printf '%q' "$repo") --enable --yes"
     edit_apps_extra "$KID" add "$PLUGIN"
 }
 
@@ -250,7 +245,7 @@ cmd_remove() {
     parse_kid_plugin_args "$@"
 
     echo "omarchy-kids-plugins: removing '$PLUGIN' from $KID's own account"
-    run "$RUNUSER_BIN" -l "$KID" -c "$PLUGIN_REMOVE_BIN $(printf '%q' "$PLUGIN") --yes"
+    run runuser -l "$KID" -c "omarchy-plugin-remove $(printf '%q' "$PLUGIN") --yes"
     edit_apps_extra "$KID" remove "$PLUGIN"
 }
 

@@ -2,8 +2,7 @@
 # omarchy:summary=Report whether every Kids Mode lock actually holds
 # omarchy:args=[--json] [--live]
 # The green/red/yellow "is it safe?" report, read-only (SPEC.md R-TRUST-2, R-TRUST-3, R-DESK-2).
-# Reuses omarchy-kids-assert's *_ok functions rather than re-implementing them (see that file's own tail comment).
-# See docs/check.md for the full section list and every judgment call.
+# Reuses omarchy-kids-assert's *_ok functions. See docs/check.md.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -65,17 +64,13 @@ done
 
 [[ -r "$ASSERT_BIN" ]] || { echo "omarchy-kids-check: cannot find omarchy-kids-assert at $ASSERT_BIN" >&2; exit 2; }
 
-# source_assert — pulls in every lock's *_ok/*_fix plus the ETC/SHARE/
-# KIDS_DIR/etc. variables omarchy-kids-assert resolves. Called from
-# inside a function so its "$@" is empty, not this script's --json/--live
-# -- see that file's own tail-comment guard for why sourcing it is safe.
+# source_assert — pulls in every lock's *_ok/*_fix and its ETC/SHARE/etc
+# vars. Called from a function so "$@" is empty, not --json/--live (docs/check.md).
 source_assert() {
     # shellcheck source=bin/omarchy-kids-assert
     source "$ASSERT_BIN"
 }
 source_assert
-
-# --- reporting -------------------------------------------------------------
 
 G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; N=$'\033[0m'
 
@@ -91,9 +86,8 @@ array_contains() { # array_contains NEEDLE [HAYSTACK...]
     return 1
 }
 
-# add_result SECTION ID STATUS DETAIL — the one thing every check below
-# calls. STATUS is pass/warn/fail/skip; skip never affects the verdict
-# (--live not requested, nothing provisioned to check, etc).
+# add_result SECTION ID STATUS DETAIL — STATUS pass/warn/fail/skip; skip
+# never affects the verdict.
 add_result() {
     local section="$1" id="$2" status="$3" detail="$4"
     array_contains "$section" "${SECTION_ORDER[@]+"${SECTION_ORDER[@]}"}" || SECTION_ORDER+=("$section")
@@ -104,11 +98,8 @@ add_result() {
     esac
 }
 
-# lock_check ID CHECK_FN [ARGS...] — the "every assert lock reported via
-# the ok functions only" rule: never calls the matching *_fix. A FAIL's
-# detail points at docs/assert.md, which already documents in full what
-# each lock proves and what its fix does — repeating that here per lock
-# would just be a second copy to keep in sync.
+# lock_check ID CHECK_FN [ARGS...] — reports via the *_ok functions only,
+# never calls *_fix (docs/assert.md has what each lock proves).
 lock_check() {
     local id="$1" fn="$2" rc
     shift 2
@@ -116,20 +107,15 @@ lock_check() {
     if [[ "$rc" -eq 0 ]]; then
         add_result Locks "lock:$id" pass "matches what omarchy-kids-assert expects"
     elif [[ "$rc" -eq 2 ]]; then
-        # Exit 2 from a *_ok is omarchy-kids-assert's "I could not look"
-        # (review S11). A check that cannot see is not a passing check, so
-        # this machine is reported as not fully verified rather than green.
+        # Exit 2 ("I could not look", review S11) reports warn, not pass.
         add_result Locks "lock:$id" warn "could not be verified on this machine — see 'omarchy-kids-assert' output for '$id'"
     else
         add_result Locks "lock:$id" fail "does not match what omarchy-kids-assert expects — run 'omarchy-kids-assert' to restore it (docs/assert.md's lock table has what '$id' proves)"
     fi
 }
 
-# lock_check_warn — same shape as lock_check, for the one lock that
-# isn't a security fence at all: the SDDM face icon (issue #39) only
-# controls which picture shows on a kid's portal tile. A kid still logs
-# in exactly as fenced either way, so a mismatch here is worth a
-# grown-up's attention, never "not ready to hand over" on its own.
+# lock_check_warn — same shape as lock_check, for the SDDM face icon
+# (issue #39), cosmetic only, no security consequence (docs/check.md).
 lock_check_warn() {
     local id="$1" fn="$2"
     shift 2
@@ -147,8 +133,6 @@ kid_conf_count() {
     done < <(kids_list "$KIDS_DIR")
     printf '%s' "$n"
 }
-
-# --- thin dispatch: one lib/check-<area>.sh per report section -------------
 
 # shellcheck source=lib/check-accounts.sh
 source "$LIB/check-accounts.sh"
@@ -170,7 +154,6 @@ source "$LIB/check-firmware.sh"
 source "$LIB/check-live.sh"
 # shellcheck source=lib/check-render.sh
 source "$LIB/check-render.sh"
-# --- main --------------------------------------------------------------
 
 run_accounts_section
 run_locks_section

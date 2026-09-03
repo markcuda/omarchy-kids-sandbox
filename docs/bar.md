@@ -214,8 +214,8 @@ this issue's two spec-vs-ticket comments.
 
 ## What's unverified -- check in the VM
 
-No Quickshell install, headless or otherwise, was available while writing `KidsModule.qml` --
-see its own header for the full list. In order of what to check first:
+No Quickshell install, headless or otherwise, was available while writing `KidsModule.qml`.
+In order of what to check first:
 
 1. **Does the widget appear on the bar at all** once `omarchy-kids-bar enable --apply` runs and
    `omarchy-shell shell rescanPlugins`/a re-login picks it up. This is the load-bearing unknown:
@@ -225,7 +225,9 @@ see its own header for the full list. In order of what to check first:
 2. With a kid logged in (and paused, via `omarchy-kids-time` or `bin/omarchy-kids-panel`): does
    the dot appear, with the right initial, and does its color/label change when paused?
 3. Click the widget, then Enter/arrows/Escape with no mouse (I-5): does the menu open, navigate,
-   and close the way `PanelKeyCatcher` promises?
+   and close the way `PanelKeyCatcher` promises? Also unconfirmed: whether the bar itself can hand
+   keyboard focus to this widget pre-click (e.g. Tab-cycling bar icons) -- harmless if it can't,
+   since a mouse click always opens the menu too and I-5 holds from there.
 4. "Give 15 more minutes" on a live kid: does a terminal open, prompt for the parent's own login
    password via plain `sudo`, and does `omarchy-kids-time status <kid>` reflect the grant
    afterward?

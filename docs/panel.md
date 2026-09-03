@@ -87,6 +87,12 @@ which pad for a terminal, not a parser. Approve/decline themselves still go thro
 `omarchy-kids-ask approve|decline <id> --apply` — this panel never writes a queue record itself,
 same "one thing writes the format" rule `docs/conf.md` applies to a kid's profile.
 
+**Never arithmetic on an unchecked field (review §2.4).** Bash evaluates the *contents* of a
+variable named inside `$(( ))` as an expression, and an array subscript there runs a command
+substitution — so the age calculation in `lib/panel-requests.sh`'s `screen_requests` validates
+`asked_at` against `^[0-9]+$` before it ever reaches `$(( $(date +%s) - asked_at ))`, even though
+`lib/ask.py` already validates it on both sides of the queue. The panel doesn't trust that.
+
 ## Root and the one sudo prompt
 
 Same shape as the wizard's own "Root and the one sudo prompt" (`docs/wizard.md`), but per-screen

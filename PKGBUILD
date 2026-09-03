@@ -69,11 +69,10 @@ package() {
 
 	# Commands (R-BUILD-4): every bin/omarchy-kids-* file, whatever exists
 	# today plus whatever lands later -- this glob needs no updating.
-	# omarchy-kids-tui-demo is deliberately not shipped: it is a
-	# screen-renderer demo for developing lib/tui.sh, not a user command.
+	# The tui-demo dev tool lives in scripts/, not bin/, so this glob
+	# never sees it (docs/tui.md).
 	install -dm755 "$pkgdir/usr/bin"
 	install -m755 bin/omarchy-kids bin/omarchy-kids-* "$pkgdir/usr/bin/"
-	rm -f "$pkgdir/usr/bin/omarchy-kids-tui-demo"
 
 	# Early-boot LUKS-unlock hook (R-BOOT).
 	install -dm755 "$pkgdir/usr/lib/omarchy-kids"

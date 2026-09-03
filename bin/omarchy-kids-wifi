@@ -2,10 +2,8 @@
 # omarchy:summary=The kid-side Wi-Fi commands: list, join, status, forget, picker
 # omarchy:args=<list|join|status|forget|picker> [args]
 # The kid-side Wi-Fi commands (SPEC.md R-WIFI-1..2, R-WIFI-4): list, join, status, forget, picker.
-# R-WIFI-3's captive-portal helper is not here: it needed a root write to
-# /etc/chromium/policies/managed and org.freedesktop.systemd1.manage-units,
-# neither of which a kid has or should have (I-6 -- see docs/wifi.md).
-# See docs/wifi.md for the helper-vs-locked-down design and every env var.
+# R-WIFI-3's captive-portal helper is not here -- it needs root writes a
+# kid shouldn't have (I-6). See docs/wifi.md for the design and every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -47,15 +45,14 @@ EOF
 
 account() { id -un; }
 
-# wifi_mode ACCOUNT — the resolved Appendix B `wifi` value, or empty
-# (with a non-zero return) if it can't be read at all (no profile).
+# wifi_mode ACCOUNT — the resolved Appendix B `wifi` value, empty (non-zero
+# return) if unreadable.
 wifi_mode() {
     "$CONF_BIN" get "$1" wifi 2>/dev/null
 }
 
-# require_helper — the fast, friendly, non-authoritative half of the
-# wifi=helper gate (see the file header). Exits 3 with a plain sentence
-# if the profile says `parent` or can't be read at all.
+# require_helper — the friendly, non-authoritative half of the wifi=helper
+# gate (docs/wifi.md; wifid is the real gate). Exits 3 if not "helper".
 require_helper() {
     local who mode
     who="$(account)"
@@ -67,10 +64,8 @@ require_helper() {
     fi
 }
 
-# show_toast TEXT — the same small, auto-dismissing, no-keyboard-grab
-# overlay bin/omarchy-kids-time uses for its own warnings
-# (share/time/toast.qml); falls back to stderr if Quickshell isn't on
-# PATH (e.g. this host, or a test) so the message is never silently lost.
+# show_toast TEXT — same overlay bin/omarchy-kids-time uses; falls back
+# to stderr if Quickshell isn't on PATH.
 show_toast() {
     local text="$1"
     if command -v quickshell >/dev/null 2>&1 && [[ -f "$TOAST_QML" ]]; then
@@ -83,11 +78,8 @@ show_toast() {
 
 # --- wire client (bin/omarchy-kids-wifid) -----------------------------------
 
-# wifid_request HEADER [BODY] — sends "HEADER\n[BODY\n]" and prints
-# whatever the daemon replies with, or nothing on a connect/timeout
-# failure. Same socat-else-python3 shape as bin/omarchy-kids-parent-auth
-# (docs/authd.md) — one dependency either way, both already in this
-# repo's dependency set (PKGBUILD's optdepends/depends).
+# wifid_request HEADER [BODY] — sends "HEADER\n[BODY\n]", prints the reply
+# or nothing on timeout. Same socat-else-python3 shape as parent-auth (docs/authd.md).
 wifid_request() {
     local header="$1" body="${2:-}" payload
     if [[ -n "$body" ]]; then
@@ -98,10 +90,8 @@ wifid_request() {
     kids_sock_request "$SOCK" "$payload" "$TIMEOUT"
 }
 
-# call_wifid HEADER [BODY] — prints the payload on success (OK) and
-# returns 0; prints a one-line reason to stderr and returns non-zero
-# otherwise (3 for the daemon's own REFUSED, 1 for ERROR or no reply at
-# all — e.g. the daemon isn't running).
+# call_wifid HEADER [BODY] — prints payload on OK; else a one-line reason
+# to stderr (3 REFUSED, 1 ERROR/no reply).
 call_wifid() {
     local reply status
     reply="$(wifid_request "$@")"
@@ -166,10 +156,8 @@ cmd_join() {
     call_wifid "JOIN $ssid" "$password"
 }
 
-# cmd_picker — the kid-facing overlay, always bound to Super+Shift+W
-# (share/hyprland/L1.lua, L2.lua, L3.lua: the bind is unconditional
-# because the level configs are static, R-DESK-1 — this command is what
-# actually decides whether anything happens).
+# cmd_picker — bound unconditionally to Super+Shift+W at every level; this
+# command is what actually decides whether anything happens (docs/wifi.md).
 cmd_picker() {
     local who mode
     who="$(account)"

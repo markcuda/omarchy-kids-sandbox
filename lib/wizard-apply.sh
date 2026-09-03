@@ -1,23 +1,11 @@
 # shellcheck shell=bash
-# lib/wizard-apply.sh — omarchy-kids-wizard's Apply screen (A13b) and its
+# lib/wizard-apply.sh -- omarchy-kids-wizard's Apply screen (A13b) and its
 # five steps: getok, account, web, pkgs, safety, then Done (A14). Sourced
-# by the dispatcher; not meant to be executed directly.
+# by the dispatcher; not meant to be executed directly. See docs/wizard.md
+# "Apply's five steps" for the exit-code/logging contract each step follows.
 
-# --- Apply's five steps, one function each -------------------------------
-# Each prints/runs its own commands (via run_priv/run_priv_stdin/run_priv_as,
-# every one of which gets an explicit --apply where that command's own
-# convention needs it — DRY_RUN never crosses `sudo` into a child process,
-# so the flag on argv is the only thing that actually turns a real run on;
-# see docs/wizard.md "Root and the one sudo prompt") and returns that
-# command's real exit code, which run_apply_step below both displays and
-# uses to decide whether to keep going.
-
-# Step 1: the one sudo prompt for the whole Apply step. Writes
-# machine.conf's parent=$INVOKING_USER first (before anything that needs
-# it, issue #46 -- without it, authd answers "no" to every password and
-# provision refuses to add a kid), enables the package's units
-# (lib/units.sh, same list omarchy-kids-assert's "units" lock uses), then
-# ensures the technical log's directory exists.
+# Step 1: the one sudo prompt for the whole run; writes machine.conf's
+# parent= first (issue #46 -- authd needs it before anything else runs).
 apply_step_getok() {
     if [[ "$DRY_RUN" == "1" ]]; then
         printf '  [dry-run] sudo -v\n'
@@ -36,13 +24,9 @@ apply_step_getok() {
     sudo install -d -m 0755 "$(dirname "$SETUP_LOG")"
 }
 
-# Step 2: the account itself, plus every A7/A10/A11 choice that differs
-# from the band default (R-BAND-2: only overrides are ever written), and
-# theme (issue #53) if Advanced picked one other than the parent's own
-# current theme. A failed override still fails the step — none of these
-# are optional once chosen — but doesn't stop the others from being
-# attempted, so a parent sees every problem at once rather than one at a
-# time across re-runs.
+# Step 2: the account, plus every Appendix B override (R-BAND-2). A
+# failed override doesn't stop the rest, so a parent sees every problem
+# at once rather than one at a time across re-runs.
 apply_step_account() {
     local rc=0
     if ((NO_PASSWORD)); then
@@ -54,14 +38,6 @@ apply_step_account() {
     rc=$?
     ((rc == 0)) || return "$rc"
 
-    # Every Appendix B cell either path can change — Simple's own five
-    # (A7/A8/A10/A11's web/budget_min/lights_out/wifi/level) plus the
-    # seven Advanced's checklist adds (issue #20) — through the same
-    # maybe_override, which only ever writes the ones that actually
-    # differ from this band's default (R-BAND-2: "the profile stores
-    # only overrides"). A kid set up entirely through Simple never
-    # touches the last seven, so they're always still at their band
-    # default here and none of these seven ever fire for one.
     maybe_override level "$LEVEL" "$(band_field "$BAND" level)" || rc=$?
     maybe_override web "$WEB_MODE" "$(band_field "$BAND" web)" || rc=$?
     maybe_override wifi "$WIFI_MODE" "$(band_field "$BAND" wifi)" || rc=$?
@@ -74,13 +50,8 @@ apply_step_account() {
     maybe_override history_visible "$HISTORY_VISIBLE" "$(band_field "$BAND" history_visible)" || rc=$?
     maybe_override budget_min_weekend "$BUDGET_MIN_WEEKEND" "$(band_field "$BAND" budget_min_weekend)" || rc=$?
     maybe_override lights_out_weekend "$LIGHTS_OUT_WEEKEND" "$(band_field "$BAND" lights_out_weekend)" || rc=$?
-    # issue #53: theme's "default" isn't a band value (bands.toml has
-    # none) -- it's the parent's own current Omarchy theme, the same
-    # value $PROVISION_BIN's own theme step just copied for this kid
-    # above. maybe_override only writes an override when the parent
-    # picked something else in Advanced, same as every other row; when
-    # they didn't, the kid is already on the parent's theme from
-    # provisioning itself, so there is nothing to override.
+    # theme's default is the parent's own current theme, not a band value
+    # (docs/theming.md) -- $PROVISION_BIN's theme step already copied it.
     maybe_override theme "$THEME" "$(theme_current_name)" || rc=$?
     return "$rc"
 }
@@ -90,21 +61,14 @@ apply_step_web() {
     run_priv "$WEB_BIN" install "$BAND" --apply
 }
 
-# Step 4: starter pack via omarchy-kids-apps --now (R-WIZ-4/R-APPS-3):
-# synchronous, so the on-screen checkmark means the packages are really
-# in. Always installs the whole band pack regardless of A9's "let me
-# pick" -- the allowlist apply_step_account writes is what actually
-# restricts the kid's launcher, so this is correct, not a bug.
+# Step 4: starter pack via omarchy-kids-apps --now, synchronous so the
+# checkmark means the packages are really in. Always the whole band pack;
+# the allowlist apply_step_account writes is what restricts the launcher.
 apply_step_pkgs() {
     run_priv "$APPS_BIN" install "$BAND" --now --apply
 }
 
-# Step 5: the safety check (A13c) -- omarchy-kids-assert (I-4), then the
-# same R-DESK-2 preflight as the new kid's own account, skipped with a
-# clear line if that account doesn't actually exist yet. Not swapped for
-# one `omarchy-kids-check --json` call: check is read-only (a FAIL there
-# means "run assert"), and --json isn't this screen's human table. See
-# docs/check.md's "Judgment calls".
+# Step 5: the safety check (A13c) -- see docs/wizard.md "The safety check".
 apply_step_safety() {
     local rc=0
     run_priv "$ASSERT_BIN"
@@ -120,14 +84,9 @@ apply_step_safety() {
     return "$rc"
 }
 
-# run_apply_step LABEL FUNC — runs FUNC (one of the apply_step_* above),
-# showing its output live and, in a real run, also appending it to
-# $SETUP_LOG (R-WIZ-5) via `sudo tee -a` — a parent's own unprivileged
-# wizard process can't append to that root-owned file directly, so the
-# write itself has to go through sudo too, same as every other Apply
-# command. A --dry-run never touches the log. FUNC's own real exit code
-# (not tee's) decides ✓ or ✗, via bash's PIPESTATUS, regardless of
-# whether pipefail happens to be set.
+# run_apply_step LABEL FUNC — runs FUNC, tees its output live and (a real
+# run only) to $SETUP_LOG (R-WIZ-5). FUNC's own exit code, via
+# PIPESTATUS, decides ✓/✗ -- docs/wizard.md "Apply's five steps".
 run_apply_step() {
     local func="$2" tmp rc
     tmp="$(mktemp)"
@@ -147,12 +106,9 @@ run_apply_step() {
     return "$rc"
 }
 
-# A13b/A13c: Apply, then the safety check. The parent password was
-# already collected and (where possible) verified at A2 — see
-# screen_parent_password and docs/wizard.md "Root and the one sudo prompt".
-# Stops at the first failing step (real run only — --dry-run's steps
-# always "succeed", there being nothing real to fail) rather than
-# marching on and reporting success for a step that changed nothing.
+# A13b/A13c: Apply, then the safety check. Stops at the first failing
+# step (real run only) rather than reporting success for a step that
+# changed nothing -- docs/wizard.md "Apply's five steps".
 screen_apply() {
     tui_header "Apply" 14 "$TOTAL_STEPS" 0 ""
     echo
@@ -197,11 +153,9 @@ screen_apply() {
     return 0
 }
 
-# A14: Done. Exactly the Appendix A row: one Omy line, two buttons, no
-# third choice -- issue #37 asked for a "Show kids in my bar?" prompt
-# here, which would break every existing answers_file(...) sequence in
-# test/shell.d/wizard-test.sh; per AGENTS.md ("spec wins, ticket gets a
-# comment"), Omy's line mentions omarchy-kids-bar instead.
+# A14: Done. Two buttons, no third choice -- issue #37's "Show kids in my
+# bar?" prompt would break every answers_file(...) test, so Omy's line
+# mentions omarchy-kids-bar instead (AGENTS.md: spec wins).
 screen_done() {
     local headline
     if ((APPLY_OK)); then
@@ -213,6 +167,7 @@ screen_done() {
     if ((APPLY_OK)); then
         omy+=" Want a peek at $DISPLAY_NAME from your own bar? Run 'omarchy-kids-bar enable' any time — it only changes what you ask it to."
     fi
+    # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
     local choices=(
         "parent|Return to my desktop|"
         "kid|Open $DISPLAY_NAME's desktop|"

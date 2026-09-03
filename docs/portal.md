@@ -151,7 +151,7 @@ What none of that can confirm without a real engine: that this exact QML parses 
 that the avatar `Image`s actually rasterize the SVGs (needs Qt's SVG image plugin,
 typically `qt6-svg` — not an explicit `depends=` here since SDDM/Qt normally pull it in already;
 worth confirming in the VM), font availability, and real keyboard routing through the greeter's
-Hyprland compositor. `share/sddm-theme/Main.qml`'s own header comment has the complete list.
+Hyprland compositor. See "What is untested / unverified, in one place" below for the complete list.
 
 ## Deliberately not implemented here: R-LOGIN-5
 
@@ -238,9 +238,8 @@ least one kid is provisioned (`docs/provision.md`):
 ## What is untested / unverified, in one place
 
 - The entire QML runtime behavior of `Main.qml` — parsing, rendering, focus routing through the
-  greeter's own Hyprland compositor, the shake animation's timing/amplitude. See the file's own
-  header comment for the full, itemized list and exactly what upstream source each other claim
-  rests on.
+  greeter's own Hyprland compositor, the shake animation's timing/amplitude. See "Ground truth
+  this was checked against" above for exactly what upstream source each API claim rests on.
 - Whether `qt6-svg` (or equivalent) is actually present so the avatar SVGs rasterize, rather than
   always falling back to the letter-circle — `PKGBUILD` now depends on it explicitly (issue #39),
   which should settle this, but that dependency line itself is unverified against a real

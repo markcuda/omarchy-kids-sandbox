@@ -3,23 +3,16 @@
 # omarchy:args=<command> [args]
 # The one way to read and write every kid setting (SPEC.md R-BAND-1,
 # R-BAND-2, R-BUILD-5, Appendix B/C): kid override, else band default,
-# else global default. `band`, `name`, `avatar`, and `theme` (issue #53,
-# docs/theming.md) have no default at all — they must already be in the
-# profile; `set <kid> theme <name>` also applies the theme to that kid's
-# own $HOME as root, the one key here with a real side effect. See
-# docs/conf.md for the precedence, the extension keys, and every env var.
+# else global default. See docs/conf.md for the precedence, the
+# extension keys, every env var, and why `set <kid> theme` has a real side effect.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
-# lib/ sits beside bin/ in the repo; the package installs it to /usr/lib/omarchy-kids.
 LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 source "$LIB/conf.sh"
-# KIDS_PY, the one build-time interpreter constant.
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
-# theme_list_installed/theme_apply_for/theme_reload_if_live (issue #53):
-# `set <kid> theme <name>` is the one key here with a real side effect --
-# applying the theme to disk as root, docs/theming.md.
+# theme_apply_for/theme_reload_if_live (issue #53, docs/theming.md).
 # shellcheck source=lib/theme.sh
 source "$LIB/theme.sh"
 
@@ -32,17 +25,11 @@ PACKS_DIR="$SHARE/packs"
 PY="$KIDS_PY"
 PYHELPER="$LIB/conf.py"
 
-# Appendix B, in table order. theme (issue #53) sits with level/menu --
-# the other "how the desktop looks" cells -- rather than at the end.
+# Appendix B, in table order (docs/conf.md).
 APPENDIX_B_KEYS=(name avatar band level web dns budget_min budget_min_weekend
     lights_out lights_out_weekend wifi history_visible menu theme allowlist sites
     password onboarded)
-# No default anywhere; must already be an override. theme joins this list
-# for the same reason avatar/band do: bin/omarchy-kids-provision always
-# tries to set it (to the parent's own current theme, docs/theming.md),
-# so in practice it is always there — the one documented exception is a
-# parent who has never picked an Omarchy theme at all, which provisioning
-# warns about and leaves unset rather than guessing (see its own comment).
+# No default anywhere; must already be an override (docs/conf.md).
 REQUIRED_KEYS=(name avatar band theme)
 # Resolved from the band table in bands.toml when there's no override.
 BAND_KEYS=(level web dns budget_min budget_min_weekend lights_out
@@ -53,11 +40,8 @@ PACK_KEYS=(allowlist sites)
 # file and tool as everything else. See docs/conf.md for what each means.
 EXT_KEYS=(apps.extra apps.hidden apps.show_missing)
 
-# global_default KEY — prints the Appendix B global default for a key the
-# band table doesn't carry (dns, history_visible, password, onboarded)
-# and returns 0; returns 1 with nothing printed for any other key. A
-# plain case instead of an associative array so this runs on bash 3.2
-# too, not just the bash 5 the target (Arch) ships.
+# global_default KEY — the Appendix B global default, or exit 1. A plain
+# case, not an associative array, so this still runs on bash 3.2.
 global_default() {
     case "$1" in
         dns) echo cloudflare-family ;;
@@ -258,15 +242,9 @@ cmd_set() {
     is_valid_key "$key" || die "unknown key: '$key' (see docs/conf.md)"
     validate_value "$key" "$value"
     conf_set "$(profile_file "$kid")" "$key" "$value"
-    # issue #53: theme is the one key with a real side effect -- applying
-    # it to $kid's own $HOME as root (lib/theme.sh's theme_apply_for,
-    # docs/theming.md), the same writer bin/omarchy-kids-provision's own
-    # theme step and the "theme:<account>" assert lock both go through,
-    # so there is one place that ever touches theme files. A failed
-    # apply (not root, no real $OMARCHY_PATH/themes on this box) doesn't
-    # fail the override write itself -- omarchy-kids-assert re-applies it
-    # the next time it runs, same "eventually correct" shape as every
-    # other lock here.
+    # theme is the one key with a real side effect: applies to $kid's
+    # $HOME as root, best-effort -- omarchy-kids-assert retries on failure
+    # (issue #53, docs/theming.md).
     if [[ "$key" == theme ]]; then
         if theme_apply_for "$kid" "$value"; then
             theme_reload_if_live "$kid"
@@ -316,14 +294,8 @@ cmd_slug() {
     "$PY" "$PYHELPER" slug "$@"
 }
 
-# cmd_machine set parent <name> — machine.conf's parent= (issue #46). The
-# only machine-level write this command offers, on purpose: every other
-# machine.conf read in this repo goes straight through lib/conf.sh's own
-# conf_get (docs/conf.md — "there is no kid argument for a machine-wide
-# setting to hang off of"), but the wizard's Apply step needs one write
-# it can actually name on a `sudo <command>` argv (run_priv's own
-# contract, bin/omarchy-kids-wizard), and `sudo bash -c '...'` isn't
-# that. Kept tiny: one key, one shape, not a general machine.conf editor.
+# cmd_machine set parent <name> — machine.conf's parent= (issue #46), the
+# only machine-level write this command offers, on purpose. docs/conf.md.
 cmd_machine() {
     local sub="${1:?omarchy-kids-conf machine set parent <name>}"
     [[ "$sub" == set ]] || die "unknown machine subcommand: '$sub' (see --help)"

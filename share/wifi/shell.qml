@@ -1,46 +1,6 @@
-// shell.qml — the kid-facing Wi-Fi picker (SPEC.md R-WIFI-1..2; I-5
-// keyboard-complete, I-6 honest UI). Loaded standalone with
-// `quickshell -p share/wifi/shell.qml` by `omarchy-kids-wifi picker`,
-// which already refused (with a small toast) before ever exec'ing this
-// if the caller's profile isn't wifi=helper — this file assumes it is
-// only ever reached for a helper-mode kid, but never assumes that
-// silently: every action below still goes through `omarchy-kids-wifi`,
-// which re-checks against bin/omarchy-kids-wifid's own SO_PEERCRED-based
-// authorization every single time (see bin/omarchy-kids-wifi's header).
-//
-// ============================== UNTESTED =================================
-// Same situation as every other Quickshell file in this repo — no
-// Quickshell install was available to check any of this against. Two
-// pieces are carried over from share/exit-modal/shell.qml, where they
-// were verified live 2026-09-02 against Quickshell 0.3.1 on Hyprland
-// 0.56, and are used identically here:
-//
-//   - `PanelWindow` + `WlrLayershell.layer: WlrLayer.Overlay` +
-//     `WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive` — without
-//     the last one, keys go to the window underneath, not this overlay.
-//   - `Quickshell.Io.Process` with `stdinEnabled`/`write()`, and
-//     flipping `stdinEnabled = false` (not a `closeStdin()` call) to
-//     signal EOF to the child once the one line it needs has been
-//     written.
-//
-// Everything else here is new to this file and unconfirmed:
-//
-//   - Running `omarchy-kids-wifi list` as a plain (non-stdin) Process
-//     and reading its stdout via `Process.stdout`/a `SplitParser` or
-//     similar — this repo's other Quickshell files only ever *start*
-//     commands (share/launcher/shell.qml) or write to one's stdin
-//     (share/exit-modal/shell.qml); none of them have read a command's
-//     stdout back into QML before. `Quickshell.Io.Process.stdout` and
-//     however it delivers "the process exited, here is everything it
-//     printed" are both guesses.
-//   - nmcli's terse (`-t`) output, which bin/omarchy-kids-wifid's LIST
-//     command passes straight through, is ':'-delimited by default and
-//     escapes a literal ':' inside a field with a backslash. The naive
-//     `split(":")` below does NOT unescape that — an SSID containing a
-//     colon will parse wrong (extra/misaligned columns). Rare in
-//     practice (colons are legal but very unusual in an SSID); flagged
-//     rather than silently mishandled.
-// ===========================================================================
+// shell.qml -- the kid-facing Wi-Fi picker, loaded by `omarchy-kids-wifi
+// picker` (SPEC.md R-WIFI-1..2; I-5, I-6). Every action re-checks
+// SO_PEERCRED via omarchy-kids-wifid -- this file's own gate is never trusted. docs/wifi.md.
 
 import QtQuick
 import Quickshell

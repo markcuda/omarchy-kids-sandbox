@@ -1,41 +1,6 @@
-// shell.qml -- the "Ask a parent" modal (SPEC.md R-ASK-1..3; I-5
-// keyboard-complete, I-6 honest UI). Loaded standalone with
-// `quickshell -p share/ask/shell.qml` by bin/omarchy-kids-ask
-// (its time/app/plugin/site subcommands), which exports
-// OMARCHY_KIDS_ASK_KIND/WHAT/DESC/MINUTES/BIN and OMARCHY_KIDS_ACCOUNT
-// first.
-//
-// Reuses, line for line where it applies, the layer-shell/keyboard-focus/
-// Process/execDetached shape share/exit-modal/shell.qml verified live
-// against a real Hyprland+Quickshell session (docs/exit.md's "Verified
-// live" section, 2026-09-02):
-//   - PanelWindow + WlrLayershell.layer: WlrLayer.Overlay, and
-//     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive (without
-//     this, keys reached the window underneath instead of this modal).
-//   - The verifier Process reads exactly one line, so `stdinEnabled =
-//     false` right after `write()` is what lets omarchy-kids-parent-auth's
-//     `read -r` return instead of hanging.
-//   - Any action runs via Quickshell.execDetached, never a child
-//     Process, and only *after* that call does this quit -- a Process
-//     started right before Qt.quit() was killed before it ran.
-// UNVERIFIED specifically for *this* file: nothing beyond the above has
-// actually run yet (no "Ask a parent" trigger exists on a real desktop
-// to fire this modal from) -- confirm in the VM per docs/ask.md before
-// trusting it in front of a kid.
-//
-// Two choices (R-ASK-1), never a third and never a bare pointer-only
-// path (I-5):
-//   - "A grown-up is here": verifies the typed password, then submits
-//     the request already marked approved/by=keyboard. The actual
-//     grant is applied by omarchy-kids-ask collect (root; the panel, or
-//     the every-minute timer) -- never by this modal, which has no way
-//     to become root just because a password matched (docs/ask.md's
-//     "Judgment calls" explains why, and what that means for how this
-//     message is worded: never "Done", always "soon").
-//   - "Ask later": submits the request open, no password needed, and
-//     says exactly R-ASK-1's text.
-// Esc: closes with no side effect at all -- nothing is written,
-// nothing is asked.
+// shell.qml -- the "Ask a parent" modal, loaded by bin/omarchy-kids-ask.
+// SPEC.md R-ASK-1..3 (two choices only, never a pointer-only path); I-5
+// keyboard-complete, I-6 honest UI. See docs/ask.md for verified status.
 
 import QtQuick
 import Quickshell

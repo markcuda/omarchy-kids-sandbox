@@ -1,17 +1,9 @@
 # shellcheck shell=bash
-# lib/check-pam.sh — omarchy-kids-check's PAM section: the parent-unlock
-# line's presence and its exact position relative to preauth/pam_unix
-# (a check assert's own lock doesn't make). Sourced by the dispatcher;
-# not meant to be executed directly.
+# lib/check-pam.sh — omarchy-kids-check's PAM section. Sourced by the
+# dispatcher; not meant to be executed directly. docs/check.md.
 
-# --- PAM ---------------------------------------------------------------
-
-# pam_faillock_order_check STACK — omarchy-kids-assert's parent_unlock_ok
-# only confirms the marker/pam_exec line are present *somewhere*
-# (grep -qxF), never that they still sit at lib/posture.sh's required
-# position -- a hand-edit could reorder them without removing them,
-# silently breaking the short-circuit. A genuinely new check, not a
-# restatement of assert's.
+# pam_faillock_order_check STACK — a genuinely new check, not a restatement
+# of omarchy-kids-assert's parent_unlock_ok (docs/check.md's "PAM" section).
 pam_faillock_order_check() {
     local stack="$1" file marker line idx=0 marker_idx=-1 preauth_idx=-1 pam_unix_idx=-1
     file="$(posture_pam_dir)/$stack"
@@ -50,11 +42,8 @@ pam_faillock_order_check() {
     fi
 }
 
-# pam_parent_unlock_check STACK REQS — parent_unlock_ok (from
-# omarchy-kids-assert) reports "ok" when the stack file doesn't exist at
-# all -- right for a lock, but a flat PASS here would be false, since
-# nothing was actually verified. Checks existence first, so a missing
-# stack is its own honest WARN (R-TRUST-2).
+# pam_parent_unlock_check STACK REQS — WARN, not the misleading PASS
+# parent_unlock_ok alone would give, when the stack file doesn't exist.
 pam_parent_unlock_check() {
     local stack="$1" reqs="$2" file
     file="$(posture_pam_dir)/$stack"

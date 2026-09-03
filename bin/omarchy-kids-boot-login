@@ -27,12 +27,8 @@ display-manager.service starts) so a later logout never re-autologs.
 EOF
 }
 
-# session_for ACCOUNT — default session when luks-slots doesn't name one.
-# The profile registry decides, never the username: V1's live VM run found
-# the `kid-*` prefix heuristic misclassifying an owner named "kid-vm" as a
-# kid (lib/posture.sh's own note; review §1.6), which here would autologin
-# the machine's owner into a root-owned kiosk. Same source of truth
-# omarchy-kids-assert, -ask and -time-ledger already use.
+# session_for ACCOUNT — default session, decided by the profile registry,
+# never a `kid-*` username heuristic (found live, docs/boot.md).
 session_for() {
     if [[ -f "$ETC/kids/$1.conf" ]]; then
         echo "omarchy-kids.desktop"
@@ -41,11 +37,8 @@ session_for() {
     fi
 }
 
-# lookup_slot SLOT — prints "account session" on a match, nothing on no
-# match. luks-slots lines are "slot=account" or "slot=account:session";
-# blank lines and lines starting with '#' are ignored. No whitespace is
-# tolerated around '=' or ':', matching every other key=value file in this
-# repo (e.g. /etc/omarchy-kids/machine.conf).
+# lookup_slot SLOT — "account session" on a match, nothing otherwise.
+# luks-slots format: "slot=account[:session]" (docs/boot.md).
 lookup_slot() {
     local slot="$1" line key val account session
     [[ -r "$SLOTS_FILE" ]] || return 0
@@ -107,8 +100,7 @@ main() {
     esac
 
     if [[ ! -r "$RUN_DIR/boot-slot" ]]; then
-        # The unit's ConditionPathExists guards this in practice, but fail
-        # safe to the portal rather than guess if we're ever run without it.
+        # Fail safe to the portal rather than guess (ConditionPathExists normally guards this).
         write_dropin ""
         return 0
     fi

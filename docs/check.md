@@ -322,7 +322,7 @@ Kept for reference; the file itself now carries a 3-line pointer instead.
 omarchy-kids-check — v2: the green/red/yellow "is it safe?" report
 (SPEC.md R-TRUST-2, R-TRUST-3, R-DESK-2; issue #29). Run at the end of
 the wizard, from the panel, and (informally, by a grown-up) at kid
-login when omarchy-kids-ask-grownup points at it. Read-only: never
+login when omarchy-kids-blocked points at it. Read-only: never
 writes anything, never calls a lock's *_fix — see docs/check.md for
 the full section list and every judgment call below.
 
@@ -373,12 +373,12 @@ builds on both):
                             tests, same idea as OMARCHY_KIDS_HOME_ROOT)
 ```
 
-## Source header (moved from `bin/omarchy-kids-ask-grownup`, issue #49)
+## Source header (moved from `bin/omarchy-kids-blocked`, issue #49)
 
 Kept for reference; the file itself now carries a short pointer instead.
 
 ```text
-omarchy-kids-ask-grownup: the full-screen "Ask a grown-up" message shown
+omarchy-kids-blocked: the full-screen "Ask a grown-up" message shown
 by omarchy-kids-session (SPEC.md R-DESK-2) when a fail-closed check
 fails before a kid's desktop starts.
 
@@ -393,10 +393,10 @@ portal/greeter, or a tiny standalone compositor client of its own)
 is a separate ticket; this script is what that ticket should replace,
 not extend.
 
-Usage: omarchy-kids-ask-grownup "<check name>"
+Usage: omarchy-kids-blocked "<check name>"
 
 Env:
-  OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds to hold the message on screen
+  OMARCHY_KIDS_BLOCKED_SLEEP  seconds to hold the message on screen
                                   before exiting (default 15; tests set
                                   this to 0 so the suite doesn't sit
                                   through it)

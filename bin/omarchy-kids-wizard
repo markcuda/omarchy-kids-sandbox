@@ -13,8 +13,7 @@ source "$LIB/sock.sh"
 source "$LIB/conf.sh"
 # shellcheck source=lib/tui.sh
 source "$LIB/tui.sh"
-# theme_current_name/theme_list_installed (issue #53): lib/wizard-advanced.sh's
-# Desktop-group theme row reads these directly.
+# theme_current_name/theme_list_installed (issue #53).
 # shellcheck source=lib/theme.sh
 source "$LIB/theme.sh"
 # shellcheck source=lib/wizard-advanced.sh
@@ -38,23 +37,16 @@ PY="$KIDS_PY"
 PYHELPER="$LIB/conf.py"
 
 # The verifier socket is a constant: a kid may not point a password
-# check anywhere (AGENTS.md, "The trust boundary"; review S4/§2.1).
+# check anywhere (AGENTS.md, "The trust boundary").
 AUTH_SOCK=/run/omarchy-kids/auth.sock
 SETUP_LOG="${OMARCHY_KIDS_SETUP_LOG:-/var/log/omarchy-kids/setup.log}"
 MACHINE_CONF="$ETC/machine.conf"
-# The wizard itself runs unprivileged, as the parent -- so `id -un` here,
-# before Apply ever touches sudo, is simply the parent's own login name.
-# Apply's first step writes this into machine.conf's parent= (issue #46
-# follow-up), which is what lets omarchy-kids-authd (docs/authd.md) and
-# omarchy-kids-provision (which refuses to add a kid without one) both
-# work on a machine where nothing has set it yet.
+# The parent's own login name, written into machine.conf's parent= by
+# Apply's first step (issue #46) -- docs/wizard.md.
 INVOKING_USER="${OMARCHY_KIDS_INVOKING_USER:-$(id -un 2>/dev/null || echo "${USER:-}")}"
 
-# --- what "no flag at all" means here -------------------------------------
-#
 # Interactive: a human's own button press is the confirmation, so the
-# default is a real run (review §1.5). AGENTS.md rule 8's DRY_RUN=1
-# default still holds for every non-interactive caller (no tty).
+# default is a real run (review §1.5, docs/wizard.md).
 if launched_by_a_human; then
     DRY_RUN="${DRY_RUN:-0}"
 else
@@ -100,19 +92,14 @@ done
 
 # --- small helpers -----------------------------------------------------
 
-# band_field BAND KEY — lib/kids.sh's kids_band_field, with this
-# command's own error message. The parsing lives there, once: it is the
-# `sed | head -1` that returned 141 under pipefail (review §2.7).
+# band_field BAND KEY — lib/kids.sh's kids_band_field, this command's own
+# error message (review §2.7).
 band_field() {
     kids_band_field "$CONF_BIN" "$@" || die "could not read band '$1' defaults from $CONF_BIN"
 }
 
 # pack_field BAND KEY — every value of a `key = "value"` line in that
-# band's pack TOML (share/packs/<band>.toml), one per line: `pkg`
-# (prefetch/install), `id` (the apps checklist), `label` (summary text
-# and the checklist's own prompts) — a plain sed over the pack's own
-# documented shape (AGENTS.md, Appendix C) rather than a new lib/conf.py
-# command, since these are all already-fixed-format single-line fields.
+# band's pack TOML, one per line (AGENTS.md Appendix C).
 pack_field() {
     local band="$1" key="$2"
     local pack="$SHARE/packs/$band.toml"
@@ -120,10 +107,8 @@ pack_field() {
     sed -n "s/^${key} = \"\\(.*\\)\"\$/\\1/p" "$pack"
 }
 
-# app_label_for BAND ID — one app's label, via lib/conf.py's existing
-# pack-app (already used by bin/omarchy-kids-session-start to resolve a
-# launcher id to its pack metadata); falls back to the raw id if the
-# pack has no such entry.
+# app_label_for BAND ID — one app's label via lib/conf.py's pack-app;
+# falls back to the raw id.
 app_label_for() {
     local band="$1" id="$2" out
     out="$("$PY" "$PYHELPER" pack-app "$SHARE/packs/$band.toml" "$id" 2>/dev/null)" || {
@@ -133,13 +118,9 @@ app_label_for() {
     printf '%s\n' "${out%%$'\t'*}"
 }
 
-# repo_and_aur_pkgs BAND [COMMA_IDS] — sets REPO_PKGS=() and AUR_PKGS=()
-# (the "aur:" prefix stripped). With no COMMA_IDS, every package in the
-# band's starter pack (used by prefetch, which always fetches the whole
-# pack per R-WIZ-4 — "changed selections need no undo" is exactly this:
-# app screen choices only affect what gets *installed*, not what was
-# already downloaded). With COMMA_IDS (the apps screen's "let me pick"
-# result), only those ids' packages.
+# repo_and_aur_pkgs BAND [COMMA_IDS] — sets REPO_PKGS=()/AUR_PKGS=() (the
+# "aur:" prefix stripped). No COMMA_IDS: the whole band pack (R-WIZ-4,
+# docs/wizard.md). With COMMA_IDS: only those ids' packages.
 REPO_PKGS=()
 AUR_PKGS=()
 repo_and_aur_pkgs() {
@@ -172,11 +153,7 @@ repo_and_aur_pkgs() {
     fi
 }
 
-# run_priv CMD... — the one place a real system change is either printed
-# (DRY_RUN=1, the default) or actually run, under sudo (Apply is the only
-# place this wizard ever needs root — see "Root and the one sudo prompt"
-# in docs/wizard.md). Never used for a command that also needs its own
-# stdin; see run_priv_stdin for that.
+# run_priv CMD... — print (DRY_RUN=1) or run under sudo. docs/wizard.md.
 run_priv() {
     if [[ "$DRY_RUN" == "1" ]]; then
         printf '  [dry-run] sudo'
@@ -187,12 +164,8 @@ run_priv() {
     fi
 }
 
-# run_priv_stdin CMD... — like run_priv, but forwards this function's own
-# stdin to the real command (provision's --password-stdin /
-# --parent-password-stdin). In DRY_RUN mode the piped stdin (a password)
-# is drained and discarded, never echoed — only the argv is printed, and
-# a password is never on argv (AGENTS.md: "passwords only ever on stdin,
-# never argv, never logged").
+# run_priv_stdin CMD... — like run_priv, forwarding stdin (a password);
+# DRY_RUN drains and discards it, never echoes (AGENTS.md).
 run_priv_stdin() {
     if [[ "$DRY_RUN" == "1" ]]; then
         printf '  [dry-run] sudo'
@@ -204,8 +177,7 @@ run_priv_stdin() {
     fi
 }
 
-# run_priv_as USER CMD... — run_priv, but as USER (omarchy-kids-session
-# --check has to run as the kid to see the kid's own facts).
+# run_priv_as USER CMD... — run_priv, but as USER.
 run_priv_as() {
     local user="$1"
     shift
@@ -218,11 +190,9 @@ run_priv_as() {
     fi
 }
 
-# --- prefetch (R-WIZ-4): starts on the age screen, never blocks --------
-#
-# Known gap: no dedicated root helper yet, so this only prefetches when
-# sudo already has a cached credential (from A2); otherwise it skips and
-# says so -- Apply's own install step works either way. See docs/wizard.md.
+# --- prefetch (R-WIZ-4): starts on the age screen, never blocks. Only
+# works with a cached sudo credential (from A2); otherwise skips and says
+# so -- Apply's install step works either way. docs/wizard.md "Prefetch".
 PREFETCH_PID=""
 start_prefetch() {
     local band="$1"
@@ -281,11 +251,9 @@ validate_kid_password() {
     return 0
 }
 
-# verify_parent_password_authd CANDIDATE — the same protocol
-# bin/omarchy-kids-parent-auth speaks to omarchy-kids-authd (docs/authd.md):
-# one line in, "ok"/"no" back, through lib/sock.sh's one client. A missing
-# socat *and* python3 fails closed (no way to speak the protocol at all),
-# rather than silently accepting.
+# verify_parent_password_authd CANDIDATE — same protocol
+# bin/omarchy-kids-parent-auth speaks (docs/authd.md); fails closed if
+# neither socat nor python3 is available.
 verify_parent_password_authd() {
     local candidate="$1" reply
     reply="$(kids_sock_request "$AUTH_SOCK" "$candidate"$'\n')" || return 1
@@ -293,32 +261,24 @@ verify_parent_password_authd() {
 }
 
 # verify_parent_password_sudo CANDIDATE — fallback for when authd's
-# socket isn't up (fresh install, or right after omarchy-kids-remove).
-# The parent's login password is also their sudo password by design, so
-# `sudo -k` then `sudo -S -v` (stdin only, never argv/logged) is a real,
-# independent check, not a shrug.
+# socket isn't up: sudo -S -v, stdin only, never argv/logged. docs/wizard.md.
 verify_parent_password_sudo() {
     local candidate="$1"
     sudo -k >/dev/null 2>&1
     printf '%s\n' "$candidate" | sudo -S -p '' -v >/dev/null 2>&1
 }
 
-# authd_verifiable — true iff omarchy-kids-authd's socket is active AND
-# machine.conf names a parent for it to check against. Both gates matter
-# independently: right after omarchy-kids-remove, the pacman hook's own
-# units_fix can re-enable the socket in the same transaction that deletes
-# machine.conf -- socket up, nobody home. See docs/authd.md.
+# authd_verifiable — true iff the authd socket is active AND machine.conf
+# names a parent. Both gates matter independently -- docs/authd.md.
 authd_verifiable() {
     [[ -S "$AUTH_SOCK" ]] || return 1
     local parent
     parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null)" && [[ -n "$parent" ]]
 }
 
-# verify_parent_password CANDIDATE — true iff the candidate checks out.
-# Prefers omarchy-kids-authd when authd_verifiable says it can answer,
-# else verify_parent_password_sudo. The fallback reason is a stderr
-# diagnostic only, never shown to the parent as a failure (issue #46) --
-# see screen_parent_password for what an actually-wrong password does.
+# verify_parent_password CANDIDATE — authd when authd_verifiable allows
+# it, else sudo. The fallback reason is a stderr diagnostic only, never
+# shown to the parent (issue #46) -- docs/wizard.md.
 verify_parent_password() {
     local candidate="$1"
     if authd_verifiable; then
@@ -341,21 +301,16 @@ friendly_wifi_mode() {
     esac
 }
 
-# maybe_override KEY VALUE BAND_DEFAULT — writes a profile override only
-# when the parent's choice differs from the band default (R-BAND-2: "the
-# profile stores only overrides"). Run through run_priv so DRY_RUN=1
-# prints it like every other Apply command.
+# maybe_override KEY VALUE BAND_DEFAULT — writes only when it differs (R-BAND-2).
 maybe_override() {
     local key="$1" value="$2" band_default="$3"
     [[ "$value" == "$band_default" ]] && return 0
     run_priv "$CONF_BIN" set "$ACCOUNT" "$key" "$value"
 }
 
-# apps_pick_walk STEP TOTAL — walks the band's starter pack one app at a
-# time (no multi-select widget in lib/tui.sh), yes/no per app; sets
-# $TUI_REPLY to the comma-joined yes ids. Shared by A9's "Let me pick"
-# and the Advanced checklist's apps row. Esc on one app means "No" and
-# moves on; only Ctrl+C leaves the wizard. See docs/wizard.md.
+# apps_pick_walk STEP TOTAL — yes/no per app, one at a time; sets
+# $TUI_REPLY to the comma-joined yes ids. Shared by A9 and the Advanced
+# checklist's apps row (docs/wizard.md).
 apps_pick_walk() {
     local step="$1" total="$2" id label chosen=() body
     while IFS= read -r id; do
@@ -396,10 +351,7 @@ APPS_MODE="pack"
 ALLOWLIST_IDS=""
 WIFI_MODE=""
 LEVEL=""
-# The four Advanced-only cells Simple never shows a screen for (issue
-# #20): seeded to this band's default by screen_band's adv_init, changed
-# only through the Advanced checklist or the summary's "Change
-# something" (lib/wizard-advanced.sh).
+# The four Advanced-only cells Simple never shows a screen for (issue #20).
 DNS_MODE=""
 SITES=""
 MENU_MODE=""
@@ -415,9 +367,7 @@ tui_init || exit $?
 STEP=1
 while ((STEP <= TOTAL_STEPS)); do
     rc=0
-    # A screen's own non-zero return (1=Esc back, 130=Ctrl+C leave) is a
-    # normal signal read from $rc just below, not a failure -- set +e
-    # for exactly this call so it doesn't trip `set -e` before that read.
+    # 1=Esc back, 130=Ctrl+C leave is data for the case below, not a failure.
     set +e
     case "$STEP" in
         1) screen_welcome ;;
@@ -427,11 +377,7 @@ while ((STEP <= TOTAL_STEPS)); do
         5) screen_band ;;
         6) screen_mode ;;
         7)
-            # Advanced's grouped checklist stands in for all five of
-            # Simple's A7-A11 screens at once (issue #20) — see the rc
-            # handling below for how it skips straight to A12 (step 12)
-            # instead of stepping to 8, and Esc there returns to A6
-            # (step 6) instead of one step back.
+            # Advanced's checklist stands in for A7-A11 at once (issue #20).
             if [[ "$MODE" == advanced ]]; then
                 screen_advanced_checklist 7 "$TOTAL_STEPS"
             else

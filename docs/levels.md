@@ -212,12 +212,26 @@ below needs a real Omarchy 4.0.2 box or the VM to close out:
    unbinding by key as risky only because it can strip a *user's own* rebinding from their
    personal `~/.config/hypr` files — L3.lua has no such layer (R-DESK-6), so that risk doesn't
    apply here, but the call signature itself is still unverified.
-5. **Everything in `share/launcher/shell.qml`.** No Quickshell was available to run this against
-   at all. `Window` vs. `PanelWindow`/`WlrLayershell`, `FileView`'s API, and `Process`'s API are
-   all best-effort guesses from general knowledge of the project — see the file's own header for
-   the specifics and the reasoning for picking a plain top-level `Window` (fullscreened by the
-   same windowrule as every other app, reachable by `hyprctl dispatch focuswindow`) over a
-   layer-shell overlay.
+5. **Everything in `share/launcher/shell.qml`.** No Quickshell documentation or source was
+   available while writing it, so every Quickshell-specific type/property (as opposed to plain
+   QtQuick ones) was a best-effort guess:
+   - **`Window` over `PanelWindow`/`WlrLayershell`.** The issue that asked for this file suggested
+     a layer-shell panel; this uses a plain QtQuick `Window` instead, fullscreened by the same
+     windowrule as every other Level 1/2 app (`share/hyprland/L1.lua`'s
+     `o.window(".*", { fullscreen = true })`) and reachable by `hyprctl dispatch focuswindow`
+     (`bin/omarchy-kids-launcher-ctl`) — sidesteps needing Quickshell's IPC system at the cost of
+     not being a "real" always-on-top overlay. If Quickshell requires `PanelWindow` for anything
+     it loads, or an always-on-top overlay is wanted after all, this is the piece to redo.
+   - **`Quickshell.Io.FileView`** — whether `reload()`/`text()` exist with those names, and how a
+     missing file is reported (assumed to throw or return empty, not crash the shell).
+   - **`Quickshell.Io.Process`** — whether `command`/`running` are real properties and
+     start-on-`running=true` is the right lifecycle.
+   - **`Quickshell.iconPath()`** (issue #54) is confirmed real — `shell/services/AppLibrary.qml`'s
+     `iconSource()` at omacom/omarchy@v4.0.2 calls it the same way — but the rendered size/DPI of
+     the returned source still needs a real Quickshell to confirm.
+   Confirmed live 2026-09-03 (see "Verified live" below): the launcher renders, arrow/Enter
+   navigation and launching work. Still open: whether the plain-`Window` choice above is worth
+   revisiting for a true always-on-top guarantee.
 6. **`omarchy-kids-trimmed.jsonc`'s schema.** No omarchy-menu extension documentation or source
    was available. The "hide": [...] shape in `share/menu/omarchy-kids-trimmed.jsonc` is a guess.
    Independent of whether it's supported, R-DESK-4 still holds at the keybinding level: Level 1

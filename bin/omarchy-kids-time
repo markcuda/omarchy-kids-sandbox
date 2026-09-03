@@ -93,20 +93,17 @@ cmd_grant() {
 
 cmd_ask_grownup() {
     local kid; kid="$(id -un)"
-    if command -v omarchy-kids-ask-grownup >/dev/null 2>&1; then
-        log "ask-grownup: '$kid' asked for $ASK_MINUTES more minutes; running omarchy-kids-ask-grownup"
-        exec omarchy-kids-ask-grownup time "$ASK_MINUTES"
+    if command -v omarchy-kids-blocked >/dev/null 2>&1; then
+        log "ask-grownup: '$kid' asked for $ASK_MINUTES more minutes; running omarchy-kids-blocked"
+        exec omarchy-kids-blocked time "$ASK_MINUTES"
     fi
-    log "ask-grownup: '$kid' asked for $ASK_MINUTES more minutes; no omarchy-kids-ask-grownup on PATH, logging only"
+    log "ask-grownup: '$kid' asked for $ASK_MINUTES more minutes; no omarchy-kids-blocked on PATH, logging only"
 }
 
 # --- daemon ----------------------------------------------------------------
 
-# The overlays are tracked by the pidfile pair in lib/kids.sh, not by
-# `pgrep -f "quickshell -p ..."`: a kid with a terminal (bands 9-12 and
-# 13+ ship one) can start any process whose argv contains that string,
-# and lights-out would then think it was already on screen and never
-# draw it (review §2.6).
+# The overlays are tracked by lib/kids.sh's pidfile pair, not `pgrep -f`
+# (a kid with a terminal could spoof that match -- review §2.6).
 show_toast() {
     local text="$1"
     modal_already_open "$TOAST_PIDFILE" && return 0
@@ -158,10 +155,8 @@ toast_label() {
 
 cmd_daemon() {
     local kid; kid="$(id -un)"
-    # Highest first: time_toast_thresholds (lib/time.sh) fires each of
-    # these only once per downward crossing (R-TIME-3, issue #40) --
-    # see that function's header for the previous/current/fired-set
-    # rule this loop hands it every 30 s.
+    # Highest first: time_toast_thresholds fires each once per downward
+    # crossing (R-TIME-3, issue #40) -- docs/time.md.
     local thresholds="10 5 1"
     local prev="" fired="" shown=0
     local now hm day weekend remaining lo decision to_fire
@@ -182,20 +177,13 @@ cmd_daemon() {
                     dismiss_timesup
                     shown=0; fired=""
                 fi
-                # Logged with previous/current even when nothing fires
-                # (issue #40): budget only moves in whole minutes, and
-                # this loop polls twice as often, so a 60s window always
-                # contains at least one poll.
                 decision="$(time_toast_thresholds "$prev" "$remaining" "$thresholds" "$fired")"
                 to_fire="$(sed -n '1p' <<<"$decision")"
                 fired="$(sed -n '2p' <<<"$decision")"
                 log "toast-check: kid='$kid' previous=${prev:-none} current=$remaining fired={${fired:-none}} firing={${to_fire:-none}}"
                 if [[ -n "$to_fire" ]]; then
-                    # $to_fire is highest-first; only the most urgent
-                    # (last word) is worth showing if a lagging tick
-                    # crossed more than one threshold in a single poll
-                    # -- the rest stay marked fired above so a stale
-                    # "10 minutes left" can't show up late.
+                    # Only the most urgent (last word) shows if a lagging
+                    # tick crossed more than one threshold at once (docs/time.md).
                     read -r -a fire_arr <<<"$to_fire"
                     show_toast "$(toast_label "${fire_arr[${#fire_arr[@]}-1]}")"
                 fi

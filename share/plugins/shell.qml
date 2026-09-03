@@ -1,46 +1,6 @@
-// shell.qml -- the kids-plugins shelf overlay (SPEC.md R-APPS-7; I-5
-// keyboard-complete, I-6 honest UI; issue #28). Loaded standalone with
-// `quickshell -p share/plugins/shell.qml`, exec'd directly from the
-// Level 1 launcher's own "More apps" tile
-// (bin/omarchy-kids-session-start, bands 6-8 and up only -- 3-5 gets no
-// tile at all). Unlike share/ask/shell.qml this needs no password step
-// and no dedicated omarchy-kids-* wrapper to exec it: the tile's own
-// exec line already sets OMARCHY_KIDS_BAND, and that's the only input
-// this file needs before it can show something.
-//
-// Read-only (SPEC.md's own words for this issue): this file never
-// installs, never writes anything, never talks to root. Enter on an
-// item runs `omarchy-kids-ask app <plugin>` -- the existing "Ask a
-// grown-up" flow (share/ask/shell.qml) -- and this overlay quits right
-// after, handing off to that modal rather than layering two overlays.
-//
-// Reuses, line for line, the layer-shell/keyboard-focus shape
-// share/exit-modal/shell.qml verified live against a real
-// Hyprland+Quickshell session (docs/exit.md's "Verified live" section,
-// 2026-09-02; share/ask/shell.qml's header repeats the same citation):
-//   - PanelWindow + WlrLayershell.layer: WlrLayer.Overlay, and
-//     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive.
-//   - Any action runs via Quickshell.execDetached, never a child
-//     Process, and only *after* that call does this quit.
-//
-// ============================== UNTESTED ================================
-// Specifically for *this* file, beyond the layer-shell shape above:
-//   - `Quickshell.Io.Process`'s `stdout: StdioCollector { onStreamFinished }`
-//     shape for capturing a finished command's whole stdout. Nothing
-//     else in this repo captures a Process's output (share/ask and
-//     share/launcher only ever start a Process and read its exit code,
-//     or write to its stdin) -- this is a best-effort guess at the real
-//     Quickshell.Io API, not confirmed against Quickshell docs or
-//     source (none were available while writing this). If
-//     `StdioCollector`/`onStreamFinished`/`.text` aren't the real names,
-//     this is the piece to redo.
-//   - Everything share/launcher/shell.qml's own UNTESTED banner already
-//     flags (Window vs PanelWindow choice aside, since this file uses
-//     PanelWindow directly): FileView-free here, so that part doesn't
-//     apply, but the general "never run against a real Quickshell"
-//     caveat does. Confirm in the VM per docs/plugins.md before
-//     trusting this in front of a kid.
-// ==========================================================================
+// shell.qml -- the read-only kids-plugins shelf overlay, exec'd from the
+// Level 1 launcher's "More apps" tile (SPEC.md R-APPS-7; I-5, I-6; issue #28).
+// Never run against a real Quickshell -- see docs/plugins.md for what's unconfirmed.
 
 import QtQuick
 import Quickshell

@@ -1,23 +1,6 @@
-// timesup.qml — the full-screen "Time's up" overlay (SPEC.md R-TIME-4,
-// Appendix F's `grace` state; I-5 keyboard-complete, I-6 honest UI).
-// Loaded standalone with `quickshell -p share/time/timesup.qml` by
-// bin/omarchy-kids-time's own `show_timesup`, which exports
-// OMARCHY_KIDS_ACCOUNT/NAME/AVATAR first, the same convention
-// bin/omarchy-kids-exit uses for share/exit-modal/shell.qml.
-//
-// ============================== UNTESTED =================================
-// Same disclaimer as every other Quickshell file in this repo -- see
-// share/exit-modal/shell.qml's header for the full version, including
-// which specific API names (PanelWindow, WlrLayershell.layer,
-// WlrLayershell.keyboardFocus, Quickshell.execDetached) are the ones to
-// re-check first in the VM. This file reuses exactly that same set,
-// verified live for the exit modal on 2026-09-02 -- unlike the exit
-// modal, this one needs no Process/stdin handling at all (neither
-// button here asks for a password; see the header comment on
-// bin/omarchy-kids-time's `ask-grownup` for why "Ask a grown-up" is a
-// placeholder rather than a real grant today), so that whole unverified
-// piece doesn't apply here.
-// ===========================================================================
+// timesup.qml -- the full-screen "Time's up" overlay, loaded by
+// bin/omarchy-kids-time's show_timesup (SPEC.md R-TIME-4, Appendix F
+// `grace`; I-5, I-6). See docs/time.md "What's unverified" for status.
 
 import QtQuick
 import Quickshell

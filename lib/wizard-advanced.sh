@@ -1,16 +1,10 @@
 # shellcheck shell=bash
-# lib/wizard-advanced.sh — the wizard's Advanced path: a grouped checklist
-# over every Appendix B cell not already collected by a shared screen
-# (SPEC.md R-WIZ-2, R-WIZ-3, Appendix B; issue #20), reachable from A6
-# and the summary's "Change something". Sourced by bin/omarchy-kids-
-# wizard, which already defines every global/helper this file reads
-# ($BAND, $DISPLAY_NAME, band_field, lib/theme.sh's theme_current_name/
-# theme_list_installed (issue #53), every tui_screen_* function); not
-# meant to be sourced on its own. adv_get/adv_set read/write each row's
-# value by variable name (bash 3.2 has no namerefs/associative arrays).
-# theme's own "default" is the parent's own current Omarchy theme, not a
-# band value — bands.toml has no theme field. Full row list and the six
-# groups: docs/wizard.md.
+# lib/wizard-advanced.sh -- the wizard's Advanced path: a grouped checklist
+# over every Appendix B cell (SPEC.md R-WIZ-2, R-WIZ-3, Appendix B; issue
+# #20). Sourced by bin/omarchy-kids-wizard, which defines every
+# global/helper this reads; not meant to be sourced on its own. See
+# docs/wizard.md's "The Advanced path" section for the full row list,
+# groups, and editor-by-editor walkthrough.
 
 ADV_KEYS=(web dns sites budget_min budget_min_weekend lights_out lights_out_weekend allowlist wifi level menu theme history_visible)
 
@@ -61,23 +55,15 @@ adv_label_of() { # KEY -> the row's label, in parent words
     esac
 }
 
-# pack_sites BAND — comma-separated hosts from that band's pack [garden]
-# table (share/packs/<band>.toml); empty for a band with no walled
-# garden. The one pack field lib/conf.py already exposes for a kid's own
-# `sites` (bin/omarchy-kids-conf's own pack_value), read here the same
-# way for the same reason: it's a TOML array, not the single `key =
-# "value"` line bin/omarchy-kids-wizard's own pack_field can sed for.
+# pack_sites BAND — that band's pack [garden] hosts (a TOML array, so
+# pack_field's sed can't read it); empty for a band with no walled garden.
 pack_sites() {
     "$PY" "$PYHELPER" pack-sites "$SHARE/packs/$1.toml" 2>/dev/null
 }
 
-# adv_default KEY — this band's (or its pack's) default value, in the
-# same raw form `omarchy-kids-conf set` expects. theme (issue #53) has no
-# band default at all -- bands.toml carries no theme field -- its
-# "default" is the parent's own current Omarchy theme, the same value
-# bin/omarchy-kids-provision's own theme step copies at Add time
-# (docs/theming.md); theme_current_name reads it with no THEME_KIDS_HOME
-# override since the wizard always runs as the parent themselves.
+# adv_default KEY — this band's (or its pack's) default value. theme has
+# no band default (bands.toml has no theme field); it's the parent's own
+# current Omarchy theme instead (docs/theming.md).
 adv_default() {
     case "$1" in
         sites) pack_sites "$BAND" ;;
@@ -87,8 +73,7 @@ adv_default() {
     esac
 }
 
-# adv_get / adv_set KEY [VALUE] — the row's current value, read or
-# written through its variable (adv_varname).
+# adv_get / adv_set KEY [VALUE] — the row's value, via its variable.
 adv_get() {
     local var
     var="$(adv_varname "$1")"
@@ -100,11 +85,7 @@ adv_set() {
     printf -v "$var" '%s' "$2"
 }
 
-# adv_init — seeds every row to the current $BAND's default. Called once
-# BAND is known (screen_band), before either path can reach a screen that
-# changes one of these: Simple's own A7-A11 overwrite the five they
-# cover; the rest keep this seed unless the Advanced checklist (or
-# "Change something") changes them.
+# adv_init — seeds every row to $BAND's default, once BAND is known.
 adv_init() {
     local k
     for k in "${ADV_KEYS[@]}"; do
@@ -155,9 +136,8 @@ friendly_allowlist() {
     echo "$out"
 }
 
-# adv_friendly KEY VALUE — human words for one of KEY's raw values,
-# reusing the same friendly_* functions the Easy summary already uses
-# for web/wifi so both paths describe a value the same way.
+# adv_friendly KEY VALUE — human words for a raw value, reusing the same
+# friendly_* functions the Easy summary uses so both paths agree.
 adv_friendly() {
     local key="$1" value="$2"
     case "$key" in
@@ -175,10 +155,8 @@ adv_friendly() {
     esac
 }
 
-# mark_if_changed KEY TEXT — TEXT, plus " (custom)" when KEY's current
-# value no longer matches this band's default: the summary's "distinct
-# ... mark" for an override (issue #20, point 3), the same idea R-BAND-2
-# already applies to what actually gets *written*.
+# mark_if_changed KEY TEXT — TEXT, plus " (custom)" once KEY no longer
+# matches this band's default (R-BAND-2's own rule, applied to display).
 mark_if_changed() {
     local key="$1" text="$2"
     if [[ "$(adv_get "$key")" == "$(adv_default "$key")" ]]; then
@@ -188,9 +166,8 @@ mark_if_changed() {
     fi
 }
 
-# adv_append_row ARRAYNAME "label|value" — appends one row to a caller's
-# array by name (bash-3.2-safe: no namerefs, same idiom lib/tui.sh's
-# _tui_array_copy uses to read one, just for writing one element).
+# adv_append_row ARRAYNAME "label|value" — appends by name (bash-3.2-safe
+# idiom, same as lib/tui.sh's _tui_array_copy).
 adv_append_row() {
     local __adv_arr="$1" __adv_row="$2"
     # shellcheck disable=SC1087 # $__adv_arr[@] is the array-name being
@@ -198,12 +175,9 @@ adv_append_row() {
     eval "$__adv_arr+=(\"\$__adv_row\")"
 }
 
-# adv_summary_extra_rows ARRAYNAME — appends one "label|value (custom)"
-# row for each of the seven keys Simple never shows on its own summary
-# (dns, sites, menu, history_visible, and the two weekend fields),
-# but only the ones Advanced (or "Change something") actually changed —
-# so a kid set up entirely through Simple gets exactly the same summary
-# it always has.
+# adv_summary_extra_rows ARRAYNAME — appends a "label|value (custom)" row
+# for each Advanced-only key that was actually changed, so a Simple-only
+# kid's summary is unaffected (docs/wizard.md).
 adv_summary_extra_rows() {
     local arrname="$1"
     if [[ "$(adv_get dns)" != "$(adv_default dns)" ]]; then
@@ -227,9 +201,7 @@ adv_summary_extra_rows() {
 }
 
 # adv_row_line KEY — one "value|label|reason" element for the checklist's
-# tui_screen_choose (docs/tui.md): group-prefixed label, and a reason
-# line naming both the band default and, when it differs, the current
-# choice — the row-level twin of mark_if_changed above.
+# tui_screen_choose (docs/tui.md).
 adv_row_line() {
     local key="$1" group label default_disp current_disp reason
     group="$(adv_group_of "$key")"
@@ -244,9 +216,7 @@ adv_row_line() {
     printf '%s|[%s] %s|%s' "$key" "$group" "$label" "$reason"
 }
 
-# validate_dns_url CANDIDATE — A2/A8-style validator (lib/tui.sh's
-# contract): print nothing and return 0 for a usable address, else print
-# a one-line reason and return non-zero to redraw and ask again.
+# validate_dns_url CANDIDATE — A2/A8-style validator (lib/tui.sh's contract).
 validate_dns_url() {
     local val="$1"
     if [[ -z "$val" || "$val" == *[[:space:]]* ]]; then
@@ -256,10 +226,8 @@ validate_dns_url() {
     return 0
 }
 
-# validate_sites_list CANDIDATE — the same comma-separated-hostnames
-# shape bin/omarchy-kids-conf's own validate_value requires for `sites`,
-# checked here too so a bad value never reaches Apply's `omarchy-kids-conf
-# set` in the first place.
+# validate_sites_list CANDIDATE — same shape bin/omarchy-kids-conf's own
+# validate_value requires for `sites`, checked here too.
 validate_sites_list() {
     local val="$1"
     if [[ "$val" =~ ^[a-z0-9.-]+(,[a-z0-9.-]+)*$ || -z "$val" ]]; then
@@ -269,9 +237,8 @@ validate_sites_list() {
     return 1
 }
 
-# adv_edit_enum KEY TITLE STEP TOTAL CHOICE... — a plain tui_screen_choose
-# over KEY's own enum values, preselecting its *current* value (not the
-# band default, so re-opening a changed row shows the change).
+# adv_edit_enum KEY TITLE STEP TOTAL CHOICE... — tui_screen_choose over
+# KEY's enum values, preselecting its current (not default) value.
 adv_edit_enum() {
     local key="$1" title="$2" step="$3" total="$4"
     shift 4
@@ -314,11 +281,8 @@ adv_edit_sites() {
     return 0
 }
 
-# adv_edit_dns STEP TOTAL — two fixed providers plus "Type my own", which
-# opens one more field for the address (Appendix B's `custom:<url>`).
-# Esc on that second field returns to the checklist with dns untouched,
-# same as any other editor (the provider pick alone is discarded too,
-# nothing here is committed until this function itself returns 0).
+# adv_edit_dns STEP TOTAL — two fixed providers plus "Type my own",
+# which opens one more field for the address (`custom:<url>`).
 adv_edit_dns() {
     local step="$1" total="$2"
     local -a choices=(
@@ -348,12 +312,7 @@ adv_edit_dns() {
 }
 
 # adv_edit_allowlist STEP TOTAL — the same per-app walk A9's "Let me
-# pick" uses (bin/omarchy-kids-wizard's apps_pick_walk), shared rather
-# than duplicated (issue #20's own brief: "the per-app checklist from the
-# Easy path for apps"). Always finishes (there's no single "Esc the whole
-# editor" gesture mid-walk — apps_pick_walk's own contract is that an Esc
-# on one app is just "No" for that app, same as A9), so this never
-# returns 1.
+# pick" uses (apps_pick_walk), shared rather than duplicated.
 adv_edit_allowlist() {
     local step="$1" total="$2"
     apps_pick_walk "$step" "$total"
@@ -363,14 +322,9 @@ adv_edit_allowlist() {
     return 0
 }
 
-# adv_edit_theme STEP TOTAL — a tui_screen_choose over
-# theme_list_installed's own names (lib/theme.sh, issue #53) — the system
-# themes dir only, never a kid- or parent-installed
-# ~/.config/omarchy/themes/<name> (theme_apply_for's own header has why).
-# Preselects the row's *current* value (adv_edit_enum's own contract), not
-# necessarily the parent's own theme, so re-opening a changed row shows
-# the change. No themes found at all (no real Omarchy install on this
-# box) is a message and "row untouched", same as an Esc.
+# adv_edit_theme STEP TOTAL — tui_screen_choose over theme_list_installed
+# (system themes dir only, docs/theming.md); no themes found is a message
+# and "row untouched", same as an Esc.
 adv_edit_theme() {
     local step="$1" total="$2"
     local -a choices=()
@@ -429,15 +383,9 @@ adv_edit() {
     esac
 }
 
-# screen_advanced_checklist STEP TOTAL — the grouped checklist itself
-# (Appendix A A13a): one row per adv_row_line, in group order, plus
-# "Done customizing". Returns 0 once the parent picks that (proceed —
-# bin/omarchy-kids-wizard decides what "proceed" means from each of its
-# two call sites), 1 on Esc at the row list itself (go back a screen —
-# also decided by the caller), 130 on Ctrl+C (leave, nothing written).
-# Nothing in this whole file ever calls omarchy-kids-conf or run_priv —
-# every row is just a bash variable until Apply's maybe_override calls
-# read it (point 3 of issue #20: "writes only overrides to the profile").
+# screen_advanced_checklist STEP TOTAL — the grouped checklist (Appendix A
+# A13a). Nothing here ever calls omarchy-kids-conf or run_priv: every row
+# is just a variable until Apply's maybe_override reads it.
 screen_advanced_checklist() {
     local step="$1" total="$2"
     while true; do

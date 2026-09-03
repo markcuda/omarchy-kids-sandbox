@@ -1,18 +1,12 @@
 # shellcheck shell=bash
-# lib/conf.sh — key=value file helpers for /etc/omarchy-kids/kids/<account>.conf
-# and similar files (R-BUILD-5: the installer path's key=value format).
-#
-# Format: one KEY=VALUE per line, no spaces around '='; '#' starts a
-# full-line comment; blank lines are allowed. Comments and line order are
-# preserved by every write here — conf_set only ever touches the one line
-# it is asked to touch, and conf_del only removes lines for its key.
-#
-# Not meant to be executed directly; source it from a command:
-#   source "$DIR/lib/conf.sh"
+# lib/conf.sh -- key=value file helpers for /etc/omarchy-kids/kids/<account>.conf
+# and similar files (R-BUILD-5). One KEY=VALUE per line, no spaces around
+# '='; '#' starts a full-line comment. Comments and line order are
+# preserved by every write here -- conf_set only ever touches the one
+# line it is asked to touch, and conf_del only removes lines for its key.
 
-# conf_get FILE KEY — prints KEY's value on stdout (last matching line
-# wins, in case a file ever has a stray duplicate) and returns 0. Returns
-# 1 with nothing printed if the file is missing or the key isn't set.
+# conf_get FILE KEY -- prints KEY's value (last match wins) and returns 0,
+# or returns 1 with nothing printed if missing.
 conf_get() {
     local file="$1" key="$2" line k v found=1
     [[ -r "$file" ]] || return 1
@@ -29,11 +23,8 @@ conf_get() {
     return $found
 }
 
-# conf_set FILE KEY VALUE — replaces KEY's line in place (first match) if
-# present, else appends "KEY=VALUE". Creates the parent directory (mode
-# 0755) and the file (mode 0644) if either is missing; an existing file
-# keeps mode 0644 after the rewrite (spec §5.1: kid profiles are root
-# 0644).
+# conf_set FILE KEY VALUE -- replaces KEY's line in place, else appends.
+# Creates the parent dir/file if missing; mode stays 0644 (spec §5.1).
 conf_set() {
     local file="$1" key="$2" value="$3" dir tmp line k replaced=0
     dir="$(dirname "$file")"
@@ -60,8 +51,7 @@ conf_set() {
     mv "$tmp" "$file"
 }
 
-# conf_del FILE KEY — removes every line setting KEY. A no-op (not an
-# error) if the file or the key doesn't exist.
+# conf_del FILE KEY -- removes every line setting KEY. A no-op if missing.
 conf_del() {
     local file="$1" key="$2" tmp line k
     [[ -e "$file" ]] || return 0

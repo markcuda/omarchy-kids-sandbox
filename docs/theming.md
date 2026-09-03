@@ -8,8 +8,7 @@ any session, kid or parent, has ever logged in) the same colors at provision/ass
 
 ## Ground truth this rests on
 
-Fetched and read directly from `omacom/omarchy` at tag `v4.0.2`, 2026-09 — cited in full in
-`lib/theme.sh`'s and `share/qml/KidsTheme.qml`'s own header comments:
+Fetched and read directly from `omacom/omarchy` at tag `v4.0.2`, 2026-09:
 
 - `themes/<name>/` — one directory per theme. What's actually there varies theme to theme; the
   only file every theme in that release ships is `colors.toml` (a theme missing one is
@@ -84,11 +83,18 @@ under whatever theme the parent is running (`docs/tui.md`'s own "Colors" section
 ## `share/qml/KidsTheme.qml`: the QML entry point
 
 Every Quickshell surface in this repo except `share/bar/KidsModule.qml` runs as its own standalone
-`quickshell -p <file>` process (`share/launcher/shell.qml`'s own header explains why), not inside
-Omarchy's long-running `omarchy-shell`. That rules out `import qs.Commons` for those files — that
-module namespace only exists inside the shell process itself, and nothing here sets
-`QML2_IMPORT_PATH` to extend it to a bare `quickshell -p` invocation. So `share/qml/KidsTheme.qml`
-does for those files exactly what `shell/Commons/Color.qml` does for the real shell: read
+`quickshell -p <file>` process (`docs/levels.md`'s "Open questions" #5 explains why, for the
+launcher), not inside Omarchy's long-running `omarchy-shell`. That rules out `import qs.Commons`
+for those files — that module namespace only exists inside the shell process itself, and nothing
+here sets `QML2_IMPORT_PATH` to extend it to a bare `quickshell -p` invocation. So
+`share/qml/KidsTheme.qml` does for those files exactly what `shell/Commons/Color.qml` does for the
+real shell. It also resolves the same font the real shell would: `fontFamily` is always the
+fontconfig alias `"monospace"`, resolved via `fc-match -f '%{family[0]}' monospace` through the
+same `Process`/`StdioCollector`/`onStreamFinished` shape `share/bar/KidsModule.qml`'s `askProcess`
+already confirmed live in this repo. Unconfirmed: whether a bare `running: true` property
+initializer on `Process` actually starts it on component completion the way it does for a `Timer`
+elsewhere here (`share/launcher/shell.qml`'s clock) — if it doesn't in the VM, trigger it from
+`Component.onCompleted` instead. Reads
 `$HOME/.local/state/omarchy/current/theme/colors.toml` straight off disk with a `FileView`, using
 the same key/fallback chases (`background`→`color0`, `accent`→`color4`, `foreground`→`color7`,
 `muted`→`color8`, plus this repo's own `error`→`red`→`color1` and `warning`→`orange`→`yellow`→
@@ -276,14 +282,14 @@ ever look there — see "Ground truth" above — so this repo does the next best
 ## What still needs the VM
 
 Nothing here can be visually confirmed without a real Quickshell/Hyprland session and a real SDDM
-greeter (`share/launcher/shell.qml`'s own UNTESTED banner, `docs/portal.md`'s own "Ground truth"
+greeter (`docs/levels.md`'s "Open questions" #5, `docs/portal.md`'s own "Ground truth"
 section — neither has changed). Once in the VM: set at least two different Omarchy themes (a dark
 one and `white`, say) and screenshot every surface under each — the launcher, the exit modal, ask,
 the time toast and time's-up overlay, the plugins shelf, the Wi-Fi picker, the parent's bar widget,
 and the SDDM portal after a provision/assert — to confirm colors actually follow the theme instead
 of just compiling. Also confirm `share/bar/KidsModule.qml`'s `import qs.Commons` actually resolves
-inside a real `omarchy-shell` plugin load (its own header's still-unconfirmed item), and that
-`Style.selectedFillFor`'s three-argument call really matches what a live `Style.qml` expects.
+inside a real `omarchy-shell` plugin load (`docs/bar.md`'s "What is not confirmed" section), and
+that `Style.selectedFillFor`'s three-argument call really matches what a live `Style.qml` expects.
 
 ## Verified live (2026-09-03, QEMU test VM)
 

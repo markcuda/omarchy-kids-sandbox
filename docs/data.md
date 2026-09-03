@@ -70,7 +70,10 @@ screen-time ledger (docs/time.md's "trust boundary"), recording a launch is two 
    `launchCurrent()` calls this, fire-and-forget, every time a Level 1 tile is opened. It appends
    one `"<local-timestamp> <id>"` line to *this account's own* `$XDG_RUNTIME_DIR/omarchy-kids/
    launches.log` — writable by the kid, because it's theirs; never the root-owned log a parent or
-   the kid's own `mine` screen actually reads.
+   the kid's own `mine` screen actually reads. The timestamp is naive local time,
+   `"YYYY-MM-DDTHH:MM:SS"`, one token with no embedded space — this package never converts a
+   timezone anywhere (a single-user desktop has exactly one to worry about), matching every other
+   timestamp this file's own format produces.
 2. **`bin/omarchy-kids-time-ledger tick`** — already runs once a minute as root (docs/time.md).
    This issue adds one step to it: `lib/data.sh`'s `data_fold_launches`, which appends whatever's
    new in each known kid's own runtime log onto their root-owned `launches.log`, then remembers how

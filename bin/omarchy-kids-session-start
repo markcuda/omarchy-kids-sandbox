@@ -21,18 +21,12 @@ SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
 mkdir -p "$RUN" 2>/dev/null || true
 APPLICATIONS_DIRS="${OMARCHY_KIDS_APPLICATIONS_DIRS:-/usr/share/applications:/usr/local/share/applications}"
-# Same convention bin/omarchy-kids-apps uses for the one system path this
-# package doesn't own (issue #42): SYSROOT/var/lib/omarchy-kids/apps-queue
-# is that command's pending-install queue, read here (never written) to
-# tell a merely-missing tile apart from one mid-install.
+# Read-only view of omarchy-kids-apps' pending-install queue (docs/apps.md).
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 QUEUE_FILE="$SYSROOT/var/lib/omarchy-kids/apps-queue"
 
-# log MESSAGE — appends to the same per-session log
-# bin/omarchy-kids-session already writes to ($RUN/session-<uid>.log),
-# so the R-DESK-2 preflight and this launcher's own tile-building show
-# up as one timeline. Never fatal: a log write that fails (a read-only
-# $RUN in some test harness) must not take the launcher down with it.
+# Appends to the same per-session log omarchy-kids-session writes to, so the
+# R-DESK-2 preflight and this file's tile-building share one timeline.
 LOG_FILE="$RUN/session-$(id -u).log"
 log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/dev/null || true; }
 
@@ -75,14 +69,10 @@ UID_NUM="$(id -u)"
 LAUNCHER_JSON="$RUN/launcher-$UID_NUM.json"
 
 # find_desktop_file ID PKG -> a matching .desktop basename, or nothing.
-# A heuristic, not exact: pack ids are short ("gcompris"), .desktop ids
-# are often reverse-DNS ("org.gcompris.GCompris"). Case-insensitive
-# substring match on either; anything missed falls back to running the
-# pack id as a literal command (resolve_tile below).
+# Case-insensitive substring heuristic (docs/levels.md "The launcher's tile
+# list"); falls back to the pack id as a literal command in resolve_tile.
 find_desktop_file() {
-  # Lowercased with `tr`, not bash 4's ${var,,}: the target (Arch,
-  # AGENTS.md) has bash 5, but this stays portable to whatever runs the
-  # test suite too.
+  # tr, not bash 4's ${var,,}: stays portable to test/all's own bash.
   local id="$1" pkg="$2" dir f base needle_id needle_pkg base_lc
   needle_id="$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')"
   needle_pkg="${pkg#aur:}"
@@ -113,12 +103,8 @@ icon_for_desktop() {
 }
 
 # resolve_tile ID PKG -> sets RESOLVED_ICON/RESOLVED_EXEC/RESOLVED_INSTALLED
-# (globals, not stdout -- a tab-delimited herestring silently shifts
-# fields left on a tile with no icon). Prefers a matched .desktop file
-# (gtk-launch), else runs the pack id as a bare command. INSTALLED is
-# whether the resolved exec exists (.desktop match, or `command -v`) --
-# not `pacman -Q`, so an apps.extra id with no package still resolves
-# right (issue #42, I-6: no tile whose Enter silently does nothing).
+# globals (not stdout -- a tab-delimited herestring shifts fields on a
+# tile with no icon). docs/levels.md "Installed/missing tiles" (issue #42).
 RESOLVED_ICON=""
 RESOLVED_EXEC=""
 RESOLVED_INSTALLED=0
@@ -140,11 +126,8 @@ resolve_tile() {
   fi
 }
 
-# queue_has_pkg PKG -> 0 if PKG (an "aur:"-prefixed pack `pkg`, stripped
-# the same way bin/omarchy-kids-apps strips it) is a line in the pending
-# install queue omarchy-kids-apps install writes -- i.e. this app is
-# missing but already on its way, not just missing. Never writes the
-# queue; only omarchy-kids-apps and its install-queued worker do that.
+# queue_has_pkg PKG -> 0 if PKG is already queued by omarchy-kids-apps
+# install (docs/apps.md). Read-only: never writes the queue itself.
 queue_has_pkg() {
   local pkg="$1"
   local pkgname="${pkg#aur:}"
@@ -155,11 +138,7 @@ queue_has_pkg() {
 TILES_FILE="$(mktemp)"
 trap 'rm -f "$TILES_FILE"' EXIT
 
-# apps.show_missing (issue #42, docs/conf.md): default "no" -- a missing
-# app's tile is omitted (logged why), never shown doing nothing on
-# Enter. "yes" keeps it, greyed, with an "installing..."/"not installed
-# yet" caption instead (still never launchable -- the launcher ignores
-# Enter on it, see share/launcher/shell.qml).
+# apps.show_missing (docs/conf.md, docs/levels.md "Installed/missing tiles").
 SHOW_MISSING="$("$CONF_BIN" get "$ACCOUNT" apps.show_missing)"
 
 IFS=',' read -ra ids <<<"$ALLOWLIST"
@@ -192,12 +171,8 @@ for id in "${ids[@]}"; do
     '{id: $id, label: $label, icon: $icon, exec: $exec, installed: $installed, caption: $caption}' >>"$TILES_FILE"
 done
 
-# R-WEB-4 defense in depth: omarchy-kids-session's own check_policy
-# already fails the session closed if the policy file isn't readable;
-# this just leaves the web tile out (logged) rather than show a control
-# that silently fails (I-6). Execs `omarchy-kids-web launch`, not bare
-# "chromium" (issue #44: the Arch wrapper's --load-extension flags get
-# refused by the kids policy). See docs/web.md.
+# R-WEB-4 defense in depth (I-6): no tile if the policy isn't readable.
+# Execs omarchy-kids-web launch, not bare chromium (issue #44, docs/web.md).
 if [[ "$WEB" != "none" ]]; then
   policy="/etc/chromium/policies/managed/omarchy-kids-$BAND.json"
   if [[ -r "$policy" ]]; then
@@ -210,14 +185,8 @@ if [[ "$WEB" != "none" ]]; then
   fi
 fi
 
-# "More apps" tile (SPEC.md R-APPS-7; issue #28): the kids-plugins
-# shelf, Level 1 only, bands 6-8 and up -- 3-5 gets no shelf tile at
-# all, not a shelf that always shows nothing (I-6: don't offer a door
-# to an empty room). Opens share/plugins/shell.qml, a read-only list of
-# the shelf (same overlay pattern as the "Ask a grown-up" modal); its
-# own Enter runs `omarchy-kids-ask app <plugin>`, so nothing here needs
-# to plumb the kid's account through -- only the band, for the shelf's
-# own age filter (bin/omarchy-kids-plugins shelf --band).
+# "More apps" tile (SPEC.md R-APPS-7; issue #28): Level 1 only, bands 6-8+
+# (I-6: no door to an empty room for 3-5). docs/plugins.md.
 if [[ "$LEVEL" == "1" && "$BAND" != "3-5" ]]; then
   jq -n --arg band "$BAND" --arg qml "$SHARE/plugins/shell.qml" \
     '{id: "more-apps", label: "More apps", icon: "",
@@ -225,21 +194,10 @@ if [[ "$LEVEL" == "1" && "$BAND" != "3-5" ]]; then
     >>"$TILES_FILE"
 fi
 
-# R-DATA-3 (issue #27): K5, "What my grown-ups can see" (`omarchy-kids-data
-# mine`), gated on BAND (9-12/13+, old enough to read it themselves) not
-# LEVEL -- 3-5/6-8 aren't denied the data, just this tile. A 9-12/13+
-# kid on Level 2/3 has no tile grid at all, so this stays reachable there
-# only by running the command directly: docs/data.md's "Not built here".
+# R-DATA-3 (issue #27): "What my grown-ups can see", gated on BAND not
+# LEVEL -- see docs/data.md for why, and the terminal-choice caveat below.
 if [[ "$BAND" == "9-12" || "$BAND" == "13+" ]]; then
   DATA_BIN="$(kids_bin data "$DIR")"
-  # UNVERIFIED: no terminal-emulator convention exists anywhere in this
-  # repo yet (nothing under share/hyprland or docs names one) -- this is
-  # a best-effort guess at common terminals, first one found on PATH
-  # wins. If none is found, the tile is left out entirely (logged, not
-  # shown broken) rather than shown and silently doing nothing when
-  # pressed -- same "don't show a control that isn't enforced" pattern
-  # R-WEB-4's chromium-tile omission above already uses, applied to
-  # "doesn't work" instead of "isn't allowed".
   DATA_TERM=""
   for term in kitty alacritty foot wezterm xterm; do
     if command -v "$term" >/dev/null 2>&1; then DATA_TERM="$term"; break; fi
@@ -267,13 +225,7 @@ case "$LEVEL" in
     EXEC_LINE=(quickshell -p "$SHARE/launcher/shell.qml")
     ;;
   2|3)
-    # $RUN/allowlist.json (docs/apps.md): the same effective allowlist
-    # as the tile file above, for Omarchy's own trimmed menu extension
-    # to read at these levels (Levels 2/3 run Omarchy's shell, not the
-    # Level 1 launcher, so there is no tile grid here to read instead --
-    # R-DESK-4, issue #24). Written unconditionally, whether or not any
-    # menu extension actually reads it yet (I-6: this is just data, not
-    # a control claimed to be enforced by itself).
+    # $RUN/allowlist.json (R-DESK-4, issue #24) -- docs/apps.md.
     jq -n --arg account "$ACCOUNT" --arg band "$BAND" --arg allowlist "$ALLOWLIST" \
       '{account: $account, band: $band, allowlist: ($allowlist | split(",") | map(select(length > 0)))}' \
       >"$RUN/allowlist.json.tmp"
@@ -293,10 +245,7 @@ if [[ "${OMARCHY_KIDS_SESSION_START_NO_EXEC:-0}" == "1" ]]; then
   exit 0
 fi
 
-# Screen-time engine (SPEC.md R-TIME-1..5): the per-session daemon,
-# started detached and outliving this script's own exec below. Runs as
-# the kid, read-only (lib/time.sh's header has the trust boundary).
-# Never fatal -- the desktop still comes up if this can't start.
+# Screen-time daemon (SPEC.md R-TIME-1..5), detached; never fatal. docs/time.md.
 log "starting omarchy-kids-time daemon for '$ACCOUNT'"
 "$TIME_BIN" daemon >/dev/null 2>&1 &
 disown 2>/dev/null || true

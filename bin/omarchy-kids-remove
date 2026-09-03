@@ -96,14 +96,8 @@ done
 # report STATUS DESC -- one line per step.
 report() { printf '%-12s %s\n' "$1" "$2"; }
 
-# plan_one DESC CHECK_FN FIX_FN [ARGS...] -- the same check/fix shape
-# omarchy-kids-assert's assert_one uses, inverted for removal: if CHECK_FN
-# "$@" says there's nothing left to undo, "skipped"; else, under the
-# forced plan pass (DRY_RUN=1), "would-remove" and stop; else run FIX_FN
-# "$@" and report "removed" or "FAILED" (never stops the rest -- see the
-# header comment). A "FAILED" step is also appended to FAILED_STEPS, so
-# main's end-of-run summary can name it even if a parent skims past the
-# one bad line among many "removed"/"skipped" ones (issue #45 item 4).
+# plan_one DESC CHECK_FN FIX_FN [ARGS...] -- assert_one's check/fix shape,
+# inverted for removal; never stops the rest on FAILED (docs/remove.md).
 plan_one() {
     local desc="$1" check="$2" fix="$3"
     shift 3
@@ -128,10 +122,8 @@ plan_one() {
 file_present() { [[ -e "$1" ]]; }
 file_remove() { rm -f "$1"; }
 
-# --- luks-slots parsing (duplicated from bin/omarchy-kids-provision,
-# which is a script with its own main "$@", not a library -- same
-# reasoning bin/omarchy-kids-assert already documents for group_for_band
-# in docs/assert.md's Judgment calls) -----------------------------------
+# --- luks-slots parsing (duplicated from bin/omarchy-kids-provision, a
+# script not a library -- docs/assert.md's Judgment calls) --------------
 
 luks_slots_parent_line() {
     local file="$1" line
@@ -178,9 +170,7 @@ mount_present() {
 mount_remove() {
     local account="$1" home unit
     home="$(home_dir_for "$account")"
-    # The mount unit if any: /home/<account> is fstab-driven, so systemd
-    # may hold a transient unit generated from that line; best-effort only
-    # -- a missing systemd-escape, or no such unit, is not a failure.
+    # Transient mount unit if any (best-effort) -- docs/remove.md.
     if command -v systemd-escape >/dev/null 2>&1; then
         unit="$(systemd-escape --path --suffix=mount "$home" 2>/dev/null || true)"
         [[ -n "$unit" ]] && systemctl stop "$unit" >/dev/null 2>&1
@@ -225,10 +215,8 @@ namespace_remove() { posture_remove_namespace_lines "$1"; }
 accountsservice_present() { [[ -f "$(posture_accountsservice_dir)/$1" ]]; }
 accountsservice_remove() { posture_remove_accountsservice "$1"; }
 
-# face (issue #39): the SDDM face-icon file, distinct from the
-# AccountsService Icon= line above (lib/posture.sh's own header comment
-# on posture_write_face_icon has the UserModel.cpp citation for why both
-# exist).
+# face (issue #39): the SDDM face-icon file, distinct from AccountsService's
+# Icon= above -- docs/portal.md's "Avatars" has why both exist.
 face_present() { [[ -f "$(posture_sddm_faces_dir)/$1.face.icon" ]]; }
 face_remove() { posture_remove_face_icon "$1"; }
 
@@ -244,12 +232,8 @@ account_remove() {
 profile_present() { [[ -e "$KIDS_DIR/$1.conf" ]]; }
 profile_remove() { rm -f "$KIDS_DIR/$1.conf"; }
 
-# home: only reached when --delete-homes was NOT given (userdel -r above
-# already took it otherwise). Moved to "<parent home>/Kids Mode/<name>/",
-# same as `omarchy-kids-provision remove`, 0700 and chowned `parent:parent`
-# -- group too, not just the owning user, so a kept home isn't left with
-# the old kid account's gid (issue #45 item 2; best-effort chown: always
-# succeeds as real root, harmlessly fails under test). See docs/remove.md.
+# home: only reached without --delete-homes. Moved to "<parent home>/Kids
+# Mode/<name>/", 0700, chowned parent:parent -- group too (issue #45 item 2, docs/remove.md).
 home_present() { [[ -e "$(home_dir_for "$1")" ]]; }
 home_remove() {
     local account="$1" display_name="$2" home parent_home dest parent
@@ -300,12 +284,8 @@ getty_remove() {
 sddm_theme_present() { [[ -f "$(posture_sddm_conf_dir)/zz-omarchy-kids-theme.conf" ]]; }
 sddm_theme_remove() { posture_remove_sddm_theme_dropin; }
 
-# portal-conf (issue #39): theme.conf.user, rebuilt from whatever's
-# actually left under $KIDS_DIR right now -- by the time this runs, every
-# kid's own profile has already been removed in remove_kid above, so a
-# full-teardown run rebuilds it down to just the parent, same
-# "recompute the whole thing" shape luks-slots and this file's other
-# rebuilds already use. No EXCLUDE needed here: the account it would
+# portal-conf (issue #39): theme.conf.user, rebuilt from whatever's left
+# under $KIDS_DIR now (docs/remove.md). No EXCLUDE needed here: the account it would
 # have excluded is already gone from $KIDS_DIR by the time this runs.
 portal_conf_expected() {
     local parent entries=() line

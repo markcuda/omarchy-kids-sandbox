@@ -1,147 +1,6 @@
-// Main.qml — the Omarchy Kids Mode SDDM portal (SPEC.md R-LOGIN-1..5,
+// Main.qml -- the Omarchy Kids Mode SDDM portal (SPEC.md R-LOGIN-1..5,
 // R-SEC-3, R-LOGIN-3, I-5; issue #14, issue #39).
-//
-// ============================== UNTESTED =================================
-// This has never run against a real SDDM/Qt engine -- there is no SDDM or
-// Qt install on the machine this was written on, and V1
-// (docs/phase1/V1.md) already found this exact stack (Omarchy 4.0.2,
-// SDDM in Wayland-greeter mode, one greeter at a time). Every API used
-// below is checked against upstream sddm/sddm's C++ source
-// (src/greeter/*.cpp, src/common/*.cpp, data/man/sddm.conf.rst.in) and
-// omacom/omarchy's own shipped theme (default/sddm/omarchy/*), both
-// fetched 2026-09, not guessed:
-//
-//   - userModel roles: name, realName, homeDir, icon, needsPassword
-//     (UserModel::roleNames(), src/greeter/UserModel.cpp), plus the
-//     lastUser/lastIndex/count properties (UserModel.h).
-//   - sessionModel roles: directory, file, type, name, exec, comment,
-//     plus the lastIndex property (SessionModel::roleNames() /
-//     ::lastIndex(), src/greeter/SessionModel.cpp). "file" is the
-//     session .desktop file's *absolute path*, not a bare filename
-//     (Session::fileName()/setTo(), src/common/Session.cpp) -- so the
-//     lookup below matches on the path's last segment, exactly
-//     "omarchy-kids.desktop" or "omarchy.desktop" (the filenames
-//     desktop/omarchy-kids-session.desktop is installed as, and
-//     Omarchy's own stock session file, per docs/boot.md's luks-slots
-//     format and docs/session.md), never the whole path.
-//   - sddm.login(user, password, sessionIndex), sddm.powerOff(),
-//     sddm.canPowerOff, and the loginFailed/loginSucceeded signals
-//     (src/greeter/GreeterProxy.h) -- the same three calls Omarchy's own
-//     Main.qml uses.
-//   - the "config" context property is a QQmlPropertyMap of theme.conf's
-//     [General] keys, with no "General/" prefix on the key names (Qt's
-//     QSettings special-cases that one group name) -- confirmed in
-//     GreeterApp.cpp's setContextProperty("config", ...) and
-//     ThemeConfig::setTo() (src/common/ThemeConfig.cpp).
-//   - QQuickView is created with setResizeMode(SizeRootObjectToView)
-//     (GreeterApp.cpp), so this root Item is stretched to fill the
-//     screen regardless of the width/height given below -- no
-//     QtQuick.Window/Screen import needed for "full-screen".
-//   - metadata.desktop's QtVersion=6 and the omission of
-//     "import SddmComponents" both match Omarchy's own shipped theme on
-//     this exact stack; SddmComponents is skipped here on purpose (this
-//     file uses no type from it) to stay dependency-light, per the
-//     issue's own instruction.
-//
-// issue #39 polish (after V1's live VM boot -- docs/portal.md's "Verified
-// live" section): the greeter showed the bare account suffix ("ada",
-// "cy") instead of the profile's display name, never told the parent
-// tile apart from a kid's because this particular VM's *owner* account
-// is itself named "kid-vm", and never rasterized an avatar. What
-// changed here, and what's still unverified about each:
-//   - Display name: displayNameFor() now prefers AccountsService's
-//     "realName" role first (unchanged priority -- SDDM's UserModel
-//     reads it from getpwnam(3)'s pw_gecos field, not from
-//     AccountsService itself; omarchy-kids-provision now sets it with
-//     `usermod -c`, docs/provision.md), then config.kids' own per-account
-//     name (below) as a second-line fallback, then the account name with
-//     "kid-" stripped and the first letter capitalized. Nothing here
-//     needed a real engine to get right -- it's plain string handling --
-//     but it has never actually rendered.
-//   - Parent tile: no longer decided by the "kid-" username prefix at
-//     all when config.parent (below) is set -- only an exact match
-//     against it counts. The old prefix heuristic survives only as the
-//     fallback for when config.parent is empty (see the next bullet),
-//     matching every other fail-safe default in this file rather than
-//     mis-rendering every tile as a parent or every tile as a kid.
-//   - Parent/kids data: an EARLIER version of this fix wrote a separate
-//     portal.json and read it here with a synchronous
-//     XMLHttpRequest("file:///etc/omarchy-kids/portal.json"). Dropped:
-//     Qt 6's own QML documentation (doc.qt.io/qt-6/qml-qtqml-
-//     xmlhttprequest.html, fetched 2026-09) states plainly "By default,
-//     you cannot use the XMLHttpRequest object to read files from your
-//     local file system," lifted only by the process environment
-//     variable QML_XHR_ALLOW_FILE_READ=1 -- and the only way found to
-//     set that (a systemd drop-in on sddm.service) only takes effect
-//     after `systemctl restart sddm`, which on an already-booted machine
-//     re-fires the owner's stock autologin. Not worth that cost for a
-//     display-name/avatar polish fix. Used instead: SDDM's OWN theme
-//     config override mechanism. `ThemeConfig::setTo()`
-//     (sddm/sddm's src/common/ThemeConfig.cpp, fetched 2026-09, confirmed
-//     by reading it directly) loads this theme's own theme.conf into a
-//     QSettings, then loads a *second* QSettings from
-//     "<path-to-theme.conf>.user" and overwrites every key that second
-//     file sets non-empty over the first's -- so
-//     /usr/share/sddm/themes/omarchy-kids/theme.conf.user
-//     (lib/posture.sh's posture_write_portal_conf, written by
-//     omarchy-kids-provision, docs/portal.md) is read automatically by
-//     SDDM itself before this QML ever runs, arriving here as two more
-//     keys on the exact same "config" QQmlPropertyMap theme.conf's own
-//     colors already come through (no XHR, no file:// URL, no extra
-//     process environment needed): config.parent (the owner account) and
-//     config.kids ("<account>:<Name>:<avatar>,<account>:<Name>:<avatar>,
-//     ..."). parsePortalConfig() below parses that string; a blank or
-//     missing config.kids/config.parent (a box with no kid provisioned
-//     yet, or a stray "config" without those keys) is exactly the
-//     "loaded: false" case, same fallback shape the dropped portal.json
-//     design used.
-//   - Avatars: Image { source: <AccountsService Icon= absolute path> }
-//     loading a plain "/usr/share/omarchy-kids/avatars/<id>.svg" path
-//     with no "file://" prefix, and Qt's SVG image plugin (qt6-svg)
-//     being present so an SVG source rasterizes at all instead of
-//     failing silently, are both still exactly as unverified as before
-//     -- the fallback letter-circle below is the mitigation if either
-//     isn't true; PKGBUILD now lists qt6-svg in depends= (also
-//     unverified whether sddm/qt6-declarative already pull it in
-//     transitively -- there is no pacman on this dev machine to check
-//     with `pacman -Si sddm`). avatarSourceFor() below also falls back
-//     to building that same path from config.kids' own per-account
-//     avatar id when AccountsService's own icon role comes back empty,
-//     for a kid provisioned before an avatar was assigned. Separately
-//     (a live VM finding, not a static-analysis one): AccountsService's
-//     Icon= line is not actually what SDDM's UserModel reads for the
-//     avatar on this stack at all -- it checks "~/.face.icon", then
-//     "/var/lib/AccountsService/icons/<account>" (a cache file nothing
-//     in this repo populates), then "<FacesDir>/<account>.face.icon"
-//     (UserModel.cpp, fetched 2026-09, confirmed by reading it
-//     directly) -- so lib/posture.sh's posture_write_face_icon now
-//     copies the avatar SVG to the third path directly; see that
-//     function's own header comment for the full citation. The Image
-//     element below still binds to the AccountsService icon role
-//     (unchanged) since that's the only "icon" this file has any way to
-//     ask userModel for; the face-icon file being right is what
-//     actually makes a real greeter show it.
-//   - real font metrics/wrapping for long display names, and that
-//     "JetBrainsMono Nerd Font" (theme.conf's default) is actually
-//     installed and picked up by the greeter's own fontconfig.
-//   - that Ctrl+Shift+P reaches this QML at all rather than being
-//     swallowed earlier: the greeter's own minimal Hyprland config
-//     (Omarchy's default/sddm/hyprland.lua, confirmed to carry no binds
-//     of its own) shouldn't intercept it, but this has not been checked
-//     on the real compositor.
-//   - the exact shake animation timing/amplitude reads as "a shake" and
-//     not jarring -- no way to eyeball this without a running greeter.
-//   - R-LOGIN-5 ("the parent password opens any kid's tile") is
-//     deliberately NOT implemented here: sddm.login() only ever
-//     authenticates the *named* account's own password via PAM, so
-//     letting the parent's password stand in for a kid's needs a
-//     PAM-level change (a pam_exec line calling the R-SEC-2 verifier,
-//     omarchy-kids-authd, ahead of pam_unix for kid accounts) that does
-//     not exist in this checkout yet (grepped for "authd" before
-//     writing this: no matches). This theme only ever submits the
-//     typed password for the selected tile's own account; see
-//     docs/portal.md for the follow-up this needs.
-// ===========================================================================
+// See docs/portal.md for the upstream source citations and unverified list.
 
 import QtQuick 2.0
 
@@ -164,16 +23,11 @@ Rectangle {
 
     // --- theme.conf.user (issue #39): parent + per-kid name/avatar data,
     // parsed once at startup out of the SAME "config" QQmlPropertyMap
-    // theme.conf's own colors already come through (see the header
-    // comment above for the ThemeConfig::setTo() citation this rests
-    // on) -- no XHR, no file:// URL. "portalData" is a property (not a
-    // plain function call inline below) so parsePortalConfig() runs
-    // exactly once, during this Item's initial binding evaluation,
-    // before any Repeater delegate's Component.onCompleted needs
-    // portalParent/portalKids/portalLoaded -- QML wires up every
-    // top-level property binding on an object before any
-    // Component.onCompleted anywhere in its tree fires. config.kids'
-    // format (lib/posture.sh's posture_portal_conf_text) is
+    // theme.conf's own colors already come through (ThemeConfig::setTo(),
+    // docs/portal.md) -- no XHR, no file:// URL. A property, not an
+    // inline call, so it runs once before any Repeater delegate's
+    // Component.onCompleted needs it. config.kids' format
+    // (lib/posture.sh's posture_portal_conf_text) is
     // "<account>:<name>:<avatar>,<account>:<name>:<avatar>,...".
     function parsePortalConfig() {
         var result = { parent: "", kids: {}, loaded: false }
@@ -235,16 +89,11 @@ Rectangle {
         var base = isKidName(name) ? String(name).slice(4) : String(name)
         return base.length > 0 ? base.charAt(0).toUpperCase() + base.slice(1) : base
     }
-    // avatarSourceFor: AccountsService's own "icon" role (Icon= in
-    // /var/lib/AccountsService/users/<account>, lib/posture.sh's
-    // posture_accountsservice_text) wins if set; else the same path
-    // rebuilt from config.kids' own per-account avatar id, for an
-    // account provisioned before an avatar was assigned to it. Empty
-    // string (never rendered -- avatarImage.visible checks
-    // status === Ready) if neither is available. See the header comment
-    // above for why the file that actually has to exist on disk for this
-    // to render on a real greeter is lib/posture.sh's
-    // posture_write_face_icon output, not this path.
+    // avatarSourceFor: AccountsService's "icon" role wins if set, else the
+    // same path rebuilt from config.kids' per-account avatar id. The file
+    // that actually has to exist on disk for a real greeter to render it
+    // is lib/posture.sh's posture_write_face_icon output, not this path
+    // (docs/portal.md's "Avatars" section).
     function avatarSourceFor(modelData) {
         if (modelData.icon && modelData.icon.length > 0) return modelData.icon
         var portalEntry = root.portalKids ? root.portalKids[modelData.name] : undefined

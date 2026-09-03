@@ -73,13 +73,9 @@ make it real.
 EOF
 }
 
-# ensure_parent_unlock_soft STACK — posture_ensure_parent_unlock_line
-# through `run` (so DRY_RUN=1's default just prints the plan), but never
-# aborts the add: a target PAM stack this box hasn't written yet (no
-# omarchy-lock-password configured, i.e. omarchy-apply-lock hasn't run
-# yet) is a warning, not a reason to fail provisioning the account.
-# omarchy-kids-assert is what re-asserts this lock going forward once
-# the stack does exist.
+# ensure_parent_unlock_soft STACK — a missing PAM stack is a warning here,
+# never a reason to fail the add; omarchy-kids-assert re-asserts it later
+# once the stack exists. docs/provision.md.
 ensure_parent_unlock_soft() {
     local stack="$1"
     if ! run posture_ensure_parent_unlock_line "$stack"; then
@@ -164,10 +160,8 @@ unique_account() {
 # --- Omarchy per-user migrations (issue #10 finding b) ---------------------
 
 # mark_migrations_done ACCOUNT — best-effort stand-in for
-# omarchy-provision-user, run only when it doesn't exist. A documented
-# guess at the marker format (~/.local/state/omarchy/migrations.log),
-# not verified against a real Omarchy install -- TODO(#10). See
-# docs/provision.md's "Known gap".
+# omarchy-provision-user when it doesn't exist -- guessed marker format,
+# TODO(#10). docs/provision.md "Known gap".
 mark_migrations_done() {
     local account="$1" home migrations_src state_dir f
     home="$(home_dir_for "$account")"
@@ -186,14 +180,9 @@ mark_migrations_done() {
 
 # --- Chromium launch flags override (issue #44) -----------------------
 
-# install_kids_chromium_flags ACCOUNT — overwrites
-# ~/.config/chromium-flags.conf with Kids Mode's own copy (same file
-# bin/omarchy-kids-web's `launch` uses), replacing Omarchy's own copy
-# whose --load-extension=... flags the kids policy always refuses (the
-# same "disabled by the administrator" modal `web launch` avoids).
-# Root:root 0644: readable, not writable, so a kid can't put the flag
-# back by editing it (deleting it is still possible -- ~/.config is
-# theirs -- but that just leaves no flags file at all).
+# install_kids_chromium_flags ACCOUNT — overwrites Omarchy's own
+# chromium-flags.conf, whose --load-extension flags the kids policy
+# refuses (docs/web.md). Root:root 0644 so a kid can't put the flag back.
 install_kids_chromium_flags() {
     local account="$1" home config_dir dest stage
     home="$(home_dir_for "$account")"

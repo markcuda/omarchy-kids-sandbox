@@ -22,8 +22,7 @@ KIDS_DIR="$ETC/kids"
 RUN_DIR="$SYSROOT/run/omarchy-kids"
 STATUS_JSON="$RUN_DIR/status.json"
 
-# is_known_kid_here ACCOUNT — lib/kids.sh's is_known_kid against this
-# command's own $KIDS_DIR.
+# is_known_kid_here ACCOUNT — is_known_kid against this command's $KIDS_DIR.
 is_known_kid_here() { is_known_kid "$1" "$KIDS_DIR"; }
 
 die() { echo "omarchy-kids-time-ledger: $1" >&2; exit "${2:-2}"; }
@@ -43,25 +42,21 @@ EOF
 }
 
 # session_prop ID PROP — one `loginctl show-session` property's value.
-# Filters for the "PROP=" line rather than trusting the output to be
-# exactly one line: real loginctl with a single -p prints just that,
-# but this also tolerates a test stub (or a loginctl version) that
-# prints every property regardless of -p. Empty if the session or the
-# property doesn't exist.
+# Filters for "PROP=" rather than trusting single-line output, so a test
+# stub printing every property regardless of -p still works.
 session_prop() {
     local id="$1" prop="$2" out
     out="$(loginctl show-session "$id" -p "$prop" 2>/dev/null)" || return 1
     first_field "$prop" "$out"
 }
 
-# active_kid_sessions — one account per line, deduplicated, for every
-# kid account with at least one session that is Active=yes and
-# LockedHint=no right now.
+# active_kid_sessions — one account per line, deduplicated, for every kid
+# with a session Active=yes/LockedHint=no right now.
 active_kid_sessions() {
     local line id user active locked seen=$'\n'
     while IFS= read -r line; do
         [[ -n "$line" ]] || continue
-        # `loginctl list-sessions --no-legend`: "SESSION UID USER SEAT [TTY]".
+        # loginctl list-sessions --no-legend: "SESSION UID USER SEAT [TTY]".
         id="$(awk '{print $1}' <<<"$line")"
         user="$(awk '{print $3}' <<<"$line")"
         [[ -n "$id" && -n "$user" ]] || continue
@@ -75,8 +70,7 @@ active_kid_sessions() {
     done < <(loginctl list-sessions --no-legend 2>/dev/null)
 }
 
-# write_status_json — R-BAR-3: one row per known kid, root-written,
-# group `omarchy-parents` readable. Best-effort: never fails the tick.
+# write_status_json — R-BAR-3, best-effort: never fails the tick.
 write_status_json() {
     local now day weekend hm kid remaining paused live rows
     now="$(time_now)"; hm="$(time_hm "$now")"
@@ -121,11 +115,7 @@ cmd_tick() {
     fold_all_launches
 }
 
-# fold_all_launches — R-DATA-1's "app launches": for every known kid
-# (live or not right now, same reasoning as write_status_json above),
-# folds new lines from their own runtime launches log into their
-# root-owned one (lib/data.sh's data_fold_launches). Best-effort: never
-# fails the tick.
+# fold_all_launches — R-DATA-1, every known kid, best-effort.
 fold_all_launches() {
     while IFS= read -r kid; do
         [[ -n "$kid" ]] || continue

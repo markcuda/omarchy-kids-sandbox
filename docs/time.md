@@ -117,16 +117,16 @@ R-BAR-2) to run directly.
   Every check — fired or not — is logged with its previous/current values (`toast-check:` lines in
   the session log) so a live run can be audited the same way this was found.
 - remaining ≤ 0, or the clock has reached lights-out → `share/time/timesup.qml` (R-TIME-4),
-  unless one is already up (`pgrep`, same pattern `omarchy-kids-exit` uses for its own modal).
+  unless one is already up (pidfile-tracked -- see "The overlays are tracked by pidfile" below).
 - if a grant (or a fresh day, or lights-out being pushed — see "Not built yet") clears the
-  deficit while Time's Up is showing, the daemon kills it (`pkill -f "quickshell -p ..."`) and
+  deficit while Time's Up is showing, the daemon dismisses it (by pid, not `pkill -f`) and
   resets the warning thresholds so they can fire again if things get low a second time.
 
 ## Warnings and Time's Up (R-TIME-3, R-TIME-4)
 
 `share/time/toast.qml`: small, anchored top-right below the Level 1/2 launcher's own top-right
 clock (`share/launcher/shell.qml`) — a 96px top margin instead of the clock's 24px, clearing its
-roughly 40px height (issue #40; UNVERIFIED, see the QML's own header) — auto-dismiss (6 s, down
+roughly 40px height (issue #40; UNVERIFIED, see "What's unverified" below) — auto-dismiss (6 s, down
 from 8 s), **no keyboard grab** — deliberately not layer-shell-exclusive, so a kid mid-task never
 loses focus to it.
 
@@ -146,10 +146,10 @@ grants more").
 
 SPEC.md's real "Ask a parent" flow (R-ASK-1: one modal, parent password grants on the spot or the
 request is queued) is its own ticket. `omarchy-kids-time ask-grownup` runs
-`omarchy-kids-ask-grownup time 15` if that command is on `PATH`, else logs the request and does
+`omarchy-kids-blocked time 15` if that command is on `PATH`, else logs the request and does
 nothing else — it can *ask*, it cannot *grant*. `share/time/timesup.qml`'s button is labeled "Ask
 a grown-up for more time", not "Get more time", for exactly this reason (I-6: don't claim a
-control does something it doesn't). `omarchy-kids-ask-grownup` itself is today's R-DESK-2
+control does something it doesn't). `omarchy-kids-blocked` itself is today's R-DESK-2
 fail-closed placeholder (`docs/session.md`) reused here as a hook, not rebuilt — it will print an
 "Ask a grown-up" screen naming "time 15" as the "check", which reads a little oddly until R-ASK-1
 lands and gives it (or a real ask-modal) the real behavior.
@@ -188,10 +188,12 @@ so this list is exactly the set of R-TIME/R-ASK behaviors this issue's "Done whe
 
 ## What's unverified (check in the VM before this ships)
 
-- Every Quickshell-specific name in `share/time/toast.qml` and `share/time/timesup.qml` — see
-  their own headers; `timesup.qml` reuses exactly the `PanelWindow`/`WlrLayershell` pattern
-  already verified live for the exit modal, so that part is lower-risk than `toast.qml`'s
-  non-exclusive layer-shell window, which is new territory for this repo.
+- Every Quickshell-specific name in `share/time/toast.qml` and `share/time/timesup.qml`.
+  `timesup.qml` reuses exactly the `PanelWindow`/`WlrLayershell`/`Quickshell.execDetached` pattern
+  already verified live for the exit modal (`docs/exit.md`'s "Verified live" section, 2026-09-02)
+  and needs no `Process`/stdin handling (neither button asks for a password — see "Ask a grown-up"
+  above for why that's a placeholder rather than a real grant today), so it's lower-risk than
+  `toast.qml`'s non-exclusive layer-shell window, which is new territory for this repo.
 - `loginctl show-session <id> -p Active -p LockedHint`'s exact output shape on the real target
   (this repo has never run against a real `systemd-logind`) — `test/shell.d/time-test.sh` stubs
   it, so the *parsing* is tested, not the real command's actual output.
@@ -227,7 +229,7 @@ countdown, and the 60 s auto-Finish returned a fresh greeter. Whether the 1-minu
 was unconfirmed.
 
 **Issue #40's fix, not yet re-verified live:** the toast now anchors below the launcher's clock
-instead of under it (a 96px top margin, up from 24px — `share/time/toast.qml`'s header) and
+instead of under it (a 96px top margin, up from 24px) and
 auto-dismisses in 6 s instead of 8; the threshold logic moved into a pure function,
 `lib/time.sh`'s `time_toast_thresholds` (table-tested in `test/shell.d/time-test.sh`), that fires
 10/5/1 only on `previous > threshold ≥ current` and un-fires a threshold the moment a grant raises
@@ -281,7 +283,7 @@ omarchy-kids-time-ledger.
   grant <kid> <n>   Adds <n> minutes to <kid>'s budget for today only
                     (R-TIME-4: "'More time' extends today's budget
                     only"). Root only.
-  ask-grownup       Runs `omarchy-kids-ask-grownup time <n>` if that
+  ask-grownup       Runs `omarchy-kids-blocked time <n>` if that
                     command exists, else logs that a grant was asked
                     for and does nothing else. This is a placeholder
                     for the real "Ask a parent" flow (SPEC.md R-ASK-1,

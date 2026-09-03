@@ -1,7 +1,6 @@
 # shellcheck shell=bash
-# lib/provision-remove.sh — omarchy-kids-provision's "remove" subcommand:
-# reverses a single kid's posture, LUKS slot, and portal/theme.conf.user
-# entry. Sourced by the dispatcher; not meant to be executed directly.
+# lib/provision-remove.sh — omarchy-kids-provision's "remove" subcommand.
+# Sourced by the dispatcher; not meant to be executed directly. docs/provision.md.
 
 cmd_remove() {
     local account="" keep_home=0
@@ -29,9 +28,7 @@ cmd_remove() {
 
     echo "Removing kid $account"
 
-    # R-SEC-4: kill the LUKS slot (by number -- we can't test the kid's
-    # password without the kid's password), then rewrite luks-slots from
-    # what's left.
+    # R-SEC-4: kill the LUKS slot by number, then rewrite luks-slots.
     local slot
     slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
     if [[ -n "$slot" ]]; then
@@ -61,8 +58,7 @@ cmd_remove() {
     # R-LOGIN, issue #39
     run posture_remove_face_icon "$account"
 
-    # R-LOGIN, issue #39: theme.conf.user rebuilt without this account,
-    # same full-rewrite shape as the luks-slots handling above.
+    # R-LOGIN, issue #39: theme.conf.user rebuilt without this account.
     local parent portal_entries=() line
     parent="$(read_parent)"
     while IFS= read -r line; do

@@ -1,10 +1,7 @@
 #!/bin/bash
 # omarchy:summary=Watch for three Super taps within 1.5s and open the exit modal
-# The "Super pressed three times within 1.5s" half of SPEC.md R-EXIT-1:
-# appends a timestamp to a per-session file each call, and once three
-# land within the window, clears it and runs omarchy-kids-exit. Meant
-# for a Hyprland `bindr` (release) bind -- see docs/exit.md for why none
-# is wired into share/hyprland/*.lua yet.
+# The "Super pressed three times within 1.5s" half of SPEC.md R-EXIT-1.
+# Meant for a Hyprland `bindr` (release) bind -- docs/exit.md.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -45,12 +42,8 @@ for arg in "$@"; do
   esac
 done
 
-# now_ms — milliseconds since the epoch. GNU date (the real target,
-# Arch) supports `%s%N` (seconds and nanoseconds concatenated); BSD date
-# (this repo's macOS dev/test boxes) does not and echoes the literal
-# "N" back, so that shape is detected and a whole-second fallback used
-# instead -- coarser, but this only has to be precise enough to tell
-# "three taps close together" from "three taps spread out", not exact.
+# now_ms — milliseconds since the epoch, GNU-date-only %s%N with a
+# whole-second BSD-date fallback. docs/exit.md.
 now_ms() {
   if [[ -n "${OMARCHY_KIDS_SUPER_TAP_NOW_MS:-}" ]]; then
     printf '%s\n' "$OMARCHY_KIDS_SUPER_TAP_NOW_MS"

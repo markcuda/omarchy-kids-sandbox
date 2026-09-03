@@ -1,14 +1,9 @@
 # shellcheck shell=bash
-# lib/wizard-screens.sh — omarchy-kids-wizard's Easy-path screens (A1-A13),
+# lib/wizard-screens.sh -- omarchy-kids-wizard's Easy-path screens (A1-A13),
 # one function per screen, Appendix A order; each returns lib/tui.sh's
-# 0/1/130 contract for the driver loop to switch on. Sourced by the
-# dispatcher; not meant to be executed directly.
-
-# --- screens -------------------------------------------------------------
-# One function per screen, in Appendix A order. Each returns lib/tui.sh's
-# own contract: 0 = continue (answer in the variable the caller expects),
-# 1 = Esc/"go back", 130 = Ctrl+C/"leave, nothing changed" (the driver
-# loop below is what actually does the going-back and leaving).
+# 0/1/130 contract (continue/back/leave) for the driver loop to switch on.
+# Sourced by the dispatcher; not meant to be executed directly. See
+# docs/wizard.md "The screens, in Appendix A order" for the full walkthrough.
 
 # A1: Welcome.
 screen_welcome() {
@@ -18,13 +13,9 @@ screen_welcome() {
     tui_screen_choose "Welcome" 1 "$TOTAL_STEPS" 1 "$omy" choices "begin" "$TUI_FOOTER_FIRST"
 }
 
-# A2: Parent password (SPEC.md R-WIZ-1), kept in memory only, reused at
-# Apply for the sudo prompt. Verified via omarchy-kids-authd when its
-# socket is active, else `sudo -S -v` with the same candidate. --dry-run
-# always accepts on the first try; a real run gives three tries then
-# leaves like Ctrl+C (issue #46) -- counted here, not via lib/tui.sh's
-# own retry loop, since that runs the validator in a subshell. See
-# docs/wizard.md.
+# A2: Parent password (SPEC.md R-WIZ-1), kept in memory for Apply's sudo
+# prompt. Three tries then leaves, counted here rather than via lib/tui.sh's
+# retry loop (its validator runs in a subshell) -- docs/wizard.md.
 PARENT_PASSWORD_TRIES=3
 screen_parent_password() {
     local attempt=0
@@ -35,6 +26,7 @@ screen_parent_password() {
         ((rc == 0)) || return $rc
 
         if [[ "$DRY_RUN" == "1" ]] || verify_parent_password "$TUI_REPLY"; then
+            # shellcheck disable=SC2034 # global read by bin/omarchy-kids-wizard's driver
             PARENT_PASSWORD="$TUI_REPLY"
             return 0
         fi
@@ -67,10 +59,8 @@ screen_name() {
     return 0
 }
 
-# A4: Face — a keyboard list of share/avatars/*.svg (one of the twelve
-# CC0 animals, Q18), same tui_screen_choose "arrows" input Appendix A
-# calls for; there's no separate grid widget in lib/tui.sh, and a list is
-# just as keyboard-complete.
+# A4: Face — a keyboard list of share/avatars/*.svg (the twelve CC0
+# animals, Q18); no separate grid widget in lib/tui.sh, a list works too.
 screen_face() {
     local -a choices=()
     local f id label
@@ -105,22 +95,16 @@ screen_band() {
     local rc=$?
     ((rc == 0)) || return $rc
     BAND="$TUI_REPLY"
+    # shellcheck disable=SC2034 # global read by bin/omarchy-kids-wizard's validate_kid_password
     PASSWORD_MIN="$(band_field "$BAND" password_min)"
-    # Seeds every Advanced-checklist row (lib/wizard-advanced.sh) to this
-    # band's default, whether or not the parent ever opens that checklist
-    # — Simple's own A7-A11 screens below still overwrite the five they
-    # cover, same as always.
-    adv_init
-    # R-WIZ-4: prefetch starts here, in the background, and never blocks.
-    start_prefetch "$BAND"
+    adv_init # seeds every Advanced-checklist row to this band's default
+    start_prefetch "$BAND" # R-WIZ-4: backgrounded, never blocks
     return 0
 }
 
-# A6: Simple or Advanced. Advanced opens the grouped checklist
-# (screen_advanced_checklist, lib/wizard-advanced.sh, issue #20) in place
+# A6: Simple or Advanced. Advanced opens the grouped checklist in place
 # of Simple's five one-choice screens (A7-A11) — see the driver loop's
-# own step-7 special case below for how "Done customizing" there skips
-# straight to A12, and Esc there returns here instead of one step back.
+# step-7 special case below.
 screen_mode() {
     local choices=(
         "simple|Simple|A few clear choices with sensible defaults. About five minutes."
@@ -130,13 +114,13 @@ screen_mode() {
         6 "$TOTAL_STEPS" 0 "" choices "simple"
     local rc=$?
     ((rc == 0)) || return $rc
+    # shellcheck disable=SC2034 # global read by bin/omarchy-kids-wizard's driver
     MODE="$TUI_REPLY"
     return 0
 }
 
-# A7: Web (Simple). Two options, band-appropriate (R-WEB-3's three real
-# modes are none/garden/filtered; each band offers its own default plus
-# the one adjacent alternative that actually makes sense for that band).
+# A7: Web (Simple). Two band-appropriate options from R-WEB-3's three
+# real modes (none/garden/filtered).
 screen_web() {
     local -a choices=()
     local default
@@ -201,9 +185,7 @@ screen_time() {
 }
 
 # A9: Apps (Simple). B walks the pack one app at a time via apps_pick_walk
-# (above) — a confirm per app, since lib/tui.sh has no multi-select
-# checklist widget yet (the real checklist is Advanced's, A13a, issue
-# #20, which reuses this same walk for its own apps row).
+# (lib/tui.sh has no multi-select widget yet).
 screen_apps() {
     local names
     names="$(pack_field "$BAND" label | paste -sd, - | sed 's/,/, /g')"
@@ -221,11 +203,7 @@ screen_apps() {
         ((rc == 130)) && return 130
         ALLOWLIST_IDS="$TUI_REPLY"
     else
-        # "The whole starter pack" — the band default, every id, in pack
-        # order (R-WIZ-4's own words apply here too: re-visiting this
-        # screen after an earlier "Let me pick" must not leave a stale
-        # partial selection behind).
-        ALLOWLIST_IDS="$(pack_field "$BAND" id | paste -sd, -)"
+        ALLOWLIST_IDS="$(pack_field "$BAND" id | paste -sd, -)" # whole pack, band default
     fi
     return 0
 }
@@ -294,6 +272,7 @@ screen_password() {
         ((rc == 0)) || return $rc
 
         if [[ "$first" == "$TUI_REPLY" ]]; then
+            # shellcheck disable=SC2034 # global read by bin/omarchy-kids-wizard's driver
             KID_PASSWORD="$first"
             return 0
         fi
@@ -302,10 +281,8 @@ screen_password() {
     done
 }
 
-# A13: Summary. "Change something" opens the same grouped checklist
-# Advanced uses (screen_advanced_checklist, lib/wizard-advanced.sh, issue
-# #20, point 2), for a kid set up either way, then redraws this same
-# summary with whatever changed — so this is a loop, not a single screen.
+# A13: Summary. "Change something" opens Advanced's own grouped checklist,
+# then redraws this summary with whatever changed — a loop, not one screen.
 screen_summary() {
     while true; do
         local label blurb apps_desc password_line
@@ -331,12 +308,7 @@ screen_summary() {
             "Starter apps|$(mark_if_changed allowlist "$apps_desc")"
             "Password|$password_line"
         )
-        # The seven cells Simple never shows on its own (dns, sites, menu,
-        # history_visible, and the two weekend fields) only appear here
-        # once Advanced (or this same "Change something") has actually
-        # changed one — a Simple-only kid's summary looks exactly as it
-        # always has.
-        adv_summary_extra_rows rows
+        adv_summary_extra_rows rows # Advanced-only cells, shown once actually changed
         tui_screen_summary "Here's what happens next for $DISPLAY_NAME." 13 "$TOTAL_STEPS" 0 "" rows
 
         local choices=("apply|Apply|" "change|Change something|")

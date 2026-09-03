@@ -1,15 +1,10 @@
 # shellcheck shell=bash
-# lib/assert-limine.sh — omarchy-kids-assert's two Limine locks: the
-# boot-menu editor (V6, review S5) and snapshot boot entries (issue #38).
-# Sourced by the dispatcher; not meant to be executed directly.
+# lib/assert-limine.sh — omarchy-kids-assert's two Limine locks (V6,
+# issue #38). Sourced by the dispatcher; not meant to be executed
+# directly. docs/assert.md's "Two fixes from the 2026-09-03 review".
 
-# --- Limine editor (V6): the menu editor and "Blank Entry" let anyone append init=/bin/bash ---
 limine_conf() { printf '%s/boot/limine.conf' "$(posture_root)"; }
-# Three-way, and "no Limine at all" is *ok*, not warn: returning 2 on
-# every GRUB or systemd-boot machine left `omarchy-kids-check` exiting 1
-# forever over a bootloader this package does not manage (review S11).
-# A box that *has* Limine but whose config cannot be read (an unmounted
-# /boot) is still 2 -- that one really is "could not look".
+# Three-way: "no Limine at all" is ok, not warn (review S11, docs/assert.md).
 limine_editor_ok() {
     local f; f="$(limine_conf)"
     if [[ ! -f "$f" ]]; then
@@ -21,25 +16,18 @@ limine_editor_ok() {
 limine_editor_fix() {
     local f tmp; f="$(limine_conf)"
     [[ -f "$f" ]] || return 0
-    # Same directory, then rename: a truncate-then-write on the bootloader
-    # config leaves an unbootable machine if the power goes at the wrong
-    # moment (review S5), and every other writer in this repo already does
-    # temp-file-then-rename.
+    # Temp-file-then-rename, never truncate-then-write (review S5).
     tmp="$(mktemp "$(dirname "$f")/.limine.conf.XXXXXX")" || return 1
-    # Drop any existing editor_enabled line, then put ours first so a regenerated file gets it back.
-    # `|| true` on the grep: a limine.conf whose only line is
-    # "editor_enabled: yes" makes grep -v exit 1 with no output, which used
-    # to delete the (correct) temp file and report FAIL forever (review §2.10).
+    # `|| true`: grep -v on a single-matching-line file exits 1 with no
+    # output, which used to delete the temp file and FAIL forever (review §2.10).
     { printf 'editor_enabled: no\n'; grep -vE '^editor_enabled:' "$f" || true; } > "$tmp" \
         || { rm -f "$tmp"; return 1; }
     chmod --reference="$f" "$tmp" 2>/dev/null || chmod 0644 "$tmp"
     mv -f "$tmp" "$f"
 }
 
-# --- Limine snapshot entries (V6, issue #38): a Snapper snapshot from
-# before Kids Mode boots a frozen UKI with none of its locks -- a kid
-# with a disk password could pick it from the Limine menu and land on
-# the parent's desktop. MAX_SNAPSHOT_ENTRIES=0 hides every such entry;
+# A pre-Kids-Mode Snapper snapshot boots a frozen UKI with none of its
+# locks; MAX_SNAPSHOT_ENTRIES=0 hides it from the Limine menu.
 # machine.conf's boot.snapshot_entries (docs/conf.md) picks hide/show.
 limine_default() { printf '%s/etc/default/limine' "$(posture_root)"; }
 LIMINE_SNAPSHOTS_MARKER='# omarchy-kids: was MAX_SNAPSHOT_ENTRIES='

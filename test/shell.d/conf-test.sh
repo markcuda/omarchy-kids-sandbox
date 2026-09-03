@@ -6,6 +6,9 @@
 # /usr/share. share/ is copied from the repo rather than faked, so this
 # also exercises the real bands.toml and packs/ this issue ships.
 set -uo pipefail
+
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CONF="$DIR/bin/omarchy-kids-conf"
 
@@ -34,6 +37,12 @@ echo 'background = "#1a1b26"' > "$OMARCHY_PATH/themes/tokyo-night/colors.toml"
 echo 'background = "#eff1f5"' > "$OMARCHY_PATH/themes/catppuccin-latte/colors.toml"
 OMARCHY_KIDS_HOME_ROOT="$TMP/homeroot"
 mkdir -p "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada"
+
+# A base toolset only: a real Omarchy box already has a kid-ada account,
+# and `getent passwd kid-ada` would send theme_apply_for at the real
+# /home/kid-ada instead of the scratch root (AGENTS.md, testing rules).
+BASE_PATH="$(kids_base_path "$TMP/base")"
+export PATH="$BASE_PATH"
 
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
@@ -194,7 +203,7 @@ check "$("$CONF" get kid-ada onboarded)" "yes" "reset: onboarded keeps its value
 
 # --- profile file permissions (spec 5.1: root 0644) -------------------------
 
-mode="$(stat -f '%Lp' "$profile" 2>/dev/null || stat -c '%a' "$profile" 2>/dev/null)"
+mode="$(kids_file_mode "$profile")"
 check "$mode" "644" "profile file is mode 0644"
 
 # --- machine set parent (issue #46: the wizard's Apply step writes this
@@ -206,7 +215,7 @@ out="$("$CONF" machine set parent mark)"; st=$?
 check "$st" "0" "machine set parent exits 0"
 check "$out" "machine: parent=mark" "machine set parent echoes what it wrote"
 check "$(cat "$MACHINE_CONF" 2>/dev/null)" "parent=mark" "machine set parent creates machine.conf with the right line"
-machine_mode="$(stat -f '%Lp' "$MACHINE_CONF" 2>/dev/null || stat -c '%a' "$MACHINE_CONF" 2>/dev/null)"
+machine_mode="$(kids_file_mode "$MACHINE_CONF")"
 check "$machine_mode" "644" "machine.conf is mode 0644, same as a kid's profile"
 
 # idempotent, and in-place: a second write replaces the value, not appends.

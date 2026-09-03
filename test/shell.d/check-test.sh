@@ -24,6 +24,9 @@
 # shellcheck disable=SC2015 # "A && B || C" below is always used with B, C that can't fail
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT_DIR/bin/omarchy-kids-check"
 
@@ -211,7 +214,11 @@ fi
 exit 1
 '
 
-export PATH="$STUBS:$PATH"
+# Only the stubs and a base toolset: an Omarchy box has the real
+# omarchy-*/omarchy-kids-* commands on PATH, and a check that one is
+# missing must not depend on this box (AGENTS.md, testing rules).
+BASE_PATH="$(kids_base_path "$TMP/base" unshare)"
+export PATH="$STUBS:$BASE_PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$SCRATCH_ROOT"

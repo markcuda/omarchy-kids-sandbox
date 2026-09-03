@@ -105,11 +105,11 @@ that grid. 3-5/6-8 kids aren't denied the data — I-6 is about not showing a co
 work, not about withholding the data itself — a grown-up can run `omarchy-kids-data mine` with them
 directly; this issue just doesn't add a tile a pre-reader or early reader couldn't use alone.
 
-The tile's `exec` launches whatever terminal emulator it finds first on `PATH` (a best-effort guess
-— **UNVERIFIED**, see "Not built here"), running `omarchy-kids-data mine` and waiting for Enter. If
-no terminal is found, the tile is left out entirely (logged, not shown broken) — the same "don't
-show a control that isn't enforced" pattern `bin/omarchy-kids-session-start`'s own R-WEB-4 chromium-
-tile omission already uses.
+The tile's `exec` opens Omarchy's own `omarchy-launch-floating-terminal-with-presentation` — the
+same helper `bin/omarchy-kids-bar` opens a grant in — running `omarchy-kids-data mine` and waiting
+for Enter. It used to walk `kitty`/`alacritty`/`foot`/`wezterm`/`xterm` and omit the tile if none
+was installed; a stock 4.0.2 box has the helper and `foot`, not `alacritty`, so the walk was a
+guess where a convention already existed (review 1.4).
 
 ## The panel's Data screen (P2, docs/panel.md)
 
@@ -121,10 +121,10 @@ all, since `omarchy-kids-data` already refuses to touch Chromium in that case.
 
 ## Judgment calls
 
-- **No terminal-emulator convention exists anywhere in this repo yet.** `bin/omarchy-kids-session-
-  start`'s `kids-data` tile guesses from a short list (`kitty`, `alacritty`, `foot`, `wezterm`,
-  `xterm`) and omits the tile if none is found, rather than inventing one or leaving a broken tile
-  (I-6). Whichever terminal Omarchy actually ships is the one to hard-code here once known.
+- **The terminal is Omarchy's own helper, not a guess.** `bin/omarchy-kids-session-start`'s
+  `kids-data` tile and `bin/omarchy-kids-bar`'s grant/end both open
+  `omarchy-launch-floating-terminal-with-presentation`, trusted the same way this package already
+  trusts `/usr/bin/omarchy-launch-shell` (review 1.4).
 - **Retention numbers are the issue's own v1.1 update comment, not the "30 days" fallback the
   original brief offered as a default.** SPEC.md's R-DATA-1 does state numbers (1 year / 90 days /
   browser's own) as of spec v1.1 — AGENTS.md's "spec wins" rule applies directly, no ticket comment
@@ -149,8 +149,8 @@ all, since `omarchy-kids-data` already refuses to touch Chromium in that case.
 - **Level 2/3 app launches aren't recorded at all** — only Level 1 tiles are (see above). A future
   issue would need either a real Omarchy launch hook or a menu-extension-side log call, neither of
   which exists yet.
-- **The Level 1 `kids-data` tile's terminal choice is unverified** — no Quickshell/terminal
-  integration in this repo has run against a real session yet (same caveat every other
+- **The Level 1 `kids-data` tile is unverified against a real session** — no Quickshell/terminal
+  integration in this repo has run against one yet (same caveat every other
   `share/launcher/shell.qml` feature carries — see that file's own header).
 - **No export command.** A parent who wants a copy of a kid's recorded data today reads it through
   the panel or runs `omarchy-kids-data summary`/`launches`/`sites` themselves and copies the output;

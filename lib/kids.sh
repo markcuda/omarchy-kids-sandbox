@@ -100,18 +100,13 @@ file_stat() {
     esac
 }
 
-# kids_bin NAME DIR -- resolves sibling command NAME: DIR/bin/omarchy-
-# kids-NAME if executable, else the installed path. No environment
-# override -- nothing a kid's session sets may choose what runs
-# (AGENTS.md, "The trust boundary").
+# kids_bin NAME DIR -- sibling command NAME, always DIR/bin/omarchy-kids-
+# NAME. DIR is the caller's own resolved prefix, so on an installed box
+# this *is* /usr/bin; a /usr/bin fallback would only hide "not installed
+# yet" behind whatever the package happens to have put there. No
+# environment override (AGENTS.md, "The trust boundary").
 kids_bin() {
-    local name="$1" dir="$2" candidate
-    candidate="$dir/bin/omarchy-kids-$name"
-    if [[ -x "$candidate" ]]; then
-        printf '%s\n' "$candidate"
-    else
-        printf '%s\n' "/usr/bin/omarchy-kids-$name"
-    fi
+    printf '%s/bin/omarchy-kids-%s\n' "$2" "$1"
 }
 
 # first_field KEY TEXT -- value of the first "KEY=<value>" line. One awk

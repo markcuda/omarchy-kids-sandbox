@@ -138,9 +138,10 @@ terminal for a plain `sudo` prompt -- the parent's own login password (I-8), the
 `bin/omarchy-kids-wizard`'s own Apply step uses (plain `sudo`, not a `rootpw`), not a polkit
 action, because none is defined for `omarchy-kids-time grant` or `omarchy-kids-exit --finish`
 (R-FND-3's polkit rules cover NetworkManager/udisks/systemd-manage-units/pacman, not this). Both
-prefer Omarchy's own `omarchy-launch-floating-terminal-with-presentation` helper (confirmed to
-exist in `omacom/omarchy`'s `bin/` at v4.0.2) and fall back to `alacritty -e` if that isn't on
-`PATH`.
+open Omarchy's own `omarchy-launch-floating-terminal-with-presentation` helper (confirmed to exist
+in `omacom/omarchy`'s `bin/` at v4.0.2), trusted the same way this package already trusts
+`/usr/bin/omarchy-launch-shell` — the `alacritty -e` fallback this used to carry is not installed
+on a stock 4.0.2 box at all (review 1.4).
 
 **"End session" never calls `loginctl` directly -- this was a live-testing correction.** The first
 version of this issue had `omarchy-kids-bar end` run `sudo loginctl terminate-user <kid>` itself.
@@ -329,10 +330,9 @@ byte-for-byte original).
            password (I-8), same mechanism bin/omarchy-kids-wizard's own
            Apply step uses, not a polkit action (none is defined for
            `omarchy-kids-time grant` -- see bin/omarchy-kids-time's own
-           header). Prefers Omarchy's
+           header). Opens Omarchy's
            omarchy-launch-floating-terminal-with-presentation helper
-           (confirmed to exist in omacom/omarchy's bin/ at v4.0.2) and
-           falls back to `alacritty -e` if it isn't on PATH.
+           (confirmed to exist in omacom/omarchy's bin/ at v4.0.2).
   end <kid>
            R-BAR-2's "end session" action -- same terminal/sudo shape as
            grant, running `sudo omarchy-kids-exit --finish --kid <kid>`

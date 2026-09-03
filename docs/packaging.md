@@ -28,6 +28,37 @@ sudo pacman -U omarchy-kids-0.1.0-1-x86_64.pkg.tar.zst
 pacman will run `omarchy-kids.install`'s `post_install` (or `post_upgrade` on a reinstall), which
 creates the groups and reloads systemd unit files — see below.
 
+## AUR readiness (issue #32, R-BUILD-2)
+
+Nothing here is published. This is what's true about the checkout so a real publish, whenever
+that's decided, has nothing left to figure out.
+
+- **`.SRCINFO`** at the repo root is hand-written in `makepkg --printsrcinfo` format, since this
+  dev checkout has no `makepkg` to generate it. **Regenerate it with
+  `makepkg --printsrcinfo > .SRCINFO` on the test laptop before ever publishing to the AUR** — a
+  hand-written file is a starting point, not a substitute for the real generator, and any
+  `PKGBUILD` edit that lands after this one makes the checked-in copy stale until that's run
+  again.
+- **`pkgver` scheme.** `0.1.0` (semver-shaped), no `pkgver()` function: `source=()` is empty and
+  `package()` reads straight from `$startdir`, so there is no upstream tarball or VCS ref for a
+  `pkgver()` to derive a version from — the checkout itself is the source. Bump the middle number
+  for a feature milestone landing, the last number for a fix-only change, and reset to `1.0.0`
+  once SPEC.md §8's acceptance list is met. `pkgrel` resets to `1` on every `pkgver` bump and
+  otherwise increments only for a packaging-only fix at the same `pkgver` (a missed `depends=`, a
+  wrong file mode) — never for a code change, which always earns its own `pkgver`.
+- **`depends`/`optdepends`** are reviewed against every external binary `bin/` actually shells out
+  to, not against what SPEC.md names — see the comment beside each entry in `PKGBUILD` for the
+  reasoning. `quickshell` was missing before this issue: `omarchy-kids-exit`, `-ask`, and
+  `-session-start` all `exec quickshell -p ...` with no fallback, unlike `hyprctl`/`loginctl`
+  elsewhere in `bin/`, which are genuinely best-effort and guarded with `command -v`. `snapper`
+  and `limine-snapper-sync` moved to `optdepends`: both are guarded the same `command -v` way in
+  `omarchy-kids-assert`/`-remove`, so a machine without Snapper still installs and runs, only
+  without the pre-apply snapshot (R-TRUST-1) and the hidden-snapshot-entries lock (issue #38).
+- **`CHANGELOG.md`** at the repo root is seeded from `git log`'s merge commits, one entry per
+  merged issue branch, oldest first within each milestone-shaped group. It is not yet a "v0.1.0"
+  release changelog — there has been no tagged release — so everything so far sits under
+  `[Unreleased]`.
+
 ## What gets installed where
 
 Mirrors SPEC.md §5.1, restricted to what package() actually lays down today (some of §5.1's

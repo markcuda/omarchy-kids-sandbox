@@ -14,17 +14,41 @@ Pete: see the hub's
 [PATH-INSTALLER.md](https://github.com/markcuda/omarchy-kids-mode/blob/main/PATH-INSTALLER.md).
 The two share the parent command and its feature commands.
 
-## Status: design settled, spec next
+## Status: v1 build in progress
 
-Renamed from `omarchy-kids-setup` on 2026-09-02. The spec is **[SPEC.md](SPEC.md)**; the work
-is [issues in six milestones](https://github.com/markcuda/omarchy-kids-sandbox/milestones), in
-build order. Results of the Phase 1 checks live in [`docs/phase1/`](docs/phase1/): as of the
-evening of 2026-09-02, **V2, V4, V5 and V7 pass** (real hardware and the QEMU test VM described in
-[`docs/vm.md`](docs/vm.md)); V1, V3 and the rest of V6 are in progress. Merged so far: the
-parent-password verifier, the early-boot LUKS-slot hook with per-boot autologin, the package
-skeleton (`makepkg` builds it), `omarchy-kids-conf` with the band and pack data, and
-`omarchy-kids-assert`'s `limine-snapshots` lock, hiding pre-Kids-Mode Snapper boot entries
-(issue #38).
+The spec is **[SPEC.md](SPEC.md)**; the work is
+[issues in six milestones](https://github.com/markcuda/omarchy-kids-sandbox/milestones), in build
+order. Results of the Phase 1 checks live in [`docs/phase1/`](docs/phase1/): as of the evening of
+2026-09-02, **V2, V4, V5 and V7 pass** (real hardware and the QEMU test VM described in
+[`docs/vm.md`](docs/vm.md)); V1, V3 and the rest of V6 are in progress.
+
+### What works today
+
+Only what has actually run against a real Hyprland, Quickshell, and SDDM in the QEMU test VM —
+each command's own doc under [`docs/`](docs/) has the full "Verified live" section this list is
+drawn from; nothing here is drawn from the spec alone.
+
+- The parent wizard runs start to finish over SSH with an answers file, provisions a real kid
+  account (Unix account, LUKS slot, band, avatar), and a cold boot with that kid's own disk
+  password lands straight on their Level 1 launcher — no manual step in between
+  (`docs/wizard.md`, `docs/session.md`).
+- The login portal shows one face tile per account and logs a kid straight into their own
+  Hyprland session by keyboard alone (`docs/portal.md`).
+- Super×3 and Super+Shift+K both open the exit modal; the parent password on **Finish** ends the
+  kid's session cleanly and SDDM returns to the portal (`docs/exit.md`).
+- Screen time counts real minutes while a kid's session is active, warns before it runs out, and
+  the lights-out "Time's Up" overlay fires and finishes on its own after 60 seconds with no answer
+  (`docs/time.md`).
+- "Ask a parent" for more time opens over the launcher, and the parent password grants it on the
+  spot — the grant shows up in the ledger within the minute (`docs/ask.md`).
+- The parent panel's Home screen shows live per-kid minutes and grants more time for real, run
+  over SSH with an answers file (`docs/panel.md`).
+- A kid's Wi-Fi request is correctly refused by default, worded for a kid, and routed through the
+  root helper when a kid is allowed to join on their own — confirmed without a wireless device, so
+  a real join is still unverified (`docs/wifi.md`).
+
+**Try it:** [`docs/install.md`](docs/install.md) — prerequisites, the one-command build, and the
+honest list of what isn't ready yet.
 
 ## What will be here
 

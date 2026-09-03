@@ -210,6 +210,12 @@ EOF
   # is no longer settable from the environment (review §3.7).
   source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
   kids_id_stub "$STUBS" kid-ada "$(id -u)"
+  kids_tree "$TMP/tree" "$DIR"
+  SESSION_START="$TMP/tree/bin/omarchy-kids-session-start"
+  kids_set_const "$SESSION_START" ETC "$ETC"
+  kids_set_const "$SESSION_START" SHARE "$SHARE"
+  kids_set_const "$SESSION_START" RUN "$RUN"
+  kids_set_const "$SESSION_START" APPLICATIONS_DIRS "$TMP/apps"
 
   # Stubs plus a base toolset only: a real Omarchy box has half this pack
   # actually installed, and `command -v <app>` would call those tiles
@@ -239,14 +245,13 @@ EOF
   cp "$DIR/bin/omarchy-kids-apps" "$SESSION_ROOT/bin/"
   cp "$DIR/bin/omarchy-kids-time" "$SESSION_ROOT/bin/"
   SESSION_COPY="$SESSION_ROOT/bin/omarchy-kids-session-start"
-  kids_set_const "$SESSION_COPY" LAUNCHER_ETC "$ETC"
-  kids_set_const "$SESSION_COPY" LAUNCHER_QML "$SHARE/launcher/shell.qml"
+  kids_set_const "$SESSION_COPY" ETC "$ETC"
+  kids_set_const "$SESSION_COPY" SHARE "$SHARE"
+  kids_set_const "$SESSION_COPY" SYSROOT "$TMP/root"
+  kids_set_const "$SESSION_COPY" RUN "$RUN"
 
   out="$(
     PATH="$STUBS:$BASE_PATH" \
-      OMARCHY_KIDS_ETC="$ETC" \
-      OMARCHY_KIDS_SHARE="$SHARE" \
-      OMARCHY_KIDS_RUN="$RUN" \
       OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
       bash "$SESSION_COPY"
   )"
@@ -298,9 +303,6 @@ EOF
   out2="$(
     PATH="$STUBS:$BASE_PATH" \
       KIDS_TEST_ACCOUNT=kid-two \
-      OMARCHY_KIDS_ETC="$ETC" \
-      OMARCHY_KIDS_SHARE="$SHARE" \
-      OMARCHY_KIDS_RUN="$RUN" \
       OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
       bash "$SESSION_COPY"
   )"
@@ -311,9 +313,6 @@ EOF
   out3="$(
     PATH="$STUBS:$BASE_PATH" \
       KIDS_TEST_ACCOUNT=kid-tot \
-      OMARCHY_KIDS_ETC="$ETC" \
-      OMARCHY_KIDS_SHARE="$SHARE" \
-      OMARCHY_KIDS_RUN="$RUN" \
       OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
       bash "$SESSION_COPY"
   )"

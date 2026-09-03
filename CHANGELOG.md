@@ -79,6 +79,8 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Fixed (later)
 
+- `omarchy-kids-conf set <kid> theme` died under `sudo` on an unset `OMARCHY_PATH` after the
+  theme library stopped exporting it at source time; the validation defaults it itself now
 - The kid session starts Hyprland through `start-hyprland -- --config`, its own watchdog
   launcher; starting `/usr/bin/Hyprland` directly earned a red banner at every kid login
 - Portal: Left and Right went dead after a password field had been opened and closed once; the

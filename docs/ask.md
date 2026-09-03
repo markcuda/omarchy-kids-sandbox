@@ -195,3 +195,12 @@ Before trusting it in front of a kid:
 6. Enable `omarchy-kids-ask-collect.timer`, wait past a minute with something sitting open in an
    outbox from an on-the-spot approval, and confirm it gets applied without anyone touching the
    panel.
+
+## Verified live (2026-09-02, QEMU test VM)
+
+`omarchy-kids-ask time 15` in Cy's session opened the overlay over the launcher: "Ask a
+grown-up", "15 more minutes of screen time", a focused password field, "A grown-up is here"
+and "Ask later". The parent password and Enter wrote the request to the outbox as
+`state: approved`, and within the minute `omarchy-kids-time status` showed "budget 3 + 15
+granted" with the grant file in the kid's usage directory. Not yet exercised live: "Ask later"
+followed by the parent approving from the panel, and the app and site kinds.

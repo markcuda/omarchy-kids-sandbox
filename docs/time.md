@@ -199,3 +199,9 @@ log). The lights-out rule fired the full-screen Time's Up overlay at login for a
 portal came back. Two packaging slips found live and fixed: the timer unit did not name its
 ledger service, and the units lock enabled the timers without starting them. The budget path
 (ledger tick, warnings at 10/5/1, Time's Up at 0) is the next live check.
+
+Budget path, same night: with the timer running the ledger counted real minutes ("2 min used"
+after two ticks), the 5-minute toast fired at login with 3 minutes left, and a grant from the
+Ask modal moved the boundary. Two small things to tidy (issue #40): the toast overlaps the
+launcher's clock, and a later "10 minutes left" toast fired after the grant raised the
+remaining time, so the thresholds should only fire on the way down.

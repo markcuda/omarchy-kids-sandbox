@@ -122,4 +122,3 @@ more minutes today" → 10 printed the exact command in dry-run and, with `--app
 "9 min left today (budget 1 + 25 granted)". Kid rows answer to their number (or the full
 line), not the account name. Requests, Web, Apps, Password and Remove rows share the same
 code path and are not yet exercised live.
-

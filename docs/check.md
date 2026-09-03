@@ -1,0 +1,249 @@
+# The safety report: `omarchy-kids-check` (SPEC.md R-TRUST-2, R-TRUST-3, R-DESK-2; issue #29)
+
+R-TRUST-2 says `omarchy-kids-check` "runs at the end of the wizard, from the panel, and at every
+kid login. Each check names what it proves and what it cannot." This is v2: a read-only report
+across nine sections — Accounts, Locks, Boot, Login, PAM, Web, Time, Firmware, and (optionally)
+Live tests — that never writes anything and never fixes anything. A FAIL here means "run
+`omarchy-kids-assert`" or "ask a grown-up", never "already handled".
+
+v1 (this repo's earlier stub, replaced by this issue) hardcoded a single `KID_USER` account and a
+handful of checks against an installer-path layout (`resolved.conf.d`, a single Chromium policy,
+`limine.conf`'s `editor_enabled`) that never matched this sandbox path's actual architecture —
+per-kid accounts, per-band policy files, the LUKS-slot boot chain, the portal, PAM. v2 replaces
+all of it.
+
+## What it reuses, and how
+
+`bin/omarchy-kids-assert` already has, and idempotently re-asserts, every lock this package
+enforces (`docs/assert.md`'s own lock table). Re-implementing ~20 of those checks a second time
+here — the exact trap `docs/assert.md`'s own "Judgment calls" section already flagged
+(`group_for_band` "worth revisiting if a third command ever needs it too") — would just be a
+second copy to keep in sync forever. Instead, `omarchy-kids-check` **sources**
+`bin/omarchy-kids-assert` and calls its `*_ok` functions directly, never a `*_fix`. This works
+because of one small addition to that file (its very last lines):
+
+```sh
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main
+fi
+```
+
+`main` (which calls `assert_one`, which writes by default — see `docs/assert.md`'s own
+"`--dry-run` opts out of writing; there is no `--apply`" judgment call) only runs when the file is
+executed directly; sourced, it just defines every `*_ok`/`*_fix` function and the
+`ETC`/`SHARE`/`HOME_ROOT`/`KIDS_DIR`/`MACHINE_CONF` variables and stops there. `omarchy-kids-check`
+sources it from inside a no-argument function (`source_assert`), so `omarchy-kids-assert`'s own
+top-level `--quiet`/`--dry-run`/`--help` argument loop — which runs unconditionally, sourced or
+not — sees an empty `"$@"` (a function's own positional parameters, not the calling script's) and
+does nothing, instead of trying to reparse `omarchy-kids-check`'s own `--json`/`--live`. Every
+existing `test/shell.d/assert-test.sh` call (`"$BIN"`, a direct execution) is unaffected: there,
+`BASH_SOURCE[0]` and `$0` are the same path.
+
+`lib/time.sh` (the screen-time paths) is sourced directly, the normal way — it has no CLI of its
+own to guard against.
+
+One function is duplicated rather than sourced: `detect_luks_device` from
+`bin/omarchy-kids-provision`. That file is a script with its own `main "$@"` dispatch
+(`add`/`remove`/`list`), not a library — the same reason `docs/assert.md` gives for duplicating
+`group_for_band` instead of sourcing all of `omarchy-kids-provision` for one small, stable,
+side-effect-free function.
+
+## Sections
+
+### Accounts (per kid)
+
+`exists` (`id`), `no-wheel` (not in `wheel`/`docker` — R-FND-2's "no sudo grant of any kind"),
+`no-sudo` (no entry in `/etc/sudoers`/`/etc/sudoers.d` — R-FND-3; WARN, not FAIL, if those files
+aren't readable here, e.g. not running as root), `band-group` (`omarchy-kids` plus the band group —
+reuses `groups_ok`), `home-noexec` (`findmnt`, live, not just `fstab` — reuses `mount_ok`), `gecos`
+(matches the profile's `name` — reuses `gecos_ok`, WARN if there's no `getent` on this box at all).
+
+### Locks
+
+Every lock in `docs/assert.md`'s table, one line per lock, in the same order and with the same
+lock ids (`fstab:<account>`, `polkit-admin`, `boot-hook`, `limine-snapshots`, ...) — a technical
+catalog for cross-referencing against that doc, not narrative. Each line calls the matching `*_ok`
+function only; a FAIL points at `docs/assert.md`'s own table for what the lock proves and what its
+fix does, rather than repeating that here.
+
+**One exception, not a FAIL:** `face:<account>` (the SDDM avatar icon, issue #39) is a WARN even
+in this technical catalog. It is the one lock in the table that isn't a security fence at all —
+missing or wrong, a kid still logs in exactly as fenced, just without their picture on the portal
+tile. `lock_check_warn` is the same shape as `lock_check`, used for this one lock only.
+
+### Boot
+
+- `unlock-hook` (R-BOOT-5): the current UKI's initramfs contains the hook. Wider tool chain than
+  `omarchy-kids-assert`'s own `boot-hook` lock (which the Locks section above already reuses
+  as-is): tries a `lsinitcpio` new enough to analyze a UKI directly, then `objcopy` + `lsinitcpio`
+  (the reference method), then `objcopy` + `bsdtar` (libarchive, ships on macOS by default — this
+  repo's own dev box has neither `objcopy` nor `lsinitcpio`, both Arch/Linux-specific), then
+  `bsdtar` straight on the UKI/ESP path. WARN, not FAIL, if none of the tools exist at all —
+  nothing was disproven.
+- `luks-slots` (R-SEC-4, issue #29's new check): every numeric slot named in `luks-slots` is an
+  *active* LUKS2 key slot on the device right now, via `cryptsetup luksDump`. LUKS2 reuses freed
+  slot numbers (`docs/phase1/V4.md`), so a stale mapping pointing at a slot that was since freed
+  and handed to someone else is exactly the failure this catches. WARN if there's no `luks-slots`
+  file, no `cryptsetup`, or no LUKS device found (`OMARCHY_KIDS_LUKS_DEVICE` overrides detection,
+  same var `omarchy-kids-provision remove` uses).
+- `editor-disabled` / `snapshot-entries` (V6, issue #38): reuse `limine_editor_ok` /
+  `limine_snapshots_ok` — narrative restatements of the same two locks the Locks catalog already
+  lists, kept here too because the issue's own Boot section names them explicitly.
+
+### Login
+
+`theme-dropin` (the portal theme selection), `theme-conf-user` (lists every provisioned kid —
+reuses `portal_conf_ok`), `face:<account>` per kid (same WARN-not-FAIL call as the Locks section's
+`lock_check_warn`, for the same reason), and `autologin-dropin`: the per-boot
+`zz-omarchy-kids-autologin.conf` should be **gone** by the time anyone runs this — R-BOOT-3's
+cleanup unit removes it ~20s after the display manager starts. WARN if it's still there (stale
+unless this ran right inside that window), never FAIL — it isn't itself a live security gap, just
+worth a grown-up noticing.
+
+### PAM
+
+`parent-unlock:<stack>` for both `sddm` and whichever stack `posture_parent_unlock_lock_stack`
+names (`omarchy-lock-password` on Omarchy 4.0.2) — WARN, not the misleading PASS
+`parent_unlock_ok` alone would report, when the stack file doesn't exist at all (that function's
+own "ok" there means "nothing to disprove", the right call for a *lock*, the wrong one for a
+*report* that's supposed to say what it verified).
+
+`faillock-order:<stack>` is a genuinely new check, not a restatement: `parent_unlock_ok` only
+confirms the marker and `pam_exec` line are present *somewhere* in the file (`grep -qxF`); it
+never re-checks that they still sit in the position `lib/posture.sh`'s own placement rule requires
+— before the stack's first `auth` line, or right after a leading `pam_faillock.so ... preauth`
+line if there is one. A hand-edit could reorder lines around the marker without removing it,
+silently breaking the `[success=done ...]` short-circuit that placement exists for, and no lock in
+`omarchy-kids-assert` would ever notice. This does.
+
+### Web
+
+Per existing `/etc/chromium/policies/managed/omarchy-kids-<band>.json`: `mode:<band>` (0640,
+reuses `chromium_ok`), `owner:<band>` (group ownership matches the band group — **SKIP, not
+FAIL, when not running as root**: every real writer of this file only ever `chown`s
+best-effort, which only succeeds as root, exactly `docs/assert.md`'s own reasoning for why its
+`chromium-policy` lock treats ownership the same way; a real run of this check is always root
+(wizard, panel, pacman hook), at which point the file is already correct by construction — a
+non-root dev/test run can't make `chown` true no matter what's "really" wrong on the target, so a
+hard FAIL there would be noise about this process's own privilege, not the target's posture), and
+`doh:<band>` (`DnsOverHttpsMode: secure`, R-WEB-2).
+
+### Time
+
+`timer`: `omarchy-kids-time.timer` is active, checked live via `systemctl is-active`. **SKIP, not
+WARN, under a scratch `OMARCHY_KIDS_ROOT`** — there's no live systemd to ask there, the same gate
+`omarchy-kids-assert`'s own `units_ok` uses for its "enabled is not running" live branch, and the
+Locks section's `units` lock already covers *enablement* (the part `--root` can check) for the
+same timer — there's nothing new a WARN here could honestly add under a scratch root.
+
+`ledger:<account>`: `/var/lib/omarchy-kids/<account>/usage/` exists. WARN, not FAIL, if it doesn't
+— `lib/time.sh` creates it lazily, on the first minute actually ticked, so a brand-new kid who
+hasn't had a session yet is expected to be missing it.
+
+### Firmware
+
+R-TRUST-3: "a printed parent card; red in the check until marked done in `machine.conf`." A
+firmware password lives entirely outside this machine's OS (SPEC.md §5.3: "the wall is the parent
+password plus the firmware password") — nothing here can measure whether one is actually set. But
+R-TRUST-3's own wording is a two-state "red / not red", not "red / warn forever": once a grown-up
+has attested to it (`machine.conf`'s `firmware.card_done=yes`, the same `<category>.<field>` shape
+`boot.snapshot_entries` already uses, `docs/conf.md`), this reports **PASS**, with the software
+caveat kept in the detail text itself (R-TRUST-2: name what it proves — an attestation, not a
+measurement — and what it doesn't). FAIL (the "red") while unset. Skipped entirely before any kid
+is provisioned — the whole point of a firmware password is keeping a kid off other boot media,
+which doesn't yet apply to a bare install.
+
+Nothing writes `firmware.card_done` yet — reading it is this issue's job; a wizard/panel screen
+that sets it (A13c's "Print the parent card", P4's firmware card) is a separate one.
+
+### Live tests (`--live`, root only)
+
+As root, briefly `runuser -u <kid>` for each provisioned kid and confirm, live, not just
+configured:
+
+- `sudo -n true` fails (R-FND-3).
+- `pkcheck --action-id ... --process "$$"` (`$$` expanded *inside* the `runuser`'d shell, so
+  polkit sees that process's own pid — the exact proof method
+  `bin/omarchy-kids-session`'s own `check_polkit` uses at real login, `docs/session.md`, since
+  `/etc/polkit-1/rules.d` itself is 0750 root:polkitd, unreadable to the kid) refuses both
+  `org.freedesktop.NetworkManager.settings.modify` and `org.freedesktop.systemd1.manage-units`
+  outright (R-FND-4).
+- `/tmp` is mounted `noexec` in that session (R-FND-2a).
+- Writing an executable into `$HOME` and running it fails (`Permission denied`, exit 126 — noexec
+  home, R-FND-2).
+
+Skipped, not faked, when `--live` isn't passed or this process isn't root — the section always
+appears, with a line naming why nothing ran.
+
+## `--json`
+
+For the panel and (per the section below) not the wizard. One object:
+
+```json
+{
+  "generated_at": "2026-09-02T12:00:00Z",
+  "verdict": "pass" | "warn" | "fail",
+  "exit_code": 0 | 1 | 2,
+  "sections": [
+    {"name": "Accounts", "checks": [{"id": "account:kid-ada:exists", "status": "pass", "detail": "..."}]},
+    ...
+  ]
+}
+```
+
+`status` is one of `pass`/`warn`/`fail`/`skip`; `skip` never affects `verdict`/`exit_code`. Built by
+hand (no `jq` dependency — `bin/omarchy-kids-time-ledger` already uses `jq` best-effort for
+`status.json`, but this command has to always produce output, including on a box with no `jq` at
+all, so it isn't reused here).
+
+## Exit codes
+
+Deliberately not the usual 0-good/nonzero-bad shape — same kind of inversion `docs/assert.md`'s own
+"Judgment calls" already documents for that command's `--dry-run` default:
+
+- **0** — every check passed.
+- **1** — no FAILs, but at least one WARN ("could not verify", or "worth a grown-up's attention" —
+  never on its own a security gap).
+- **2** — at least one FAIL.
+
+## Judgment calls
+
+- **Sourcing `omarchy-kids-assert`, not re-implementing its checks.** See "What it reuses, and
+  how" above. The sourceable-main guard is the one change made to `bin/omarchy-kids-assert`
+  itself for this issue; every existing call to it (direct execution, every test file) is
+  unaffected.
+- **`detect_luks_device` is duplicated from `bin/omarchy-kids-provision`, not sourced** — small,
+  stable, side-effect-free, and `omarchy-kids-provision` is a script with its own dispatch, the
+  exact call `docs/assert.md` already made for `group_for_band`.
+- **The face icon is a WARN everywhere it appears (Locks and Login), never a FAIL.** It is the one
+  lock in this whole report that isn't a security fence — see "Locks" above.
+- **`parent_unlock_ok` alone would report a misleading PASS when a PAM stack file doesn't exist at
+  all** (its own "ok" there means "nothing to disprove", correct for a *lock's* re-assert
+  semantics, wrong for a *report* claiming to have verified something). The PAM section checks
+  file existence itself before trusting that function, rather than repeating its raw answer.
+- **Web's group-ownership check is a SKIP, not a WARN, when this process isn't root**, and
+  **Time's timer-liveness check is a SKIP, not a WARN, under a scratch `OMARCHY_KIDS_ROOT`.** Both
+  are facts this process, in this execution context, was never going to be able to check no matter
+  what's true on the real target — the same reasoning `docs/assert.md` already gives for its
+  `chromium-policy` lock's ownership handling. A WARN implies "checked, found questionable"; SKIP
+  says "not checked here" instead, which is the honest thing when the gap is this process's own
+  privilege or environment, not the target machine's posture. This is also what makes a fully
+  green, exit-0 "clean tree" reachable at all from a non-root test suite (AGENTS.md rule 8) —
+  `test/shell.d/check-test.sh`'s own clean-tree fixture is built with this in mind.
+- **Firmware is a PASS, not a permanent WARN, once `firmware.card_done=yes`.** An earlier draft of
+  this section reported WARN forever past that point (true to "can never be measured"), which
+  would have made exit 0 unreachable for *any* real box, defeating the "safe to hand over" verdict
+  the whole tool exists to give. R-TRUST-3's own "red / not red" wording reads more directly as
+  PASS-with-a-caveat than as a permanent asterisk, so that's what this does — the caveat lives in
+  the detail text itself, which is what R-TRUST-2 actually asks for ("names what it proves and
+  what it cannot"), not a separate severity tier.
+- **The wizard's safety step (`apply_step_safety`) still calls `omarchy-kids-assert` and
+  `omarchy-kids-session --check` separately — not swapped to a single `omarchy-kids-check --json`
+  call.** Two reasons, both load-bearing: (1) the `omarchy-kids-assert` call there is the one
+  place in Apply that actually *fixes* a lock — `omarchy-kids-check` is read-only by design, so
+  losing that call would remove self-healing from the wizard's own Apply flow, not just change how
+  it's reported; (2) `--json` is a flat machine-readable blob, and A13c shows its output live to a
+  parent in a terminal — rendering JSON sections into readable gum output is real work, not a
+  one-line substitution. A `TODO` comment sits directly above `apply_step_safety` in
+  `bin/omarchy-kids-wizard`, pointing back here. The panel (P4, not yet built) is a better fit for
+  `--json` from the start, since it has no existing human-readable call to replace.

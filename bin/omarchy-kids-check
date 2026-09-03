@@ -1,25 +1,924 @@
 #!/bin/bash
-# Green/red "is it safe?" — readable by a parent, honest about limits.
+# omarchy-kids-check — v2: the green/red/yellow "is it safe?" report
+# (SPEC.md R-TRUST-2, R-TRUST-3, R-DESK-2; issue #29). Run at the end of
+# the wizard, from the panel, and (informally, by a grown-up) at kid
+# login when omarchy-kids-ask-grownup points at it. Read-only: never
+# writes anything, never calls a lock's *_fix — see docs/check.md for
+# the full section list and every judgment call below.
+#
+# Sections, in order: Accounts, Locks, Boot, Login, PAM, Web, Time,
+# Firmware, Live tests (only with --live). Each check prints one line —
+# PASS, WARN, or FAIL — and, per R-TRUST-2 ("names what it proves and
+# what it cannot"), a detail naming either what it proved or why it
+# couldn't. A WARN means "could not verify" or "not itself a lock, but
+# worth a grown-up's attention" — never a security gap on its own.
+#
+#   omarchy-kids-check [--json] [--live] [--help]
+#
+# Exit codes (SPEC.md R-TRUST-2's "is it safe?" contract, not the usual
+# 0-good/nonzero-bad shape — same kind of deliberate inversion
+# docs/assert.md's own "Judgment calls" already documents for that
+# command's --dry-run default):
+#   0  every check passed
+#   1  no FAILs, but at least one WARN
+#   2  at least one FAIL
+#
+# Reuses, never re-implements: every lock's own *_ok function from
+# bin/omarchy-kids-assert (sourced, guarded — see that file's own tail
+# comment), by way of lib/conf.sh and lib/posture.sh (which assert
+# itself sources), plus lib/time.sh for the screen-time ledger paths.
+# Nothing here ever calls a *_fix function — a FAIL here means "run
+# omarchy-kids-assert", never "let me fix that for you" (I-4's
+# verify-at-login role is a *check*, not a second copy of assert).
+#
+# Every path below is overridable for tests, same convention as
+# bin/omarchy-kids-assert and bin/omarchy-kids-session (this script
+# builds on both):
+#   OMARCHY_KIDS_ETC          kid profiles, machine.conf (via the sourced
+#                             omarchy-kids-assert; default /etc/omarchy-kids)
+#   OMARCHY_KIDS_SHARE        package data root (default /usr/share/omarchy-kids)
+#   OMARCHY_KIDS_LIB          lib/ beside bin/, else /usr/lib/omarchy-kids
+#   OMARCHY_KIDS_ROOT         scratch prefix for every real machine path this
+#                             touches indirectly through the sourced
+#                             omarchy-kids-assert/lib/posture.sh/lib/time.sh
+#                             (see those files' own headers for the full list)
+#   OMARCHY_KIDS_HOME_ROOT    scratch prefix for /home/<account> (mount checks)
+#   OMARCHY_KIDS_UKI          overrides which UKI/initramfs the boot-hook
+#                             check inspects (same var omarchy-kids-assert uses)
+#   OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS device auto-detection for the
+#                             boot:luks-slots check (same var
+#                             bin/omarchy-kids-provision's "remove" uses)
+#   OMARCHY_KIDS_ASSERT_BIN   path to omarchy-kids-assert (default: sibling,
+#                             else /usr/bin/omarchy-kids-assert) — sourced,
+#                             never executed, for its *_ok functions
+#   OMARCHY_KIDS_RUNUSER_BIN  the runuser binary --live shells out to
+#                             (default: runuser; stub it in tests)
 set -uo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/conf.sh
+source "$LIB/conf.sh"
+# shellcheck source=lib/posture.sh
+source "$LIB/posture.sh"
+# shellcheck source=lib/time.sh
+source "$LIB/time.sh"
+
+ASSERT_BIN="${OMARCHY_KIDS_ASSERT_BIN:-$DIR/bin/omarchy-kids-assert}"; [[ -x "$ASSERT_BIN" ]] || ASSERT_BIN=/usr/bin/omarchy-kids-assert
+RUNUSER_BIN="${OMARCHY_KIDS_RUNUSER_BIN:-runuser}"
+
+usage() {
+    cat <<'EOF'
+Usage: omarchy-kids-check [--json] [--live] [--help]
+
+Read-only "is it safe?" report (SPEC.md R-TRUST-2): every provisioned
+kid's account, every omarchy-kids-assert lock, the boot chain, the
+portal, PAM, the web policy files, the screen-time engine, and the
+firmware-password step. Never writes anything, never fixes anything —
+a FAIL means "run omarchy-kids-assert" or "ask a grown-up", not
+"already handled".
+
+  --json   Print one JSON object instead of the human report (for the
+           panel and the wizard's safety check — see docs/check.md).
+  --live   Also run the live tests: as root, briefly become each kid
+           (runuser) and confirm sudo, polkit, /tmp, and a downloaded
+           executable are actually denied, not just configured to be.
+           Requires root; without it this section is skipped, not
+           faked.
+  -h, --help  Show this help and exit.
+
+Exit codes: 0 every check passed; 1 no FAILs but at least one WARN
+("could not verify" or "needs a grown-up's attention", never on its
+own a security gap); 2 at least one FAIL.
+EOF
+}
+
+JSON=0
+LIVE=0
+for arg in "$@"; do
+    case "$arg" in
+        --json) JSON=1 ;;
+        --live) LIVE=1 ;;
+        -h|--help) usage; exit 0 ;;
+        *)
+            echo "omarchy-kids-check: unknown argument '$arg'" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+[[ -r "$ASSERT_BIN" ]] || { echo "omarchy-kids-check: cannot find omarchy-kids-assert at $ASSERT_BIN" >&2; exit 2; }
+
+# source_assert — pulls in every lock's *_ok/*_fix function plus the
+# ETC/SHARE/HOME_ROOT/KIDS_DIR/MACHINE_CONF variables omarchy-kids-assert
+# itself resolves from the same OMARCHY_KIDS_* env vars this script
+# documents above. Called with no arguments, from inside a function: a
+# function's "$@" is its own (empty here), never the outer script's, so
+# omarchy-kids-assert's own top-level `for arg in "$@"` loop (--quiet/
+# --dry-run/--help parsing) iterates zero times instead of re-parsing
+# THIS script's --json/--live — see that file's own tail-comment guard
+# for the other half of why sourcing it is safe (main() never runs).
+source_assert() {
+    # shellcheck source=bin/omarchy-kids-assert
+    source "$ASSERT_BIN"
+}
+source_assert
+
+# --- reporting -------------------------------------------------------------
+
 G=$'\033[32m'; R=$'\033[31m'; Y=$'\033[33m'; N=$'\033[0m'
-pass(){ echo "${G}  PASS${N}  $1"; }; fail(){ echo "${R}  FAIL${N}  $1"; FAILED=1; }; warn(){ echo "${Y}  WARN${N}  $1"; }
-FAILED=0; KID_USER="${KID_USER:-kid}"
 
-id "$KID_USER" &>/dev/null && pass "kid account exists" || fail "no '$KID_USER' account"
-if id "$KID_USER" &>/dev/null; then
-  id -nG "$KID_USER" | grep -qwE 'wheel|docker' && fail "kid is in wheel/docker (that's sudo!)" || pass "kid has no admin groups"
+RESULTS=()          # "section\x1fid\x1fstatus\x1fdetail" — status: pass/warn/fail/skip
+SECTION_ORDER=()
+CHECK_ANY_FAIL=0
+CHECK_ANY_WARN=0
+
+array_contains() { # array_contains NEEDLE [HAYSTACK...]
+    local needle="$1" x
+    shift
+    for x in "$@"; do [[ "$x" == "$needle" ]] && return 0; done
+    return 1
+}
+
+# add_result SECTION ID STATUS DETAIL — the one thing every check below
+# calls. STATUS is pass/warn/fail/skip; skip never affects the verdict
+# (--live not requested, nothing provisioned to check, etc).
+add_result() {
+    local section="$1" id="$2" status="$3" detail="$4"
+    array_contains "$section" "${SECTION_ORDER[@]+"${SECTION_ORDER[@]}"}" || SECTION_ORDER+=("$section")
+    RESULTS+=("$section"$'\x1f'"$id"$'\x1f'"$status"$'\x1f'"$detail")
+    case "$status" in
+        fail) CHECK_ANY_FAIL=1 ;;
+        warn) CHECK_ANY_WARN=1 ;;
+    esac
+}
+
+# lock_check ID CHECK_FN [ARGS...] — the "every assert lock reported via
+# the ok functions only" rule: never calls the matching *_fix. A FAIL's
+# detail points at docs/assert.md, which already documents in full what
+# each lock proves and what its fix does — repeating that here per lock
+# would just be a second copy to keep in sync.
+lock_check() {
+    local id="$1" fn="$2"
+    shift 2
+    if "$fn" "$@"; then
+        add_result Locks "lock:$id" pass "matches what omarchy-kids-assert expects"
+    else
+        add_result Locks "lock:$id" fail "does not match what omarchy-kids-assert expects — run 'omarchy-kids-assert' to restore it (docs/assert.md's lock table has what '$id' proves)"
+    fi
+}
+
+# lock_check_warn — same shape as lock_check, for the one lock that
+# isn't a security fence at all: the SDDM face icon (issue #39) only
+# controls which picture shows on a kid's portal tile. A kid still logs
+# in exactly as fenced either way, so a mismatch here is worth a
+# grown-up's attention, never "not ready to hand over" on its own.
+lock_check_warn() {
+    local id="$1" fn="$2"
+    shift 2
+    if "$fn" "$@"; then
+        add_result Locks "lock:$id" pass "matches what omarchy-kids-assert expects"
+    else
+        add_result Locks "lock:$id" warn "does not match what omarchy-kids-assert expects (cosmetic only, no security consequence) — run 'omarchy-kids-assert' to restore it"
+    fi
+}
+
+kid_conf_count() {
+    local n=0 acct
+    while IFS= read -r acct; do
+        [[ -n "$acct" ]] && n=$((n + 1))
+    done < <(list_kids)
+    printf '%s' "$n"
+}
+
+# stat_group FILE — the file's group owner name, GNU stat first (same
+# reasoning bin/omarchy-kids-assert's own file_mode gives: on Linux
+# `stat -f` means "filesystem status", not BSD's "format", so trying the
+# GNU form first and falling back avoids silently reading the wrong
+# thing on this repo's own macOS dev box).
+stat_group() {
+    if stat --version >/dev/null 2>&1; then stat -c '%G' "$1" 2>/dev/null || true
+    else stat -f '%Sg' "$1" 2>/dev/null || true; fi
+}
+
+# detect_luks_device_check — duplicated from bin/omarchy-kids-provision's
+# own detect_luks_device (OMARCHY_KIDS_LUKS_DEVICE, else a best-effort
+# lsblk scan), not sourced: provision is a script with its own `main
+# "$@"` dispatch (add/remove/list), not a library, and this is a small,
+# stable, side-effect-free function — the same call docs/assert.md's own
+# "Judgment calls" already made for group_for_band, which that note
+# explicitly flagged as "worth revisiting if a third command ever needs
+# it too". This is that third command, for this one function; the
+# *_ok functions above are the ones big enough that duplicating them
+# instead of sourcing omarchy-kids-assert would have been the wrong call.
+detect_luks_device_check() {
+    if [[ -n "${OMARCHY_KIDS_LUKS_DEVICE:-}" ]]; then printf '%s\n' "$OMARCHY_KIDS_LUKS_DEVICE"; return 0; fi
+    if command -v lsblk >/dev/null 2>&1; then
+        local dev
+        dev="$(lsblk -rno NAME,FSTYPE 2>/dev/null | awk '$2=="crypto_LUKS"{print "/dev/"$1; exit}')"
+        if [[ -n "$dev" ]]; then printf '%s\n' "$dev"; return 0; fi
+    fi
+    return 1
+}
+
+# --- Accounts ----------------------------------------------------------
+
+account_sudoers_check() { # account_sudoers_check ACCOUNT — R-FND-3: "no sudoers entry"
+    local acct="$1" root sfile sdir f any_readable=0 hit=0
+    root="$(posture_root)"
+    sfile="$root/etc/sudoers"
+    sdir="$root/etc/sudoers.d"
+    if [[ -r "$sfile" ]]; then
+        any_readable=1
+        grep -Eq "(^|[[:space:]])${acct}([[:space:]]|\$)" "$sfile" 2>/dev/null && hit=1
+    fi
+    if [[ -d "$sdir" ]]; then
+        for f in "$sdir"/*; do
+            [[ -e "$f" ]] || continue
+            [[ -r "$f" ]] || continue
+            any_readable=1
+            grep -Eq "(^|[[:space:]])${acct}([[:space:]]|\$)" "$f" 2>/dev/null && hit=1
+        done
+    fi
+    if [[ "$any_readable" == 0 ]]; then
+        add_result Accounts "account:$acct:no-sudo" warn "cannot verify: /etc/sudoers and /etc/sudoers.d aren't readable here — run with sudo to check this (R-FND-3)"
+    elif [[ "$hit" == 1 ]]; then
+        add_result Accounts "account:$acct:no-sudo" fail "$acct has a sudoers entry — R-FND-3 says none at all"
+    else
+        add_result Accounts "account:$acct:no-sudo" pass "no sudoers entry found for $acct (R-FND-3)"
+    fi
+}
+
+account_gecos_check() { # account_gecos_check ACCOUNT NAME
+    local acct="$1" name="$2"
+    if ! command -v getent >/dev/null 2>&1; then
+        add_result Accounts "account:$acct:gecos" warn "cannot verify: no getent on this box"
+        return
+    fi
+    if gecos_ok "$acct" "$name"; then
+        add_result Accounts "account:$acct:gecos" pass "$acct's GECOS field matches its profile name ($name)"
+    else
+        add_result Accounts "account:$acct:gecos" fail "$acct's GECOS field doesn't match its profile name ($name) — the greeter would show the wrong name"
+    fi
+}
+
+run_accounts_section() {
+    local acct band name groups any=0
+    while IFS= read -r acct; do
+        [[ -n "$acct" ]] || continue
+        any=1
+        band="$(profile_field "$acct" band)"
+        name="$(profile_field "$acct" name)"
+
+        if id "$acct" >/dev/null 2>&1; then
+            add_result Accounts "account:$acct:exists" pass "$acct exists as a Unix account"
+        else
+            add_result Accounts "account:$acct:exists" fail "$acct has a profile but no Unix account (R-FND-2)"
+            continue
+        fi
+
+        groups="$(current_groups "$acct")"
+        if ! has_group "$groups" wheel && ! has_group "$groups" docker; then
+            add_result Accounts "account:$acct:no-wheel" pass "$acct is not in wheel or docker"
+        else
+            add_result Accounts "account:$acct:no-wheel" fail "$acct is in wheel or docker — that's a sudo grant (SPEC.md: 'no sudo grant of any kind')"
+        fi
+
+        account_sudoers_check "$acct"
+
+        if [[ -n "$band" ]] && groups_ok "$acct" "$band"; then
+            add_result Accounts "account:$acct:band-group" pass "$acct is in omarchy-kids and its band group ($band)"
+        else
+            add_result Accounts "account:$acct:band-group" fail "$acct is missing omarchy-kids or its band group ($band) (R-FND-2, R-DESK-1)"
+        fi
+
+        if mount_ok "$acct"; then
+            add_result Accounts "account:$acct:home-noexec" pass "$acct's home is mounted noexec,nosuid,nodev right now (R-FND-2)"
+        else
+            add_result Accounts "account:$acct:home-noexec" fail "$acct's home is not actually mounted noexec right now — a downloaded binary would run (R-FND-2)"
+        fi
+
+        account_gecos_check "$acct" "$name"
+    done < <(list_kids)
+    [[ "$any" == 1 ]] || add_result Accounts "accounts:none" skip "no kids provisioned yet; nothing to check"
+}
+
+# --- Locks (every omarchy-kids-assert lock, via its *_ok function only) ----
+
+run_locks_section() {
+    local acct band avatar name n dir cf bt kids_count
+    kids_count="$(kid_conf_count)"
+    if [[ "$kids_count" == 0 ]]; then
+        add_result Locks "locks:none" skip "no kids provisioned; nothing to check (same as 'omarchy-kids-assert' with none provisioned)"
+        return
+    fi
+
+    while IFS= read -r acct; do
+        [[ -n "$acct" ]] || continue
+        band="$(profile_field "$acct" band)"
+        avatar="$(profile_field "$acct" avatar)"
+        name="$(profile_field "$acct" name)"
+        lock_check "fstab:$acct" fstab_ok "$acct"
+        lock_check "mount:$acct" mount_ok "$acct"
+        lock_check "namespace:$acct" namespace_ok "$acct"
+        lock_check "accountsservice:$acct" accountsservice_ok "$acct" "$avatar"
+        lock_check "gecos:$acct" gecos_ok "$acct" "$name"
+        lock_check_warn "face:$acct" face_ok "$acct" "$avatar"
+        lock_check "groups:$acct" groups_ok "$acct" "$band"
+    done < <(list_kids)
+
+    lock_check polkit-admin polkit_admin_ok
+    lock_check polkit-deny polkit_deny_ok
+    lock_check sddm-theme sddm_theme_ok
+    lock_check portal-conf portal_conf_ok
+    lock_check pam:sddm pam_ok sddm
+    lock_check pam:systemd-user pam_ok systemd-user
+
+    local lock_stack
+    lock_stack="$(posture_parent_unlock_lock_stack)"
+    lock_check parent-unlock:sddm parent_unlock_ok sddm
+    lock_check "parent-unlock:$lock_stack" parent_unlock_ok "$lock_stack"
+
+    for n in 2 3 4 5 6; do
+        lock_check "getty:tty$n" getty_ok "$n"
+    done
+
+    lock_check units units_ok
+    lock_check hyprland-configs hyprland_ok
+
+    dir="$(chromium_dir)"
+    if [[ -d "$dir" ]]; then
+        for cf in "$dir"/omarchy-kids-*.json; do
+            [[ -e "$cf" ]] || continue
+            bt="$(basename "$cf")"; bt="${bt#omarchy-kids-}"; bt="${bt%.json}"
+            lock_check "chromium-policy:$bt" chromium_ok "$cf" "$bt"
+        done
+    fi
+
+    if [[ -f "$HOOK_FILE" ]]; then
+        lock_check boot-hook boot_hook_ok
+        lock_check limine-editor limine_editor_ok
+    fi
+
+    lock_check limine-snapshots limine_snapshots_ok
+}
+
+# --- Boot ----------------------------------------------------------------
+
+# boot_check_unlock_hook — R-BOOT-5, with a wider tool chain than
+# omarchy-kids-assert's own boot-hook lock (Locks section above already
+# reuses that one as-is): this repo's own dev box has neither objcopy
+# nor lsinitcpio (both Arch/Linux-specific), so a check tool meant to
+# also run there needs a portable fallback. Tries, in order: (1) a
+# lsinitcpio new enough to analyze a UKI (PE-wrapped) image directly,
+# skipping the objcopy step entirely; (2) objcopy + lsinitcpio, the
+# reference method omarchy-kids-assert's own boot_hook_ok uses (reused
+# here, not re-implemented); (3) objcopy to extract the .initrd section,
+# then bsdtar (libarchive, ships on macOS by default) to list its cpio
+# contents instead of lsinitcpio; (4) bsdtar straight on the UKI/ESP
+# path, best-effort, for a box with no objcopy at all. Whichever finds
+# the hook wins; if none of the tools even exist, this is a WARN
+# ("cannot verify"), never a silent PASS (R-TRUST-2).
+boot_check_unlock_hook() {
+    local uki tool="" found=0 tried=0 tmp
+    if ! uki="$(find_uki)"; then
+        add_result Boot "boot:unlock-hook" warn "cannot verify: no UKI/ESP image found to inspect (set OMARCHY_KIDS_UKI, or nothing to check on this box)"
+        return
+    fi
+
+    if command -v lsinitcpio >/dev/null 2>&1; then
+        tried=1
+        if lsinitcpio -a "$uki" 2>/dev/null | grep -q omarchy-kids-unlock; then
+            tool="lsinitcpio -a"; found=1
+        fi
+    fi
+
+    if [[ "$found" == 0 ]] && command -v objcopy >/dev/null 2>&1 && command -v lsinitcpio >/dev/null 2>&1; then
+        tried=1
+        if boot_hook_ok; then tool="objcopy+lsinitcpio"; found=1; fi
+    fi
+
+    if [[ "$found" == 0 ]] && command -v objcopy >/dev/null 2>&1 && command -v bsdtar >/dev/null 2>&1; then
+        tried=1
+        tmp="$(mktemp "${TMPDIR:-/tmp}/omarchy-kids-check-initrd.XXXXXX")"
+        if objcopy -O binary --only-section=.initrd "$uki" "$tmp" 2>/dev/null \
+            && bsdtar -tf "$tmp" 2>/dev/null | grep -q omarchy-kids-unlock; then
+            tool="objcopy+bsdtar"; found=1
+        fi
+        rm -f "$tmp"
+    fi
+
+    if [[ "$found" == 0 ]] && command -v bsdtar >/dev/null 2>&1; then
+        tried=1
+        if bsdtar -tf "$uki" 2>/dev/null | grep -q omarchy-kids-unlock; then
+            tool="bsdtar (direct)"; found=1
+        fi
+    fi
+
+    if [[ "$found" == 1 ]]; then
+        add_result Boot "boot:unlock-hook" pass "the unlock hook is in the current boot image ($uki, via $tool) (R-BOOT-5)"
+    elif [[ "$tried" == 0 ]]; then
+        add_result Boot "boot:unlock-hook" warn "cannot verify: none of lsinitcpio, objcopy, or bsdtar is available on this box"
+    else
+        add_result Boot "boot:unlock-hook" fail "the unlock hook is NOT in the current boot image ($uki) — run 'omarchy-kids-assert' to rebuild it (R-BOOT-5)"
+    fi
+}
+
+# boot_check_luks_slots — "slot map consistent with cryptsetup luksDump
+# slot count" (issue #29): every numeric slot named in luks-slots must
+# actually be an active LUKS2 key slot on the device (R-SEC-4 — LUKS2
+# reuses freed slot numbers, so a stale mapping pointing at a slot that
+# was since freed and handed to someone else is exactly the failure mode
+# docs/phase1/V4.md and docs/provision.md both call out). WARNs rather
+# than FAILs whenever it can't get a real answer (no luks-slots file, no
+# cryptsetup, no device, no dump output) — never guesses.
+boot_check_luks_slots() {
+    local slots_file="$ETC/luks-slots"
+    if [[ ! -r "$slots_file" ]]; then
+        add_result Boot "boot:luks-slots" warn "cannot verify: no $slots_file to read"
+        return
+    fi
+    if ! command -v cryptsetup >/dev/null 2>&1; then
+        add_result Boot "boot:luks-slots" warn "cannot verify: cryptsetup isn't available on this box"
+        return
+    fi
+    local device
+    if ! device="$(detect_luks_device_check)"; then
+        add_result Boot "boot:luks-slots" warn "cannot verify: no LUKS device found (set OMARCHY_KIDS_LUKS_DEVICE)"
+        return
+    fi
+
+    local mapped=() active=() line key
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        case "$line" in ''|'#'*) continue ;; esac
+        key="${line%%=*}"
+        [[ "$key" =~ ^[0-9]+$ ]] && mapped+=("$key")
+    done < "$slots_file"
+
+    local dump
+    dump="$(cryptsetup luksDump "$device" 2>/dev/null || true)"
+    if [[ -z "$dump" ]]; then
+        add_result Boot "boot:luks-slots" warn "cannot verify: 'cryptsetup luksDump $device' produced no output (not root? wrong device?)"
+        return
+    fi
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && active+=("$line")
+    done < <(awk '
+        /^Keyslots:/ {inslots=1; next}
+        /^Tokens:/ {inslots=0}
+        inslots && /^[[:space:]]+[0-9]+:/ { s=$1; gsub(":","",s); print s; next }
+        /^Key Slot [0-9]+: ENABLED/ { print $3 }
+    ' <<<"$dump")
+
+    local missing=() m
+    for m in "${mapped[@]}"; do
+        array_contains "$m" "${active[@]+"${active[@]}"}" || missing+=("$m")
+    done
+
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        add_result Boot "boot:luks-slots" pass "$device: every slot in luks-slots (${#mapped[@]}) is an active LUKS key slot (device reports ${#active[@]}) (R-SEC-4)"
+    else
+        add_result Boot "boot:luks-slots" fail "$device: luks-slots maps slot(s) ${missing[*]} that are NOT active on the device — a stale mapping (R-SEC-4)"
+    fi
+}
+
+boot_check_editor() {
+    if [[ ! -f "$(limine_conf)" ]]; then
+        add_result Boot "boot:editor-disabled" warn "cannot verify: no $(limine_conf) on this box (no Limine, or a test tree)"
+        return
+    fi
+    if limine_editor_ok; then
+        add_result Boot "boot:editor-disabled" pass "$(limine_conf): editor_enabled: no (V6)"
+    else
+        add_result Boot "boot:editor-disabled" fail "$(limine_conf): the boot menu editor is not disabled — run 'omarchy-kids-assert' (V6)"
+    fi
+}
+
+boot_check_snapshots() {
+    if [[ ! -f "$(limine_default)" ]]; then
+        add_result Boot "boot:snapshot-entries" warn "cannot verify: no $(limine_default) on this box (no Limine/Snapper, or a test tree)"
+        return
+    fi
+    local mode
+    mode="$(boot_snapshot_entries_mode)"
+    if limine_snapshots_ok; then
+        add_result Boot "boot:snapshot-entries" pass "snapshot boot entries match machine.conf's boot.snapshot_entries=$mode (V6, issue #38)"
+    else
+        add_result Boot "boot:snapshot-entries" fail "snapshot boot entries don't match boot.snapshot_entries=$mode — run 'omarchy-kids-assert' (V6, issue #38)"
+    fi
+}
+
+run_boot_section() {
+    boot_check_unlock_hook
+    boot_check_luks_slots
+    boot_check_editor
+    boot_check_snapshots
+}
+
+# --- Login -----------------------------------------------------------------
+
+run_login_section() {
+    if sddm_theme_ok; then
+        add_result Login "login:theme-dropin" pass "the portal theme is selected (zz-omarchy-kids-theme.conf, R-LOGIN)"
+    else
+        add_result Login "login:theme-dropin" fail "the portal theme drop-in is missing or wrong — run 'omarchy-kids-assert' (R-LOGIN)"
+    fi
+
+    local kids_count
+    kids_count="$(kid_conf_count)"
+    if [[ "$kids_count" == 0 ]]; then
+        add_result Login "login:theme-conf-user" skip "no kids provisioned; nothing to list"
+    elif portal_conf_ok; then
+        add_result Login "login:theme-conf-user" pass "theme.conf.user lists all $kids_count provisioned kid(s) (R-LOGIN, issue #39)"
+    else
+        add_result Login "login:theme-conf-user" fail "theme.conf.user is missing a kid, or stale — run 'omarchy-kids-assert' (R-LOGIN, issue #39)"
+    fi
+
+    local acct avatar
+    while IFS= read -r acct; do
+        [[ -n "$acct" ]] || continue
+        avatar="$(profile_field "$acct" avatar)"
+        # Cosmetic only (issue #39): a kid still logs in exactly as
+        # fenced without their avatar showing, so this is a WARN, not a
+        # FAIL — same call the Locks section's lock_check_warn makes
+        # for this same fact.
+        if face_ok "$acct" "$avatar"; then
+            add_result Login "login:face:$acct" pass "$acct's face icon is present and matches its avatar ($avatar)"
+        else
+            add_result Login "login:face:$acct" warn "$acct's face icon is missing or doesn't match ($avatar) — cosmetic only; run 'omarchy-kids-assert' (issue #39)"
+        fi
+    done < <(list_kids)
+
+    local dropin
+    dropin="$(posture_sddm_conf_dir)/zz-omarchy-kids-autologin.conf"
+    if [[ -f "$dropin" ]]; then
+        add_result Login "login:autologin-dropin" warn "$dropin still exists — the cleanup unit removes it ~20s after the display manager starts (R-BOOT-3); stale unless this ran right after boot"
+    else
+        add_result Login "login:autologin-dropin" pass "the per-boot autologin drop-in is gone, as it should be outside the ~20s boot window (R-BOOT-3)"
+    fi
+}
+
+# --- PAM ---------------------------------------------------------------
+
+# pam_faillock_order_check STACK — "faillock ordering intact" (issue
+# #29): omarchy-kids-assert's own parent_unlock_ok only confirms the
+# marker and pam_exec line are present *somewhere* in the file
+# (grep -qxF); it never re-checks that they still sit in the position
+# lib/posture.sh's own placement rule requires after insertion (before
+# the stack's first "auth" line, or right after a leading
+# "pam_faillock.so ... preauth" line if there is one) — a hand-edit
+# could reorder lines around the marker without removing it, silently
+# breaking the "[success=done ...] short-circuits before pam_unix" logic
+# that whole placement exists for, and no lock here would ever notice.
+# This is a genuinely new check, not a restatement of one of assert's.
+pam_faillock_order_check() {
+    local stack="$1" file marker line idx=0 marker_idx=-1 preauth_idx=-1 pam_unix_idx=-1
+    file="$(posture_pam_dir)/$stack"
+    if [[ ! -f "$file" ]]; then
+        add_result PAM "pam:faillock-order:$stack" warn "cannot verify: no $file on this box"
+        return
+    fi
+    marker="$(posture_parent_unlock_marker)"
+    if ! grep -qxF "$marker" "$file"; then
+        add_result PAM "pam:faillock-order:$stack" fail "the parent-unlock marker isn't in $file at all — run 'omarchy-kids-assert'"
+        return
+    fi
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        idx=$((idx + 1))
+        [[ "$line" == "$marker" ]] && marker_idx=$idx
+        if [[ "$preauth_idx" == -1 && "$line" == auth*pam_faillock.so*preauth* ]]; then
+            preauth_idx=$idx
+        fi
+        if [[ "$pam_unix_idx" == -1 && "$line" == auth*pam_unix.so* && "$line" != *pam_exec.so* ]]; then
+            pam_unix_idx=$idx
+        fi
+    done < "$file"
+
+    local ok=1 why=""
+    if [[ "$preauth_idx" != -1 && "$marker_idx" -lt "$preauth_idx" ]]; then
+        ok=0; why="the parent-unlock line is before the pam_faillock preauth line — a lockout would never be tracked for it"
+    fi
+    if [[ "$pam_unix_idx" != -1 && "$marker_idx" -gt "$pam_unix_idx" ]]; then
+        ok=0; why="the parent-unlock line is after pam_unix.so — it would never get a chance to short-circuit first"
+    fi
+
+    if [[ "$ok" == 1 ]]; then
+        add_result PAM "pam:faillock-order:$stack" pass "$stack: the parent-unlock line sits in the right place relative to preauth/pam_unix (docs/authd.md)"
+    else
+        add_result PAM "pam:faillock-order:$stack" fail "$stack: $why — run 'omarchy-kids-assert', or look for a hand-edit of $file"
+    fi
+}
+
+# pam_parent_unlock_check STACK REQS — parent_unlock_ok (sourced from
+# omarchy-kids-assert) reports "ok" whenever the stack file doesn't
+# exist at all -- assert's own documented reasoning is "nothing to
+# disprove", the same shape boot_hook_ok uses (docs/assert.md). That's
+# the right call for a *lock* (nothing to fix if there's nothing to fix
+# it in), but reporting a flat PASS with "the line is present" here
+# would be false — there is no file, so nothing was actually verified.
+# Check existence first, in front of the reused function, so a missing
+# stack is its own honest WARN instead of a misleading PASS (R-TRUST-2).
+pam_parent_unlock_check() {
+    local stack="$1" reqs="$2" file
+    file="$(posture_pam_dir)/$stack"
+    if [[ ! -f "$file" ]]; then
+        add_result PAM "pam:parent-unlock:$stack" warn "cannot verify: no $file on this box"
+        return
+    fi
+    if parent_unlock_ok "$stack"; then
+        add_result PAM "pam:parent-unlock:$stack" pass "the parent-unlock line is present in $file ($reqs)"
+    else
+        add_result PAM "pam:parent-unlock:$stack" fail "the parent-unlock line is missing from $file — run 'omarchy-kids-assert' ($reqs)"
+    fi
+}
+
+run_pam_section() {
+    local lock_stack
+    lock_stack="$(posture_parent_unlock_lock_stack)"
+
+    pam_parent_unlock_check sddm "R-SEC-2"
+    pam_parent_unlock_check "$lock_stack" "R-SEC-2, R-SEC-3"
+
+    pam_faillock_order_check sddm
+    pam_faillock_order_check "$lock_stack"
+}
+
+# --- Web -----------------------------------------------------------------
+
+run_web_section() {
+    local dir cf bt group owner_group any=0
+    dir="$(chromium_dir)"
+    if [[ ! -d "$dir" ]]; then
+        add_result Web "web:policy" skip "no $dir on this box; nothing to check"
+        return
+    fi
+    for cf in "$dir"/omarchy-kids-*.json; do
+        [[ -e "$cf" ]] || continue
+        any=1
+        bt="$(basename "$cf")"; bt="${bt#omarchy-kids-}"; bt="${bt%.json}"
+        group="$(group_for_band "$bt" 2>/dev/null || true)"
+
+        if chromium_ok "$cf" "$bt"; then
+            add_result Web "web:mode:$bt" pass "$cf is mode 0640 (R-WEB-1)"
+        else
+            add_result Web "web:mode:$bt" fail "$cf is not mode 0640 — run 'omarchy-kids-assert' (R-WEB-1)"
+        fi
+
+        # Group ownership, root-run only (same call docs/assert.md's own
+        # chromium-policy lock makes, and for the same reason: every
+        # real writer of this file chowns it best-effort, which only
+        # ever succeeds as root, so a real run of this check — always
+        # root, per the wizard/panel/pacman-hook callers — sees a file
+        # that's already correct by construction. A non-root dev/test
+        # run can never make chown succeed no matter what's "really"
+        # wrong, so reporting a hard FAIL there would just be noise
+        # about this process's own privilege, not the target's posture.
+        owner_group="$(stat_group "$cf")"
+        if [[ "$EUID" != 0 ]]; then
+            add_result Web "web:owner:$bt" skip "not checked as non-root — a real run of this check is always root, at which point the file's group is already correct by construction (R-WEB-1)"
+        elif [[ -z "$owner_group" ]]; then
+            add_result Web "web:owner:$bt" warn "cannot verify: could not read $cf's group owner on this box"
+        elif [[ -n "$group" && "$owner_group" == "$group" ]]; then
+            add_result Web "web:owner:$bt" pass "$cf is group-owned by $group (R-WEB-1)"
+        else
+            add_result Web "web:owner:$bt" fail "$cf's group owner is '$owner_group', expected '$group' — run 'omarchy-kids-web install' (R-WEB-1)"
+        fi
+
+        if grep -q '"DnsOverHttpsMode"[[:space:]]*:[[:space:]]*"secure"' "$cf" 2>/dev/null; then
+            add_result Web "web:doh:$bt" pass "$cf sets DnsOverHttpsMode: secure (R-WEB-2)"
+        else
+            add_result Web "web:doh:$bt" fail "$cf does not set DnsOverHttpsMode: secure (R-WEB-2)"
+        fi
+    done
+    [[ "$any" == 1 ]] || add_result Web "web:policy" skip "no per-band policy files exist yet; nothing to check"
+}
+
+# --- Time ------------------------------------------------------------------
+
+run_time_section() {
+    # Live liveness only, same gate omarchy-kids-assert's own units_ok
+    # uses for its "enabled is not running" live-systemd branch
+    # (docs/assert.md): under a scratch OMARCHY_KIDS_ROOT there is no
+    # live systemd to ask at all, so this is a SKIP, not a WARN — the
+    # Locks section's "units" lock already covers *enablement* (the part
+    # that --root can check) for the very same timer; there is nothing
+    # new this line could honestly say under a scratch root that lock
+    # doesn't already say.
+    if [[ -z "$(posture_root)" ]]; then
+        if systemctl is-active --quiet omarchy-kids-time.timer 2>/dev/null; then
+            add_result Time "time:timer" pass "omarchy-kids-time.timer is active (R-TIME-1)"
+        else
+            add_result Time "time:timer" fail "omarchy-kids-time.timer is not active — screen time isn't being tracked (R-TIME-1)"
+        fi
+    else
+        add_result Time "time:timer" skip "not checked under a scratch root (no live systemd to ask) — see the 'units' lock in the Locks section for enablement"
+    fi
+
+    local acct any=0 udir
+    while IFS= read -r acct; do
+        [[ -n "$acct" ]] || continue
+        any=1
+        udir="$(time_usage_dir "$acct")"
+        if [[ -d "$udir" ]]; then
+            add_result Time "time:ledger:$acct" pass "$udir exists (R-TIME-1)"
+        else
+            add_result Time "time:ledger:$acct" warn "$udir doesn't exist yet — no minutes recorded for $acct yet (normal before their first session)"
+        fi
+    done < <(list_kids)
+    [[ "$any" == 1 ]] || add_result Time "time:ledger" skip "no kids provisioned; nothing to check"
+}
+
+# --- Firmware --------------------------------------------------------------
+
+# run_firmware_section — R-TRUST-3: "a printed parent card; red in the
+# check until marked done in machine.conf". A firmware password lives
+# outside this machine's OS entirely (SPEC.md §5.3: "the wall is the
+# parent password plus the firmware password") — nothing running here
+# can read or verify one exists, so this can never be a from-first-
+# -principles PASS the way a lock check is. But R-TRUST-3's own wording
+# is a two-state "red / not red", not "red / warn forever": once a
+# grown-up has attested to it (machine.conf's firmware.card_done=yes,
+# the same "<category>.<field>" shape boot.snapshot_entries already
+# uses, docs/conf.md), this reports PASS, with the software caveat kept
+# right in the detail text (R-TRUST-2: name what it proves — an
+# attestation, not a measurement — and what it doesn't). Skipped
+# entirely before any kid is provisioned: the whole point of a firmware
+# password is defense once there's a kid account to keep off other
+# boot media, which doesn't yet apply to a bare install.
+run_firmware_section() {
+    if [[ "$(kid_conf_count)" == 0 ]]; then
+        add_result Firmware "firmware:password" skip "no kids provisioned yet; the firmware-password step matters once a kid does"
+        return
+    fi
+    local done_flag shown
+    done_flag="$(conf_get "$MACHINE_CONF" firmware.card_done 2>/dev/null || true)"
+    if [[ "$done_flag" == "yes" ]]; then
+        add_result Firmware "firmware:password" pass "the firmware-password step is marked done in machine.conf. This can't be verified from software — it's a grown-up's word that a firmware password is set and the parent card is stored somewhere the kids can't reach (R-TRUST-3, SPEC.md §5.3)"
+    else
+        shown="${done_flag:-unset}"
+        add_result Firmware "firmware:password" fail "the firmware-password step isn't marked done (machine.conf firmware.card_done=$shown). Print the parent card, set a firmware/BIOS password by hand on this machine (no command here can do it for you), then mark the card done (R-TRUST-3). Until then, anyone with physical access can boot other media and skip every lock in this report."
+    fi
+}
+
+# --- Live tests (--live only) ------------------------------------------
+
+# live_test_pkcheck ACCOUNT ACTION LABEL — same proof method
+# bin/omarchy-kids-session's own check_polkit uses at real login
+# (docs/session.md): ask polkit itself rather than trying to read
+# /etc/polkit-1/rules.d (0750 root:polkitd — unreadable to the kid this
+# runs as). "$$" is expanded *inside* the runuser'd bash, not by this
+# script, so pkcheck sees that shell's own pid, matching how a real kid
+# session's own process would ask.
+live_test_pkcheck() {
+    local acct="$1" action="$2" label="$3" out
+    out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'pkcheck --action-id "$1" --process "$$" 2>&1' _ "$action")"
+    case "$out" in
+        *"Not authorized"*|*"not authorized"*)
+            add_result "Live tests" "live:$acct:pkcheck-$label" pass "$acct: polkit refuses $action outright (R-FND-4)" ;;
+        *"requires authentication"*|*"Authorization requires"*)
+            add_result "Live tests" "live:$acct:pkcheck-$label" fail "$acct: polkit would PROMPT for $action instead of refusing it — the deny rule isn't active (R-FND-4)" ;;
+        "")
+            add_result "Live tests" "live:$acct:pkcheck-$label" fail "$acct: polkit AUTHORIZED $action — the deny rule isn't active (R-FND-4)" ;;
+        *)
+            add_result "Live tests" "live:$acct:pkcheck-$label" warn "$acct: unexpected pkcheck answer for $action: ${out%%$'\n'*}" ;;
+    esac
+}
+
+live_test_kid() {
+    local acct="$1" out rc
+
+    if "$RUNUSER_BIN" -u "$acct" -- sudo -n true >/dev/null 2>&1; then
+        add_result "Live tests" "live:$acct:sudo" fail "$acct: 'sudo -n true' SUCCEEDED — $acct has passwordless sudo (R-FND-3)"
+    else
+        add_result "Live tests" "live:$acct:sudo" pass "$acct: 'sudo -n true' is refused (R-FND-3)"
+    fi
+
+    live_test_pkcheck "$acct" org.freedesktop.NetworkManager.settings.modify networkmanager-settings
+    live_test_pkcheck "$acct" org.freedesktop.systemd1.manage-units systemd-manage-units
+
+    out="$("$RUNUSER_BIN" -u "$acct" -- findmnt -no OPTIONS /tmp 2>/dev/null || true)"
+    if [[ "$out" == *noexec* ]]; then
+        add_result "Live tests" "live:$acct:tmp-noexec" pass "$acct: /tmp is mounted noexec in their session (R-FND-2a)"
+    else
+        add_result "Live tests" "live:$acct:tmp-noexec" fail "$acct: /tmp is not noexec in their session (options: ${out:-none found}) (R-FND-2a)"
+    fi
+
+    out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'f="$HOME/.omarchy-kids-check-live-$$"; printf "#!/bin/sh\necho pwned\n" > "$f" && chmod +x "$f" && "$f"; rc=$?; rm -f "$f"; exit $rc' 2>&1)"
+    rc=$?
+    if [[ "$rc" != 0 && ( "$out" == *"Permission denied"* || "$rc" == 126 ) ]]; then
+        add_result "Live tests" "live:$acct:home-noexec-run" pass "$acct: running a freshly-written executable in \$HOME fails (Permission denied) (R-FND-2)"
+    elif [[ "$rc" == 0 ]]; then
+        add_result "Live tests" "live:$acct:home-noexec-run" fail "$acct: a downloaded/self-written executable in \$HOME actually RAN (R-FND-2)"
+    else
+        add_result "Live tests" "live:$acct:home-noexec-run" warn "$acct: could not run the live exec test cleanly (rc=$rc, output: ${out:-none}) — inconclusive, not a pass"
+    fi
+}
+
+run_live_section() {
+    if [[ "$LIVE" != 1 ]]; then
+        add_result "Live tests" "live:skipped" skip "not run — pass --live (as root) to spawn a short session as each kid and confirm sudo/polkit/tmp/exec are actually denied"
+        return
+    fi
+    if [[ "$EUID" != 0 ]]; then
+        add_result "Live tests" "live:skipped" warn "--live was passed but this isn't root — live tests need root to runuser as each kid"
+        return
+    fi
+    local acct any=0
+    while IFS= read -r acct; do
+        [[ -n "$acct" ]] || continue
+        any=1
+        live_test_kid "$acct"
+    done < <(list_kids)
+    [[ "$any" == 1 ]] || add_result "Live tests" "live:none" skip "no kids provisioned; nothing to test"
+}
+
+# --- render: human -----------------------------------------------------
+
+render_human() {
+    local sec entry section id status detail badge
+    for sec in "${SECTION_ORDER[@]}"; do
+        printf '\n== %s ==\n' "$sec"
+        for entry in "${RESULTS[@]}"; do
+            IFS=$'\x1f' read -r section id status detail <<<"$entry"
+            [[ "$section" == "$sec" ]] || continue
+            case "$status" in
+                pass) badge="${G}PASS${N}" ;;
+                warn) badge="${Y}WARN${N}" ;;
+                fail) badge="${R}FAIL${N}" ;;
+                *)    badge="SKIP" ;;
+            esac
+            printf '  %b  %-34s %s\n' "$badge" "$id" "$detail"
+        done
+    done
+    printf '\n'
+    case "$VERDICT" in
+        pass) printf '%b\n' "${G}All checks pass. Safe to hand over.${N}" ;;
+        warn) printf '%b\n' "${Y}Passing, with warnings above — review them, then hand over.${N}" ;;
+        fail) printf '%b\n' "${R}Not ready — fix the FAIL lines above before handing over.${N}" ;;
+    esac
+}
+
+# --- render: json --------------------------------------------------------
+
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+render_json() {
+    local sec entry section id status detail first_sec=1 first_chk
+    printf '{\n'
+    printf '  "generated_at": "%s",\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
+    printf '  "verdict": "%s",\n' "$VERDICT"
+    printf '  "exit_code": %s,\n' "$EXIT_CODE"
+    printf '  "sections": [\n'
+    for sec in "${SECTION_ORDER[@]}"; do
+        [[ "$first_sec" == 1 ]] || printf ',\n'
+        first_sec=0
+        printf '    {\n      "name": "%s",\n      "checks": [\n' "$(json_escape "$sec")"
+        first_chk=1
+        for entry in "${RESULTS[@]}"; do
+            IFS=$'\x1f' read -r section id status detail <<<"$entry"
+            [[ "$section" == "$sec" ]] || continue
+            [[ "$first_chk" == 1 ]] || printf ',\n'
+            first_chk=0
+            printf '        {"id": "%s", "status": "%s", "detail": "%s"}' \
+                "$(json_escape "$id")" "$status" "$(json_escape "$detail")"
+        done
+        printf '\n      ]\n    }'
+    done
+    printf '\n  ]\n}\n'
+}
+
+# --- main --------------------------------------------------------------
+
+run_accounts_section
+run_locks_section
+run_boot_section
+run_login_section
+run_pam_section
+run_web_section
+run_time_section
+run_firmware_section
+run_live_section
+
+VERDICT=pass
+EXIT_CODE=0
+if [[ "$CHECK_ANY_FAIL" == 1 ]]; then
+    VERDICT=fail; EXIT_CODE=2
+elif [[ "$CHECK_ANY_WARN" == 1 ]]; then
+    VERDICT=warn; EXIT_CODE=1
 fi
-findmnt -no OPTIONS "/home/$KID_USER" 2>/dev/null | grep -q noexec && pass "downloads can't run (noexec home)" || warn "kid home is not noexec"
-[[ -f /etc/polkit-1/rules.d/10-omarchy-kids.rules ]] && pass "system-change prompts blocked (polkit)" || fail "polkit deny pack missing"
-grep -qs '1.1.1.3' /etc/systemd/resolved.conf.d/10-omarchy-kids.conf && pass "family DNS configured" || fail "family DNS not configured"
-grep -qs '"DnsOverHttpsMode": "off"' /etc/chromium/policies/managed/omarchy-kids.json && pass "browser locked (SafeSearch, no DoH/incognito)" || fail "browser policy missing"
-grep -qs '^editor_enabled: no' /boot/limine.conf && pass "boot menu editor off" || warn "boot menu editor still on"
-systemctl is-enabled getty@tty1.service 2>/dev/null | grep -q masked && pass "spare terminal off" || warn "getty@tty1 not masked"
-passwd -S root 2>/dev/null | grep -qE ' L | LK ' && pass "root account locked" || warn "root not locked (Omarchy sets root pw = yours)"
-if getent hosts pornhub.com >/dev/null 2>&1; then
-  getent hosts pornhub.com | grep -qE '^0\.0\.0\.0|^::' && pass "live test: adult site blocked" || fail "live test: adult site RESOLVED — DNS not filtering"
-else pass "live test: adult site blocked (no answer)"; fi
 
-echo
-if [[ $FAILED == 0 ]]; then echo "${G}══ SAFE TO HAND OVER ══${N}  (Remember: firmware password is on you — see the parent card.)"
-else echo "${R}══ NOT READY — fix the FAILs above ══${N}"; exit 1; fi
+if [[ "$JSON" == 1 ]]; then
+    render_json
+else
+    render_human
+fi
+
+exit "$EXIT_CODE"

@@ -667,4 +667,26 @@ main() {
     exit 0
 }
 
-main
+# Sourceable guard (issue #29, docs/check.md): bin/omarchy-kids-check
+# reuses every lock's own *_ok function directly -- "the ok functions
+# only, never *_fix" -- by sourcing this file instead of re-implementing
+# ~20 checks a second time (the same duplication docs/assert.md's own
+# "Judgment calls" already flagged as not worth it for a *third* command
+# once one showed up). Sourcing runs this whole file top to bottom, which
+# is exactly what defines every *_ok/*_fix function and the ETC/SHARE/
+# KIDS_DIR/etc. variables a caller needs -- but a bare, unconditional
+# `main` at the bottom would also run main() (which calls assert_one,
+# which *writes* by default) the instant the file is sourced, before the
+# sourcing caller ever gets a chance to do anything, defeating the whole
+# "read-only" point. This guard only calls main when the file is
+# executed directly (BASH_SOURCE[0] -- this file's own path -- equals $0
+# -- the path of whatever was actually invoked): true for a normal `./
+# omarchy-kids-assert` or `"$BIN"` run (including every existing
+# test/shell.d/assert-test.sh call), false when sourced from another
+# script's larger $0. main() takes no arguments of its own (the CLI's
+# --quiet/--dry-run/--help are parsed by the top-level `for arg in "$@"`
+# loop above, before main is even defined), so there is nothing to
+# forward here either way.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main
+fi

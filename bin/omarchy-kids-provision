@@ -104,50 +104,10 @@ band_field() {
 # lib/conf.sh's conf_get (the format's one shared reader).
 read_parent() { conf_get "$MACHINE_CONF" parent 2>/dev/null || true; }
 
-# --- luks-slots parsing (the file lib/posture.sh's posture_write_luks_slots
-# rewrites; see docs/boot.md for the "slot=account[:session]" format) -------
-
-luks_slots_parent_line() {
-  local file="$1" line
-  [[ -r "$file" ]] || return 0
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    case "$line" in
-      '' | '#'*) continue ;;
-      0=*)
-        printf '%s\n' "$line"
-        return 0
-        ;;
-    esac
-  done <"$file"
-}
-
-# luks_slots_kid_entries FILE — every "slot=account[:session]" line whose
-# slot isn't 0, one per line.
-luks_slots_kid_entries() {
-  local file="$1" line key
-  [[ -r "$file" ]] || return 0
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    case "$line" in '' | '#'*) continue ;; esac
-    key="${line%%=*}"
-    [[ "$key" == "0" ]] && continue
-    printf '%s\n' "$line"
-  done <"$file"
-}
-
-luks_slot_for_account() {
-  local file="$1" account="$2" line key val acct
-  [[ -r "$file" ]] || return 0
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    case "$line" in '' | '#'*) continue ;; esac
-    key="${line%%=*}"
-    val="${line#*=}"
-    acct="${val%%:*}"
-    if [[ "$acct" == "$account" ]]; then
-      printf '%s\n' "$key"
-      return 0
-    fi
-  done <"$file"
-}
+# luks-slots parsing/writing (luks_slots_parent_line, luks_slots_kid_entries,
+# luks_slot_for_account, posture_write_luks_slots) lives in lib/kids.sh now --
+# it used to be duplicated here and in bin/omarchy-kids-remove. See
+# docs/boot.md for the "slot=account[:session]" format.
 
 # --- theme.conf.user (R-LOGIN, issue #39) -----------------------------------
 

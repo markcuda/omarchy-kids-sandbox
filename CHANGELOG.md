@@ -148,6 +148,19 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
   bands with a terminal; the exit modal's password), and `test/live/05-unit-tests-on-vm.sh` runs
   `test/all` on the VM so the password-verifier and SO_PEERCRED tests actually execute.
 
+### Fixed (2026-09-03, the parent's LUKS slot)
+
+- A parent's own boot landed on the portal after "Remove Kids Mode" or on a fresh install: the
+  parent's LUKS slot is now recorded when the parent is. `omarchy-kids-conf machine set parent`
+  writes `luks-slots`' `0=<parent>` line (`lib/kids.sh`'s new `luks_slots_record_parent`) right
+  after `machine.conf`'s `parent=`, the moment there's a parent to record — nothing else in this
+  repo ever wrote that line, so `docs/boot.md` step 5's "the parent's slot maps to the parent"
+  had no `0=` line to read on either of those two paths. `luks_slots_parent_line`,
+  `luks_slots_kid_entries`, and `luks_slot_for_account` also move out of duplicated copies in
+  `bin/omarchy-kids-provision` and `bin/omarchy-kids-remove` into `lib/kids.sh`, alongside the
+  `posture_write_luks_slots` writer (moved from `lib/posture.sh`), so there's one place this file
+  is parsed and rewritten instead of three.
+
 ### Known gaps
 
 See `docs/phase1/DECISIONS-NEEDED.md` and `docs/phase1/BLOCKED.md` for what still needs a human

@@ -26,7 +26,13 @@ fail-safe list, how to verify the hook is actually in the image, and how to remo
    `/run/omarchy-kids/boot-slot` exists, this reads the slot number, maps it through
    `/etc/omarchy-kids/luks-slots`, and writes `/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf`
    with `[Autologin] User=<account>` (and `Session=<session>`) for the mapped account — the
-   parent's slot maps to the parent and the stock session, unchanged from today. An unmapped
+   parent's slot maps to the parent and the stock session, unchanged from today. The `0=<parent>`
+   line that makes that mapping exist is written by `omarchy-kids-conf machine set parent <name>`
+   (`lib/kids.sh`'s `luks_slots_record_parent`, docs/conf.md) the moment `machine.conf`'s `parent=`
+   is — the wizard's Apply step, first thing it does, on a fresh install, and again on every
+   provision after "Remove Kids Mode" deletes the whole `$ETC` tree; nothing else in this repo
+   ever writes it. Without that line, a boot unlocked with the parent's own disk password maps to
+   nothing and lands on the portal below instead of their desktop. An unmapped
    slot writes an empty `User=` so the portal shows instead of guessing. If `boot-slot` doesn't
    exist at all, the unit's `ConditionPathExists` skips it entirely and Omarchy's own (earlier)
    autologin drop-in is untouched — the exact behavior from before Kids Mode was installed.

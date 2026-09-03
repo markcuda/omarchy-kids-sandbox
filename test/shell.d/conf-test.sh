@@ -215,6 +215,54 @@ check "$("$CONF" get kid-ada onboarded)" "yes" "reset: onboarded keeps its value
 mode="$(kids_file_mode "$profile")"
 check "$mode" "644" "profile file is mode 0644"
 
+# --- machine set parent: recording the parent's LUKS slot (docs/boot.md
+#     step 5, lib/kids.sh's luks_slots_record_parent) -- without a "0="
+#     line, a boot unlocked with the parent's own disk password lands on
+#     the portal instead of their desktop -------------------------------
+
+SLOTS_FILE="$ETC/luks-slots"
+
+# Fresh file: no luks-slots at all yet.
+rm -f "$SLOTS_FILE"
+"$CONF" machine set parent mark >/dev/null
+check "$(cat "$SLOTS_FILE" 2>/dev/null)" "0=mark" \
+  "machine set parent: a fresh luks-slots gets a 0=<parent> line"
+slots_mode="$(kids_file_mode "$SLOTS_FILE")"
+check "$slots_mode" "600" "machine set parent: luks-slots stays mode 0600"
+
+# Existing kid entries are kept, not clobbered, by the same write.
+rm -f "$SLOTS_FILE"
+printf '3=kid-ada\n5=kid-ben\n' >"$SLOTS_FILE"
+"$CONF" machine set parent mark >/dev/null
+check "$(grep -c '^3=kid-ada$' "$SLOTS_FILE")" "1" \
+  "machine set parent: an existing kid entry survives the parent-slot write"
+check "$(grep -c '^5=kid-ben$' "$SLOTS_FILE")" "1" \
+  "machine set parent: a second existing kid entry survives too"
+check "$(grep -c '^0=mark$' "$SLOTS_FILE")" "1" \
+  "machine set parent: 0=<parent> is added alongside the kid entries"
+
+# An existing 0= line is left alone, even one naming someone else.
+rm -f "$SLOTS_FILE"
+printf '0=someone-else\n3=kid-ada\n' >"$SLOTS_FILE"
+err="$("$CONF" machine set parent mark 2>&1 >/dev/null)"
+check_status "$?" 0 "machine set parent: an existing 0= line naming someone else doesn't fail the command"
+check "$(cat "$SLOTS_FILE")" "$(printf '0=someone-else\n3=kid-ada')" \
+  "machine set parent: the existing 0= line (and the rest of the file) is left untouched"
+check_contains "$err" "left it alone" \
+  "machine set parent: leaving an existing 0= line alone is noted on stderr"
+
+# Slot 0 already claimed by a provisioned kid (kid-ada, set up above):
+# refuses outright rather than clash with that kid's own LUKS slot.
+rm -f "$SLOTS_FILE"
+printf '0=kid-ada\n' >"$SLOTS_FILE"
+err="$("$CONF" machine set parent mark 2>&1 >/dev/null)"
+check_status "$?" 2 "machine set parent: a kid already on slot 0 makes the command fail"
+check_contains "$err" "kid-ada" "machine set parent: the refusal names the kid holding slot 0"
+check "$(cat "$SLOTS_FILE")" "0=kid-ada" \
+  "machine set parent: refusing to clash leaves the kid's slot-0 line untouched"
+
+rm -f "$SLOTS_FILE"
+
 # --- machine set parent (issue #46: the wizard's Apply step writes this
 #     before anything else, so omarchy-kids-authd and omarchy-kids-provision
 #     both have a parent to check against) -----------------------------

@@ -158,7 +158,8 @@ PanelWindow {
     // --- The card ------------------------------------------------------
     Rectangle {
         anchors.fill: parent
-        color: theme.dim
+        // Stronger than theme.dim: this card opens over Time's Up, whose own card must fade away.
+        color: Qt.rgba(theme.dim.r, theme.dim.g, theme.dim.b, 0.85)
 
         Rectangle {
             id: card

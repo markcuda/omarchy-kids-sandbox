@@ -457,13 +457,11 @@ cmd_show_in_mine() {
 # --- main ------------------------------------------------------------------
 
 main() {
-    local cmd="${1:-}"
-    case "$cmd" in
-        -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
-    esac
-    shift
+    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
+    local cmd="$1"; shift
 
     case "$cmd" in
+        -h|--help) usage; exit 0 ;;
         list) cmd_list "$@" ;;
         install) cmd_install "$@" ;;
         install-queued) cmd_install_queued "$@" ;;

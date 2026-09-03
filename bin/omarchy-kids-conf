@@ -307,8 +307,10 @@ cmd_machine() {
 }
 
 main() {
-    local cmd="${1:-}"
+    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
+    local cmd="$1"
     case "$cmd" in
+        -h|--help) usage; exit 0 ;;
         get) shift; cmd_get "$@" ;;
         set) shift; cmd_set "$@" ;;
         show) shift; cmd_show "$@" ;;
@@ -317,7 +319,6 @@ main() {
         band) shift; cmd_band "$@" ;;
         slug) shift; cmd_slug "$@" ;;
         machine) shift; cmd_machine "$@" ;;
-        -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
         *) die "unknown command: '$cmd' (see --help)" ;;
     esac
 }

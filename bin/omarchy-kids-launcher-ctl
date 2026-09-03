@@ -53,11 +53,12 @@ cmd_log() {
   printf '%s %s\n' "$now" "$id" >>"$LAUNCHES_LOG" 2>/dev/null || true
 }
 
-case "${1:-}" in
+[[ $# -ge 1 ]] || { usage >&2; exit 2; }
+case "$1" in
+  -h|--help) usage; exit 0 ;;
   show) cmd_show ;;
   activate) cmd_activate ;;
   log) shift; cmd_log "${1:-}" ;;
-  -h|--help|"") usage; [[ "${1:-}" == "" ]] && exit 2; exit 0 ;;
   *)
     echo "omarchy-kids-launcher-ctl: unknown command: '$1' (see --help)" >&2
     exit 2

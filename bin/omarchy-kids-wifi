@@ -178,14 +178,15 @@ cmd_picker() {
 # --- main --------------------------------------------------------------
 
 main() {
-    local cmd="${1:-}"
+    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
+    local cmd="$1"
     case "$cmd" in
+        -h|--help) usage; exit 0 ;;
         list) shift; cmd_list "$@" ;;
         join) shift; cmd_join "$@" ;;
         status) shift; cmd_status "$@" ;;
         forget) shift; cmd_forget "$@" ;;
         picker) shift; cmd_picker "$@" ;;
-        -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
         *) die "unknown command: '$cmd' (see --help)" ;;
     esac
 }

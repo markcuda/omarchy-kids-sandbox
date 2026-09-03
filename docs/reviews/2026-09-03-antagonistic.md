@@ -15,6 +15,7 @@ below are not lint.
 ## 1. The ten changes with the highest payoff
 
 ### 1. The parent password is not a gate — a kid can grant themselves anything
+
 `bin/omarchy-kids-ask:212-235`, `bin/omarchy-kids-ask:354-360`, `share/ask/shell.qml:117-142`
 
 `cmd_submit` writes a record with `--state approved` into `$XDG_RUNTIME_DIR/omarchy-kids/ask-outbox/`
@@ -38,6 +39,7 @@ the panel. Delete `--state approved` from `submit` entirely.
 are the whole feature set, and all three are self-service.
 
 ### 2. The verifier a kid runs is a verifier a kid controls
+
 `bin/omarchy-kids-parent-auth:11`, `share/ask/shell.qml:108`, `share/exit-modal/shell.qml:151`,
 `share/wifi/shell.qml:148`, `lib/posture.sh:221`
 
@@ -58,6 +60,7 @@ unless `geteuid()==0`. Longer term, an exit code from a process the kid owns can
 authorization result — see #1.
 
 ### 3. `limine-editor` is asserted only on machines that have the boot hook
+
 `bin/omarchy-kids-assert:680-683`
 
 ```
@@ -79,6 +82,7 @@ so the suite can never see this.
 `limine-editor` to still be reported.
 
 ### 4. Dry-run — the default — prints the kid's password and the parent's LUKS passphrase
+
 `bin/omarchy-kids-provision:92-100`, `bin/omarchy-kids-provision:466`
 
 `run()` previews with `printf ' %q' "$@"`. Line 466 is
@@ -91,6 +95,7 @@ on stdin, never argv, never logged."*
 preview. No secret ever reaches `run`.
 
 ### 5. The shipped app entry point runs the whole product in preview mode
+
 `desktop/omarchy-kids.desktop:5`, `bin/omarchy-kids:93`, `bin/omarchy-kids-panel:104`,
 `bin/omarchy-kids-wizard:97`
 
@@ -107,6 +112,7 @@ confirmation. Default them to real, keep `--dry-run` for review, and leave `DRY_
 belongs: `provision`, `assert`, `web`, `apps`, `remove`.
 
 ### 6. `boot-login` still uses the `kid-` username heuristic that was already found broken
+
 `bin/omarchy-kids-boot-login:37-42`
 
 ```
@@ -123,6 +129,7 @@ kiosk config.
 `omarchy-kids-assert`, `-ask` and `-time-ledger` all already use.
 
 ### 7. Seven copies of `run()`, four of `group_for_band`, three socket clients
+
 See §3 for the full table.
 
 `lib/` already exists and is already sourced by `provision`, `assert`, `remove` and
@@ -136,6 +143,7 @@ lines into `lib/`, not for copying them. They have already drifted: `provision:1
 `BIN="${OVERRIDE:-$DIR/bin/x}"` resolver. Delete the apology comments with the copies.
 
 ### 8. A 26% comment ratio, and headers that contradict the code below them
+
 `share/exit-modal/shell.qml:1-52`, `bin/omarchy-kids-exit:1-45`, `bin/omarchy-kids-bar:2-102`
 
 `share/exit-modal/shell.qml` opens with `====== UNTESTED ======` and *"this has never run
@@ -149,6 +157,7 @@ sentence is current.
 tracker, where it can be updated in one place. See §4 for the ten worst blocks.
 
 ### 9. `a && b || c` on the one path that ends a session
+
 `bin/omarchy-kids-exit:238`
 
 `--finish) [[ -n "$kid" ]] && cmd_finish_kid "$kid" || cmd_finish ;;` — if `cmd_finish_kid` ever
@@ -162,6 +171,7 @@ again — Super×3 and Super+Shift+K both silently return 0. Track the modal wit
 the root-owned `/run/omarchy-kids`, not a substring of `/proc/*/cmdline`.
 
 ### 10. LUKS slot detection breaks when the kid's password equals the parent's
+
 `bin/omarchy-kids-provision:538-557`
 
 `add_luks_slot` finds the new slot by running `cryptsetup open --test-passphrase` with the kid's

@@ -131,3 +131,5 @@ what state it leaves the VM in; left for a follow-on issue rather than guessed a
   Hyprland instance dir).
 - 2026-09-03, second full run after the theme, packs, launcher and wizard-look merges: all seven
   scenarios passed in one `test/live/all -k` run.
+- 2026-09-03, third full run after the security fixes, the verifier's reader fix and the unit's
+  writable paths: all seven passed again.

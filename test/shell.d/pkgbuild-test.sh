@@ -169,3 +169,6 @@ fi
 
 echo "pkgbuild-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc
+
+# The app entry point has no dash suffix; the glob alone would skip it (found in the VM).
+if grep -qE 'install -m755 bin/omarchy-kids bin/omarchy-kids-\*' PKGBUILD; then echo "PASS  PKGBUILD installs bin/omarchy-kids itself"; else echo "FAIL  PKGBUILD must install bin/omarchy-kids (no dash suffix)"; exit 1; fi

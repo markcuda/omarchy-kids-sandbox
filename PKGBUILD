@@ -31,7 +31,7 @@ package() {
 	# Commands (R-BUILD-4): every bin/omarchy-kids-* file, whatever exists
 	# today plus whatever lands later -- this glob needs no updating.
 	install -dm755 "$pkgdir/usr/bin"
-	install -m755 bin/omarchy-kids-* "$pkgdir/usr/bin/"
+	install -m755 bin/omarchy-kids bin/omarchy-kids-* "$pkgdir/usr/bin/"
 
 	# Early-boot LUKS-unlock hook (R-BOOT).
 	install -dm755 "$pkgdir/usr/lib/omarchy-kids"

@@ -93,3 +93,11 @@ This removes the files in the table above and prints `post_remove`'s notice. It 
 
 Reversing all of that is Remove Kids Mode (R-TRUST-4), run from the app before uninstalling the
 package -- not a side effect of `pacman -R`.
+
+## Known gaps (2026-09-02, first install in the VM)
+
+- The package does not enable `omarchy-kids-boot-login.service` and its cleanup unit; today they
+  are enabled by hand after install. They should be enabled by `omarchy-kids-provision add` when
+  the first kid is created and re-checked by `omarchy-kids-assert`.
+- Installing over files placed by `scripts/deploy-boot-hook.sh` conflicts, as pacman should;
+  run the deploy script's `--remove` first on a machine that used it.

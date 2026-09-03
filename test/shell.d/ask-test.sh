@@ -19,6 +19,9 @@
 # a second, kid-bo, only where two-kids-at-once matters (collect).
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 BIN=""  # a copy in a scratch tree: omarchy-kids-conf / -web are resolved
@@ -115,7 +118,11 @@ kids_set_const "$BIN" AUTH_SOCK "$TMP/no.sock"
 # from the environment any more (review §3.7).
 kids_id_stub "$STUBS" kid-ada 1000
 
-export PATH="$STUBS:$PATH"
+# Only the stubs and a base toolset: an Omarchy box has the real
+# omarchy-*/omarchy-kids-* commands on PATH, and a check that one is
+# missing must not depend on this box (AGENTS.md, testing rules).
+BASE_PATH="$(kids_base_path "$TMP/base")"
+export PATH="$STUBS:$BASE_PATH"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_ROOT="$VARLIB_ROOT"

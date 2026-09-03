@@ -14,6 +14,9 @@
 # shellcheck disable=SC2015 # "A && B || C" below is always used with B, C that can't fail
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 BIN=""   # a copy in the scratch tree below; the compositor it execs is a
@@ -301,7 +304,7 @@ for n in L1 L2 L3; do
   f="$INSTALL_ETC/hyprland/$n.lua"
   if [[ -f "$f" ]]; then
     check_eq "$(cat "$f")" "-- $n" "--install-configs: $n.lua copied with matching content"
-    mode="$(stat -f '%Lp' "$f" 2>/dev/null || stat -c '%a' "$f" 2>/dev/null)"
+    mode="$(kids_file_mode "$f")"
     check_eq "$mode" "644" "--install-configs: $n.lua is mode 0644"
   else
     fail "--install-configs: $n.lua was not installed"

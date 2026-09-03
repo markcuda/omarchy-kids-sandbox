@@ -19,6 +19,9 @@
 # shellcheck disable=SC2015 # "A && B || C" below is always used with B, C that can't fail
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BIN="$ROOT_DIR/bin/omarchy-kids-remove"
 APP="$ROOT_DIR/bin/omarchy-kids"
@@ -422,7 +425,7 @@ check_status "$out" "home:kid-ada" "removed" "home:kid-ada removed"
 check_eq "$(cat "$KIDS_MODE_DIR/Ada Lovelace/drawing.txt" 2>/dev/null)" "a drawing" \
     "home: the kid's own file survived the move"
 [[ -d "$HOMEROOT/home/kid-ada" ]] && fail "the old home path should be gone" || pass "old home path gone"
-mode="$(stat -f '%Lp' "$KIDS_MODE_DIR" 2>/dev/null || stat -c '%a' "$KIDS_MODE_DIR" 2>/dev/null)"
+mode="$(kids_file_mode "$KIDS_MODE_DIR")"
 check_eq "$mode" "700" "home: the parent's Kids Mode folder is 0700"
 check_contains "$argv" "chown -R mark:mark $KIDS_MODE_DIR/Ada Lovelace" "home: chowned parent:parent recursively (issue #45 item 2)"
 

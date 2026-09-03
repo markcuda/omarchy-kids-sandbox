@@ -22,6 +22,9 @@
 # right after writing the tile JSON instead of exec'ing anything.
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SESSION_START="$DIR/bin/omarchy-kids-session-start"
 CONF="$DIR/bin/omarchy-kids-conf"
@@ -109,7 +112,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 # it already stubs the rest of its world. The real uid is kept so every
 # per-uid path (launcher-<uid>.json) still resolves to one place.
 kids_id_stub "$STUBS" "$ACCOUNT" "$(id -u)"
-export PATH="$STUBS:$PATH"
+# Only the stubs and a base toolset: an Omarchy box has the real
+# omarchy-*/omarchy-kids-* commands on PATH, and a check that one is
+# missing must not depend on this box (AGENTS.md, testing rules).
+BASE_PATH="$(kids_base_path "$TMP/base")"
+export PATH="$STUBS:$BASE_PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$ROOT"

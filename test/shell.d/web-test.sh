@@ -12,6 +12,9 @@
 # shellcheck disable=SC2015 # "A && B || C" below is always used with B, C that can't fail
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 BIN=""   # a substituted copy in the scratch tree, set up below
@@ -174,7 +177,7 @@ out="$("$BIN" install 6-8 --apply 2>&1)"; st=$?
 check_status "$st" 0 "install --apply: exits 0"
 if [[ -f "$POLICY_FILE" ]]; then
   echo "ok   install --apply: wrote $POLICY_FILE"
-  mode="$(stat -f '%Lp' "$POLICY_FILE" 2>/dev/null || stat -c '%a' "$POLICY_FILE" 2>/dev/null)"
+  mode="$(kids_file_mode "$POLICY_FILE")"
   check "$mode" "640" "install --apply: mode is 0640 (R-WEB-1)"
   check "$(jq -r '.DnsOverHttpsMode' "$POLICY_FILE")" "secure" "install --apply: content is the rendered policy"
 else

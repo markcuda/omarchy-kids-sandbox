@@ -10,6 +10,9 @@
 # `fc-match`, mimicking `-f '%{family[0]}' monospace`.
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 THEME_LIB="$ROOT/lib/theme.sh"
 
@@ -34,6 +37,13 @@ trap cleanup EXIT
 
 STUBS="$TMP/stubs"
 mkdir -p "$STUBS"
+
+# Every case below runs against this base toolset, never the machine's own
+# PATH: a real Omarchy box has omarchy-theme-color, fc-match and getent,
+# and the "no tool"/"unknown account" cases would never run there
+# (AGENTS.md, testing rules).
+BASE_PATH="$(kids_base_path "$TMP/base")"
+export PATH="$BASE_PATH"
 
 # Fake omarchy-theme-color: reads "--file <path> <key>", greps a plain
 # "key=value" line out of that file (colors.toml's own real shape, quotes
@@ -120,7 +130,7 @@ check_eq "$out" "$FIXTURE_THEME_DIR" "theme_dir: THEME_KIDS_HOME overrides \$HOM
 
 run_with_fixture() { # NAME
     (
-        PATH="$STUBS:$PATH"
+        PATH="$STUBS:$BASE_PATH"
         THEME_KIDS_HOME="$FIXTURE_HOME"
         export PATH THEME_KIDS_HOME
         # shellcheck source=/dev/null
@@ -143,7 +153,7 @@ check_eq "$(run_with_fixture highlight)" "#334455" "theme_color highlight: mappe
 
 run_no_tool() { # NAME
     (
-        PATH="/usr/bin:/bin" # deliberately no omarchy-theme-color
+        PATH="$BASE_PATH" # deliberately no omarchy-theme-color
         THEME_KIDS_HOME="$FIXTURE_HOME"
         export PATH THEME_KIDS_HOME
         # shellcheck source=/dev/null
@@ -162,7 +172,7 @@ check_eq "$(run_no_tool surface)" "#232838" "theme_color surface: fallback"
 
 out="$(
     (
-        PATH="$STUBS:$PATH"
+        PATH="$STUBS:$BASE_PATH"
         THEME_KIDS_HOME="$TMP/no-such-home"
         export PATH THEME_KIDS_HOME
         # shellcheck source=/dev/null
@@ -186,7 +196,7 @@ check_eq "$(cat "$TMP/err")" "theme_color: unknown color 'nonsense'" "theme_colo
 # --- theme_font -------------------------------------------------------------
 
 out="$(
-    PATH="$STUBS:$PATH"
+    PATH="$STUBS:$BASE_PATH"
     export PATH
     # shellcheck source=/dev/null
     source "$THEME_LIB"
@@ -195,7 +205,7 @@ out="$(
 check_eq "$out" "Comic Sans MS" "theme_font: reads fc-match's resolved family"
 
 out="$(
-    PATH="/usr/bin:/bin" # deliberately no fc-match
+    PATH="$BASE_PATH" # deliberately no fc-match
     export PATH
     # shellcheck source=/dev/null
     source "$THEME_LIB"
@@ -262,7 +272,7 @@ check_eq "$out" "en_US.UTF-8" "sourcing lib/theme.sh: a real LANG is left alone"
 {
     out="$(
         set -euo pipefail
-        PATH="$STUBS/broken-theme-color:$PATH"
+        PATH="$STUBS/broken-theme-color:$BASE_PATH"
         THEME_KIDS_HOME="$FIXTURE_HOME"
         export PATH THEME_KIDS_HOME
         # shellcheck source=/dev/null
@@ -384,7 +394,7 @@ check_eq "$(cat "$KID_THEME_DIR/colors.toml" 2>/dev/null)" "$(cat "$OMARCHY_SHAR
 check_eq "$(cat "$APPLY_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme.name" 2>/dev/null)" "tokyo-night" \
     "theme_apply_for: writes theme.name beside the theme directory"
 
-mode="$(stat -f '%Lp' "$KID_THEME_DIR/colors.toml" 2>/dev/null || stat -c '%a' "$KID_THEME_DIR/colors.toml" 2>/dev/null)"
+mode="$(kids_file_mode "$KID_THEME_DIR/colors.toml")"
 check_eq "$mode" "644" "theme_apply_for: theme files are mode 0644"
 
 out="$(

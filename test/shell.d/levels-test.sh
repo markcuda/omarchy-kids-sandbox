@@ -15,6 +15,9 @@
 #     SUPER + RETURN is really Omarchy's terminal bind
 #   - anything in share/launcher/shell.qml (no Quickshell here at all)
 set -uo pipefail
+
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HYPR="$DIR/share/hyprland"
 SESSION_START="$DIR/bin/omarchy-kids-session-start"
@@ -200,8 +203,13 @@ EOF
   source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
   kids_id_stub "$STUBS" kid-ada "$(id -u)"
 
+  # Stubs plus a base toolset only: a real Omarchy box has half this pack
+  # actually installed, and `command -v <app>` would call those tiles
+  # installed (AGENTS.md, testing rules).
+  BASE_PATH="$(kids_base_path "$TMP/base")"
+
   out="$(
-    PATH="$STUBS:$PATH" \
+    PATH="$STUBS:$BASE_PATH" \
     OMARCHY_KIDS_ETC="$ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
     OMARCHY_KIDS_RUN="$RUN" \
@@ -252,7 +260,7 @@ EOF
 
   # Level 2/3 exec the real Omarchy shell command.
   out2="$(
-    PATH="$STUBS:$PATH" \
+    PATH="$STUBS:$BASE_PATH" \
     KIDS_TEST_ACCOUNT=kid-two \
     OMARCHY_KIDS_ETC="$ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
@@ -266,7 +274,7 @@ EOF
   # issue #28: band 3-5 gets no "More apps" tile at all -- not a shelf
   # that would always show empty (I-6).
   out3="$(
-    PATH="$STUBS:$PATH" \
+    PATH="$STUBS:$BASE_PATH" \
     KIDS_TEST_ACCOUNT=kid-tot \
     OMARCHY_KIDS_ETC="$ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \

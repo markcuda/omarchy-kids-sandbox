@@ -41,9 +41,13 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import "../qml"
 
 PanelWindow {
     id: root
+
+    // Theme colors/font (docs/theming.md) — see share/qml/KidsTheme.qml.
+    KidsTheme { id: theme }
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusiveZone: -1
@@ -195,15 +199,15 @@ PanelWindow {
     // --- The card ------------------------------------------------------
     Rectangle {
         anchors.fill: parent
-        color: "#99000000"
+        color: Qt.rgba(0, 0, 0, 0.6)
 
         Rectangle {
             id: card
             anchors.centerIn: parent
             width: 460
             radius: 24
-            color: "#1c1f2b"
-            border.color: "#3a4266"
+            color: theme.background
+            border.color: Qt.lighter(theme.background, 1.6)
             border.width: 2
             height: cardColumn.implicitHeight + 64
 
@@ -235,7 +239,7 @@ PanelWindow {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: "Ask a grown-up"
-                        color: "white"
+                        color: theme.foreground
                         font.pixelSize: 24
                         font.bold: true
                     }
@@ -243,7 +247,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: root.desc
-                        color: "#c8ccdc"
+                        color: theme.muted
                         font.pixelSize: 15
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
@@ -257,7 +261,7 @@ PanelWindow {
                         width: parent.width
                         visible: root.done
                         text: root.doneMessage
-                        color: "#9ff2c0"
+                        color: theme.accent
                         font.pixelSize: 16
                         font.bold: true
                         wrapMode: Text.WordWrap
@@ -270,8 +274,8 @@ PanelWindow {
                         width: parent.width
                         height: 48
                         radius: 8
-                        color: root.locked ? "#3a2222" : "#12141c"
-                        border.color: passwordInput.activeFocus ? "#8fb8ff" : "#3a4266"
+                        color: root.locked ? Qt.darker(theme.error, 4) : Qt.darker(theme.background, 1.3)
+                        border.color: passwordInput.activeFocus ? theme.accent : Qt.lighter(theme.background, 1.6)
                         border.width: 2
 
                         TextInput {
@@ -281,7 +285,7 @@ PanelWindow {
                             echoMode: TextInput.Password
                             focus: true
                             enabled: !root.locked && !root.verifying
-                            color: "white"
+                            color: theme.foreground
                             font.pixelSize: 18
                             clip: true
                         }
@@ -291,7 +295,7 @@ PanelWindow {
                         width: parent.width
                         visible: !root.done && root.hint.length > 0
                         text: root.hint
-                        color: root.locked ? "#ffb0b0" : "#ffd27a"
+                        color: root.locked ? theme.error : theme.warning
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
                         horizontalAlignment: Text.AlignHCenter
@@ -308,9 +312,9 @@ PanelWindow {
                             width: (cardColumn.width - 16) / 2
                             height: 84
                             radius: 12
-                            color: root.selectedAction === 0 ? "#3a4266" : "#232838"
+                            color: root.selectedAction === 0 ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
                             border.width: root.selectedAction === 0 ? 3 : 0
-                            border.color: "#8fb8ff"
+                            border.color: theme.accent
 
                             Column {
                                 anchors.centerIn: parent
@@ -319,7 +323,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "A grown-up is here"
-                                    color: "white"
+                                    color: theme.foreground
                                     font.pixelSize: 15
                                     font.bold: true
                                     horizontalAlignment: Text.AlignHCenter
@@ -328,7 +332,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Type their password"
-                                    color: "#c8ccdc"
+                                    color: theme.muted
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap
@@ -349,9 +353,9 @@ PanelWindow {
                             width: (cardColumn.width - 16) / 2
                             height: 84
                             radius: 12
-                            color: root.selectedAction === 1 ? "#3a4266" : "#232838"
+                            color: root.selectedAction === 1 ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
                             border.width: root.selectedAction === 1 ? 3 : 0
-                            border.color: "#8fb8ff"
+                            border.color: theme.accent
 
                             Column {
                                 anchors.centerIn: parent
@@ -360,7 +364,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Ask later"
-                                    color: "white"
+                                    color: theme.foreground
                                     font.pixelSize: 15
                                     font.bold: true
                                     horizontalAlignment: Text.AlignHCenter
@@ -369,7 +373,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Your grown-up will see it"
-                                    color: "#c8ccdc"
+                                    color: theme.muted
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap

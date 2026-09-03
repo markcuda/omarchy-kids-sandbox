@@ -23,9 +23,13 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import "../qml"
 
 PanelWindow {
     id: root
+
+    // Theme colors/font (docs/theming.md) — see share/qml/KidsTheme.qml.
+    KidsTheme { id: theme }
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusiveZone: -1
@@ -112,15 +116,15 @@ PanelWindow {
     // --- The card ------------------------------------------------------
     Rectangle {
         anchors.fill: parent
-        color: "#99000000"
+        color: Qt.rgba(0, 0, 0, 0.6)
 
         Rectangle {
             id: card
             anchors.centerIn: parent
             width: 480
             radius: 24
-            color: "#1c1f2b"
-            border.color: "#3a4266"
+            color: theme.background
+            border.color: Qt.lighter(theme.background, 1.6)
             border.width: 2
             height: cardColumn.implicitHeight + 64
 
@@ -157,7 +161,7 @@ PanelWindow {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: "Time's up, " + root.displayName + "!"
-                        color: "white"
+                        color: theme.foreground
                         font.pixelSize: 26
                         font.bold: true
                     }
@@ -165,7 +169,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: "Your screen time for today is done."
-                        color: "#c8ccdc"
+                        color: theme.muted
                         font.pixelSize: 15
                         horizontalAlignment: Text.AlignHCenter
                         wrapMode: Text.WordWrap
@@ -174,7 +178,7 @@ PanelWindow {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: "Finishing in " + root.secondsLeft + "s"
-                        color: root.secondsLeft <= 10 ? "#ffb0b0" : "#ffd27a"
+                        color: root.secondsLeft <= 10 ? theme.error : theme.warning
                         font.pixelSize: 14
                     }
 
@@ -187,9 +191,9 @@ PanelWindow {
                             width: (cardColumn.width - 16) / 2
                             height: 84
                             radius: 12
-                            color: root.selectedAction === 0 ? "#3a4266" : "#232838"
+                            color: root.selectedAction === 0 ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
                             border.width: root.selectedAction === 0 ? 3 : 0
-                            border.color: "#8fb8ff"
+                            border.color: theme.accent
 
                             Column {
                                 anchors.centerIn: parent
@@ -198,7 +202,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Ask a grown-up"
-                                    color: "white"
+                                    color: theme.foreground
                                     font.pixelSize: 16
                                     font.bold: true
                                     horizontalAlignment: Text.AlignHCenter
@@ -207,7 +211,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "for more time"
-                                    color: "#c8ccdc"
+                                    color: theme.muted
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap
@@ -228,9 +232,9 @@ PanelWindow {
                             width: (cardColumn.width - 16) / 2
                             height: 84
                             radius: 12
-                            color: root.selectedAction === 1 ? "#3a4266" : "#232838"
+                            color: root.selectedAction === 1 ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
                             border.width: root.selectedAction === 1 ? 3 : 0
-                            border.color: "#8fb8ff"
+                            border.color: theme.accent
 
                             Column {
                                 anchors.centerIn: parent
@@ -239,7 +243,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Finish"
-                                    color: "white"
+                                    color: theme.foreground
                                     font.pixelSize: 16
                                     font.bold: true
                                     horizontalAlignment: Text.AlignHCenter
@@ -248,7 +252,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: "Closes " + root.displayName + "'s apps"
-                                    color: "#c8ccdc"
+                                    color: theme.muted
                                     font.pixelSize: 11
                                     horizontalAlignment: Text.AlignHCenter
                                     wrapMode: Text.WordWrap

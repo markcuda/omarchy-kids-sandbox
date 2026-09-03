@@ -35,9 +35,13 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
+import "../qml"
 
 PanelWindow {
     id: root
+
+    // Theme colors/font (docs/theming.md) — see share/qml/KidsTheme.qml.
+    KidsTheme { id: theme }
 
     WlrLayershell.layer: WlrLayer.Overlay
     // Small and out of the way: this only reserves screen space if
@@ -78,8 +82,8 @@ PanelWindow {
         anchors.fill: parent
         anchors.margins: 8
         radius: 14
-        color: "#1c1f2b"
-        border.color: "#3a4266"
+        color: theme.background
+        border.color: Qt.lighter(theme.background, 1.6)
         border.width: 2
 
         Row {
@@ -93,13 +97,13 @@ PanelWindow {
             Text {
                 text: "⏰" // alarm clock
                 font.pixelSize: 28
-                color: "#ffd27a"
+                color: theme.warning
             }
 
             Text {
                 width: parent.width - 40
                 text: root.message
-                color: "white"
+                color: theme.foreground
                 font.pixelSize: 16
                 font.bold: true
                 wrapMode: Text.WordWrap

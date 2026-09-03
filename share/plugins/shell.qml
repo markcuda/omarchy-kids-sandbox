@@ -46,9 +46,13 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import "../qml"
 
 PanelWindow {
     id: root
+
+    // Theme colors/font (docs/theming.md) — see share/qml/KidsTheme.qml.
+    KidsTheme { id: theme }
 
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.exclusiveZone: -1
@@ -135,7 +139,7 @@ PanelWindow {
     // --- The card ------------------------------------------------------
     Rectangle {
         anchors.fill: parent
-        color: "#99000000"
+        color: Qt.rgba(0, 0, 0, 0.6)
 
         Rectangle {
             id: card
@@ -143,8 +147,8 @@ PanelWindow {
             width: 560
             height: Math.min(parent.height - 96, 640)
             radius: 24
-            color: "#1c1f2b"
-            border.color: "#3a4266"
+            color: theme.background
+            border.color: Qt.lighter(theme.background, 1.6)
             border.width: 2
 
             FocusScope {
@@ -165,7 +169,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: "More apps"
-                        color: "white"
+                        color: theme.foreground
                         font.pixelSize: 24
                         font.bold: true
                     }
@@ -173,7 +177,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: "Pick one, then press Enter to ask a grown-up."
-                        color: "#c8ccdc"
+                        color: theme.muted
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
                     }
@@ -184,7 +188,7 @@ PanelWindow {
                         width: parent.width
                         visible: !root.loaded
                         text: "Looking for apps to add…"
-                        color: "#c8ccdc"
+                        color: theme.muted
                         font.pixelSize: 15
                     }
 
@@ -192,7 +196,7 @@ PanelWindow {
                         width: parent.width
                         visible: root.loaded && root.loadError.length > 0
                         text: root.loadError
-                        color: "#ffb0b0"
+                        color: theme.error
                         font.pixelSize: 15
                         wrapMode: Text.WordWrap
                     }
@@ -201,7 +205,7 @@ PanelWindow {
                         width: parent.width
                         visible: root.loaded && root.loadError.length === 0 && root.shelf.length === 0
                         text: "Nothing here yet -- check back later!"
-                        color: "#c8ccdc"
+                        color: theme.muted
                         font.pixelSize: 15
                         wrapMode: Text.WordWrap
                     }
@@ -222,9 +226,9 @@ PanelWindow {
                             width: shelfList.width
                             height: 76
                             radius: 12
-                            color: ListView.isCurrentItem ? "#3a4266" : "#232838"
+                            color: ListView.isCurrentItem ? Qt.lighter(theme.background, 2.4) : Qt.lighter(theme.background, 1.6)
                             border.width: ListView.isCurrentItem ? 3 : 0
-                            border.color: "#8fb8ff"
+                            border.color: theme.accent
 
                             Column {
                                 anchors.verticalCenter: parent.verticalCenter
@@ -237,7 +241,7 @@ PanelWindow {
                                     width: parent.width
                                     text: (modelData.name || modelData.id || "")
                                         + (modelData.age ? "  ·  ages " + modelData.age + "+" : "")
-                                    color: "white"
+                                    color: theme.foreground
                                     font.pixelSize: 16
                                     font.bold: true
                                     elide: Text.ElideRight
@@ -246,7 +250,7 @@ PanelWindow {
                                 Text {
                                     width: parent.width
                                     text: modelData.description || ""
-                                    color: "#c8ccdc"
+                                    color: theme.muted
                                     font.pixelSize: 13
                                     elide: Text.ElideRight
                                 }

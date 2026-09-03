@@ -36,12 +36,17 @@
 //     small pieces of qs.Ui this file needs (Panel, KeyboardPanel,
 //     PanelKeyCatcher) into this plugin's own directory instead of
 //     importing the shell's copy -- confirm this first in the VM.
-//   - Deliberately NOT used: qs.Commons' `Style`/`Color` singletons and
-//     qs.Ui's `BarIconButton`/`WidgetButton` (their exact property names
-//     were not fetched). This file draws its own icon row with plain
-//     QtQuick primitives instead, at the cost of not matching the shell's
-//     theme -- functionally correct either way, since I-6 only requires
-//     an honest, working control, not pixel-perfect theming.
+//   - qs.Commons' `Color`/`Style` singletons (docs/theming.md, issue #48):
+//     now used directly below (Color.accent/Color.muted/Color.urgent/
+//     Color.background, Style.font.family) instead of literal hex --
+//     their exact property names are confirmed, fetched directly from
+//     shell/Commons/Color.qml, shell/Commons/Style.qml, and
+//     shell/Commons/qmldir (`module qs.Commons` / `singleton Color 1.0` /
+//     `singleton Style 1.0`) at tag v4.0.2. Still NOT used: qs.Ui's
+//     `BarIconButton`/`WidgetButton` (their exact property names weren't
+//     needed once this file already had its own working icon row --
+//     I-6 only requires an honest, working control, not a rewrite for
+//     its own sake).
 //   - Keyboard reach: Keys.onReturnPressed/onEnterPressed below assume the
 //     bar can hand keyboard focus to a widget (e.g. Tab-cycling bar icons).
 //     Unconfirmed against a real bar; harmless if unused since a mouse
@@ -53,6 +58,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Ui
+import qs.Commons
 
 Panel {
     id: root
@@ -244,11 +250,11 @@ Panel {
                 width: 16
                 height: 16
                 radius: 8
-                color: modelData.paused ? "#5a5f73" : "#7ad17a"
+                color: modelData.paused ? Color.muted : Color.accent
                 Text {
                     anchors.centerIn: parent
                     text: parent.modelData.initial
-                    color: "#14161f"
+                    color: Color.background
                     font.pixelSize: 10
                     font.bold: true
                 }
@@ -260,12 +266,12 @@ Panel {
             width: reqBadgeText.implicitWidth + 10
             height: 16
             radius: 8
-            color: "#ffb454"
+            color: Color.urgent
             Text {
                 id: reqBadgeText
                 anchors.centerIn: parent
                 text: String(root.openRequestCount)
-                color: "#14161f"
+                color: Color.background
                 font.pixelSize: 10
                 font.bold: true
             }
@@ -320,7 +326,7 @@ Panel {
                         width: rowsColumn.width
                         height: 28
                         radius: 6
-                        color: index === root.cursorIndex ? Qt.rgba(1, 1, 1, 0.12) : "transparent"
+                        color: index === root.cursorIndex ? Style.selectedFillFor(Color.foreground, Color.accent, Color.urgent) : "transparent"
 
                         Text {
                             anchors.left: parent.left
@@ -330,8 +336,8 @@ Panel {
                             anchors.verticalCenter: parent.verticalCenter
                             text: rowDelegate.modelData.label
                             elide: Text.ElideRight
-                            color: root.bar ? root.bar.foreground : "white"
-                            font.family: root.bar ? root.bar.fontFamily : undefined
+                            color: root.bar ? root.bar.foreground : Color.foreground
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: 13
                         }
 

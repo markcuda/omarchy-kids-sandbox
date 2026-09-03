@@ -33,12 +33,13 @@ tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
 
 ## Colors
 
-`tui_init` reads the parent's current Omarchy theme through `omarchy-theme-color` (the same tool
-Omarchy's own templates, OSC sequences, and previews resolve colors through) for the accent,
-foreground, and muted keys, falling back to upstream's own prompt accent (`#845DF9`, from
-`install/provisioning/setup-form.sh`) and 256-color `212` — this repo's `bin/omarchy-kids` stub
-already uses the same fallback — when that tool or a theme isn't available yet (a dev machine, or
-very early in a fresh install).
+`tui_init` resolves `TUI_C_ACCENT`/`TUI_C_FG`/`TUI_C_MUTED`/`TUI_C_ERROR` through `lib/theme.sh`'s
+`theme_color`, which reads the parent's current Omarchy theme via `omarchy-theme-color` (the same
+tool Omarchy's own templates, OSC sequences, and previews resolve colors through) and falls back to
+its own dark palette (close to upstream's own prompt accent, `#845DF9` from
+`install/provisioning/setup-form.sh`) when that tool or a theme isn't available yet (a dev machine,
+or very early in a fresh install). See `docs/theming.md` for the full plumbing — this is the same
+`theme_color` the SDDM portal uses.
 
 ## Screen data shapes
 

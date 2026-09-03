@@ -215,4 +215,3 @@ With `wifi = helper`, `status` lists the connections through the root helper, `l
 empty OK, and `join TestNet` fails with NetworkManager's "No Wi-Fi device found", which is the
 VM telling the truth. The picker overlay, a real join with `ignore-auto-dns`, `forget`, and the
 captive-portal window need the laptop's wireless card.
-

@@ -16,8 +16,23 @@
 #
 # --finish (SPEC.md R-EXIT-3, run by the modal's Finish button once the
 #   parent password verifies): ends the kid's session so SDDM returns to
-#   the greeter -- `hyprctl dispatch exit` first, best-effort, if
-#   hyprctl is present, then `loginctl terminate-session "$XDG_SESSION_ID"`.
+#   the greeter -- `hyprctl dispatch 'hl.dsp.exit()'` first, waiting up to
+#   OMARCHY_KIDS_EXIT_WAIT seconds for Hyprland to actually be gone, then
+#   `loginctl terminate-session "$XDG_SESSION_ID"` as the last resort only
+#   (see "Verified live" in docs/exit.md: a hard terminate-session makes
+#   sddm-helper exit 1 and SDDM shows nothing at all -- a clean compositor
+#   exit is what actually brings the greeter back).
+#
+# --finish --kid <account> (root only; issue #37's bar widget "end
+#   session" action, and the panel's own end-session action if it has
+#   one): the same idea, done from outside the kid's session instead of
+#   from inside it, so it needs a different way to reach that session's
+#   Hyprland -- `runuser -u <account>` into the kid's own
+#   `HYPRLAND_INSTANCE_SIGNATURE` under /run/user/<uid>/hypr/<signature>/,
+#   found on disk rather than read from an env var this process was never
+#   given. Waits the same OMARCHY_KIDS_EXIT_WAIT, then falls back to
+#   `loginctl terminate-user <account>` (not terminate-session: there is
+#   no session id to hand it here, only the account). See docs/exit.md.
 #
 # --pause (SPEC.md R-EXIT-3's other half): NOT IMPLEMENTED. Per
 # docs/phase1/V1.md and docs/phase1/DECISIONS-NEEDED.md, SDDM's
@@ -35,9 +50,12 @@ SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
 MODAL_QML="$SHARE/exit-modal/shell.qml"
 
+die() { echo "omarchy-kids-exit: $1" >&2; exit "${2:-2}"; }
+
 usage() {
   cat <<EOF
 Usage: omarchy-kids-exit [--open|--finish|--pause]
+       omarchy-kids-exit --finish --kid <account>
 
 Bound to Super+Shift+K in every Kids Mode Hyprland level
 (share/hyprland/L1.lua, L2.lua, L3.lua) and to three Super taps within
@@ -48,6 +66,12 @@ Bound to Super+Shift+K in every Kids Mode Hyprland level
   --finish    End the kid's session cleanly (SPEC.md R-EXIT-3). Run by
               the modal's own Finish button after the parent password
               verifies -- not meant to be run directly by a kid.
+  --finish --kid <account>
+              Root only. End <account>'s session from outside it (the
+              bar widget's "end session" row, bin/omarchy-kids-bar end --
+              see docs/exit.md). Same idea as plain --finish, reached
+              through that account's own Hyprland instance instead of
+              this process's own.
   --pause     Not implemented yet (docs/phase1/V1.md, DECISIONS-NEEDED.md).
               Prints why and exits 2.
 
@@ -55,6 +79,16 @@ Env:
   OMARCHY_KIDS_SHARE     default /usr/share/omarchy-kids (exit-modal/shell.qml lives under here)
   OMARCHY_KIDS_CONF_BIN  default: bin/omarchy-kids-conf beside this script, else /usr/bin/omarchy-kids-conf
   OMARCHY_KIDS_ACCOUNT   default: this process's own user (id -un)
+  OMARCHY_KIDS_EXIT_WAIT seconds to wait for Hyprland to exit cleanly before
+                         falling back to loginctl (default 8; both --finish
+                         forms)
+  OMARCHY_KIDS_RUN_USER_ROOT  where --finish --kid looks for the kid's own
+                         runtime dir: <this>/<uid>/hypr/<signature>/
+                         (default /run/user, i.e. the kid's real
+                         \$XDG_RUNTIME_DIR)
+  OMARCHY_KIDS_EXIT_REQUIRE_ROOT=0  skip --finish --kid's root check (a
+                         test hook, same convention as
+                         OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT)
 
   -h, --help  Show this help and exit.
 EOF
@@ -93,6 +127,20 @@ cmd_open() {
   exec quickshell -p "$MODAL_QML"
 }
 
+# wait_for_hyprland_gone UID — polls once a second, up to
+# OMARCHY_KIDS_EXIT_WAIT (default 8), for no Hyprland process left owned
+# by UID. Returns 0 the moment it's gone, 1 once the wait is spent
+# (caller falls back to loginctl only then). Shared by --finish and
+# --finish --kid -- same check, just parameterized by whose Hyprland.
+wait_for_hyprland_gone() {
+  local uid="$1" waited=0 max="${OMARCHY_KIDS_EXIT_WAIT:-8}"
+  while (( waited < max )); do
+    pgrep -u "$uid" -x Hyprland >/dev/null 2>&1 || return 0
+    sleep 1; waited=$((waited + 1))
+  done
+  return 1
+}
+
 cmd_finish() {
   # Ask the compositor to quit cleanly and wait for it: SDDM starts a new
   # greeter only after a clean session end. A hard terminate makes
@@ -102,13 +150,59 @@ cmd_finish() {
   if command -v hyprctl >/dev/null 2>&1; then
     hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1 || hyprctl dispatch exit >/dev/null 2>&1 || true
   fi
-  local waited=0 max="${OMARCHY_KIDS_EXIT_WAIT:-8}"
-  while (( waited < max )); do
-    pgrep -u "$(id -u)" -x Hyprland >/dev/null 2>&1 || exit 0
-    sleep 1; waited=$((waited + 1))
-  done
+  wait_for_hyprland_gone "$(id -u)" && exit 0
   # Last resort only: the compositor ignored the request.
   exec loginctl terminate-session "${XDG_SESSION_ID:?omarchy-kids-exit --finish needs XDG_SESSION_ID}"
+}
+
+# cmd_finish_kid ACCOUNT — the root-side, outside-the-session version of
+# cmd_finish above (see this file's own header and docs/exit.md for why
+# a separate mode: no session id, no XDG_RUNTIME_DIR/HYPRLAND_INSTANCE_
+# SIGNATURE of our own to fall back on -- those belong to ACCOUNT's
+# session, not this process's). Finds ACCOUNT's own Hyprland instance(s)
+# on disk under /run/user/<uid>/hypr/<signature>/ (one directory per
+# running instance; normally just one for a kid) and asks each to exit
+# the same Lua-dispatcher way, as ACCOUNT itself via `runuser` (hyprctl
+# only works talking to its own compositor's socket, which lives in that
+# instance's runtime dir -- root reading the directory listing is fine,
+# but the dispatch call itself has to run as the kid). Same wait, same
+# last-resort fallback as cmd_finish, except loginctl targets the whole
+# account (terminate-user), not one session id, since none is known here.
+cmd_finish_kid() {
+  local account="$1"
+  [[ -n "$account" ]] || die "--finish --kid needs an account (see --help)"
+  if [[ "${OMARCHY_KIDS_EXIT_REQUIRE_ROOT:-1}" == "1" && "$(id -u)" != "0" ]]; then
+    die "--finish --kid must run as root (it is meant to be run by bin/omarchy-kids-bar end, under sudo)" 1
+  fi
+
+  local uid
+  uid="$(id -u "$account" 2>/dev/null)" || die "--finish --kid: no such account '$account'"
+
+  local run_dir="${OMARCHY_KIDS_RUN_USER_ROOT:-/run/user}/$uid"
+  local hypr_dir="$run_dir/hypr"
+  local -a sigs=()
+  local entry
+  if [[ -d "$hypr_dir" ]]; then
+    for entry in "$hypr_dir"/*; do
+      [[ -d "$entry" ]] || continue
+      sigs+=("$(basename "$entry")")
+    done
+  fi
+
+  if ((${#sigs[@]} == 0)); then
+    echo "omarchy-kids-exit: no Hyprland instance found for '$account' under $hypr_dir -- going straight to loginctl terminate-user" >&2
+  elif command -v runuser >/dev/null 2>&1; then
+    local sig
+    for sig in "${sigs[@]}"; do
+      runuser -u "$account" -- env "XDG_RUNTIME_DIR=$run_dir" "HYPRLAND_INSTANCE_SIGNATURE=$sig" \
+        hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1 || true
+    done
+  fi
+
+  wait_for_hyprland_gone "$uid" && exit 0
+  # Last resort only: no session id in hand here, so this ends every
+  # session the account has, not one specific scope (docs/exit.md).
+  exec loginctl terminate-user "$account"
 }
 
 cmd_pause() {
@@ -117,19 +211,30 @@ cmd_pause() {
 }
 
 action="--open"
-for arg in "$@"; do
-  case "$arg" in
-    --open|--finish|--pause) action="$arg" ;;
+kid=""
+while (($#)); do
+  case "$1" in
+    --open|--finish|--pause) action="$1" ;;
+    --kid)
+      shift
+      [[ $# -gt 0 ]] || die "--kid needs an account (see --help)"
+      kid="$1"
+      ;;
     -h|--help) usage; exit 0 ;;
     *)
-      echo "omarchy-kids-exit: unknown argument '$arg' (see --help)" >&2
+      echo "omarchy-kids-exit: unknown argument '$1' (see --help)" >&2
       exit 2
       ;;
   esac
+  shift
 done
+
+if [[ -n "$kid" && "$action" != "--finish" ]]; then
+  die "--kid only makes sense with --finish"
+fi
 
 case "$action" in
   --open) cmd_open ;;
-  --finish) cmd_finish ;;
+  --finish) [[ -n "$kid" ]] && cmd_finish_kid "$kid" || cmd_finish ;;
   --pause) cmd_pause ;;
 esac

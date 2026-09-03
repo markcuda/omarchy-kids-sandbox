@@ -61,12 +61,16 @@
 #            falls back to `alacritty -e` if it isn't on PATH.
 #   end <kid>
 #            R-BAR-2's "end session" action -- same terminal/sudo shape as
-#            grant, running `loginctl terminate-user <kid>` instead. Not
-#            the kid-side Finish flow (R-EXIT-3's SIGTERM-then-terminate-
-#            session on a known session id, share/exit-modal/shell.qml);
-#            this is the parent doing it from outside with no session id
-#            in hand (status.json's rows carry no session id), so it ends
-#            every session that account has instead of one specific scope.
+#            grant, running `sudo omarchy-kids-exit --finish --kid <kid>`
+#            (that command's own root-side mode, added alongside this
+#            fix -- see its header and docs/exit.md). NEVER calls
+#            loginctl directly: a hard `loginctl terminate-user`/
+#            `terminate-session` on a still-live session makes
+#            sddm-helper exit 1 and SDDM show nothing at all until
+#            `systemctl restart sddm` (found live 2026-09-02, docs/
+#            exit.md) -- `omarchy-kids-exit --finish` asks the kid's own
+#            Hyprland to exit cleanly first and only falls back to
+#            loginctl if that doesn't work.
 #
 # Every path is overridable for tests, same convention as every other
 # command here:
@@ -82,8 +86,12 @@
 #   OMARCHY_KIDS_TIME_BIN           path to omarchy-kids-time (default:
 #                                   resolved beside this script, else
 #                                   /usr/bin/omarchy-kids-time)
+#   OMARCHY_KIDS_EXIT_BIN           path to omarchy-kids-exit (default:
+#                                   resolved beside this script, else
+#                                   /usr/bin/omarchy-kids-exit)
 #   OMARCHY_KIDS_TERMINAL_BIN       test hook: force the terminal helper
-#                                   used by `grant` instead of probing PATH
+#                                   used by `grant`/`end` instead of
+#                                   probing PATH
 #   DRY_RUN                        default 1 (AGENTS.md rule 8); --apply
 #                                   or DRY_RUN=0 makes enable/disable real.
 #                                   `grant` always runs for real (it is a
@@ -101,6 +109,7 @@ HOME_DIR="${OMARCHY_KIDS_HOME:-$HOME}"
 OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 DEFAULTS_SHELL_JSON="${OMARCHY_KIDS_DEFAULTS_SHELL_JSON:-$OMARCHY_PATH/config/omarchy/shell.json}"
 TIME_BIN="${OMARCHY_KIDS_TIME_BIN:-$DIR/bin/omarchy-kids-time}"; [[ -x "$TIME_BIN" ]] || TIME_BIN=/usr/bin/omarchy-kids-time
+EXIT_BIN="${OMARCHY_KIDS_EXIT_BIN:-$DIR/bin/omarchy-kids-exit}"; [[ -x "$EXIT_BIN" ]] || EXIT_BIN=/usr/bin/omarchy-kids-exit
 
 PLUGIN_ID="omarchy-kids.bar"
 CONFIG_DIR="$HOME_DIR/.config/omarchy"
@@ -295,22 +304,23 @@ cmd_grant() {
 }
 
 # cmd_end — R-BAR-2's "end session" action. Not the kid-side Finish flow
-# (R-EXIT-3: SIGTERM to the session scope, then `loginctl terminate-
-# session`, then the greeter -- share/exit-modal/shell.qml, with a real
-# session id in hand and the kid's own password already checked). This is
-# the parent doing it from outside, with no session id handy from
-# status.json (SPEC.md R-BAR-3's rows are `{kid, minutes_left, paused,
-# live}` -- no session id), so it asks logind to end every session that
-# account has instead of one specific scope. `loginctl terminate-user`
-# is real, root-capable logind functionality (not invented for this),
-# but the exact SIGTERM-then-terminate-session sequence R-EXIT-3
-# describes was never confirmed against a real systemd-logind here --
-# see docs/bar.md's "What's unverified".
+# in-process (share/exit-modal/shell.qml, with a real session id and
+# HYPRLAND_INSTANCE_SIGNATURE already in its own env). This is the parent
+# doing it from outside, with no session id handy from status.json
+# (SPEC.md R-BAR-3's rows are `{kid, minutes_left, paused, live}` -- no
+# session id), which is exactly what `omarchy-kids-exit --finish --kid`
+# (issue #37's own correction, see its header and docs/exit.md) exists
+# for: it finds the kid's Hyprland instance on disk and asks it to exit
+# cleanly first, only falling back to `loginctl terminate-user` if that
+# doesn't work. A hard `loginctl terminate-user`/`terminate-session` on a
+# still-live session makes sddm-helper exit 1 and SDDM show nothing at
+# all until `systemctl restart sddm` (found live 2026-09-02, docs/
+# exit.md) -- this must never call loginctl directly.
 cmd_end() {
     local kid="${1:-}"
     [[ -n "$kid" ]] || die "end: needs <kid> (see --help)"
     open_terminal_running "Session ended." "ending the session failed" \
-        sudo loginctl terminate-user "$kid"
+        sudo "$EXIT_BIN" --finish --kid "$kid"
 }
 
 cmd="${1:-}"

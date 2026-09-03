@@ -4,10 +4,14 @@
 # shell.qml is UNTESTED (no Quickshell here at all; see that file's own
 # header) and has no test in this suite.
 #
-# Fully self-contained: quickshell, hyprctl, loginctl, pgrep, and
-# omarchy-kids-conf are fakes on a stub PATH that only log their argv
+# Fully self-contained: quickshell, hyprctl, loginctl, pgrep, runuser, id,
+# and omarchy-kids-conf are fakes on a stub PATH that only log their argv
 # (same shape as test/shell.d/provision-test.sh's stub() helper), never
-# touching a real Hyprland/Quickshell/systemd session.
+# touching a real Hyprland/Quickshell/systemd session. --finish --kid's
+# own root check is exercised against the real, unstubbed `id -u` (the
+# test runner's own, non-root, same convention as time-test.sh's
+# OMARCHY_KIDS_TIME_REQUIRE_ROOT checks) before `id` gets stubbed for
+# everything after.
 # shellcheck disable=SC2015 # "A && B || C" below is always used with B, C that can't fail
 set -uo pipefail
 
@@ -24,6 +28,9 @@ check_contains() { # haystack needle label
 }
 check_eq() { # got want label
     if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
+}
+check_not_contains() { # haystack needle label
+    if [[ "$1" != *"$2"* ]]; then pass "$3"; else fail "$3 (did not want '$2' in '$1')"; fi
 }
 
 TMP="$(mktemp -d)"
@@ -163,6 +170,90 @@ OMARCHY_KIDS_EXIT_WAIT=0 "$EXIT_BIN" --finish >/dev/null 2>&1; st=$?
 check_eq "$st" 0 "--finish without hyprctl on PATH still exits 0"
 check_contains "$(cat "$LOG")" "loginctl terminate-session c7" "--finish without hyprctl still calls loginctl"
 stub hyprctl  # restore
+
+# =====================================================================
+# --finish --kid <account>: root-side end-session (bin/omarchy-kids-bar
+# end, issue #37)
+# =====================================================================
+
+# --- refuses without root (the real, unstubbed, non-root test runner) ----
+
+: > "$LOG"
+OMARCHY_KIDS_EXIT_REQUIRE_ROOT=1 "$EXIT_BIN" --finish --kid kid-ada >/dev/null 2>&1
+check_eq "$?" 1 "--finish --kid: refuses to run without root (or the test bypass)"
+
+# --- --kid only makes sense with --finish ---------------------------------
+
+"$EXIT_BIN" --open --kid kid-ada >/dev/null 2>&1
+check_eq "$?" 2 "--kid without --finish is refused"
+
+"$EXIT_BIN" --finish --kid >/dev/null 2>&1
+check_eq "$?" 2 "--kid with no account is refused"
+
+# From here on, the root check is bypassed (the test hook) and `id` is
+# stubbed: kid-ada is uid 1001, everything else is "no such account".
+export OMARCHY_KIDS_EXIT_REQUIRE_ROOT=0
+# shellcheck disable=SC2016
+stub id '
+if [[ "$1" == "-u" && "$2" == "kid-ada" ]]; then echo 1001; exit 0; fi
+if [[ "$1" == "-u" && -n "${2:-}" ]]; then exit 1; fi
+echo 0
+'
+stub runuser
+RUN_ROOT="$TMP/run-user"
+export OMARCHY_KIDS_RUN_USER_ROOT="$RUN_ROOT"
+
+# --- a signature is found: runuser dispatches the Lua exit into kid-ada's
+#     own Hyprland instance, and Hyprland leaving on its own means
+#     loginctl is never needed ----------------------------------------
+
+rm -rf "$RUN_ROOT"
+mkdir -p "$RUN_ROOT/1001/hypr/sig-abc123"
+stub pgrep 'exit 1'  # "not found" -- kid-ada's Hyprland is already gone
+: > "$LOG"
+OMARCHY_KIDS_EXIT_WAIT=2 "$EXIT_BIN" --finish --kid kid-ada >/dev/null 2>&1; st=$?
+argv4="$(cat "$LOG")"
+check_eq "$st" 0 "--finish --kid exits 0 once kid-ada's Hyprland is gone"
+check_contains "$argv4" "runuser -u kid-ada -- env XDG_RUNTIME_DIR=$RUN_ROOT/1001 HYPRLAND_INSTANCE_SIGNATURE=sig-abc123 hyprctl dispatch hl.dsp.exit()" \
+  "--finish --kid runs hyprctl as kid-ada, in kid-ada's own runtime dir/signature"
+grep -q "loginctl terminate-user" <<<"$argv4" \
+  && fail "--finish --kid must not terminate-user when Hyprland already exited" \
+  || pass "--finish --kid leaves loginctl alone when Hyprland already exited"
+
+# --- Hyprland ignores the request: falls back to loginctl terminate-user,
+#     not terminate-session (no session id is known here) ----------------
+
+stub pgrep 'exit 0'  # "found" -- still there
+: > "$LOG"
+OMARCHY_KIDS_EXIT_WAIT=0 "$EXIT_BIN" --finish --kid kid-ada >/dev/null 2>&1; st=$?
+argv5="$(cat "$LOG")"
+check_eq "$st" 0 "--finish --kid exits 0 even on the loginctl fallback"
+check_contains "$argv5" "runuser -u kid-ada" "the runuser dispatch still ran before falling back"
+check_contains "$argv5" "loginctl terminate-user kid-ada" "--finish --kid falls back to loginctl terminate-user <account>"
+check_not_contains "$argv5" "terminate-session" "the fallback is terminate-user, never terminate-session (no session id here)"
+
+# --- no Hyprland instance on disk at all: skip runuser, go straight to
+#     the wait/fallback (still says why on stderr) ------------------------
+
+rm -rf "$RUN_ROOT"
+: > "$LOG"
+err="$(OMARCHY_KIDS_EXIT_WAIT=0 "$EXIT_BIN" --finish --kid kid-ada 2>&1 >/dev/null)"; st=$?
+argv6="$(cat "$LOG")"
+check_eq "$st" 0 "--finish --kid with no Hyprland instance on disk still exits 0"
+check_contains "$err" "no Hyprland instance found" "it says why on stderr"
+grep -q "^runuser " <<<"$argv6" \
+  && fail "--finish --kid must not call runuser with no signature directory to target" \
+  || pass "--finish --kid skips runuser when there's no signature directory"
+check_contains "$argv6" "loginctl terminate-user kid-ada" "it still falls back to loginctl terminate-user"
+
+# --- an unknown account is refused, not silently loginctl'd ---------------
+
+out4="$("$EXIT_BIN" --finish --kid no-such-kid 2>&1)"; st=$?
+check_eq "$st" 2 "--finish --kid with an unknown account is refused"
+check_contains "$out4" "no such account" "the refusal names why"
+
+unset OMARCHY_KIDS_EXIT_REQUIRE_ROOT OMARCHY_KIDS_RUN_USER_ROOT
+stub pgrep 'exit 1'  # restore "not found" for whatever runs next
 
 # --- --pause: not implemented, exits 2, names why -------------------------
 

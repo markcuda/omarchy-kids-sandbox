@@ -16,10 +16,11 @@ Nothing else in this package writes to either file. `bin/omarchy-kids-wizard`'s 
 *mentions* `omarchy-kids-bar enable` in its Omy line -- see "Why this isn't a wizard yes/no
 prompt" below.
 
-Issue #37 also says the widget should be "removable from the panel". The panel (R-ASK-2's own
-Requests screen included) is not built yet -- `bin/omarchy-kids` is a stub (see docs/wizard.md /
-bin/omarchy-kids's own header) -- so for now `omarchy-kids-bar disable [--apply]` is that removal
-path; whichever issue builds the real panel should wire a button to it there.
+Issue #37 also says the widget should be "removable from the panel". `bin/omarchy-kids-panel`
+(issue #21) exists now but has no bar-widget row of its own yet, so `omarchy-kids-bar disable
+[--apply]` remains the removal path; a future panel change can wire a row to it there. The panel
+has no end-session action either, so the "call it instead of loginctl" half of this issue's
+correction (below) only touches `bin/omarchy-kids-bar`.
 
 ## Omarchy's real bar architecture (confirmed against omacom/omarchy, tag v4.0.2)
 
@@ -131,30 +132,38 @@ or bar widget approve → action") rather than invented -- see "Why 'Open reques
 link" below.
 
 **Why "give more time"/"end session" aren't direct calls to `omarchy-kids-time grant` /
-`loginctl`:** granting time requires root (`omarchy-kids-time grant`'s own check), and this widget
-runs in the parent's ordinary, unprivileged bar/shell process. `omarchy-kids-bar grant`/`end` open
-a real terminal for a plain `sudo` prompt -- the parent's own login password (I-8), the same
-mechanism `bin/omarchy-kids-wizard`'s own Apply step uses (plain `sudo`, not a `rootpw`), not a
-polkit action, because none is defined for `omarchy-kids-time grant` or `loginctl terminate-user`
+`omarchy-kids-exit`:** granting time and ending a session both need root, and this widget runs in
+the parent's ordinary, unprivileged bar/shell process. `omarchy-kids-bar grant`/`end` open a real
+terminal for a plain `sudo` prompt -- the parent's own login password (I-8), the same mechanism
+`bin/omarchy-kids-wizard`'s own Apply step uses (plain `sudo`, not a `rootpw`), not a polkit
+action, because none is defined for `omarchy-kids-time grant` or `omarchy-kids-exit --finish`
 (R-FND-3's polkit rules cover NetworkManager/udisks/systemd-manage-units/pacman, not this). Both
 prefer Omarchy's own `omarchy-launch-floating-terminal-with-presentation` helper (confirmed to
 exist in `omacom/omarchy`'s `bin/` at v4.0.2) and fall back to `alacritty -e` if that isn't on
 `PATH`.
 
-**"End session" is a simplification of R-EXIT-3, not its exact sequence.** R-EXIT-3's Finish flow
-(`share/exit-modal/shell.qml`, kid-initiated) does SIGTERM to a specific session scope, then
-`loginctl terminate-session <id>`, then the greeter, because it already has that session's id in
-hand. This widget only has `{kid, minutes_left, paused, live}` from status.json -- no session id
-(R-BAR-3) -- so `omarchy-kids-bar end <kid>` runs `loginctl terminate-user <kid>` instead, ending
-every session that account has. Real, root-capable `systemd-logind` functionality, not invented
-for this, but the exact SIGTERM-then-terminate-session sequence was never itself confirmed against
-a live `systemd-logind` here -- see "What's unverified" below.
+**"End session" never calls `loginctl` directly -- this was a live-testing correction.** The first
+version of this issue had `omarchy-kids-bar end` run `sudo loginctl terminate-user <kid>` itself.
+Live testing of R-EXIT-3's Finish flow (`docs/exit.md`'s "Verified live") found that a hard
+`loginctl terminate-session`/`terminate-user` on a still-live session makes `sddm-helper` exit 1 --
+SDDM logs "Process crashed" and starts **no greeter at all**, a black screen until `systemctl
+restart sddm`. Only a clean Hyprland exit reliably brings the greeter back. So `end <kid>` now runs
+`sudo omarchy-kids-exit --finish --kid <kid>` (that command's own root-side mode, added alongside
+this fix): it finds `<kid>`'s Hyprland instance(s) under `/run/user/<uid>/hypr/<signature>/` on
+disk (this process has no session id or `HYPRLAND_INSTANCE_SIGNATURE` of its own for `<kid>`'s
+session -- those live in that session's environment, not this process's), asks each to exit
+cleanly via `runuser -u <kid> -- env ... hyprctl dispatch 'hl.dsp.exit()'`, waits up to
+`OMARCHY_KIDS_EXIT_WAIT` seconds, and only falls back to `loginctl terminate-user <kid>` (not
+`terminate-session`: no session id is known here, so this ends every session the account has) if
+Hyprland never left. See `docs/exit.md` for the full mechanism and its own "What's unverified" --
+the exact `runuser`/`hyprctl` sequence, and whether `terminate-user` is actually any safer than
+`terminate-session` given the same crash finding, were never run against a live multi-session box.
 
-**Why "Open requests" isn't a deep link into a Requests screen:** the panel (R-ASK-2: "the panel
-lists requests") isn't built yet -- `bin/omarchy-kids` is still a stub. Rather than ship a button
-that opens nothing (I-6), `omarchy-kids --requests` (added in this issue) prints
-`omarchy-kids-ask list`'s own output right there, honestly labeled as the stub it is. Once the
-real panel lands, that flag is the one to point at its Requests screen instead.
+**Why "Open requests" isn't a deep link into the panel's Requests screen:** `bin/omarchy-kids-panel`
+(issue #21) has a real Requests screen (P3, R-ASK-2) now, but no CLI flag to open straight to it,
+and a bar-widget click wants something faster than launching the full interactive panel anyway.
+`omarchy-kids --requests` (added in this issue) prints `omarchy-kids-ask list`'s own output right
+there instead -- a quick look, not a deep link, honestly scoped to what it actually is.
 
 ## `/run/omarchy-kids/status.json` permissions (R-BAR-3)
 
@@ -216,18 +225,20 @@ see its own header for the full list. In order of what to check first:
    if `import qs.Ui` doesn't resolve for a plugin under `~/.config/omarchy/plugins/` the way it
    does for one under `$OMARCHY_PATH/shell/plugins/`, this file needs its own copy of `Panel` /
    `KeyboardPanel` / `PanelKeyCatcher` (see "What is not confirmed" above).
-2. With a kid logged in (and paused, via `omarchy-kids-time` or the panel once it exists): does
+2. With a kid logged in (and paused, via `omarchy-kids-time` or `bin/omarchy-kids-panel`): does
    the dot appear, with the right initial, and does its color/label change when paused?
 3. Click the widget, then Enter/arrows/Escape with no mouse (I-5): does the menu open, navigate,
    and close the way `PanelKeyCatcher` promises?
 4. "Give 15 more minutes" on a live kid: does a terminal open, prompt for the parent's own login
    password via plain `sudo`, and does `omarchy-kids-time status <kid>` reflect the grant
    afterward?
-5. "End session" on a live kid: does the same terminal/sudo flow run, and does the kid's session
-   actually end (portal shown again) the way `loginctl terminate-user` promises -- and is ending
-   *every* session for that account (rather than just the one the parent meant) ever actually a
-   problem in practice (a kid is not expected to have two sessions at once, but this was never
-   checked against a real multi-session login)?
+5. "End session" on a live kid: does `sudo omarchy-kids-exit --finish --kid <kid>` find the
+   right `/run/user/<uid>/hypr/<signature>/`, does `runuser -u <kid> -- ... hyprctl dispatch
+   'hl.dsp.exit()'` actually reach that Hyprland instance from a root shell, does the portal come
+   back cleanly (not the "Process crashed" black screen docs/exit.md's Verified-live section
+   describes), and does the `loginctl terminate-user` fallback ever actually get exercised (i.e.
+   does the clean-exit path work often enough that it doesn't) -- see docs/exit.md's own "What's
+   unverified" for this in detail.
 6. "Open requests" / "Open Kids Mode": do they print/launch what `bin/omarchy-kids` now does for
    `--requests` / no args?
 7. `omarchy-kids-bar disable --apply` on a bar that has other, unrelated customizations (a real
@@ -239,7 +250,11 @@ see its own header for the full list. In order of what to check first:
 existing file + no defaults → refuses; no existing file + defaults present → seeds and marks
 "created"; a pre-existing, already-customized file → backs up once, adds the widget alongside
 what's there, idempotent, `disable` restores the exact original bytes and removes the backup),
-`grant`/`end`'s terminal-helper selection and argument validation, and `status.json`'s mode
-(R-BAR-3).
+`grant`/`end`'s terminal-helper selection and argument validation (`end`'s own stub confirms it
+calls `omarchy-kids-exit --finish --kid`, never `loginctl` directly), and `status.json`'s mode
+(R-BAR-3). `test/shell.d/exit-test.sh` covers `omarchy-kids-exit --finish --kid` itself: the root
+check, `--kid` only valid with `--finish`, the `runuser`/`hyprctl` dispatch with stubbed
+`id`/`runuser`/`pgrep`, Hyprland leaving on its own vs. the `loginctl terminate-user` fallback
+(never `terminate-session`), no signature directory found, and an unknown account.
 `KidsModule.qml`'s own JSON parsing is QML/JS inline in the plugin (not a separate bash/python
 script), so there is no bash unit test for it here -- item 4 above is the VM check that covers it.

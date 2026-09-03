@@ -210,12 +210,12 @@ exit 0
 EOF
 chmod +x "$STUBS4/omarchy-kids-time"
 
-cat >"$STUBS4/loginctl" <<'EOF'
+cat >"$STUBS4/omarchy-kids-exit" <<'EOF'
 #!/bin/bash
-echo "LOGINCTL $*" >>"$LOGFILE"
+echo "EXIT $*" >>"$LOGFILE"
 exit 0
 EOF
-chmod +x "$STUBS4/loginctl"
+chmod +x "$STUBS4/omarchy-kids-exit"
 
 cat >"$STUBS4/term-capture" <<'EOF'
 #!/bin/bash
@@ -243,17 +243,22 @@ out="$("$BAR" grant kid-ada nope 2>&1)"
 check_status "$?" 2 "grant with a non-numeric minutes is refused"
 check_contains "$out" "positive integer" "the refusal explains why"
 
-# --- end: R-BAR-2's "end session" action, same terminal/sudo shape -------
+# --- end: R-BAR-2's "end session" action, same terminal/sudo shape, but
+#     via omarchy-kids-exit --finish --kid, never loginctl directly --
+#     see bin/omarchy-kids-bar's own header for why (a hard loginctl
+#     terminate on a live session crashes sddm-helper, docs/exit.md) -----
 LOGFILE3="$TMP/end.log"
 : >"$LOGFILE3"
 out="$(PATH="$STUBS4:$PATH" LOGFILE="$LOGFILE3" \
+  OMARCHY_KIDS_EXIT_BIN="$STUBS4/omarchy-kids-exit" \
   OMARCHY_KIDS_TERMINAL_BIN="$STUBS4/term-capture" \
   "$BAR" end kid-ada </dev/null 2>&1)"
-check_status "$?" 0 "end exits 0 when the terminal/sudo/loginctl chain succeeds"
+check_status "$?" 0 "end exits 0 when the terminal/sudo/omarchy-kids-exit chain succeeds"
 log3="$(cat "$LOGFILE3")"
 check_contains "$log3" "TERM " "end launches the configured terminal"
-check_contains "$log3" "SUDO loginctl terminate-user kid-ada" "end ran the command through sudo"
-check_contains "$log3" "LOGINCTL terminate-user kid-ada" "sudo ran loginctl terminate-user <kid>"
+check_contains "$log3" "SUDO " "end ran the command through sudo"
+check_contains "$log3" "EXIT --finish --kid kid-ada" "sudo ran omarchy-kids-exit --finish --kid <kid>"
+check "$(grep -c loginctl "$LOGFILE3")" "0" "end never calls loginctl directly"
 
 out="$("$BAR" end 2>&1)"
 check_status "$?" 2 "end with no kid is refused"

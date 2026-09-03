@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Re-assert every Kids Mode lock, fixing whatever has drifted
+# omarchy:args=[--quiet] [--dry-run]
 # omarchy-kids-assert — re-asserts every Kids Mode lock idempotently
 # (SPEC.md I-4, R-TRUST-5, R-BOOT-5, R-WEB-1, R-FND-2..6, §5.1). Called by
 # /usr/share/libalpm/hooks/omarchy-kids.hook after every pacman transaction,

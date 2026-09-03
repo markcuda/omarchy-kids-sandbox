@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Tell the big-tile launcher to open or close from a Hyprland bind
+# omarchy:args=<show|activate|log ID>
 # omarchy-kids-launcher-ctl: the one place the Level 1/2 Hyprland binds
 # (share/hyprland/L1.lua, L2.lua) go to reach the big-tile launcher
 # (share/launcher/shell.qml), so the Lua files don't have to guess

@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Watch for three Super taps within 1.5s and open the exit modal
 # omarchy-kids-super-tap: the "Super pressed three times within 1.5s"
 # half of SPEC.md R-EXIT-1. Meant to be run once per Super *release* --
 # a Hyprland `bindr` (key-release) bind, not a `bind` (key-press) one,

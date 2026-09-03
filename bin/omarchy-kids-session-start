@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Set up one kid Hyprland session: launcher tile, apps, time, web
 # omarchy-kids-session-start: run once per kid Hyprland session via
 # `exec-once`/`hl.on("hyprland.start", ...)` from share/hyprland/L1.lua,
 # L2.lua, and L3.lua (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E).

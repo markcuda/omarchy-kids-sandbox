@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Add a minute to today's screen-time ledger for every active kid
+# omarchy:args=tick
 # omarchy-kids-time-ledger: the ONLY thing that ever writes a kid's
 # screen-time usage (SPEC.md R-TIME-1..2, Appendix F). Root, run from
 # systemd/omarchy-kids-time.timer (every minute) via

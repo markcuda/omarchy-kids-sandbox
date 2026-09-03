@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=The kid-side Wi-Fi commands: list, join, status, forget, portal, picker
+# omarchy:args=<list|join|status|forget|portal|picker> [args]
 # omarchy-kids-wifi — the kid-side Wi-Fi commands (SPEC.md R-WIFI-1..4).
 #
 # Kid accounts are polkit-denied from

@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Walk a parent through provisioning the first kid
+# omarchy:args=[--dry-run]
 # omarchy-kids-wizard — the parent wizard's Easy path (SPEC.md R-WIZ-1..9,
 # Appendix A; issue #19). Bash + gum in Omarchy's floating terminal, every
 # screen rendered by lib/tui.sh (issue #18) — this file never calls gum

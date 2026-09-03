@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Open the exit modal, or end a kid's session for real
+# omarchy:args=[--open|--finish|--pause] | --finish --kid <account>
 # omarchy-kids-exit: bound to Super+Shift+K at every level, and to three
 # Super taps within 1.5s via bin/omarchy-kids-super-tap (SPEC.md R-EXIT-1
 # .. R-EXIT-6; docs/exit.md has the full picture, including what's

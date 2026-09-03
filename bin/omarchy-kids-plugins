@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Install or remove a kid-approved plugin from the marketplace
+# omarchy:args=<shelf|install|remove> [args]
 # omarchy-kids-plugins — the kids-plugins shelf (SPEC.md R-APPS-7, I-3,
 # I-6; issue #28): marketplace listings filtered to category "Kids",
 # verified only, install/remove into one kid's own account.

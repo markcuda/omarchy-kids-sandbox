@@ -1,4 +1,5 @@
 #!/bin/bash
+# omarchy:summary=Walk three sample lib/tui.sh screens on a real terminal
 # omarchy-kids-tui-demo: walks three sample screens from lib/tui.sh so a
 # human can see the look on a real terminal (issue #18). Not part of the
 # real wizard — that's later issues; this only exercises the renderer.

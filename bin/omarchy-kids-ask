@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Ask a grown-up for more time, an app, a plugin, or a site
+# omarchy:args=<time|app|plugin|site|submit|collect|list|approve|decline> ...
 # omarchy-kids-ask -- "Ask a parent" for more time, an app, a plugin, or a
 # site (SPEC.md R-ASK-1..3, Appendix D; issue #25). One verb, four kinds.
 #

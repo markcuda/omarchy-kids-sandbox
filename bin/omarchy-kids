@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Open Kids Mode: the parent wizard first, the panel after
+# omarchy:args=[wizard|remove-kids-mode] [--requests] [--dry-run] [--apply]
 # omarchy-kids: the app entry point (R-FND-1, R-WIZ-1 through R-WIZ-9).
 # Launched from the app drawer or Super+Shift+K. With no kid provisioned
 # yet, opens the parent wizard (bin/omarchy-kids-wizard, issue #19); once

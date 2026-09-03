@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Install a band's starter pack; manage a kid's launcher allowlist
+# omarchy:args=<list|install|install-queued|allowlist|hide|show|hide-from-mine|show-in-mine> ...
 # omarchy-kids-apps — starter-pack installs, the per-kid launcher
 # allowlist, and the parent's own opt-in "hide kids' apps from my
 # launcher" switch (SPEC.md R-APPS-2..6, Appendix C; I-1, I-6).

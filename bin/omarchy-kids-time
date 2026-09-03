@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Track a kid's remaining screen time and show the toasts/Time's Up screen
+# omarchy:args=<daemon|status|grant|ask-grownup> ...
 # omarchy-kids-time: the kid-side half of the screen-time engine
 # (SPEC.md R-TIME-1..5, R-ASK-1, Appendix F). Started detached from the
 # kid's own session by bin/omarchy-kids-session-start; also the CLI a

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# omarchy:summary=Verify a parent password and apply an approved "ask" request, over a root-only socket
 """omarchy-kids-authd -- the parent-password verifier (R-SEC-1, R-SEC-2).
 
 A root, socket-activated oracle. Two request shapes, one per connection:

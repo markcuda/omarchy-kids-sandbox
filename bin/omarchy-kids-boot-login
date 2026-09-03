@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Write or remove the per-boot SDDM autologin drop-in for the unlocked LUKS slot
+# omarchy:args=[--cleanup]
 # omarchy-kids-boot-login — writes or removes the per-boot SDDM autologin
 # drop-in based on which LUKS slot unlocked the root device (R-BOOT-3).
 #

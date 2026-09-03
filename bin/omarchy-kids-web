@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Render and install a band's managed Chromium policy
+# omarchy:args=<render|install|launch> <band> [args]
 # omarchy-kids-web — renders and installs the per-band managed Chromium
 # policy (SPEC.md R-WEB-1..4). Templates and starter lists are data:
 # share/policy/<band>.json (the fixed keys, R-WEB-2) and

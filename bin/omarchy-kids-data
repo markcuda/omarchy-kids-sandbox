@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Show or prune what Kids Mode has recorded about a kid
+# omarchy:args=<launches|sites|summary|mine|retention> <kid> [args]
 # omarchy-kids-data — recorded data and transparency (SPEC.md R-DATA-1..5,
 # I-2, I-6; issue #27). Read-only except `retention`, which prunes.
 #

@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=The parent panel: per-kid time, web, apps, level, password, remove
+# omarchy:args=[--dry-run] [--apply]
 # omarchy-kids-panel — everything after the first run (SPEC.md R-WIZ-7,
 # R-WIZ-8, R-ASK-2, R-TIME-4/5, R-FND-6, Appendix A's P1-P5; issue #21).
 # `bin/omarchy-kids` opens this once at least one kid exists; the wizard

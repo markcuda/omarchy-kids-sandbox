@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Remove Kids Mode: reverse every lock and account it created
+# omarchy:args=[--yes] [--dry-run] [--delete-homes] [--no-snapshot]
 # omarchy-kids-remove -- "Remove Kids Mode" (SPEC.md R-TRUST-1, R-TRUST-4,
 # R-FND-6, section 5.2's Remove flow): the parent's undo button. Reverses
 # every lock omarchy-kids-provision and the rest of the package ever wrote,

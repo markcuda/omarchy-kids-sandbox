@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Add or remove the parent's Kids Mode bar widget
+# omarchy:args=<enable|disable|status|grant <kid> <minutes>|end <kid>> [--apply]
 # omarchy-kids-bar: the only thing that ever touches the parent's own bar
 # config for Kids Mode (SPEC.md R-BAR, I-1's "Writes into the parent's own
 # files happen only when the parent asks (bar widget, ...)"). See

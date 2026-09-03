@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Read and write a kid's settings and a band's defaults
+# omarchy:args=<command> [args]
 # omarchy-kids-conf — one way to read and write every kid setting
 # (SPEC.md R-BAND-1, R-BAND-2, R-BUILD-5, Appendix B, Appendix C).
 #

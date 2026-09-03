@@ -1,4 +1,6 @@
 #!/bin/bash
+# omarchy:summary=Report whether every Kids Mode lock actually holds
+# omarchy:args=[--json] [--live]
 # omarchy-kids-check — v2: the green/red/yellow "is it safe?" report
 # (SPEC.md R-TRUST-2, R-TRUST-3, R-DESK-2; issue #29). Run at the end of
 # the wizard, from the panel, and (informally, by a grown-up) at kid

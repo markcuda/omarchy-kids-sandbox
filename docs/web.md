@@ -102,7 +102,7 @@ appends whatever it finds to the real binary's argv. Omarchy's own copy of that 
 ```console
 --ozone-platform=wayland
 --ozone-platform-hint=wayland
---password-store=gnome-libsecret
+--password-store=basic
 --enable-features=TouchpadOverscrollHistoryNavigation
 --load-extension=/usr/share/omarchy/default/chromium/extensions/copy-url,/usr/share/omarchy/default/chromium/extensions/yt-dlp,/usr/share/omarchy/default/chromium/extensions/whatsapp-slim
 ```

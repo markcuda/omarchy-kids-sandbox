@@ -184,7 +184,7 @@ EXPECTED_LAUNCH_ARGV=(
   /usr/lib/chromium/chromium
   --ozone-platform=wayland
   --ozone-platform-hint=wayland
-  --password-store=gnome-libsecret
+  --password-store=basic
   --enable-features=TouchpadOverscrollHistoryNavigation
   --no-first-run
   --no-default-browser-check

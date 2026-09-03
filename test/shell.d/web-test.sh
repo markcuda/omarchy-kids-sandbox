@@ -34,6 +34,7 @@ cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
 cp "$DIR"/share/policy/*.json "$SHARE/policy/"
 cp "$DIR"/share/policy/lists/*.txt "$SHARE/policy/lists/"
+cp "$DIR/share/policy/chromium-flags.conf" "$SHARE/policy/"
 
 export OMARCHY_KIDS_SHARE="$SHARE"
 
@@ -43,6 +44,9 @@ check() { # got want label
 }
 check_contains() { # haystack needle label
   if [[ "$1" == *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (want to find '$2' in '$1')"; fail=1; fi
+}
+check_not_contains() { # haystack needle label
+  if [[ "$1" != *"$2"* ]]; then echo "ok   $3"; else echo "FAIL $3 (did not want to find '$2' in '$1')"; fail=1; fi
 }
 check_status() { # got_status want_status label
   if [[ "$1" == "$2" ]]; then echo "ok   $3"; else echo "FAIL $3 (want exit $2, got $1)"; fail=1; fi
@@ -165,6 +169,45 @@ check_status "$st" 0 "install 13+ --apply: exits 0"
 [[ -f "$SYSROOT/etc/chromium/policies/managed/omarchy-kids-13+.json" ]] \
   && echo "ok   install 13+ --apply: wrote omarchy-kids-13+.json" \
   || { echo "FAIL install 13+ --apply: file missing"; fail=1; }
+
+# =====================================================================
+# launch: exact exec argv (issue #44) -- Omarchy's own Wayland/password-
+# store/feature flags, never --load-extension, plus --no-first-run
+# --no-default-browser-check --hide-crash-restore-bubble
+# --disable-session-crashed-bubble, and the URL last when one is given.
+# Reuses $SYSROOT/6-8's and 13+'s policy files installed just above; 9-12
+# was never installed in this SYSROOT, so it doubles as the R-WEB-4
+# fail-closed case below.
+# =====================================================================
+
+EXPECTED_LAUNCH_ARGV=(
+  /usr/lib/chromium/chromium
+  --ozone-platform=wayland
+  --ozone-platform-hint=wayland
+  --password-store=gnome-libsecret
+  --enable-features=TouchpadOverscrollHistoryNavigation
+  --no-first-run
+  --no-default-browser-check
+  --hide-crash-restore-bubble
+  --disable-session-crashed-bubble
+)
+expected_joined="$(printf '%s\n' "${EXPECTED_LAUNCH_ARGV[@]}")"
+
+argv_out="$(OMARCHY_KIDS_BAND=6-8 OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"; st=$?
+check_status "$st" 0 "launch: exits 0"
+check "$argv_out" "$expected_joined" "launch: exact exec argv, no URL"
+check_not_contains "$argv_out" "--load-extension" "launch: never --load-extension (issue #44)"
+
+argv_out_url="$(OMARCHY_KIDS_BAND=6-8 OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch https://pbskids.org 2>&1)"; st=$?
+check_status "$st" 0 "launch URL: exits 0"
+check "$argv_out_url" "$expected_joined"$'\n'"https://pbskids.org" "launch URL: exact exec argv with the URL appended last"
+
+out="$(OMARCHY_KIDS_BAND=9-12 OMARCHY_KIDS_WEB_NO_EXEC=1 "$BIN" launch 2>&1)"; st=$?
+check_status "$st" 1 "launch: refuses when the band's policy isn't installed (exit 1)"
+check_contains "$out" "R-WEB-4" "launch: refusal cites R-WEB-4"
+
+out="$(OMARCHY_KIDS_BAND=6-8 OMARCHY_KIDS_WEB_NO_EXEC=1 OMARCHY_KIDS_CHROMIUM_BIN=/opt/chromium "$BIN" launch 2>&1 | head -1)"
+check "$out" "/opt/chromium" "launch: OMARCHY_KIDS_CHROMIUM_BIN overrides the exec'd binary"
 
 unset OMARCHY_KIDS_ROOT
 

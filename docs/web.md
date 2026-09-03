@@ -12,7 +12,8 @@ reads.
 | `share/policy/<band>.json` | The band's fixed policy keys (R-WEB-2), plus `URLBlocklist`/an empty `URLAllowlist` placeholder for the two walled-garden bands. One file per band: `3-5.json`, `6-8.json`, `9-12.json`, `13+.json`. |
 | `share/policy/README.md` | Every key above, its type, and where it was verified (no comments in JSON, so the citations live here). |
 | `share/policy/lists/<band>.txt` | The band's starter list: one host per line, `#` starts a comment (full-line or trailing). `omarchy-kids-web render` merges this into the final `URLAllowlist` for a garden band. |
-| `bin/omarchy-kids-web` | `render`/`install` — see below. |
+| `share/policy/chromium-flags.conf` | Omarchy's own Chromium launch flags (`omacom/omarchy` `config/chromium-flags.conf`, tag `v4.0.2`), minus every `--load-extension` entry. One flag per line, same format as Omarchy's file. Read by `omarchy-kids-web launch` and copied into a kid's own `~/.config/chromium-flags.conf` by `omarchy-kids-provision` -- see "Why not just `chromium`" below. |
+| `bin/omarchy-kids-web` | `render`/`install`/`launch` — see below. |
 | `/etc/chromium/policies/managed/omarchy-kids-<band>.json` | The installed result: root:`omarchy-kids-<band>`, mode `0640` (R-WEB-1). |
 
 ## Precedence
@@ -90,6 +91,57 @@ at which point it always succeeds; a non-root dev or test run cannot chown to `r
 attempts ownership again) on the real target — same reasoning `docs/assert.md` gives for that
 lock, which this issue's writer fills in (that doc's own note: "a separate issue's deliverable").
 
+## `omarchy-kids-web launch [URL]` — why not just `chromium` (issue #44)
+
+The Web tile's exec used to be the bare command `chromium`. Live on the test laptop, that ran
+Arch's `/usr/bin/chromium` wrapper script, which reads `~/.config/chromium-flags.conf` and
+appends whatever it finds to the real binary's argv. Omarchy's own copy of that file
+(`omacom/omarchy` `config/chromium-flags.conf`, tag `v4.0.2` — landed in a fresh kid's home by
+`omarchy-provision-user`, the per-user setup `omarchy-kids-provision add` runs, R-FND-2) is:
+
+```console
+--ozone-platform=wayland
+--ozone-platform-hint=wayland
+--password-store=gnome-libsecret
+--enable-features=TouchpadOverscrollHistoryNavigation
+--load-extension=/usr/share/omarchy/default/chromium/extensions/copy-url,/usr/share/omarchy/default/chromium/extensions/yt-dlp,/usr/share/omarchy/default/chromium/extensions/whatsapp-slim
+```
+
+That last flag tries to load Omarchy's three bundled extensions unpacked. The kids policy always
+sets `ExtensionInstallBlocklist: ["*"]` and `DeveloperToolsAvailability: 2` (R-WEB-2), so Chromium
+refused every one of them and showed "Failed to load extension … Loading of unpacked extensions
+is disabled by the administrator" on every single launch — a modal that also stole keyboard focus
+(I-5). The policy was working exactly as intended; the flag it was refusing should never have
+been offered to begin with.
+
+`omarchy-kids-web launch` fixes this by never going through the wrapper at all: it execs
+`/usr/lib/chromium/chromium` — the real binary Arch's `/usr/bin/chromium` wrapper itself execs
+after reading that flags file — directly. Its argv is Omarchy's four Wayland/password-
+store/feature flags from `share/policy/chromium-flags.conf` (the same four lines above, minus the
+`--load-extension` line — this repo's own copy of that file), then `--no-first-run
+--no-default-browser-check --hide-crash-restore-bubble --disable-session-crashed-bubble`, then
+`URL` if one was given on the command line, else the band's rendered policy's
+`RestoreOnStartupURLs[0]` if it ever defines one (none of today's four band templates do — see
+`share/policy/README.md`). The last two flags exist because Finish (`bin/omarchy-kids-exit`,
+R-EXIT-1) ends the Hyprland compositor while Chromium is still running mid-session, so without
+them the *next* launch shows Chromium's own "Restore pages? Chromium didn't shut down correctly"
+crash bubble instead of a clean start.
+
+Before exec'ing anything, `launch` re-checks that this band's managed-policy file is actually
+readable (R-WEB-4) — the same fail-closed rule the tile-omission logic below already gives the
+Web tile itself, repeated here as defense in depth for whatever else might call `launch` directly.
+The band comes from `$OMARCHY_KIDS_BAND` (set by the tile's own exec line, `OMARCHY_KIDS_BAND=<band>
+omarchy-kids-web launch`, the same convention `bin/omarchy-kids-session-start`'s "more-apps" tile
+already uses) or, if unset, `omarchy-kids-conf get $OMARCHY_KIDS_ACCOUNT band`.
+
+**A kid running `chromium` directly from a terminal** (bands 9-12/13+ have one, R-BAND's table)
+still goes through Arch's wrapper and still reads `~/.config/chromium-flags.conf` — a path
+`omarchy-kids-web launch` never touches. So `omarchy-kids-provision add` overwrites that file with
+`share/policy/chromium-flags.conf` too, at `root:root 0644`: readable (Chromium's wrapper still
+picks it up) but not writable, so a kid can't quietly restore the `--load-extension` flag by
+editing it. It isn't undeletable — the kid still owns `~/.config` itself, and deleting the file
+just leaves Chromium with no user flags file at all, never Omarchy's extension-loading one back.
+
 ## How a parent edits the walled garden
 
 Open `share/policy/lists/<band>.txt` (installed at
@@ -109,7 +161,9 @@ tile list — carries the same check as defense in depth: it only adds the `chro
 `/etc/chromium/policies/managed/omarchy-kids-<band>.json` exists and is readable by the kid's own
 account, and logs a line naming why the tile was left out otherwise
 (`$XDG_RUNTIME_DIR/omarchy-kids/session-<uid>.log`, the same file `omarchy-kids-session` itself
-writes to). A kid never sees a Web tile that would silently fail to open (I-6).
+writes to). A kid never sees a Web tile that would silently fail to open (I-6). `omarchy-kids-web
+launch` itself repeats this same check (see above) before it ever execs Chromium, so the rule
+holds even if something other than this tile ever calls `launch` directly.
 
 ## Verifying policy keys
 

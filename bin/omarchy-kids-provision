@@ -292,6 +292,41 @@ mark_migrations_done() {
     } > "$state_dir/migrations.log"
 }
 
+# --- Chromium launch flags override (issue #44) -----------------------
+
+# install_kids_chromium_flags ACCOUNT — overwrites
+# ~/.config/chromium-flags.conf with Kids Mode's own copy
+# (share/policy/chromium-flags.conf: bin/omarchy-kids-web's
+# `launch` uses the same file). Omarchy's own per-user setup
+# (omarchy-provision-user, called just above, or the mark_migrations_done
+# fallback's account still inheriting whatever the base install left in
+# skel) leaves a copy of omacom/omarchy's config/chromium-flags.conf here,
+# which adds --load-extension=/usr/share/omarchy/default/chromium/
+# extensions/... for Omarchy's three bundled extensions -- always refused
+# by the kids policy (ExtensionInstallBlocklist: ["*"]), so a kid who
+# runs `chromium` directly from a terminal (bands 9-12/13+ have one,
+# R-BAND) hits the same "disabled by the administrator" modal the Web
+# tile's own `omarchy-kids-web launch` already avoids. Written root:root
+# 0644: readable (Chromium's wrapper still picks it up), not writable, so
+# the kid can't put --load-extension back by editing it -- though not
+# undeletable, since the kid still owns ~/.config itself; a kid who
+# deletes it just gets a Chromium with no user flags file at all, never
+# Omarchy's extension-loading one back.
+install_kids_chromium_flags() {
+    local account="$1" home config_dir dest stage
+    home="$(home_dir_for "$account")"
+    config_dir="$home/.config"
+    install -d -m 0755 "$config_dir"
+    dest="$config_dir/chromium-flags.conf"
+    stage="$(mktemp "$config_dir/.chromium-flags.conf.XXXXXX")"
+    cp -f "$SHARE/policy/chromium-flags.conf" "$stage"
+    chmod 0644 "$stage"
+    mv -f "$stage" "$dest"
+    if ! chown root:root "$dest" >/dev/null 2>&1; then
+        echo "  (could not chown $dest to root:root -- fine outside a real root run)" >&2
+    fi
+}
+
 # --- add ---------------------------------------------------------------
 
 cmd_add() {
@@ -485,6 +520,11 @@ cmd_add() {
     else
         run mark_migrations_done "$account"
     fi
+
+    # Issue #44: override whatever chromium-flags.conf Omarchy's per-user
+    # setup just left in this fresh home with Kids Mode's own copy, minus
+    # the extension-loading flag the kids policy always refuses.
+    run install_kids_chromium_flags "$account"
 
     echo "Done: $account"
 }

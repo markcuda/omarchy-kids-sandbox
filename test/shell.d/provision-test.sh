@@ -61,10 +61,12 @@ STUBS="$TMP/stubs"
 LOG="$TMP/log"
 ARGV_LOG="$LOG/argv.log"
 
-mkdir -p "$ETC/kids" "$SHARE/bands" "$SHARE/packs" "$SHARE/avatars" "$SCRATCH_ROOT" "$HOMEROOT" "$STUBS" "$LOG"
+mkdir -p "$ETC/kids" "$SHARE/bands" "$SHARE/packs" "$SHARE/avatars" "$SHARE/policy" "$SCRATCH_ROOT" "$HOMEROOT" "$STUBS" "$LOG"
 cp "$ROOT_DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$ROOT_DIR"/share/packs/*.toml "$SHARE/packs/"
 cp "$ROOT_DIR"/share/avatars/*.svg "$SHARE/avatars/"
+# issue #44: install_kids_chromium_flags's source file.
+cp "$ROOT_DIR/share/policy/chromium-flags.conf" "$SHARE/policy/"
 touch "$ARGV_LOG"
 
 # The machine's owner (SPEC.md's "parent"); machine setup writes this
@@ -282,6 +284,25 @@ check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kids=$SLUG:Ada Lovelace:fox"
 check_contains "$argv" "mount --bind $OMARCHY_KIDS_HOME_ROOT/home/$SLUG $OMARCHY_KIDS_HOME_ROOT/home/$SLUG" "add: bind mount created before the noexec remount"
 check_contains "$argv" "runuser -l $SLUG -c omarchy-provision-user --first-install" "add: omarchy-provision-user --first-install runs as the kid via runuser"
 check_contains "$argv" "groupadd -f omarchy-kids" "add: groups are created defensively"
+
+# --- issue #44: the kid's own chromium-flags.conf is overridden -----------
+# Whatever ~/.config/chromium-flags.conf omarchy-provision-user (or its
+# fallback) left, "add" writes over it with Kids Mode's own copy so a kid
+# running `chromium` from a terminal never hits the "disabled by the
+# administrator" modal Omarchy's --load-extension flag produces under
+# the kids policy.
+
+FLAGS_FILE="$HOMEROOT/home/$SLUG/.config/chromium-flags.conf"
+if [[ -f "$FLAGS_FILE" ]]; then
+    pass "add: wrote $SLUG's own chromium-flags.conf"
+    flags_content="$(cat "$FLAGS_FILE")"
+    check_contains "$flags_content" "--ozone-platform=wayland" "chromium-flags.conf: keeps Omarchy's Wayland flag"
+    check_not_contains "$flags_content" "--load-extension" "chromium-flags.conf: strips --load-extension (issue #44)"
+    mode="$(stat -f '%Lp' "$FLAGS_FILE" 2>/dev/null || stat -c '%a' "$FLAGS_FILE" 2>/dev/null)"
+    check_eq "$mode" "644" "chromium-flags.conf: mode is 0644"
+else
+    fail "add: no chromium-flags.conf written for $SLUG"
+fi
 
 # --- add: slug collision gets -2 ------------------------------------------
 

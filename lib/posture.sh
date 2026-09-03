@@ -2,8 +2,10 @@
 # lib/posture.sh — writers for the machine-level "posture" a kid account
 # needs: polkit rules (R-FND-3/4), pam_namespace/PAM stack edits
 # (R-FND-2a), the fstab bind-mount line (R-FND-2), the AccountsService
-# pin (R-LOGIN-3), and the luks-slots/portal rewrites (R-SEC-4). Every
-# real path is prefixed by OMARCHY_KIDS_ROOT (default empty) for tests.
+# pin (R-LOGIN-3), and the portal rewrite (R-LOGIN). The luks-slots
+# rewrite (R-SEC-4) lives in lib/kids.sh instead -- see the note where
+# it used to be, below. Every real path is prefixed by OMARCHY_KIDS_ROOT
+# (default empty) for tests.
 # Not meant to be executed directly; source it after lib/conf.sh. Full
 # design and every env var: docs/portal.md, docs/boot.md.
 # shellcheck source=./theme.sh
@@ -428,21 +430,8 @@ posture_write_portal_conf() {
   posture_install_if_changed "$file" "$text" 0644
 }
 
-# --- luks-slots (R-SEC-4, and the "LUKS2 reuses slot numbers" finding) -----
-
-# posture_write_luks_slots FILE PARENT_LINE [ENTRY...] — always a full
-# rewrite, never append/edit-in-place: LUKS2 reuses freed slot numbers,
-# so a stale line could point a reused slot at the wrong account
-# (docs/provision.md).
-posture_write_luks_slots() {
-  local file="$1" parent_line="$2" tmp e
-  shift 2
-  install -d -m 0755 "$(dirname "$file")"
-  tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")"
-  {
-    [[ -n "$parent_line" ]] && printf '%s\n' "$parent_line"
-    for e in "$@"; do printf '%s\n' "$e"; done
-  } >"$tmp"
-  chmod 0600 "$tmp"
-  mv -f "$tmp" "$file"
-}
+# luks-slots parsing/writing (R-SEC-4) moved to lib/kids.sh (parsing was
+# duplicated across bin/omarchy-kids-provision and bin/omarchy-kids-remove;
+# the writer, posture_write_luks_slots, went with it so bin/omarchy-kids-conf
+# doesn't need a second source line just to record the parent's slot --
+# docs/provision.md, docs/conf.md).

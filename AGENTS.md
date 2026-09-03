@@ -67,6 +67,40 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
 - Anything a kid could use to get around a lock is a security issue: report it privately per the
   hub's `SECURITY.md`, not in a public issue.
 
+## Conventions
+
+Match omacom/omarchy's own style, not just its tools. Full citations and gaps:
+`docs/style.md`.
+
+- Put `# omarchy:summary=<one line>` (and `# omarchy:args=`, `# omarchy:examples=` where useful)
+  directly under the shebang of every `bin/omarchy-kids-*` command, before any prose.
+- Shebang is always `#!/bin/bash`, never `#!/usr/bin/env bash`. Every command in `bin/` uses
+  `set -euo pipefail` — no exceptions without a one-line note in that file's own header saying
+  why (e.g. it `exec`s into another binary at every exit path).
+- Comment density: explain the *why* in one line, not the *how* in paragraphs. A file-level
+  rationale block belongs once, at the top of a shared `lib/*.sh`/`.lua`/`.qml` file (setup-form.sh-
+  length is the ceiling); an individual command or function gets 0-2 lines, not an essay. Move
+  mechanics, sourcing audits, and "confirmed vs. unverified" trails into that command's
+  `docs/<command>.md` — leave one pointer comment in the source instead.
+- Naming: hyphenated `omarchy-kids-*` commands, `lower_snake_case` functions and locals,
+  `UPPER_SNAKE_CASE` constants. Keep any future purpose-prefix taxonomy (`refresh-`, `toggle-`,
+  etc.) in exactly one table — never a second list that can drift.
+- User-facing prompts: terse, concrete, second person implied. One accent color per screen,
+  resolved from `omarchy-theme-color` (see `lib/tui.sh`), never a fresh hardcoded hex per caller.
+- Root handling: no script re-derives its own `EUID`-or-`sudo` check. Share one `as_root`/
+  `require_root` helper (add `lib/root.sh` if one doesn't exist yet) the way upstream's
+  `install/helpers/as-root.sh` does.
+- Config locations: locks stay root-owned under `/etc/omarchy-kids/` per spec rule I-3 — this is
+  a deliberate inversion of upstream's `~/.config/omarchy/`, not a gap to "fix" by moving state
+  into a home directory.
+- Theme colour: QML never hardcodes a hex or `Qt.rgba(...)` literal for anything themeable — pull
+  from `qs.Commons`' `Style`/`Color` singletons or an injected `bar.foreground`, the way
+  `shell/Ui/BarWidget.qml` and `shell/plugins/panels/clock/BarWidget.qml` do upstream.
+- Lua and QML: two-space indent, `lowerCamelCase` QML ids/functions, `lower_snake_case` Lua
+  locals promoted onto a shared table (`o.foo = foo`).
+- Tests: one `test/shell.d/<command>-test.sh` per command, opening with the SPEC.md requirement
+  ids it covers, the same discipline upstream expects. VM-only checks stay in `test/acceptance.d/`.
+
 ## Test machines
 
 The test laptop (2019 MacBook Air, T2) is reached over Tailscale SSH; see

@@ -400,7 +400,10 @@ units_ok() {
 units_fix() {
     local root_args=()
     [[ -n "$(posture_root)" ]] && root_args=(--root="$(posture_root)")
-    systemctl "${root_args[@]}" enable "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"
+    systemctl "${root_args[@]}" enable "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" || return 1
+    # On a live system the sockets and timers must also be running now, not at the next boot
+    # (seen live: enabled-but-inactive timers, no ledger tick). --root has no running systemd.
+    [[ -n "$(posture_root)" ]] || systemctl start "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"
 }
 
 # hyprland configs: every *.lua in $SHARE/hyprland copied verbatim to

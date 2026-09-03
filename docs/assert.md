@@ -40,7 +40,7 @@ hook alone already satisfies R-TRUST-5 for every package transaction, `omarchy u
 
 One line per lock, `<status> <lock-id>`, status one of `ok` / `fixed` / `FAIL` (`would-fix`
 under `--dry-run`, see below). Per-kid locks run once for every account under
-`$OMARCHY_KIDS_ETC/kids/*.conf`; machine-level locks run once per invocation, after every kid.
+`/etc/omarchy-kids/kids/*.conf`; machine-level locks run once per invocation, after every kid.
 
 ### Per kid (`<account>` from the profile filename)
 
@@ -52,7 +52,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `accountsservice:<account>` | `/var/lib/AccountsService/users/<account>` matches exactly (R-LOGIN-3) | `posture_write_accountsservice` |
 | `gecos:<account>` | The passwd GECOS field (read via `getent passwd`) matches the profile's `name` (R-LOGIN, issue #39 — SDDM's greeter reads `realName` from GECOS, not AccountsService). "ok" if this box has no `getent` at all (this repo's own macOS dev environment) — nothing to compare against | `usermod -c "<name>" <account>` |
 | `face:<account>` | `/usr/share/sddm/faces/<account>.face.icon` is byte-for-byte the profile's avatar SVG (R-LOGIN, issue #39 — SDDM's `UserModel` reads the avatar from this path, not from AccountsService's `Icon=` key; `docs/portal.md` has the full `UserModel.cpp` citation) | `posture_write_face_icon` |
-| `groups:<account>` | Member of `omarchy-kids` and the band group (`omarchy-kids-3-5`/`6-8`/`9-12`/`13plus`) | `usermod -aG` with only the groups actually missing |
+| `groups:<account>` | Supplementary groups are exactly `omarchy-kids` and the account's band group (`omarchy-kids-3-5`/`6-8`/`9-12`/`13plus`); unrelated groups such as `wheel` or `docker` fail the lock | `usermod -G` replaces the supplementary list while preserving the primary group |
 | `theme:<account>` | The account's own `.../current/theme.name` matches the profile's `theme` override (issue #53, `docs/theming.md`). "ok" (nothing to fix) if the profile carries no `theme` override at all — a box provisioned before issue #53, or a parent with no theme to copy at provision time | `lib/theme.sh`'s `theme_apply_for` — the same writer `omarchy-kids-conf set <kid> theme <name>` uses |
 | `launcher-map:<account>` | `/etc/omarchy-kids/launchers/<account>.json` is mode 0644 and exactly matches the root-derived id-to-argv map | `lib/launcher-map.sh` rebuilds it atomically from the profile, pack, allowlist, and system desktop entries |
 
@@ -68,7 +68,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `parent-unlock:sddm`, `parent-unlock:omarchy-lock-password` | The parent-unlock marker + `pam_exec.so … omarchy-kids-parent-auth` line (fixed `[success=done default=ignore]` control), anchored on the stack's own first non-comment `auth` line — after it if that line is itself a leading `pam_faillock.so … preauth` line, else before it (R-SEC-2, R-SEC-3; `docs/authd.md`; `lib/posture.sh`'s own header comment has the full placement rule, confirmed against a real Omarchy 4.0.2 box). `omarchy-lock-password` is the only lock-screen stack Omarchy 4.0.2 actually writes — there is no `hyprlock` PAM service on that box; an earlier version of this guessed one and fell back to it, confirmed wrong and removed. "ok" if the stack file doesn't exist at all — nothing to disprove, same shape as `boot-hook` below | `posture_ensure_parent_unlock_line`; **fails** (reports `FAIL`, not `fixed`) if the stack exists but has lost its anchor line — this command never reconstructs a vendor PAM stack from nothing, only the one line it owns |
 | `getty:tty2` .. `getty:tty6` | Each unit is masked — a symlink to `/dev/null` at `/etc/systemd/system/getty@ttyN.service` (R-FND-5), read directly rather than shelled out to `systemctl` | `systemctl mask getty@ttyN.service` |
 | `units` | The package's units are enabled: `omarchy-kids-boot-login`, its cleanup unit and `omarchy-kids-assert` in `multi-user.target.wants`, `omarchy-kids-authd.socket` and `omarchy-kids-wifid.socket` in `sockets.target.wants`, `omarchy-kids-time.timer` and `omarchy-kids-ask-collect.timer` in `timers.target.wants` (R-BOOT-3, R-SEC-2, R-WIFI-2 — issue #26 added the second socket; R-ASK-1..3 — issue #25 added the timer), the list itself shared with `bin/omarchy-kids-wizard`'s own Apply-time `enable --now` via `lib/kids.sh` (issue #46). **Runs even with zero kids provisioned** — unlike every other lock in this table — since it's machine-level, not per-kid: a fresh install before the first kid, or right after `omarchy-kids-remove` disables these again, still needs them back so the *next* wizard run's A2 (`docs/authd.md`) and Apply both work; without the first the owner's stock autologin also wins every boot | `systemctl enable` of the whole list, then (on a live system, not under `--root`) `systemctl start` of the sockets and timers |
-| `hyprland-configs` | Every `*.lua` under `$OMARCHY_KIDS_SHARE/hyprland` is byte-identical to its copy under `/etc/omarchy-kids/hyprland` (R-DESK-1) | `omarchy-kids-session --install-configs` if that ever exists (it does not yet in this checkout — verified by grep before writing this), else copies the files directly |
+| `hyprland-configs` | Every `*.lua` under `/usr/share/omarchy-kids/hyprland` is byte-identical to its copy under `/etc/omarchy-kids/hyprland` (R-DESK-1) | `omarchy-kids-session --install-configs` |
 | `chromium-policy:<band>` | *Only for policy files that already exist* — `/etc/chromium/policies/managed/omarchy-kids-<band>.json` is mode `0640` (R-WEB-1) | `chmod 0640`; group ownership (`root:omarchy-kids-<band>`) is attempted best-effort and never decides ok/fixed/FAIL (see "Judgment calls") |
 | `boot-hook` | *Only if `/usr/lib/initcpio/hooks/omarchy-kids-unlock` is present* — the current UKI's initramfs contains the hook (R-BOOT-5), via `objcopy -O binary --only-section=.initrd <uki> img && lsinitcpio img \| grep omarchy-kids-unlock` | `mkinitcpio -P` |
 | `limine-snapshots` | *Only if `/etc/default/limine` exists* — while `boot.snapshot_entries` (`machine.conf`, docs/conf.md) is `hide` (the default), it holds `MAX_SNAPSHOT_ENTRIES=0`; while `show`, it holds no `MAX_SNAPSHOT_ENTRIES=0` line of ours (V6, issue #38) | Sets or replaces the line, remembering any previous value in a `# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=<old>` comment; `show` restores that value (or just drops our line if there was none). Then runs `limine-snapper-sync`, but only if that binary exists and this is a real run, not a scratch-tree test |
@@ -102,11 +102,8 @@ function, not at each call site.
   defaults to `DRY_RUN=1` (AGENTS.md rule 8) and needs `--apply`/`DRY_RUN=0` to act for real. This
   command inverts that on purpose: it is the thing the pacman hook and the boot unit call with no
   flags but `--quiet`, and the entire point of R-TRUST-5 is that it self-heals without anyone
-  passing a flag. Nothing about this changes AGENTS.md rule 8's actual protection — every real
-  path below is still overridable by `OMARCHY_KIDS_ETC`/`OMARCHY_KIDS_SHARE`/`OMARCHY_KIDS_ROOT`/
-  `OMARCHY_KIDS_HOME_ROOT`, and `test/shell.d/assert-test.sh` never sets any of them to the real
-  filesystem, so this default-to-real-writes behavior only ever touches a scratch tree on this
-  dev machine.
+  passing a flag. Scratch roots are explicit root-side test seams; no kid-facing command reads
+  them from its environment.
 - **`group_for_band` is duplicated from `bin/omarchy-kids-provision`**, not sourced or moved into
   `lib/`. It is a stable, four-line, pure mapping (also documented in `docs/packaging.md`'s group
   list); `omarchy-kids-provision` is a script with its own `main "$@"`, not a library, so sourcing
@@ -117,7 +114,7 @@ function, not at each call site.
   `omarchy-kids-provision` sets it once via `useradd -G` at account creation and never touches it
   again, so unlike every other per-kid lock here, this one is implemented directly in
   `bin/omarchy-kids-assert` rather than reusing an existing idempotent function, per the issue's
-  own `usermod -aG` instruction.
+  own `usermod -G` exact-allowlist requirement.
 - **Getty masking is checked as a symlink, not via `systemctl is-enabled`.** A masked unit *is* a
   symlink to `/dev/null` at the unit's path — that's the whole mechanism, and it's what
   `systemctl --root=DIR mask` itself does (a pure filesystem operation; `--root` never talks to a
@@ -220,6 +217,11 @@ fully verified" verdict. Review S11's complaint was that seven checks returned *
 could not see anything (`gecos` with no `getent`, `parent-unlock` with no PAM stack file,
 `parent-group` with no `parent=`, `hyprland-configs`, `boot-hook`, `limine-editor`,
 `limine-snapshots`), which is the opposite of AGENTS.md rule 4.
+
+The `groups:<account>` lock compares supplementary groups against the exact allowlist
+`omarchy-kids` plus the profile's band group. Repair uses `usermod -G`, preserving the primary
+group while removing extras such as `wheel` or `docker`; `--dry-run` reports the repair without
+writing it.
 
 ## Source header (moved from `bin/omarchy-kids-assert`, issue #49)
 

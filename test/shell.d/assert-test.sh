@@ -141,16 +141,28 @@ esac
 # shellcheck disable=SC2016
 stub id '
 acct="${@: -1}"
-cat "__LOG__/groups/$acct" 2>/dev/null || true
+if [[ "${1:-}" == "-gn" ]]; then
+    awk "{print \$1}" "__LOG__/groups/$acct" 2>/dev/null || true
+else
+    cat "__LOG__/groups/$acct" 2>/dev/null || true
+fi
 '
-# usermod -aG g1,g2 <acct>: merges g1,g2 into that same per-account file,
-# skipping ones already present (so a second call is a true no-op).
+# usermod -G g1,g2 <acct>: replaces supplementary groups, preserving primary.
 # usermod -c NAME <acct> (issue #39): writes NAME to
 # "$LOG/gecos/<acct>", read back by the "getent" stub below -- the same
 # per-account-log-file idiom the groups fixture above already uses.
 # shellcheck disable=SC2016
 stub usermod '
 case "$1" in
+    -G)
+        groups="$2"; acct="$3"
+        f="__LOG__/groups/$acct"
+        primary="$(awk "{print \$1}" "$f" 2>/dev/null || true)"
+        IFS="," read -ra add <<< "$groups"
+        printf "%s" "$primary" > "$f"
+        for g in "${add[@]}"; do printf " %s" "$g" >> "$f"; done
+        printf "\n" >> "$f"
+        ;;
     -aG)
         groups="$2"; acct="$3"
         f="__LOG__/groups/$acct"
@@ -496,12 +508,17 @@ else
 fi
 
 # groups
-echo "kid-ada omarchy-kids" >"$LOG/groups/kid-ada" # band group missing
+echo "kid-ada omarchy-kids wheel" >"$LOG/groups/kid-ada" # band group missing, wheel is extra
 out="$("$BIN")"
 only_this_lock_changed "$out" "groups:kid-ada" "groups"
-check_contains "$(cat "$ARGV_LOG")" "usermod -aG omarchy-kids-6-8 kid-ada" \
-  "groups: usermod -aG was called with only the missing group"
+check_contains "$(cat "$ARGV_LOG")" "usermod -G omarchy-kids,omarchy-kids-6-8 kid-ada" \
+  "groups: usermod replaces the supplementary group allowlist"
 check_contains "$(cat "$LOG/groups/kid-ada")" "omarchy-kids-6-8" "groups: kid-ada is back in the band group"
+if grep -qw wheel "$LOG/groups/kid-ada"; then
+  fail "groups: repair leaves an extra wheel group"
+else
+  pass "groups: repair removes an extra wheel group"
+fi
 : >"$ARGV_LOG"
 
 # theme (issue #53): kid-ada's own theme drifts to a different one (as if

@@ -11,6 +11,9 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 - Launcher activation now uses root-owned per-kid id-to-argv maps; kid-writable runtime JSON can
   provide display data only and cannot inject a shell command.
+- Closed kid-session path and binary redirect surfaces: kid-facing commands use build-time paths,
+  absolute Quickshell, the account's NSS home, private fenced `/tmp` and `/dev/shm`, and all
+  six console gettys; exact supplementary groups and root-only ask review commands are enforced.
 
 ### Added
 

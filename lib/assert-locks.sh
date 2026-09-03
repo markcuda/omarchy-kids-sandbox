@@ -70,21 +70,25 @@ face_fix() { posture_write_face_icon "$SHARE/avatars/$2.svg" "$1"; }
 # writer to reuse here (docs/assert.md's "Judgment calls").
 current_groups() { id -nG "$1" 2>/dev/null || true; }
 has_group() { [[ " $1 " == *" $2 "* ]]; }
+supplementary_groups() {
+  local account="$1" primary
+  primary="$(id -gn "$account" 2>/dev/null || true)"
+  current_groups "$account" | tr ' ' '\n' | sed '/^$/d' | grep -Fxv "$primary" || true
+}
 groups_ok() {
-  local account="$1" band="$2" group current
+  local account="$1" band="$2" group current expected
   group="$(group_for_band "$band")" || return 1
-  current="$(current_groups "$account")"
-  has_group "$current" omarchy-kids && has_group "$current" "$group"
+  current="$(supplementary_groups "$account" | sort -u)"
+  expected="$(printf '%s\n' omarchy-kids "$group" | sort -u)"
+  [[ "$current" == "$expected" ]]
 }
 groups_fix() {
-  local account="$1" band="$2" group current missing=()
+  local account="$1" band="$2" group current expected
   group="$(group_for_band "$band")" || return 1
-  current="$(current_groups "$account")"
-  has_group "$current" omarchy-kids || missing+=(omarchy-kids)
-  has_group "$current" "$group" || missing+=("$group")
-  [[ ${#missing[@]} -eq 0 ]] && return 0
-  local IFS=,
-  usermod -aG "${missing[*]}" "$account"
+  current="$(supplementary_groups "$account" | sort -u)"
+  expected="$(printf '%s\n' omarchy-kids "$group" | sort -u)"
+  [[ "$current" == "$expected" ]] && return 0
+  usermod -G "omarchy-kids,$group" "$account"
 }
 
 # theme (issue #53): the kid's current Omarchy theme still matches the

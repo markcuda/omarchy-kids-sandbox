@@ -4,7 +4,7 @@
 # L2.lua, and L3.lua (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E).
 #
 # Writes the Level 1/2 launcher's tile list to
-# /run/omarchy-kids/launcher-<uid>.json from the kid's resolved
+# $XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json from the kid's resolved
 # allowlist (omarchy-kids-conf) and pack metadata (share/packs/<band>.toml),
 # then starts the right thing for the level:
 #   Level 1 -> the standalone big-tile launcher (quickshell -p ...), the
@@ -21,7 +21,7 @@
 # omarchy-kids-conf and docs/conf.md:
 #   OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
 #   OMARCHY_KIDS_SHARE   bands.toml, packs/, launcher/ (default /usr/share/omarchy-kids)
-#   OMARCHY_KIDS_RUN     runtime state root (default /run/omarchy-kids)
+#   OMARCHY_KIDS_RUN     runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
 #   OMARCHY_KIDS_ACCOUNT  kid account (default: this process's own user)
 #   OMARCHY_KIDS_LEVEL    1/2/3 (default: omarchy-kids-conf get <account> level)
 #   OMARCHY_KIDS_BAND     3-5/6-8/9-12/13+ (default: omarchy-kids-conf get <account> band)
@@ -41,7 +41,9 @@ PYHELPER="$LIB/conf.py"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
-RUN="${OMARCHY_KIDS_RUN:-/run/omarchy-kids}"
+# The kid can only write to their own runtime dir; /run/omarchy-kids is root-owned (found live).
+RUN="${OMARCHY_KIDS_RUN:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
+mkdir -p "$RUN" 2>/dev/null || true
 APPLICATIONS_DIRS="${OMARCHY_KIDS_APPLICATIONS_DIRS:-/usr/share/applications:/usr/local/share/applications}"
 
 usage() {
@@ -55,7 +57,7 @@ starts the launcher (Level 1) or Omarchy's own shell (Level 2/3).
 Env:
   OMARCHY_KIDS_ETC      default /etc/omarchy-kids
   OMARCHY_KIDS_SHARE    default /usr/share/omarchy-kids
-  OMARCHY_KIDS_RUN      default /run/omarchy-kids
+  OMARCHY_KIDS_RUN      default \$XDG_RUNTIME_DIR/omarchy-kids
   OMARCHY_KIDS_ACCOUNT  default: this process's own user
   OMARCHY_KIDS_LEVEL    default: omarchy-kids-conf get <account> level
   OMARCHY_KIDS_BAND     default: omarchy-kids-conf get <account> band

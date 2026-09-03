@@ -21,7 +21,7 @@
 #   ipc call ...` turns out to work, this is the one file to change.
 set -euo pipefail
 
-CONTROL="${OMARCHY_KIDS_LAUNCHER_CONTROL:-/run/omarchy-kids/launcher-control}"
+CONTROL="${OMARCHY_KIDS_LAUNCHER_CONTROL:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids/launcher-control}"
 TITLE="Omarchy Kids Launcher"
 
 usage() {
@@ -33,7 +33,7 @@ Usage: omarchy-kids-launcher-ctl <show|activate>
             (Super+Enter).
 
 Env:
-  OMARCHY_KIDS_LAUNCHER_CONTROL  control file path (default /run/omarchy-kids/launcher-control)
+  OMARCHY_KIDS_LAUNCHER_CONTROL  control file path (default \$XDG_RUNTIME_DIR/omarchy-kids/launcher-control)
 
   -h, --help  Show this help and exit.
 EOF

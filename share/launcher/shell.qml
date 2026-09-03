@@ -29,7 +29,7 @@
 //     properties and start-on-`running=true` is the right lifecycle.
 //
 // What this does NOT depend on the kid's home for (I-3): the tile list
-// comes from /run/omarchy-kids/launcher-<uid>.json (root-written, tmpfs),
+// comes from $XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json (written by session-start),
 // and the control file is under /run too. Nothing here reads ~/.config.
 // ==========================================================================
 

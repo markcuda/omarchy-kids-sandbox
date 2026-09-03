@@ -267,6 +267,8 @@ parse_request_args() {
         esac
     done
     [[ -n "$KIND" && -n "$WHAT" ]] || die "$verb: needs <kind> <what>"
+    # `time 15` carries its minutes in <what>; the kid-side entry already relies on that.
+    [[ "$KIND" == time && -z "$MINUTES" ]] && MINUTES="$WHAT"
     is_valid_kind "$KIND" || die "$verb: unknown kind '$KIND' (must be one of ${VALID_KINDS[*]})"
 }
 

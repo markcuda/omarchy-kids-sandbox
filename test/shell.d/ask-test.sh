@@ -547,3 +547,8 @@ fi
 
 echo "ask-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc
+
+# --- grant time <n>: the minutes travel in <what> (seen live: rejected before it was sent) ---
+out="$(printf 'pw\n' | OMARCHY_KIDS_AUTH_SOCK="$SCRATCH/no-such.sock" "$BIN" grant time 7 2>&1)"; st=$?
+check_not_contains "$out" "rejected before it was sent" "grant time 7 carries minutes into the request"
+[[ $st -ne 0 ]] && pass "grant time 7 fails only on the missing verifier" || fail "grant time 7 should not succeed without a verifier"

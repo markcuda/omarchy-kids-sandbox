@@ -16,10 +16,16 @@ Usage:
     conf.py pack-ids PACK_TOML
     conf.py pack-sites PACK_TOML
     conf.py pack-app PACK_TOML ID
+    conf.py desktop-argv DESKTOP_FILE
 
 Exit 0 on success. Exit 2 with a one-line reason on stderr for a bad
 band, key, or missing file — never a Python traceback.
 """
+import json
+import os
+import re
+import shlex
+import shutil
 import sys
 import unicodedata
 
@@ -151,6 +157,63 @@ def cmd_pack_app(argv):
     die(f"no such app id in pack: {want}")
 
 
+def cmd_desktop_argv(argv):
+    """Read one trusted desktop entry and print its fixed launch argv."""
+    if len(argv) != 1:
+        die("desktop-argv: needs DESKTOP_FILE")
+    path = argv[0]
+    exec_line = None
+    in_entry = False
+    try:
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.rstrip("\n")
+                if line.startswith("["):
+                    in_entry = line == "[Desktop Entry]"
+                    continue
+                if in_entry and line.startswith("Exec="):
+                    exec_line = line[5:]
+                    break
+    except OSError as e:
+        die(f"desktop-argv: cannot read {path}: {e.strerror}")
+    if exec_line is None:
+        die(f"desktop-argv: {path} has no Exec=")
+    try:
+        tokens = shlex.split(exec_line, posix=True)
+    except ValueError as e:
+        die(f"desktop-argv: bad Exec= in {path}: {e}")
+
+    field_codes = re.compile(r"%(?:%|[fFuUdDnNickvm])")
+    cleaned = []
+    for token in tokens:
+        token = field_codes.sub("", token)
+        if "%" in token:
+            die(f"desktop-argv: unsupported field code in {path}")
+        if token:
+            cleaned.append(token)
+    if not cleaned:
+        die(f"desktop-argv: empty Exec= in {path}")
+
+    def resolve_program(program):
+        resolved = shutil.which(program, path=os.environ.get("PATH"))
+        if not resolved or not os.path.isabs(resolved):
+            die(f"desktop-argv: executable not found for {path}: {program}")
+        return resolved
+
+    command_index = 0
+    if cleaned[0] == "env":
+        cleaned[0] = resolve_program(cleaned[0])
+        command_index = 1
+        while command_index < len(cleaned) and "=" in cleaned[command_index]:
+            command_index += 1
+    if command_index >= len(cleaned):
+        die(f"desktop-argv: no executable in {path}")
+    if os.path.basename(cleaned[command_index]) in {"sh", "bash", "dash", "fish", "zsh"} and "-c" in cleaned:
+        die(f"desktop-argv: shell evaluation is not allowed in {path}")
+    cleaned[command_index] = resolve_program(cleaned[command_index])
+    print(json.dumps(cleaned, separators=(",", ":")))
+
+
 COMMANDS = {
     "slug": cmd_slug,
     "band-list": cmd_band_list,
@@ -159,6 +222,7 @@ COMMANDS = {
     "pack-ids": cmd_pack_ids,
     "pack-sites": cmd_pack_sites,
     "pack-app": cmd_pack_app,
+    "desktop-argv": cmd_desktop_argv,
 }
 
 

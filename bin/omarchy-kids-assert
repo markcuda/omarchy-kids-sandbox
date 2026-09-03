@@ -18,6 +18,10 @@ source "$LIB/posture.sh"
 source "$LIB/theme.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
+# shellcheck source=lib/launcher-map.sh
+source "$LIB/launcher-map.sh"
+
+CONF_BIN="$(kids_bin conf "$DIR")"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -145,6 +149,7 @@ main() {
     assert_one "face:$account" face_ok face_fix "$account" "$avatar"
     assert_one "groups:$account" groups_ok groups_fix "$account" "$band"
     assert_one "theme:$account" theme_ok theme_fix "$account"
+    assert_one "launcher-map:$account" launcher_lock_ok launcher_lock_fix "$account"
   done
 
   assert_one "polkit-admin" polkit_admin_ok polkit_admin_fix

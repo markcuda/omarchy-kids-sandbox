@@ -216,6 +216,9 @@ cmd_add() {
     echo "warning: parent '$parent' has no current Omarchy theme yet (never ran 'omarchy theme set'); $account keeps the desktop's stock theme" >&2
   fi
 
+  # Root-built argv keeps kid-writable runtime data out of execution (finding 2).
+  run launcher_map_fix "$account"
+
   echo "Done: $account"
 }
 

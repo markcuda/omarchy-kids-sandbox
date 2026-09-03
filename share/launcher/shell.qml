@@ -30,6 +30,8 @@ Window {
     // allowlist. Read once at startup and again whenever the file
     // changes underneath (a level change, a re-run of session-start).
     property var tiles: []
+    // The root-owned map is the only source of executable argv and install state.
+    property var launchMap: ({})
     // issue #43: this used to be a hardcoded `4` that drifted out of
     // sync with what GridView actually renders (five columns, seen live
     // with ten tiles). Derived here from the exact same inputs --
@@ -94,6 +96,14 @@ Window {
         onTextChanged: root.reloadTiles()
     }
 
+    FileView {
+        id: launchMapFile
+        path: Quickshell.env("OMARCHY_KIDS_LAUNCHER_MAP") || ""
+        watchChanges: true
+        onLoaded: root.reloadLaunchMap()
+        onTextChanged: root.reloadLaunchMap()
+    }
+
     function reloadTiles() {
         var parsed = []
         try {
@@ -108,7 +118,42 @@ Window {
         }
     }
 
-    Component.onCompleted: root.reloadTiles()
+    function reloadLaunchMap() {
+        try {
+            var data = JSON.parse(launchMapFile.text())
+            root.launchMap = data && data.tiles ? data : ({})
+        } catch (e) {
+            root.launchMap = ({})
+        }
+    }
+
+    function launchEntry(id) {
+        var entries = root.launchMap.tiles || []
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i] && entries[i].id === id) return entries[i]
+        }
+        return null
+    }
+
+    function launchInstalled(id) {
+        var entry = root.launchEntry(id)
+        return entry ? entry.installed === true : null
+    }
+
+    function launchArgv(id) {
+        var entry = root.launchEntry(id)
+        if (!entry || !Array.isArray(entry.argv) || entry.argv.length === 0) return []
+        for (var i = 0; i < entry.argv.length; i++) {
+            if (typeof entry.argv[i] !== "string" || entry.argv[i].length === 0) return []
+        }
+        if (entry.argv[0].charAt(0) !== "/") return []
+        return entry.argv
+    }
+
+    Component.onCompleted: {
+        root.reloadTiles()
+        root.reloadLaunchMap()
+    }
 
     // --- Reaching this window from Hyprland binds -----------------------
     // Super+Home and Super+Space (share/hyprland/L1.lua, L2.lua) focus
@@ -167,7 +212,7 @@ Window {
     function launchCurrent() {
         if (root.currentIndex < 0 || root.currentIndex >= root.tiles.length) return
         var tile = root.tiles[root.currentIndex]
-        if (!tile || !tile.exec) return
+        if (!tile) return
         // issue #42, I-6: a tile bin/omarchy-kids-session-start kept
         // only because apps.show_missing=yes (installed === false,
         // explicitly, not just falsy/undefined -- every other tile
@@ -175,10 +220,12 @@ Window {
         // all and must keep working) is shown greyed with a caption
         // below, never launched -- Enter on it is a no-op, same as
         // Escape everywhere else in this file.
-        if (tile.installed === false) return
+        if (root.launchInstalled(tile.id || "") !== true) return
+        var argv = root.launchArgv(tile.id || "")
+        if (argv.length === 0) return
         logProcess.command = ["/usr/bin/omarchy-kids-launcher-ctl", "log", tile.id || ""]
         logProcess.running = true
-        launcherProcess.command = ["sh", "-c", tile.exec]
+        launcherProcess.command = argv
         launcherProcess.running = true
     }
 
@@ -267,7 +314,7 @@ Window {
                 // it. `=== false`, not falsy: every other tile here
                 // carries no `installed` key at all and must render
                 // exactly as before.
-                readonly property bool missing: modelData.installed === false
+                readonly property bool missing: root.launchInstalled(modelData.id || "") === false
                 // issue #54: the resolved icon source, or "" -- an
                 // empty Image source (Image.Null) never reaches
                 // Image.Ready, so the rounded-initial fallback below

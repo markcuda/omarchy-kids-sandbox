@@ -247,3 +247,11 @@ Deliberately not the usual 0-good/nonzero-bad shape — same kind of inversion `
   one-line substitution. A `TODO` comment sits directly above `apply_step_safety` in
   `bin/omarchy-kids-wizard`, pointing back here. The panel (P4, not yet built) is a better fit for
   `--json` from the start, since it has no existing human-readable call to replace.
+
+## Verified live (2026-09-02, QEMU test VM)
+
+`omarchy-kids-check --live` as root on the VM: Accounts and Locks all PASS for three kids; the
+firmware card is the one expected FAIL until a parent marks it done. The live `tmp-noexec` test
+runs through `runuser`, which does not open a session with `pam_namespace`, so it reports the
+global `/tmp` and FAILs even when the real session has its private mount; treat it as a WARN
+or read the session's own `omarchy-kids-session --check` log instead (issue #41).

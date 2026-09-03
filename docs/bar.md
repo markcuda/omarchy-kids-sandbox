@@ -258,3 +258,13 @@ check, `--kid` only valid with `--finish`, the `runuser`/`hyprctl` dispatch with
 (never `terminate-session`), no signature directory found, and an unknown account.
 `KidsModule.qml`'s own JSON parsing is QML/JS inline in the plugin (not a separate bash/python
 script), so there is no bash unit test for it here -- item 4 above is the VM check that covers it.
+
+## Verified live (2026-09-02, QEMU test VM)
+
+`omarchy-kids-bar enable --apply` as the owner installed the plugin under
+`~/.config/omarchy/plugins/omarchy-kids.bar/` and added it to `shell.json`; Omarchy's shell loaded
+`KidsModule.qml` without QML errors. It rendered nothing until the owner was a member of
+`omarchy-parents` (status.json is 0640 for that group): the new `parent-group` lock in
+`omarchy-kids-assert` adds the parent, and the membership takes effect at the next login. After
+an SDDM restart the module showed its kid indicator at the right end of the bar. The popup
+menu, grant and end actions are not yet exercised live.

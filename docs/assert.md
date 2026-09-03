@@ -177,3 +177,12 @@ nothing at all.
   difference is invisible in a config file, not in image bytes). `posture_write_face_icon`'s own
   header comment in `lib/posture.sh` has the full reasoning and the `UserModel.cpp` citation for
   why this file, not AccountsService's `Icon=`, is what needed fixing.
+
+## Live findings folded back into the locks (2026-09-02)
+
+- `pam:sddm-autologin`: a cold boot with a kid's disk password logs the kid in through SDDM's
+  autologin PAM stack, not `sddm`, so the private `/tmp` and `/dev/shm` were missing on that
+  path until the namespace line was added there too (the session's mount table now shows both
+  as tmpfs with `noexec`).
+- `parent-group`: the owner must be in `omarchy-parents` to read `/run/omarchy-kids/status.json`.
+- `units`: enabled is not running; sockets and timers are started on a live system.

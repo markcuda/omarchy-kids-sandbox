@@ -48,6 +48,8 @@ drawn from; nothing here is drawn from the spec alone.
   a real join is still unverified (`docs/wifi.md`).
 
 **Try it:** [`docs/install.md`](docs/install.md) — prerequisites, the one-command build, and the
+
+The night the code landed is summarised in `docs/loop-report.md` (what is verified live, what is open, decisions waiting).
 honest list of what isn't ready yet.
 
 ## What will be here

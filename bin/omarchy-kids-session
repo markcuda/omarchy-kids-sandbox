@@ -1,26 +1,339 @@
 #!/bin/bash
-# omarchy-kids-session: the kid session launcher (R-DESK-1, R-DESK-2).
-# Run by /usr/share/wayland-sessions/omarchy-kids.desktop; reads the kid's
-# profile, runs the R-DESK-2 preflight checks, and execs
-# `Hyprland --config /etc/omarchy-kids/hyprland/L<level>.lua` with the
-# band overlay. Stub: not built yet.
+# omarchy-kids-session: the kid session launcher (SPEC.md R-DESK-1,
+# R-DESK-2, R-WEB-4, R-FND-2a, I-3, I-4, I-9, §5.2 "Kid login").
+#
+# Run by /usr/share/wayland-sessions/omarchy-kids.desktop
+# (desktop/omarchy-kids-session.desktop), which SDDM starts through
+# /usr/share/sddm/scripts/wayland-session the same way it starts
+# Omarchy's own `uwsm start -g -1 -e -D Hyprland hyprland.desktop`.
+#
+# Sequence: figure out the account (`id -un`), run every R-DESK-2 check
+# in order, and on the first fail-closed miss show a full-screen "Ask a
+# grown-up" (omarchy-kids-ask-grownup) and exit 1 -- fail closed, never
+# a silent, unfenced desktop (I-4, I-9). Once every fail-closed check
+# passes, export the account/level/band and exec Hyprland with the
+# level's root-owned config -- never the kid's own `~/.config/hypr`
+# (R-DESK-6, I-3).
+#
+# --check runs every check and prints a PASS/FAIL/WARN table without
+# starting anything, for `omarchy-kids-check` to reuse.
+#
+# --install-configs copies the level configs this package ships
+# ($OMARCHY_KIDS_SHARE/hyprland/*.lua) to the root-owned copy under
+# $OMARCHY_KIDS_ETC/hyprland the level files' band overlays `dofile()`
+# at Hyprland config-parse time. Meant to be called by the package's
+# post_install/post_upgrade hook and by `omarchy-kids-assert`
+# (R-TRUST-5) so that copy can never silently go stale -- neither of
+# those callers exists yet (both are separate issues' stubs as of this
+# one); wiring this flag into them is that issue's job, not this one's.
+#
+# Never runs anything as root itself and never assumes it -- every path
+# below is overridable so this (and test/shell.d/session-test.sh) can
+# run entirely as a normal user against a scratch tree (AGENTS.md rule
+# 8):
+#   OMARCHY_KIDS_ETC              kid overrides root (default /etc/omarchy-kids;
+#                                 the level configs this reads/writes for
+#                                 --install-configs live at $OMARCHY_KIDS_ETC/hyprland)
+#   OMARCHY_KIDS_SHARE            package data root (default /usr/share/omarchy-kids;
+#                                 --install-configs' source is $OMARCHY_KIDS_SHARE/hyprland)
+#   OMARCHY_KIDS_ROOT             scratch prefix for the system paths this
+#                                 doesn't own -- /etc/chromium/policies/managed
+#                                 and /etc/polkit-1/rules.d -- default empty
+#                                 (the real paths); same convention
+#                                 bin/omarchy-kids-provision and lib/posture.sh
+#                                 already use for /etc/polkit-1 et al.
+#   OMARCHY_KIDS_RUN_DIR           per-session log directory. Default
+#                                 $XDG_RUNTIME_DIR/omarchy-kids (falling back to
+#                                 /run/user/<uid>/omarchy-kids) -- deliberately
+#                                 NOT /run/omarchy-kids, which is root-owned and
+#                                 this process is never root.
+#   OMARCHY_KIDS_HYPRLAND_BIN      compositor binary to exec (default: Hyprland;
+#                                 stub it in tests)
+#   OMARCHY_KIDS_CONF_BIN           path to omarchy-kids-conf (default: resolved
+#                                 beside this script, else /usr/bin)
+#   OMARCHY_KIDS_ASK_GROWNUP_BIN    path to omarchy-kids-ask-grownup (default:
+#                                 resolved beside this script, else /usr/bin)
+#   OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds omarchy-kids-ask-grownup sleeps for
+#                                 (default 15; tests set this to 0)
 set -uo pipefail
 
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CONF_BIN="${OMARCHY_KIDS_CONF_BIN:-$DIR/bin/omarchy-kids-conf}"; [[ -x "$CONF_BIN" ]] || CONF_BIN=/usr/bin/omarchy-kids-conf
+ASK_GROWNUP_BIN="${OMARCHY_KIDS_ASK_GROWNUP_BIN:-$DIR/bin/omarchy-kids-ask-grownup}"; [[ -x "$ASK_GROWNUP_BIN" ]] || ASK_GROWNUP_BIN=/usr/bin/omarchy-kids-ask-grownup
+
+ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
+SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
+SYSROOT="${OMARCHY_KIDS_ROOT:-}"
+RUN_DIR="${OMARCHY_KIDS_RUN_DIR:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/omarchy-kids}"
+HYPRLAND_BIN="${OMARCHY_KIDS_HYPRLAND_BIN:-Hyprland}"
+
+HYPRLAND_DIR="$ETC/hyprland"
+KIDS_DIR="$ETC/kids"
+
+usage() {
+  cat <<EOF
+Usage: omarchy-kids-session [--check | --install-configs | --help]
+
+Started by /usr/share/wayland-sessions/omarchy-kids.desktop (R-DESK-1) as
+the kid session command. With no arguments: runs the R-DESK-2 preflight
+checks for the account running it and, if every fail-closed check
+passes, execs Hyprland with the kid's level config
+($HYPRLAND_DIR/L<level>.lua). On the first failing check it shows a
+full-screen "Ask a grown-up" message (omarchy-kids-ask-grownup) and
+exits 1 -- fail closed (I-4, I-9). \$HOME/.config/hypr is never read
+(R-DESK-6).
+
+  --check             Run every R-DESK-2 check and print a PASS/FAIL/WARN
+                      table without starting Hyprland. Exits 1 if any
+                      check FAILs (a WARN does not fail this).
+  --install-configs   Copy the level configs from \$OMARCHY_KIDS_SHARE/hyprland
+                      to \$OMARCHY_KIDS_ETC/hyprland (mode 0644), the
+                      root-owned copy the level files' band overlays
+                      dofile() at Hyprland config-parse time. Meant to be
+                      called by the package's install hook and by
+                      omarchy-kids-assert (R-TRUST-5).
+  -h, --help          Show this help and exit.
+
+Env (see this script's header comment for the full list):
+  OMARCHY_KIDS_ETC, OMARCHY_KIDS_SHARE, OMARCHY_KIDS_ROOT,
+  OMARCHY_KIDS_RUN_DIR, OMARCHY_KIDS_HYPRLAND_BIN
+EOF
+}
+
+MODE=start
 for arg in "$@"; do
   case "$arg" in
-    -h|--help)
-      cat <<'EOF'
-Usage: omarchy-kids-session
-
-Started by the omarchy-kids Wayland session entry to launch a kid's
-desktop. Not built yet -- see SPEC.md R-DESK.
-
-  -h, --help  Show this help and exit.
-EOF
-      exit 0
-      ;;
+    --check) MODE=check ;;
+    --install-configs) MODE=install-configs ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "omarchy-kids-session: unknown argument: '$arg'" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-echo "omarchy-kids-session: not built yet" >&2
-exit 1
+# --- logging --------------------------------------------------------------
+
+LOG_FILE=""
+log_init() {
+  mkdir -p "$RUN_DIR" 2>/dev/null || true
+  LOG_FILE="$RUN_DIR/session-$(id -u).log"
+}
+log() {
+  [[ -n "$LOG_FILE" ]] || return 0
+  printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/dev/null || true
+}
+
+# --- the account and its profile ------------------------------------------
+
+ACCOUNT="${OMARCHY_KIDS_ACCOUNT:-$(id -un)}"
+PROFILE="$KIDS_DIR/$ACCOUNT.conf"
+
+LEVEL=""
+BAND=""
+WEB=""
+
+# --- R-DESK-2 checks, in order. Each sets RESULT (PASS/FAIL/WARN) and
+# DETAIL, and returns 0 (PASS or WARN -- start may continue) or 1 (FAIL
+# -- start must stop). ------------------------------------------------
+
+check_profile() {
+  if [[ ! -f "$PROFILE" ]]; then
+    RESULT=FAIL; DETAIL="no profile at $PROFILE -- '$ACCOUNT' is not a Kids Mode kid"
+    return 1
+  fi
+  if LEVEL="$("$CONF_BIN" get "$ACCOUNT" level 2>/dev/null)" \
+      && BAND="$("$CONF_BIN" get "$ACCOUNT" band 2>/dev/null)" \
+      && WEB="$("$CONF_BIN" get "$ACCOUNT" web 2>/dev/null)"; then
+    RESULT=PASS; DETAIL="level=$LEVEL band=$BAND web=$WEB"
+    return 0
+  fi
+  RESULT=FAIL; DETAIL="profile exists but level/band/web could not be resolved"
+  return 1
+}
+
+check_policy() {
+  if [[ "$WEB" == "none" ]]; then
+    RESULT=PASS; DETAIL="web=none, no browser policy required (R-WEB-4)"
+    return 0
+  fi
+  local policy="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-$BAND.json"
+  if [[ -n "$BAND" && -r "$policy" ]]; then
+    RESULT=PASS; DETAIL="$policy is readable"
+    return 0
+  fi
+  RESULT=FAIL; DETAIL="$policy missing or not readable by '$ACCOUNT' (R-WEB-4)"
+  return 1
+}
+
+check_polkit() {
+  local admin="$SYSROOT/etc/polkit-1/rules.d/40-omarchy-kids.rules"
+  local deny="$SYSROOT/etc/polkit-1/rules.d/41-omarchy-kids-deny.rules"
+  local missing=()
+  [[ -f "$admin" ]] || missing+=("$admin")
+  [[ -f "$deny" ]] || missing+=("$deny")
+  if [[ ${#missing[@]} -eq 0 ]]; then
+    RESULT=PASS; DETAIL="both polkit rule files present"
+    return 0
+  fi
+  RESULT=FAIL; DETAIL="missing: ${missing[*]}"
+  return 1
+}
+
+check_home_noexec() {
+  local opts
+  opts="$(findmnt -no OPTIONS "$HOME" 2>/dev/null || true)"
+  if [[ "$opts" == *noexec* ]]; then
+    RESULT=PASS; DETAIL="\$HOME ($HOME) mounted noexec"
+    return 0
+  fi
+  RESULT=FAIL; DETAIL="\$HOME ($HOME) is not mounted noexec (options: ${opts:-none found})"
+  return 1
+}
+
+check_tmp_noexec() {
+  # R-FND-2a: pam_namespace is new, so this is a WARNING for now, not a
+  # fail-closed check -- print and continue rather than lock a kid out
+  # over a fence that isn't fully rolled out yet.
+  local opts
+  opts="$(findmnt -no OPTIONS /tmp 2>/dev/null || true)"
+  if [[ "$opts" == *noexec* ]]; then
+    RESULT=PASS; DETAIL="/tmp mounted noexec"
+    return 0
+  fi
+  RESULT=WARN; DETAIL="/tmp is not a private noexec mount yet (options: ${opts:-none found}) -- R-FND-2a, warning only for now"
+  return 0
+}
+
+check_consoles_masked() {
+  local sysctl_root=()
+  [[ -n "$SYSROOT" ]] && sysctl_root=(--root="$SYSROOT")
+  local state
+  state="$(systemctl "${sysctl_root[@]+"${sysctl_root[@]}"}" is-enabled getty@tty2.service 2>/dev/null || true)"
+  if [[ "$state" == "masked" ]]; then
+    RESULT=PASS; DETAIL="getty@tty2.service is masked"
+    return 0
+  fi
+  RESULT=FAIL; DETAIL="getty@tty2.service is not masked (state: ${state:-unknown})"
+  return 1
+}
+
+check_level_config() {
+  local conf="$HYPRLAND_DIR/L$LEVEL.lua"
+  if [[ -n "$LEVEL" && -f "$conf" ]]; then
+    RESULT=PASS; DETAIL="$conf present"
+    return 0
+  fi
+  RESULT=FAIL; DETAIL="$conf missing"
+  return 1
+}
+
+# Checks in R-DESK-2 order. No associative arrays: bash 3.2 (the macOS
+# box this was built and tested on -- same reasoning as
+# bin/omarchy-kids-session-start's tr instead of ${var,,}) doesn't have
+# them, so the id -> human name mapping is a case statement instead.
+CHECK_IDS=(profile policy polkit home_noexec tmp_noexec consoles_masked level_config)
+
+check_name() { # check_name ID -> the human-readable name shown in the
+  # table and passed to omarchy-kids-ask-grownup.
+  case "$1" in
+    profile) echo "profile present" ;;
+    policy) echo "browser policy readable" ;;
+    polkit) echo "polkit rules present" ;;
+    home_noexec) echo "home noexec" ;;
+    tmp_noexec) echo "private /tmp noexec" ;;
+    consoles_masked) echo "consoles masked" ;;
+    level_config) echo "level config present" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+RESULT=""
+DETAIL=""
+
+run_check() { # run_check ID -> calls check_ID, sets RESULT/DETAIL, logs
+  local id="$1" name
+  name="$(check_name "$id")"
+  "check_$id"
+  local rc=$?
+  log "check=$id name=\"$name\" result=$RESULT detail=\"$DETAIL\""
+  return $rc
+}
+
+# --- --check: run every check, print a table, never start anything --------
+
+do_check_mode() {
+  local id name failed=0
+  printf '%-24s %-6s %s\n' "CHECK" "RESULT" "DETAIL"
+  for id in "${CHECK_IDS[@]}"; do
+    run_check "$id" || true
+    name="$(check_name "$id")"
+    printf '%-24s %-6s %s\n' "$name" "$RESULT" "$DETAIL"
+    [[ "$RESULT" == "FAIL" ]] && failed=1
+  done
+  return $failed
+}
+
+# --- normal start: stop at the first FAIL --------------------------------
+
+do_start() {
+  local id name
+  for id in "${CHECK_IDS[@]}"; do
+    run_check "$id"
+    local rc=$?
+    name="$(check_name "$id")"
+    case "$RESULT" in
+      WARN)
+        echo "omarchy-kids-session: WARN $name: $DETAIL" >&2
+        ;;
+      FAIL)
+        echo "omarchy-kids-session: FAIL $name: $DETAIL" >&2
+        log "start aborted: $name failed"
+        "$ASK_GROWNUP_BIN" "$name"
+        exit 1
+        ;;
+    esac
+    [[ $rc -eq 0 ]] || { echo "omarchy-kids-session: internal error running check '$id'" >&2; exit 1; }
+  done
+
+  export OMARCHY_KIDS_ACCOUNT="$ACCOUNT"
+  export OMARCHY_KIDS_LEVEL="$LEVEL"
+  export OMARCHY_KIDS_BAND="$BAND"
+  export OMARCHY_KIDS_HYPRLAND_DIR="$HYPRLAND_DIR"
+
+  local level_conf="$HYPRLAND_DIR/L$LEVEL.lua"
+  log "all checks passed; exec $HYPRLAND_BIN --config $level_conf"
+  exec "$HYPRLAND_BIN" --config "$level_conf"
+}
+
+# --- --install-configs ------------------------------------------------
+
+do_install_configs() {
+  local src="$SHARE/hyprland" dst="$HYPRLAND_DIR" f base copied=0
+  if [[ ! -d "$src" ]]; then
+    echo "omarchy-kids-session: no such directory: $src" >&2
+    return 1
+  fi
+  install -d -m 0755 "$dst"
+  shopt -s nullglob
+  for f in "$src"/*.lua; do
+    base="$(basename "$f")"
+    install -m 0644 "$f" "$dst/$base"
+    echo "installed $dst/$base"
+    copied=$((copied + 1))
+  done
+  shopt -u nullglob
+  if [[ $copied -eq 0 ]]; then
+    echo "omarchy-kids-session: no *.lua files found under $src" >&2
+    return 1
+  fi
+  return 0
+}
+
+# --- dispatch --------------------------------------------------------------
+
+log_init
+
+case "$MODE" in
+  check) do_check_mode ;;
+  install-configs) do_install_configs ;;
+  start) do_start ;;
+esac

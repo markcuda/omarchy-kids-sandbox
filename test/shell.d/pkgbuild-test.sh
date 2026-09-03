@@ -156,8 +156,15 @@ if [[ -x "$session" ]]; then
   else
     fail "omarchy-kids-session --help did not exit 0"
   fi
-  "$session" >/dev/null 2>&1
+  # Scratch env so this smoke check never reads the real /etc/omarchy-kids
+  # (AGENTS.md rule 8) and never sits through omarchy-kids-ask-grownup's
+  # default 15s hold -- issue #11 built the real thing behind these flags,
+  # this file only checks it still fails closed with no profile.
+  session_tmp="$(mktemp -d)"
+  OMARCHY_KIDS_ETC="$session_tmp/etc" OMARCHY_KIDS_RUN_DIR="$session_tmp/run" \
+    OMARCHY_KIDS_ASK_GROWNUP_SLEEP=0 "$session" >/dev/null 2>&1
   session_rc=$?
+  rm -rf "$session_tmp"
   if [[ $session_rc -eq 1 ]]; then
     pass "omarchy-kids-session with no args exits 1"
   else

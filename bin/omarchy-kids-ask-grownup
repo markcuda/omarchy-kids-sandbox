@@ -1,0 +1,87 @@
+#!/bin/bash
+# omarchy-kids-ask-grownup: the full-screen "Ask a grown-up" message shown
+# by omarchy-kids-session (SPEC.md R-DESK-2) when a fail-closed check
+# fails before a kid's desktop starts.
+#
+# This is a placeholder, not the real thing: R-DESK-2 asks for "a
+# full-screen 'Ask a grown-up' naming the check", and at the point
+# omarchy-kids-session calls this, Hyprland hasn't started yet -- there is
+# no compositor, no Wayland surface, nothing graphical to draw into. All
+# this can honestly do today is print a big message to the tty and hold
+# it on screen for a while so it's the last thing visible before the
+# session exits. A real graphical modal (rendered by whatever runs the
+# portal/greeter, or a tiny standalone compositor client of its own)
+# is a separate ticket; this script is what that ticket should replace,
+# not extend.
+#
+# Usage: omarchy-kids-ask-grownup "<check name>"
+#
+# Env:
+#   OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds to hold the message on screen
+#                                   before exiting (default 15; tests set
+#                                   this to 0 so the suite doesn't sit
+#                                   through it)
+set -uo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: omarchy-kids-ask-grownup "<check name>"
+
+Prints a full-screen "Ask a grown-up" message naming the failed check
+(SPEC.md R-DESK-2), then holds it on screen for a while and exits.
+Placeholder for the real graphical modal -- see this script's header.
+
+  -h, --help  Show this help and exit.
+
+Env:
+  OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds to hold the message (default 15)
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    -h|--help) usage; exit 0 ;;
+  esac
+done
+
+CHECK_NAME="${1:-a check}"
+SLEEP_SECS="${OMARCHY_KIDS_ASK_GROWNUP_SLEEP:-15}"
+
+MESSAGE="Ask a grown-up
+
+Something isn't set up right yet, so this desktop can't start safely.
+
+Check that failed: $CHECK_NAME
+
+Find a grown-up. They can run 'omarchy-kids-check' to see what's wrong."
+
+# Prefer the actual tty this session owns; fall back to stdout when
+# there isn't one (no controlling terminal in a test run, or this got
+# redirected somewhere that isn't a terminal). A plain `[[ -w /dev/tty ]]`
+# isn't enough: the device node's permission bits can look writable even
+# with no controlling terminal attached, and the write then fails with
+# ENXIO -- so actually try the open instead of just checking permissions.
+OUT=/dev/stdout
+if { : > /dev/tty; } 2>/dev/null; then
+  OUT=/dev/tty
+fi
+
+if command -v gum >/dev/null 2>&1; then
+  gum style \
+    --border double \
+    --align center \
+    --width 60 \
+    --margin "2 4" \
+    --padding "2 4" \
+    --foreground 212 --border-foreground 212 \
+    "$MESSAGE" >"$OUT" 2>/dev/null || printf '%s\n' "$MESSAGE" >"$OUT"
+else
+  {
+    printf '%s\n' "======================================================"
+    printf '%s\n' "$MESSAGE"
+    printf '%s\n' "======================================================"
+  } >"$OUT"
+fi
+
+sleep "$SLEEP_SECS"
+exit 1

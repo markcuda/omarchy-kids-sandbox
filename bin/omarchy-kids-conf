@@ -23,6 +23,7 @@ source "$LIB/conf.sh"
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
+MACHINE_CONF="$ETC/machine.conf"
 BANDS_TOML="$SHARE/bands/bands.toml"
 PACKS_DIR="$SHARE/packs"
 PY="${OMARCHY_KIDS_CONF_PY:-python3}"
@@ -90,6 +91,11 @@ Usage: $(basename "$0") <command> [args]
   bands                      list bands with their label and blurb
   band <band>                print one band's defaults
   slug <display name>        the kid- account-name slug for a display name
+  machine set parent <name>  write machine.conf's parent= (issue #46: the
+                              wizard's Apply step, so omarchy-kids-authd and
+                              omarchy-kids-provision both have a parent to
+                              check against; needs root, same as any other
+                              write under /etc/omarchy-kids)
   --help                     this text
 
 Env:
@@ -297,6 +303,31 @@ cmd_slug() {
     "$PY" "$PYHELPER" slug "$@"
 }
 
+# cmd_machine set parent <name> — machine.conf's parent= (issue #46). The
+# only machine-level write this command offers, on purpose: every other
+# machine.conf read in this repo goes straight through lib/conf.sh's own
+# conf_get (docs/conf.md — "there is no kid argument for a machine-wide
+# setting to hang off of"), but the wizard's Apply step needs one write
+# it can actually name on a `sudo <command>` argv (run_priv's own
+# contract, bin/omarchy-kids-wizard), and `sudo bash -c '...'` isn't
+# that. Kept tiny: one key, one shape, not a general machine.conf editor.
+cmd_machine() {
+    local sub="${1:?omarchy-kids-conf machine set parent <name>}"
+    [[ "$sub" == set ]] || die "unknown machine subcommand: '$sub' (see --help)"
+    shift
+    local key="${1:?omarchy-kids-conf machine set parent <name>}"
+    shift || true
+    local value="$*"
+    case "$key" in
+        parent)
+            [[ -n "$value" && "$value" != *$'\n'* ]] || die "invalid value for 'parent': must be non-empty, single-line text"
+            ;;
+        *) die "unknown machine key: '$key' (only 'parent' is supported)" ;;
+    esac
+    conf_set "$MACHINE_CONF" "$key" "$value"
+    echo "machine: $key=$value"
+}
+
 main() {
     local cmd="${1:-}"
     case "$cmd" in
@@ -307,6 +338,7 @@ main() {
         bands) shift; cmd_bands "$@" ;;
         band) shift; cmd_band "$@" ;;
         slug) shift; cmd_slug "$@" ;;
+        machine) shift; cmd_machine "$@" ;;
         -h|--help|"") usage; [[ "$cmd" == "" ]] && exit 2; exit 0 ;;
         *) die "unknown command: '$cmd' (see --help)" ;;
     esac

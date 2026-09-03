@@ -98,6 +98,9 @@ export OMARCHY_KIDS_WEB_BIN="$STUBS/omarchy-kids-web"
 export OMARCHY_KIDS_ASSERT_BIN="$STUBS/omarchy-kids-assert"
 export OMARCHY_KIDS_SESSION_BIN="$STUBS/omarchy-kids-session"
 export OMARCHY_KIDS_APPS_BIN="$STUBS/omarchy-kids-apps"
+# Pinned rather than left to `id -un` (issue #46), so the machine-set-parent
+# checks below don't depend on whoever happens to run this suite.
+export OMARCHY_KIDS_INVOKING_USER="mark"
 export DRY_RUN=1
 
 answers_file() { # writes $@ (one per line) to a fresh file, prints its path
@@ -133,23 +136,28 @@ check_contains "$out" "Face          owl" "summary shows the chosen face"
 # --dry-run means Apply's run_priv/run_priv_stdin print the command
 # instead of ever calling sudo/pacman/omarchy-kids-*, so this is checking
 # the wizard's own "[dry-run] sudo ..." lines in $out, not a stub's argv.
-# Apply's first step (issue #46) now also enables and starts the
-# package's own units -- the same KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS
-# list lib/units.sh shares with omarchy-kids-assert's "units" lock --
-# before provisioning, so a fresh install (or right after
-# omarchy-kids-remove) has both the boot-time autologin and A2's own
-# authd socket back before the account step and the next wizard run need
+# Apply's first step (issue #46) writes machine.conf's parent= (via the
+# tiny "omarchy-kids-conf machine set parent", issue #46 follow-up) to
+# $OMARCHY_KIDS_INVOKING_USER, then enables and starts the package's own
+# units -- the same KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS list lib/units.sh
+# shares with omarchy-kids-assert's "units" lock -- before provisioning,
+# so a fresh install (or right after omarchy-kids-remove) has both a
+# parent for omarchy-kids-authd to check against and the boot-time
+# autologin back before the account step and the next wizard run need
 # them.
+check_contains "$out" "omarchy-kids-conf machine set parent mark" \
+    "Apply's first step writes machine.conf's parent=, to the invoking user"
 check_contains "$out" "sudo systemctl enable --now omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-wifid.socket omarchy-kids-time.timer omarchy-kids-ask-collect.timer" \
     "Apply's first step enables and starts the package's units, before provisioning"
 check_contains "$out" "omarchy-kids-provision add Ada --band 6-8 --avatar owl --password-stdin --parent-password-stdin --apply" \
     "apply runs provision add with the exact flags, including the chosen face"
+machine_pos="${out%%machine set parent*}"; machine_pos="${#machine_pos}"
 units_pos="${out%%sudo systemctl enable --now*}"; units_pos="${#units_pos}"
 provision_pos="${out%%omarchy-kids-provision add*}"; provision_pos="${#provision_pos}"
-if ((units_pos < provision_pos)); then
-    pass "the units step runs before the account step, not after"
+if ((machine_pos < units_pos && units_pos < provision_pos)); then
+    pass "machine.conf's parent is written first, then units are enabled, then the account is provisioned"
 else
-    fail "the units step runs before the account step, not after (units at $units_pos, provision at $provision_pos)"
+    fail "step ordering is wrong (machine at $machine_pos, units at $units_pos, provision at $provision_pos)"
 fi
 check_contains "$out" "omarchy-kids-conf set kid-ada web filtered" "a web choice that differs from the band default is written as an override"
 check_contains "$out" "omarchy-kids-conf set kid-ada wifi helper" "a Wi-Fi choice that differs from the band default is written as an override"
@@ -482,6 +490,96 @@ check_not_contains "$rm3b_out" "FAKE-omarchy-kids-provision" \
     "Apply never starts -- A2 never let a wrong password through"
 
 rm -rf "$RM3_TMP"
+
+# --- real mode: A2's sudo fallback when omarchy-kids-authd's socket IS
+# active but machine.conf has no parent= line to check against (issue
+# #46 follow-up -- seen live: right after a real omarchy-kids-remove,
+# which deletes the whole $ETC tree (machine.conf included), the pacman
+# hook's own units_fix re-enables the socket in the very same
+# transaction -- active, but nobody home, so omarchy-kids-authd answers
+# "no" to every password). authd_verifiable gates on both the socket
+# *and* a configured parent, so this never even tries to speak to the
+# socket for a check it already knows can't answer -- a real (bound,
+# never-listened) Unix socket file is enough to exercise that gate,
+# since [[ -S ]] only cares about the file type.
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "SKIP: no-parent A2 fallback needs python3 to create a stale Unix socket"
+else
+    RM4_TMP="$(mktemp -d)"
+    RM4_STUBS="$RM4_TMP/stubs"
+    RM4_ETC="$RM4_TMP/etc/omarchy-kids"
+    mkdir -p "$RM4_STUBS" "$RM4_ETC/kids"
+
+    RM4_SOCK="$RM4_TMP/auth.sock"
+    python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.bind(sys.argv[1])
+" "$RM4_SOCK"
+
+    cat >"$RM4_STUBS/sudo" <<'EOF'
+#!/bin/bash
+if [[ "${1:-}" == "-k" ]]; then
+    exit 0
+fi
+args=()
+while (($#)); do
+    case "$1" in
+        -n | -v | -S) shift ;;
+        -p) shift 2 ;;
+        -u) shift 2 ;;
+        *) args+=("$1"); shift ;;
+    esac
+done
+if ((${#args[@]} == 0)); then
+    read -r candidate || candidate=""
+    [[ "$candidate" == "${CORRECT_PW:-}" ]]
+    exit $?
+fi
+exec "${args[@]}"
+EOF
+    cat >"$RM4_STUBS/systemctl" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+    for name in omarchy-kids-provision omarchy-kids-web omarchy-kids-apps omarchy-kids-assert omarchy-kids-session; do
+        cat >"$RM4_STUBS/$name" <<EOF
+#!/bin/bash
+echo "FAKE-$name: ok"
+cat >/dev/null
+exit 0
+EOF
+    done
+    cp "$STUBS/gum" "$RM4_STUBS/gum"
+    chmod +x "$RM4_STUBS"/*
+
+    rm4_out="$(
+        PATH="$RM4_STUBS:$PATH" \
+        OMARCHY_KIDS_ETC="$RM4_ETC" \
+        OMARCHY_KIDS_SHARE="$SHARE" \
+        OMARCHY_KIDS_PROVISION_BIN="$RM4_STUBS/omarchy-kids-provision" \
+        OMARCHY_KIDS_WEB_BIN="$RM4_STUBS/omarchy-kids-web" \
+        OMARCHY_KIDS_APPS_BIN="$RM4_STUBS/omarchy-kids-apps" \
+        OMARCHY_KIDS_ASSERT_BIN="$RM4_STUBS/omarchy-kids-assert" \
+        OMARCHY_KIDS_SESSION_BIN="$RM4_STUBS/omarchy-kids-session" \
+        OMARCHY_KIDS_AUTH_SOCK="$RM4_SOCK" \
+        OMARCHY_KIDS_SETUP_LOG="$RM4_TMP/setup.log" \
+        CORRECT_PW="hunter2" \
+        OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
+        DRY_RUN=0 "$BIN" 2>&1
+    )"
+    rm4_status=$?
+    check_status "$rm4_status" 0 "socket active, no parent configured: the sudo fallback still lets the right password through"
+    check_contains "$rm4_out" "has no 'parent=' line" \
+        "the no-parent reason is a technical line, distinct from the socket-inactive one"
+    check_not_contains "$rm4_out" "failed unexpectedly" \
+        "the no-parent case never reports the screen as having failed unexpectedly"
+    check_contains "$(cat "$RM4_TMP/setup.log" 2>/dev/null)" "FAKE-omarchy-kids-provision: ok" \
+        "socket active, no parent configured: Apply actually runs once A2 accepts the sudo fallback"
+
+    rm -rf "$RM4_TMP"
+fi
 
 # --- real mode: the safety check skips sudo -u <kid> ... --check when the
 # account was never actually created, instead of handing sudo a user that

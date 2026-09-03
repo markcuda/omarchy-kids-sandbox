@@ -66,6 +66,11 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
   lives in `docs/packaging.md`; Omy's welcome is two sentences; Time's Up shows the owl when a
   kid has no avatar; wizard, README, AGENTS and style.md say only what ships (maintainer-eye
   review, the rest of the applied findings)
+- Every bash file is `shfmt -i 2 -ci` (Omarchy's two-space indent); the check is in AGENTS.md
+- Panel: no step counter on single screens, facts without the account prefix, an honest footer
+  (Esc quits; `q` never did); `omarchy-kids-time status` says "lights-out at 19:30" instead of
+  "next boundary: lights-out at 19:30"; the Ask modal's scrim is stronger so the Time's Up card
+  fades behind it
 - The structural refactor (#49): shared helpers in `lib/kids.sh`, one header shape and one
   dispatcher shape per command, `set -e` everywhere it is safe
 - Kids inherit the parent's Omarchy theme at provision and can be given their own with
@@ -74,6 +79,10 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Fixed (later)
 
+- Portal: Left and Right went dead after a password field had been opened and closed once; the
+  key scope takes focus back, so a parent can arrow from a kid's tile to their own
+- Live harness: a session assert means a seat session, not the harness's own ssh login
+  (scenario 20 had passed while the screen showed the portal)
 - Four things that only misbehaved on Linux, found by running the unit suite on the VM:
   `omarchy-kids-check --live` aborted on `pkcheck`'s non-zero "not authorized" (the answer it
   wanted); `omarchy-kids-wifi` died silently when `socat` found no socket instead of saying

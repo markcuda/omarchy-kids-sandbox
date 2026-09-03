@@ -146,17 +146,50 @@ session_manifest_render() {
     return 1
   fi
 
-  name="$(session_manifest_profile_value "$account" name)" || { rm -f "$map"; return 1; }
-  avatar="$(session_manifest_profile_value "$account" avatar)" || { rm -f "$map"; return 1; }
-  band="$(session_manifest_profile_value "$account" band)" || { rm -f "$map"; return 1; }
-  level="$(session_manifest_profile_value "$account" level)" || { rm -f "$map"; return 1; }
-  theme="$(session_manifest_profile_value "$account" theme)" || { rm -f "$map"; return 1; }
-  web="$(session_manifest_profile_value "$account" web)" || { rm -f "$map"; return 1; }
-  budget_min="$(session_manifest_profile_value "$account" budget_min)" || { rm -f "$map"; return 1; }
-  budget_min_weekend="$(session_manifest_profile_value "$account" budget_min_weekend)" || { rm -f "$map"; return 1; }
-  lights_out="$(session_manifest_profile_value "$account" lights_out)" || { rm -f "$map"; return 1; }
-  lights_out_weekend="$(session_manifest_profile_value "$account" lights_out_weekend)" || { rm -f "$map"; return 1; }
-  allowlist="$(session_manifest_allowlist_json "$account")" || { rm -f "$map"; return 1; }
+  name="$(session_manifest_profile_value "$account" name)" || {
+    rm -f "$map"
+    return 1
+  }
+  avatar="$(session_manifest_profile_value "$account" avatar)" || {
+    rm -f "$map"
+    return 1
+  }
+  band="$(session_manifest_profile_value "$account" band)" || {
+    rm -f "$map"
+    return 1
+  }
+  level="$(session_manifest_profile_value "$account" level)" || {
+    rm -f "$map"
+    return 1
+  }
+  theme="$(session_manifest_profile_value "$account" theme)" || {
+    rm -f "$map"
+    return 1
+  }
+  web="$(session_manifest_profile_value "$account" web)" || {
+    rm -f "$map"
+    return 1
+  }
+  budget_min="$(session_manifest_profile_value "$account" budget_min)" || {
+    rm -f "$map"
+    return 1
+  }
+  budget_min_weekend="$(session_manifest_profile_value "$account" budget_min_weekend)" || {
+    rm -f "$map"
+    return 1
+  }
+  lights_out="$(session_manifest_profile_value "$account" lights_out)" || {
+    rm -f "$map"
+    return 1
+  }
+  lights_out_weekend="$(session_manifest_profile_value "$account" lights_out_weekend)" || {
+    rm -f "$map"
+    return 1
+  }
+  allowlist="$(session_manifest_allowlist_json "$account")" || {
+    rm -f "$map"
+    return 1
+  }
   policy_id="omarchy-kids-$band"
 
   jq -n --arg account "$account" --arg name "$name" --arg avatar "$avatar" \

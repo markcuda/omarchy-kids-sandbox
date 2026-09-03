@@ -40,8 +40,7 @@ for _ in 1 2 3; do
 done
 sleep 3
 qmp type "$LIVE_OWNER_PASSWORD" >/dev/null
-qmp key tab >/dev/null
-qmp enter >/dev/null
+qmp enter >/dev/null # Finish is preselected while Pause has no mechanism (share/exit-modal/shell.qml)
 
 if assert_no_session "$LIVE_KID1_ACCOUNT" 30; then
   ok "$LIVE_KID1_ACCOUNT's session ended after Finish"

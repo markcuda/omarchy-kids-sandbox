@@ -95,12 +95,19 @@ entirely; `yes` keeps it, greyed, with a caption. Not read anywhere else.
 ### Machine-level keys (`machine.conf`, not profile keys)
 
 `/etc/omarchy-kids/machine.conf` (SPEC.md §5.1) holds settings with no kid to scope them to —
-`parent` (docs/provision.md) and the key below — as plain `key=value` lines, read and written
-directly with `lib/conf.sh`'s `conf_get`/`conf_set`, not through `omarchy-kids-conf`: there is no
-kid argument for a machine-wide setting to hang off of.
+`parent` (docs/provision.md) and the key below — as plain `key=value` lines, read directly with
+`lib/conf.sh`'s `conf_get` by every command that needs one (`omarchy-kids-provision`,
+`omarchy-kids-remove`, `omarchy-kids-assert`, `omarchy-kids-authd`), not through
+`omarchy-kids-conf`: there is no kid argument for a machine-wide *read* to hang off of. `parent`
+has the one exception on the write side: `omarchy-kids-conf machine set parent <name>` (issue
+#46), a tiny, one-key wrapper around `conf_set` — added because `bin/omarchy-kids-wizard`'s Apply
+step needs a command it can name on a plain `sudo <command>` argv (`run_priv`'s own contract), not
+an inline shell that could call `conf_set` directly. `boot.snapshot_entries` still has no writer of
+its own in this repo; nothing else needs one yet.
 
 | Key | Values | Default | What it does |
 | --- | --- | --- | --- |
+| `parent` | a login name | *(none — see below)* | The parent's own account name. Read by `omarchy-kids-authd` (`docs/authd.md`) to know whose shadow hash to check, and by `omarchy-kids-provision`, which refuses to add a kid without it. Written by `omarchy-kids-conf machine set parent <name>` — `bin/omarchy-kids-wizard`'s Apply step does this first, before anything else, to `$OMARCHY_KIDS_INVOKING_USER` (default `id -un`, since the wizard always runs unprivileged, as the parent) — since nothing else in this repo writes it (issue #46: seen live, missing entirely right after a real `omarchy-kids-remove`, which deletes the whole `$ETC` tree). |
 | `boot.snapshot_entries` | `hide` `show` | `hide` | `omarchy-kids-assert`'s `limine-snapshots` lock (docs/assert.md, issue #38): while `hide` and any kid exists, `/etc/default/limine`'s `MAX_SNAPSHOT_ENTRIES=0` hides Snapper's boot-menu entries, so a kid with a disk password can't pick a pre-Kids-Mode snapshot from Limine's menu and land on the parent's desktop. `show` restores the value `MAX_SNAPSHOT_ENTRIES` held before we touched it. The parent's own rollback path stays `snapper rollback` from the running system. |
 
 ## Band defaults
@@ -136,6 +143,7 @@ omarchy-kids-conf reset <kid>                clear overrides except band/name/av
 omarchy-kids-conf bands                      list bands with their label and blurb
 omarchy-kids-conf band <band>                print one band's defaults
 omarchy-kids-conf slug <display name>        the kid- account-name slug for a display name (Appendix B.1)
+omarchy-kids-conf machine set parent <name>  write machine.conf's parent= (issue #46)
 ```text
 
 `set` refuses a key that isn't in Appendix B, and a value that doesn't match the key's format, with

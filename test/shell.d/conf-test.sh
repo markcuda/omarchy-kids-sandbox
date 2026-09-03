@@ -149,4 +149,30 @@ check "$("$CONF" get kid-ada onboarded)" "yes" "reset: onboarded keeps its value
 mode="$(stat -f '%Lp' "$profile" 2>/dev/null || stat -c '%a' "$profile" 2>/dev/null)"
 check "$mode" "644" "profile file is mode 0644"
 
+# --- machine set parent (issue #46: the wizard's Apply step writes this
+#     before anything else, so omarchy-kids-authd and omarchy-kids-provision
+#     both have a parent to check against) -----------------------------
+
+MACHINE_CONF="$ETC/machine.conf"
+out="$("$CONF" machine set parent mark)"; st=$?
+check "$st" "0" "machine set parent exits 0"
+check "$out" "machine: parent=mark" "machine set parent echoes what it wrote"
+check "$(cat "$MACHINE_CONF" 2>/dev/null)" "parent=mark" "machine set parent creates machine.conf with the right line"
+machine_mode="$(stat -f '%Lp' "$MACHINE_CONF" 2>/dev/null || stat -c '%a' "$MACHINE_CONF" 2>/dev/null)"
+check "$machine_mode" "644" "machine.conf is mode 0644, same as a kid's profile"
+
+# idempotent, and in-place: a second write replaces the value, not appends.
+"$CONF" machine set parent dana >/dev/null
+check "$(cat "$MACHINE_CONF" 2>/dev/null)" "parent=dana" "machine set parent replaces the value in place, doesn't append a second line"
+check "$(grep -c '^parent=' "$MACHINE_CONF")" "1" "machine set parent: still exactly one parent= line"
+
+"$CONF" machine set parent "" >/dev/null 2>&1
+check "$?" "2" "machine set parent rejects an empty value"
+
+"$CONF" machine bogus parent mark >/dev/null 2>&1
+check "$?" "2" "an unknown machine subcommand exits 2"
+
+"$CONF" machine set bogus mark >/dev/null 2>&1
+check "$?" "2" "an unknown machine key exits 2"
+
 exit $fail

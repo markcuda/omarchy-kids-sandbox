@@ -53,10 +53,17 @@
 #   OMARCHY_KIDS_AUTH_SOCK         the parent-password verifier socket (default
 #                                  /run/omarchy-kids/auth.sock, same var
 #                                  bin/omarchy-kids-parent-auth uses). A2 uses
-#                                  it when it's active (docs/authd.md) and
-#                                  falls back to `sudo -S -v` with the typed
-#                                  password otherwise -- see
-#                                  verify_parent_password (issue #46)
+#                                  it when it's active *and* machine.conf
+#                                  actually names a parent, and falls back to
+#                                  `sudo -S -v` with the typed password
+#                                  otherwise -- see verify_parent_password
+#                                  and authd_verifiable (issue #46)
+#   OMARCHY_KIDS_INVOKING_USER     who Apply's first step writes into
+#                                  machine.conf's parent= (default: `id -un`,
+#                                  since the wizard itself always runs
+#                                  unprivileged, as the parent; tests pin
+#                                  this instead of depending on whoever runs
+#                                  the suite -- issue #46)
 #   OMARCHY_KIDS_SETUP_LOG         the technical log Apply writes to (R-WIZ-5;
 #                                  default /var/log/omarchy-kids/setup.log). A
 #                                  real run creates it (`sudo install -d` then
@@ -93,6 +100,14 @@ PYHELPER="$LIB/conf.py"
 
 AUTH_SOCK="${OMARCHY_KIDS_AUTH_SOCK:-/run/omarchy-kids/auth.sock}"
 SETUP_LOG="${OMARCHY_KIDS_SETUP_LOG:-/var/log/omarchy-kids/setup.log}"
+MACHINE_CONF="$ETC/machine.conf"
+# The wizard itself runs unprivileged, as the parent -- so `id -un` here,
+# before Apply ever touches sudo, is simply the parent's own login name.
+# Apply's first step writes this into machine.conf's parent= (issue #46
+# follow-up), which is what lets omarchy-kids-authd (docs/authd.md) and
+# omarchy-kids-provision (which refuses to add a kid without one) both
+# work on a machine where nothing has set it yet.
+INVOKING_USER="${OMARCHY_KIDS_INVOKING_USER:-$(id -un 2>/dev/null || echo "${USER:-}")}"
 
 DRY_RUN="${DRY_RUN:-1}"
 
@@ -389,24 +404,46 @@ verify_parent_password_sudo() {
     printf '%s\n' "$candidate" | sudo -S -p '' -v >/dev/null 2>&1
 }
 
+# authd_verifiable — true iff omarchy-kids-authd's socket is active *and*
+# machine.conf actually names a parent for it to check against. Both
+# gates matter independently (issue #46 follow-up, seen live on the test
+# VM): right after a real omarchy-kids-remove, the pacman hook's own
+# units_fix (bin/omarchy-kids-assert, docs/assert.md) re-enables the
+# socket in the very same pacman transaction that omarchy-kids-remove
+# deletes the whole $ETC tree, machine.conf included — socket up, but
+# nobody home, so omarchy-kids-authd answers "no" to every candidate
+# (docs/authd.md: "no parent configured ... every one of those answers
+# no"). A socket that's active but unable to say yes to *any* password is
+# just as unusable here as one that isn't running at all.
+authd_verifiable() {
+    [[ -S "$AUTH_SOCK" ]] || return 1
+    local parent
+    parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null)" && [[ -n "$parent" ]]
+}
+
 # verify_parent_password CANDIDATE — true iff the candidate checks out.
-# Prefers omarchy-kids-authd's socket when it's active; otherwise falls
-# back to verify_parent_password_sudo. The *reason* for taking the
-# fallback (the socket being down) is a technical detail for the log —
-# stderr here, which a real invocation's caller (the desktop entry, a
-# terminal) captures same as any other diagnostic — never something that
-# stops this screen or gets shown to the parent as a failure; see
+# Prefers omarchy-kids-authd when authd_verifiable says it can actually
+# answer; otherwise falls back to verify_parent_password_sudo. The
+# *reason* for taking the fallback (socket down, or socket up but no
+# parent configured) is a technical detail for the log — stderr here,
+# which a real invocation's caller (the desktop entry, a terminal)
+# captures same as any other diagnostic — never something that stops
+# this screen or gets shown to the parent as a failure; see
 # screen_parent_password for what an actually-wrong password does
 # instead (issue #46: this used to either accept blindly with the socket
 # down, or, in an earlier shape, blow up the whole screen with "failed
 # unexpectedly" — neither is what a parent sees now).
 verify_parent_password() {
     local candidate="$1"
-    if [[ -S "$AUTH_SOCK" ]]; then
+    if authd_verifiable; then
         verify_parent_password_authd "$candidate"
         return $?
     fi
-    echo "omarchy-kids-wizard: omarchy-kids-authd socket not active ($AUTH_SOCK) — verifying the parent password via sudo instead" >&2
+    if [[ -S "$AUTH_SOCK" ]]; then
+        echo "omarchy-kids-wizard: $MACHINE_CONF has no 'parent=' line — verifying the parent password via sudo instead" >&2
+    else
+        echo "omarchy-kids-wizard: omarchy-kids-authd socket not active ($AUTH_SOCK) — verifying the parent password via sudo instead" >&2
+    fi
     verify_parent_password_sudo "$candidate"
 }
 
@@ -833,18 +870,28 @@ screen_summary() {
 # uses to decide whether to keep going.
 
 # Step 1: the one sudo prompt for the whole Apply step, spending the A2
-# password; then enabling and starting the package's own units (issue
-# #46 — the same KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS list
-# omarchy-kids-assert's "units" lock uses, lib/units.sh) *before*
-# provisioning, since Step 2 (the account) and A2's own authd check on
-# the *next* wizard run both need them up — true on a fresh install
-# before the first kid, and right after `omarchy-kids-remove` disables
-# them again; then making sure the technical log's directory exists (a
-# parent's own unprivileged process can't create a root-owned directory
-# itself — run_apply_step's `sudo tee -a` needs it to already exist).
+# password. Before anything else that follows depends on it (issue #46
+# follow-up): machine.conf's parent= is written first — via the tiny
+# `omarchy-kids-conf machine set parent`, since run_priv's own contract
+# is "sudo <command>", not an inline shell that could call lib/conf.sh's
+# conf_set directly — to $INVOKING_USER, the wizard's own unprivileged
+# identity (it always runs as the parent). Without this, omarchy-kids-authd
+# answers "no" to every password (seen live: right after a real
+# omarchy-kids-remove, which deletes machine.conf, the very same pacman
+# transaction's units_fix already re-enables the socket — active, but
+# with nobody to check against) and omarchy-kids-provision refuses to add
+# a kid at all ("cannot find 'parent=' in machine.conf"). Then the
+# package's own units are enabled and started (the same
+# KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS list omarchy-kids-assert's "units"
+# lock uses, lib/units.sh) — true on a fresh install before the first
+# kid, and right after `omarchy-kids-remove` disables them again; then
+# making sure the technical log's directory exists (a parent's own
+# unprivileged process can't create a root-owned directory itself —
+# run_apply_step's `sudo tee -a` needs it to already exist).
 apply_step_getok() {
     if [[ "$DRY_RUN" == "1" ]]; then
         printf '  [dry-run] sudo -v\n'
+        printf '  [dry-run] sudo %q machine set parent %q\n' "$CONF_BIN" "$INVOKING_USER"
         printf '  [dry-run] sudo systemctl enable --now'
         printf ' %q' "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"
         printf '\n'
@@ -854,6 +901,7 @@ apply_step_getok() {
     if ! sudo -n true 2>/dev/null; then
         printf '%s\n' "$PARENT_PASSWORD" | sudo -S -p '' -v 2>/dev/null || return 1
     fi
+    sudo "$CONF_BIN" machine set parent "$INVOKING_USER" || return 1
     sudo systemctl enable --now "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" || return 1
     sudo install -d -m 0755 "$(dirname "$SETUP_LOG")"
 }

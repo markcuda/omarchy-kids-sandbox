@@ -1,53 +1,10 @@
 # shellcheck shell=bash
-# lib/tui.sh — one screen renderer over gum for the parent wizard
+# lib/tui.sh -- one screen renderer over gum for the parent wizard
 # (SPEC.md R-WIZ-9, Appendix A; issue #18: "screens as data, one renderer").
-#
-# A screen is data, not code: a title, an optional Omy line (the
-# first-person voice — spec v1.1 says Omy speaks only on Welcome and Done;
-# every other screen passes an empty Omy line and gets the plain header),
-# body lines, and, for tui_screen_choose, a list of "value|label|reason"
-# choices. This file is the one renderer over that data — callers never
-# call gum directly.
-#
-# Every prompt follows the installer's status contract, vendored here as
-# knowledge (not code) from upstream's install/provisioning/setup-form.sh:
-#
-#   0    the screen has an answer; $TUI_REPLY holds it
-#   1    Esc — go back one screen, nothing written
-#   130  Ctrl+C — the human confirmed leaving; exit 130, nothing written
-#
-# Two ways to answer a prompt:
-#   - a real terminal: gum asks, a human answers (or hits Esc/Ctrl+C, which
-#     gum itself reports as exit 1/130 — see setup-form.sh's own comment on
-#     why: Ctrl+C arrives as a byte in raw mode, never a SIGINT)
-#   - OMARCHY_KIDS_TUI_ANSWERS=<file>: one answer per line, consumed in
-#     order starting at tui_init. Two reserved lines stand in for keys a
-#     file can't press: `@esc` (Esc) and `@ctrlc` (Ctrl+C — for
-#     tui_screen_choose/tui_screen_input this consumes one more line,
-#     `yes` or `no`, for the leave confirmation). This is how tests and
-#     the acceptance harness drive the whole wizard with no one at the
-#     keyboard. Every screen is still rendered to stdout in this mode, the
-#     same as an interactive run, so a recorded session reads the same way.
-#
-# Two ways to *render* a screen (issue #50 — the wizard didn't clear between
-# steps and looked nothing like Omarchy's own gum screens):
-#   - plain: the original, non-clearing render every test in this repo
-#     already parses — one screen, one bordered box, everything printed in
-#     order, nothing cleared. Selected whenever OMARCHY_KIDS_TUI_ANSWERS is
-#     set (file mode) or OMARCHY_KIDS_TUI_PLAIN=1 is set explicitly.
-#   - card (a real terminal, neither of those set): clears the screen at
-#     every step (_tui_clear, the same external `clear` omarchy-
-#     provision-owner's clear_logo calls at v4.0.2) and draws one
-#     `gum style --border rounded` card at a stable, centered position
-#     (_tui_measure) — see tui_header. _tui_card_mode is the one place that
-#     decides which of the two a given render uses.
-#
-# Not meant to be executed directly; source it from a command:
-#   source "$DIR/lib/tui.sh"
+# Not meant to be executed directly; source it from a command. See
+# docs/tui.md for the prompt/answers-file contracts, the plain-vs-card
+# render modes (issue #50), and a worked example.
 
-# lib/theme.sh's theme_color, for tui_init's colors (below). Sourced here
-# rather than left to each caller, matching how every existing caller of
-# this file only ever sources lib/tui.sh itself (bin/omarchy-kids-tui-demo).
 # shellcheck source=./theme.sh
 source "$(dirname "${BASH_SOURCE[0]}")/theme.sh"
 
@@ -65,29 +22,21 @@ TUI_NEXT_ANSWER="" # scratch: set by _tui_next_answer, read right after
 declare -a TUI_ANSWERS=()
 TUI_ANSWERS_I=0
 
-# The card's max width (issue #50: min(TUI_CARD_WIDTH, terminal width - 4),
-# never wider) — _tui_measure resolves TUI_CARD_W (this render's actual
-# width) and TUI_CARD_LEFT (the left margin that centers it) from it every
-# card-mode render. Card mode only; plain mode never reads either.
+# Card's max width (min(TUI_CARD_WIDTH, terminal width - 4)); _tui_measure
+# resolves TUI_CARD_W/TUI_CARD_LEFT from it per render. Card mode only.
 TUI_CARD_WIDTH=72
 TUI_CARD_W=""
 TUI_CARD_LEFT=0
 
-# Colors tui_init resolves via lib/theme.sh's theme_color, in the hex form
-# gum's --foreground and --border-foreground already accept. theme_color's
-# own fallback palette (lib/theme.sh) covers a machine with no theme read
-# yet — its "accent" fallback (#8fb8ff) is a close cousin of upstream's own
-# prompt accent (setup-form.sh's --prompt.foreground="#845DF9"), close
-# enough that nothing here hardcodes a second fallback of its own.
+# Resolved by tui_init via lib/theme.sh's theme_color -- docs/tui.md "Colors".
 TUI_C_ACCENT=""
 TUI_C_FG=""
 TUI_C_MUTED=""
 TUI_C_ERROR=""
 
-# tui_init — call once before any tui_screen_* call. Resolves colors and
-# picks how prompts get answered (see the file header). Returns 2 (does
-# not exit — that's the caller's call) when neither an answers file nor a
-# terminal is available.
+# tui_init -- call once before any tui_screen_* call. Resolves colors and
+# picks how prompts get answered. Returns 2 (never exits) when neither an
+# answers file nor a terminal is available.
 tui_init() {
     if command -v gum >/dev/null 2>&1; then TUI_HAVE_GUM=1; else TUI_HAVE_GUM=0; fi
 
@@ -98,16 +47,8 @@ tui_init() {
     local bg
     bg="$(theme_color background)"
 
-    # Theme -> gum environment (issue #50). Omarchy's own themed session
-    # already exports these once per theme, via default/themed/gum_env.
-    # lua.tpl (fetched at v4.0.2: bare FOREGROUND/BACKGROUND/BORDER_
-    # FOREGROUND/BORDER_BACKGROUND for `gum style` itself, plus a
-    # GUM_<CMD>_<FIELD>_FOREGROUND/BACKGROUND pair per gum subcommand). When
-    # that's already set, gum reads it with zero flags from us — this is
-    # "look like Omarchy's own gum screens", not a lookalike. _tui_gum_env_
-    # default only fills a var that's still empty, so a dev shell or CI
-    # runner with no themed session (nothing sourced gum_env.lua) still gets
-    # theme_color's own resolution instead of gum's built-in defaults.
+    # Theme -> gum environment (issue #50): only fills a var Omarchy's own
+    # themed session hasn't already exported -- docs/tui.md "Colors".
     _tui_gum_env_default FOREGROUND "$TUI_C_FG"
     _tui_gum_env_default BACKGROUND "$bg"
     _tui_gum_env_default BORDER_FOREGROUND "$TUI_C_ACCENT"
@@ -141,13 +82,9 @@ tui_init() {
     return 0
 }
 
-# _tui_next_answer — sets TUI_NEXT_ANSWER to the next answers-file line
-# and advances the cursor, or prints a message and returns 2 if the file
-# ran out. Every file-mode read in this library goes through this one
-# place. Deliberately NOT called as `x="$(_tui_next_answer)"`: that would
-# run it in a subshell, and the TUI_ANSWERS_I bump would be lost the
-# moment the subshell exited, replaying the same line forever. Call it
-# plain, then read TUI_NEXT_ANSWER.
+# _tui_next_answer -- sets TUI_NEXT_ANSWER to the next answers-file line,
+# or returns 2 if it ran out. Call plain, never as `x="$(_tui_next_answer)"`
+# -- a subshell would lose the TUI_ANSWERS_I bump and replay the same line.
 _tui_next_answer() {
     if ((TUI_ANSWERS_I >= ${#TUI_ANSWERS[@]})); then
         echo "tui: ${OMARCHY_KIDS_TUI_ANSWERS:-<answers file>} ran out of lines, but a screen still needs one" >&2
@@ -157,14 +94,9 @@ _tui_next_answer() {
     TUI_ANSWERS_I=$((TUI_ANSWERS_I + 1))
 }
 
-# _tui_array_copy DEST SRC_ARRAYNAME — copies the array named SRC_ARRAYNAME
-# into the local array variable DEST. Every tui_screen_* function below
-# takes its choices/rows/steps array "by name" (a caller passes the
-# array's variable name as a string) and calls this to read it. Written
-# with eval instead of a nameref (`local -n`, bash 4.3+) because
-# test/all also has to run under plain macOS bash (3.2) — this is the
-# same indirect-array idiom pre-4.3 bash has always used for "pass an
-# array by name".
+# _tui_array_copy DEST SRC_ARRAYNAME -- copies the array named
+# SRC_ARRAYNAME into DEST. eval, not a `local -n` nameref (bash 4.3+),
+# since test/all also runs under macOS's bash 3.2 -- docs/tui.md.
 _tui_array_copy() {
     local __tui_dest="$1" __tui_src="$2"
     # shellcheck disable=SC1087 # $__tui_src[@] is the array-name being
@@ -172,11 +104,8 @@ _tui_array_copy() {
     eval "$__tui_dest=(\"\${$__tui_src[@]+\"\${$__tui_src[@]}\"}\")"
 }
 
-# _tui_gum_env_default NAME VALUE — exports NAME=VALUE only when NAME isn't
-# already set in the environment (tui_init's "Theme -> gum environment"
-# block, issue #50). Reads NAME indirectly with eval, the same pre-4.3-bash
-# idiom _tui_array_copy uses above, rather than `${!name}`, so this keeps
-# working under the plain bash 3.2 test/all also has to run on.
+# _tui_gum_env_default NAME VALUE -- exports NAME=VALUE only when unset.
+# eval, not `${!name}`, for the same bash-3.2 reason as _tui_array_copy.
 _tui_gum_env_default() {
     local __tui_name="$1" __tui_val="$2" __tui_current
     __tui_current="$(eval "printf '%s' \"\${$__tui_name:-}\"")"
@@ -185,51 +114,24 @@ _tui_gum_env_default() {
     fi
 }
 
-# _tui_card_mode — true when a screen should draw the cleared, bordered
-# "card" (issue #50); false for the plain, non-clearing render every
-# existing test parses. Plain wins whenever an answers file is driving the
-# screen (TUI_MODE=file) or OMARCHY_KIDS_TUI_PLAIN=1 is set — see the file
-# header's "Two ways to render a screen".
+# _tui_card_mode -- true for the cleared/bordered card render (issue #50);
+# false (plain) whenever file mode or OMARCHY_KIDS_TUI_PLAIN=1 -- docs/tui.md.
 _tui_card_mode() {
     [[ "$TUI_MODE" == interactive && "${OMARCHY_KIDS_TUI_PLAIN:-0}" != 1 ]]
 }
 
-# _tui_clear — clears the terminal the way Omarchy's own first-boot setup
-# does it (bin/omarchy-provision-owner's clear_logo, v4.0.2 — a plain
-# `clear`, not a raw escape sequence spliced into a `printf`), so tests can
-# fake `clear` on PATH the same way they already fake `gum`. A no-op, not a
-# failure, when `clear` isn't installed (a dev shell missing termcap data).
+# _tui_clear -- plain `clear`, same as omarchy-provision-owner's clear_logo,
+# so tests can fake it on PATH. No-op, not a failure, if not installed.
 _tui_clear() {
     command -v clear >/dev/null 2>&1 && clear
     return 0
 }
 
-# _tui_measure — sets TUI_CARD_W to min(TUI_CARD_WIDTH, terminal width - 4)
-# (a 4-column breathing margin on a wide terminal, never a card touching
-# the edges) and TUI_CARD_LEFT to the left margin that centers it, then
-# exports two things every widget a screen shows next needs to read as
-# "part of the same card" (issue #50, third live-screenshot pass — the
-# second pass's own hand-drawn border came out broken in real use: right
-# edges landing in different columns row to row, the box never visibly
-# closing. gum owns the one border this file draws now; everything below
-# is just lining gum's *other* widgets up under it):
-#   - GUM_CHOOSE_PADDING/GUM_INPUT_PADDING/GUM_CONFIRM_PADDING, to
-#     TUI_CARD_LEFT plus the card's own left inset (`--padding "1 2"`) —
-#     the same measure-then-pad-every-widget trick omarchy-provision-
-#     owner's measure_terminal uses (v4.0.2) — so the chooser/input starts
-#     at the same column the card's own text does, not the terminal's edge.
-#   - GUM_CHOOSE_SHOW_HELP/GUM_INPUT_SHOW_HELP/GUM_CONFIRM_SHOW_HELP=false,
-#     so gum's own keybind help line ("↑/↓: choose • enter: select") never
-#     prints — tui_screen_choose/input/confirm print their own instead, in
-#     the theme's muted color, the same wording every screen already used.
-# `stty size` (the exact probe measure_terminal itself uses) is tried
-# first — a real ioctl on the controlling tty, immune to a stale exported
-# $COLUMNS lying about the terminal's actual width; `tput cols` (also what
-# a stubbed test fakes) is the fallback when `stty` isn't there or isn't
-# attached to a tty (e.g. this capture in a test); COLUMNS, then a fixed
-# 80, are the last resorts. Card mode only; plain mode never calls this,
-# so it can never affect the byte-for-byte output every existing test
-# already parses.
+# _tui_measure -- sets TUI_CARD_W/TUI_CARD_LEFT (card width/centering) and
+# the GUM_*_PADDING/SHOW_HELP env so the chooser/input lines up under the
+# card with no duplicate help line. `stty size` first (immune to a stale
+# $COLUMNS), then `tput cols`, then $COLUMNS, then 80. Card mode only --
+# never affects plain mode's byte-for-byte output. docs/tui.md.
 _tui_measure() {
     local cols="" sz
     sz="$(stty size 2>/dev/null || true)"
@@ -253,10 +155,9 @@ _tui_measure() {
     export GUM_CHOOSE_SHOW_HELP=false GUM_INPUT_SHOW_HELP=false GUM_CONFIRM_SHOW_HELP=false
 }
 
-# _tui_style FLAGS... -- TEXT... — the one place gum style is called.
-# Without gum (a dev machine that hasn't installed it yet — PKGBUILD
-# depends on it, so a real install always has it) this drops straight to
-# plain text so nothing here ever hard-depends on gum being present.
+# _tui_style FLAGS... -- TEXT... -- the one place gum style is called.
+# Drops to plain text when gum isn't installed (a dev machine; PKGBUILD
+# depends on it for a real install).
 _tui_style() {
     local -a flags=() text=()
     local sep=0 a
@@ -283,41 +184,10 @@ _tui_footer() {
 }
 
 # tui_header TITLE STEP TOTAL SHOW_OMY [OMY_LINE] [BODY_ARRAYNAME] [ERROR]
-# The Omy glyph and voice line only render when SHOW_OMY is 1 — spec v1.1:
-# Omy speaks on Welcome and Done, every other screen is plain. Every screen
-# still gets the same pieces — a step line, a title, Omy (sometimes), a
-# body (sometimes) — but _tui_card_mode decides how they're laid out
-# (issue #50):
-#
-#   - plain mode: unchanged from before issue #50, byte-for-byte — the
-#     bordered "Kids Mode / step n of N / title" box every existing test
-#     already parses. BODY_ARRAYNAME/ERROR are ignored here; a caller with
-#     body lines (tui_screen_confirm, tui_screen_summary) prints them
-#     itself right after, the way it always has.
-#   - card mode: clears the screen (_tui_clear), measures it
-#     (_tui_measure), and draws ONE closed card — a single
-#     `gum style --border rounded --padding "1 2"` call over every line
-#     (the "Kids Mode · Step n of N" caption, the title, Omy's glyph and
-#     voice line when SHOW_OMY is 1, then BODY_ARRAYNAME's lines when a
-#     caller passes one) — the third live-screenshot pass (issue #50):
-#     hand-drawing the border per row (round two) came out broken in real
-#     use, right edges landing in different columns row to row and the box
-#     never visibly closing. One `gum style` call is what actually renders
-#     a reliable, always-closed box; the tradeoff is every line shares one
-#     color (gum strips any color a caller tries to pre-bake into a line
-#     before handing it to a second `gum style` call — confirmed directly,
-#     not assumed), so this picks one readable foreground rather than the
-#     distinct per-row colors an earlier pass asked for. ERROR=1
-#     (tui_screen_input's failed-validator case) turns the card's border
-#     (and text) the theme's error color. The chooser/input/confirm a
-#     caller shows next isn't inside this box — gum has no widget that
-#     nests inside another one — it just runs directly below, indented to
-#     the card's own left edge (_tui_measure's GUM_*_PADDING) with its own
-#     header/prompt and default help line both suppressed (nothing to
-#     repeat — the title's already the card's own line; _tui_measure's
-#     GUM_*_SHOW_HELP=false), and the caller prints its own help line in
-#     the muted color right after, the same wording every screen already
-#     used.
+# Omy only renders when SHOW_OMY is 1 (spec v1.1: Welcome/Done only).
+# Plain mode prints the unchanged bordered box; card mode clears, measures,
+# and draws one closed `gum style` card over every line (ERROR=1 turns it
+# the theme's error color) -- see docs/tui.md for why it's one gum call.
 tui_header() {
     local title="$1" step="$2" total="$3" show_omy="$4" omy_line="${5:-}"
     local body_argname="${6:-}" errflag="${7:-0}"
@@ -365,10 +235,9 @@ tui_header() {
     fi
 }
 
-# _tui_confirm_leave — the Ctrl+C contract itself: "Leave setup? Nothing
-# has been changed yet." Returns 0 (leave) or 1 (stay, redraw the screen
-# that was interrupted). A second Ctrl+C right here also means leave —
-# nobody gets trapped in a confirmation loop by mashing the same key.
+# _tui_confirm_leave -- "Leave setup? Nothing has been changed yet."
+# Returns 0 (leave) or 1 (redraw the interrupted screen). A second Ctrl+C
+# here also means leave.
 _tui_confirm_leave() {
     local msg="Leave setup? Nothing has been changed yet."
     if [[ "$TUI_MODE" == file ]]; then
@@ -428,22 +297,17 @@ tui_screen_choose() {
     while true; do
         tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
 
-        # gum choose renders this same list itself once it's the real
-        # widget doing the asking — printing it here too is the exact
-        # duplicate issue #50's screenshots showed. Print it ourselves only
-        # when nothing else is about to: file mode (nothing renders it at
-        # all) and the no-gum fallback below (its own `read` has no list of
-        # its own either).
+        # Print the list ourselves only when gum's own widget won't (file
+        # mode, or the no-gum fallback below) -- avoids the duplicate list
+        # issue #50's screenshots showed.
         if ! { [[ "$TUI_MODE" == interactive ]] && ((TUI_HAVE_GUM)); }; then
             local -a dm=()
             _tui_card_mode && dm=(--margin "0 0 0 $TUI_CARD_LEFT")
             local d
             for d in "${display[@]+"${display[@]}"}"; do _tui_style "${dm[@]+"${dm[@]}"}" -- "$d"; done
         fi
-        # Plain mode's footer sits above the prompt, exactly as before
-        # issue #50; card mode's sits below the widget instead (gum's own
-        # help line is off — _tui_measure's GUM_CHOOSE_SHOW_HELP=false —
-        # so this is the only help text a card-mode screen shows).
+        # Plain mode's footer sits above the prompt; card mode's below the
+        # widget, since gum's own help line is off (_tui_measure).
         _tui_card_mode || _tui_footer "$footer"
 
         local chosen
@@ -453,9 +317,7 @@ tui_screen_choose() {
         elif ((TUI_HAVE_GUM)); then
             local -a gflags=()
             if _tui_card_mode; then
-                # No --header text: the title's already the card's own
-                # second line, so gum's own header would just repeat it.
-                # The list still renders — it just isn't handed a title.
+                # No --header: the title's already the card's own line.
                 gflags+=(--header "")
             else
                 gflags+=(--header "$title")
@@ -483,8 +345,6 @@ tui_screen_choose() {
             if _tui_confirm_leave; then return 130; else continue; fi
         fi
 
-        # Resolve to a value: exact value/label/rendered-line match, or a
-        # bare 1-based number.
         local match="" j
         for j in "${!values[@]}"; do
             if [[ "$chosen" == "${values[j]}" || "$chosen" == "${labels[j]}" || "$chosen" == "${display[j]}" ]]; then
@@ -521,10 +381,8 @@ tui_screen_input() {
     local last_err=""
 
     while true; do
-        # A failed validator's message rides along as an extra card line on
-        # the redraw that follows it (issue #50: "errors ... in the theme's
-        # error colour inside the card") rather than a one-off line printed
-        # off to the side — see tui_header's own comment on ERROR.
+        # A failed validator's message rides along as an extra card line
+        # on the redraw, not a one-off line printed off to the side.
         local -a _tui_input_body=()
         [[ -n "$placeholder" ]] && _tui_input_body+=("$placeholder")
         [[ -n "$last_err" ]] && _tui_input_body+=("" "$last_err")
@@ -538,10 +396,6 @@ tui_screen_input() {
             [[ -n "$placeholder" ]] && _tui_style --foreground "$TUI_C_MUTED" -- "$placeholder"
             [[ -n "$last_err" ]] && _tui_style --foreground "$TUI_C_ERROR" -- "$last_err"
         fi
-        # Plain mode's footer sits above the prompt, exactly as before
-        # issue #50; card mode's sits below the widget instead (gum's own
-        # help line is off — _tui_measure's GUM_INPUT_SHOW_HELP=false —
-        # so this is the only help text a card-mode screen shows).
         _tui_card_mode || _tui_footer "$footer"
 
         local ans
@@ -633,12 +487,8 @@ tui_screen_confirm() {
                 ;;
         esac
     elif ((TUI_HAVE_GUM)); then
-        # No prompt text in card mode: the title (and any body) is already
-        # the card's own content, so gum's own prompt line would just
-        # repeat it — same reasoning as tui_screen_choose's --header "".
-        # gum's own help line is off too (_tui_measure's
-        # GUM_CONFIRM_SHOW_HELP=false); the footer below is the only help
-        # text a card-mode screen shows.
+        # No prompt text in card mode: the title/body is already the
+        # card's own content (same reasoning as --header "" above).
         if _tui_card_mode; then
             gum confirm --affirmative "$affirm" --negative "$decline"
         else

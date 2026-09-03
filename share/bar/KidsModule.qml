@@ -1,58 +1,6 @@
-// KidsModule.qml — the parent's bar widget (SPEC.md R-BAR-1..3, I-1, I-6).
-// One dot per kid currently logged in (name initial, minutes left, paused
-// flag), a badge with the count of open "ask a parent" requests, and a
-// click/Enter menu with quick actions. Installed only by
-// `bin/omarchy-kids-bar enable` (SPEC.md I-1: "Writes into the parent's
-// own files happen only when the parent asks") -- see docs/bar.md.
-//
-// ============================== CONFIRMED / UNVERIFIED ====================
-// Unlike the other Quickshell files in this repo (share/launcher/shell.qml,
-// share/ask/shell.qml, share/time/*.qml), which are standalone
-// `quickshell -p <file>` processes with no real Quickshell install to check
-// API names against, this file targets Omarchy 4.0.2's real *shell-plugin*
-// architecture, fetched and read directly from omacom/omarchy at tag
-// v4.0.2 while writing this:
-//
-//   - manual/32-shell-plugins.md and shell/README.md: the plugin/manifest
-//     contract (kinds, entryPoints, `~/.config/omarchy/plugins/<id>/`,
-//     `omarchy plugin enable/disable`, `shell.json`'s shape).
-//   - shell/Ui/BarWidget.qml, shell/Ui/Panel.qml, shell/Ui/KeyboardPanel.qml,
-//     shell/Ui/PanelKeyCatcher.qml: the base types this file extends/uses.
-//   - shell/plugins/panels/clock/BarWidget.qml and
-//     shell/plugins/panels/power/Panel.qml: worked first-party examples of
-//     exactly this "icon + click-to-open popup" shape, which this file's
-//     structure mirrors (Panel base, own click target, KeyboardPanel +
-//     PanelKeyCatcher for the popup, `root.bar.foreground`/`fontFamily`
-//     for popup text).
-//
-// What is NOT confirmed:
-//   - Whether a *third-party* plugin under `~/.config/omarchy/plugins/`
-//     (as opposed to a first-party one under $OMARCHY_PATH/shell/plugins/)
-//     can `import qs.Ui` / `import qs.Commons` the same way. The docs say
-//     both locations are "discovered the same way" by the same long-running
-//     `omarchy-shell` process, which implies yes, but no third-party plugin
-//     source was available to confirm the import actually resolves outside
-//     $OMARCHY_PATH. If it doesn't, the fix is almost certainly copying the
-//     small pieces of qs.Ui this file needs (Panel, KeyboardPanel,
-//     PanelKeyCatcher) into this plugin's own directory instead of
-//     importing the shell's copy -- confirm this first in the VM.
-//   - qs.Commons' `Color`/`Style` singletons (docs/theming.md, issue #48):
-//     now used directly below (Color.accent/Color.muted/Color.urgent/
-//     Color.background, Style.font.family) instead of literal hex --
-//     their exact property names are confirmed, fetched directly from
-//     shell/Commons/Color.qml, shell/Commons/Style.qml, and
-//     shell/Commons/qmldir (`module qs.Commons` / `singleton Color 1.0` /
-//     `singleton Style 1.0`) at tag v4.0.2. Still NOT used: qs.Ui's
-//     `BarIconButton`/`WidgetButton` (their exact property names weren't
-//     needed once this file already had its own working icon row --
-//     I-6 only requires an honest, working control, not a rewrite for
-//     its own sake).
-//   - Keyboard reach: Keys.onReturnPressed/onEnterPressed below assume the
-//     bar can hand keyboard focus to a widget (e.g. Tab-cycling bar icons).
-//     Unconfirmed against a real bar; harmless if unused since a mouse
-//     click always opens the menu too (I-5 still holds once the menu is
-//     open: PanelKeyCatcher's arrows/Enter/Escape are real, sourced code).
-// ===========================================================================
+// KidsModule.qml -- the parent's bar widget: one dot per logged-in kid,
+// an "ask a parent" badge, a click/Enter quick-action menu (SPEC.md R-BAR-1..3, I-1, I-6).
+// See docs/bar.md for the confirmed/unverified Omarchy shell-plugin API list.
 
 import QtQuick
 import Quickshell

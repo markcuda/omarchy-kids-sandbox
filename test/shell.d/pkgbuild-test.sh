@@ -157,12 +157,12 @@ if [[ -x "$session" ]]; then
     fail "omarchy-kids-session --help did not exit 0"
   fi
   # Scratch env so this smoke check never reads the real /etc/omarchy-kids
-  # (AGENTS.md rule 8) and never sits through omarchy-kids-ask-grownup's
+  # (AGENTS.md rule 8) and never sits through omarchy-kids-blocked's
   # default 15s hold -- issue #11 built the real thing behind these flags,
   # this file only checks it still fails closed with no profile.
   session_tmp="$(mktemp -d)"
   OMARCHY_KIDS_ETC="$session_tmp/etc" OMARCHY_KIDS_RUN_DIR="$session_tmp/run" \
-    OMARCHY_KIDS_ASK_GROWNUP_SLEEP=0 "$session" >/dev/null 2>&1
+    OMARCHY_KIDS_BLOCKED_SLEEP=0 "$session" >/dev/null 2>&1
   session_rc=$?
   rm -rf "$session_tmp"
   if [[ $session_rc -eq 1 ]]; then
@@ -212,11 +212,16 @@ else
     fail "omarchy-kids-web's SYSROOT is not empty in the committed file (review §3.8)"
 fi
 
-# --- review §6: the tui demo is not a user command ------------------------
-if grep -q 'rm -f "\$pkgdir/usr/bin/omarchy-kids-tui-demo"' "$PKGBUILD"; then
-    pass "package() does not ship omarchy-kids-tui-demo to /usr/bin"
+# --- review §6: the tui demo is not a user command (issue #56) ------------
+if [[ -x "$ROOT/scripts/omarchy-kids-tui-demo" && ! -e "$ROOT/bin/omarchy-kids-tui-demo" ]]; then
+    pass "omarchy-kids-tui-demo lives in scripts/, not bin/"
 else
-    fail "PKGBUILD still ships omarchy-kids-tui-demo (review §6)"
+    fail "omarchy-kids-tui-demo is missing from scripts/ or still present in bin/"
+fi
+if grep -q 'bin/omarchy-kids bin/omarchy-kids-\*' "$PKGBUILD" && ! grep -q '^scripts/' "$PKGBUILD"; then
+    pass "package() installs only bin/, never scripts/, so the demo is never shipped"
+else
+    fail "PKGBUILD's package() may now ship scripts/ (review §6)"
 fi
 
 # --- review §1.5: the app entry marks itself as a human launch ------------

@@ -175,10 +175,17 @@ bash test/shell.d/wifi-test.sh
   `SO_PEERCRED` — this only runs on Linux at all (guarded in `main()`), and this repo was written
   without a Linux box with NetworkManager, systemd socket activation, or a kid account to test
   against.
-- Every `share/wifi/shell.qml` claim: this has never run against a real Quickshell (see its own
-  UNTESTED header) — `Process.stdout`/`SplitParser` reading a command's output back into QML is
-  new to this repo (share/launcher/shell.qml and share/exit-modal/shell.qml only ever *start* a
-  process or write to one's stdin).
+- Every `share/wifi/shell.qml` claim: this has never run against a real Quickshell. Two pieces
+  carry over from `share/exit-modal/shell.qml`, verified live there 2026-09-02 (`PanelWindow` +
+  `WlrLayershell.layer: WlrLayer.Overlay` + `WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive`;
+  `Quickshell.Io.Process` with `stdinEnabled`/`write()`, flipping `stdinEnabled = false` rather
+  than a `closeStdin()` call to signal EOF). New and unconfirmed here: running
+  `omarchy-kids-wifi list` as a plain Process and reading its stdout back into QML via
+  `Process.stdout`/a `SplitParser` or similar — no other file in this repo reads a command's
+  stdout back, only starts one or writes to its stdin. Also flagged, not fixed: `nmcli`'s terse
+  (`-t`) output is `:`-delimited and escapes a literal `:` inside a field with a backslash; the
+  picker's naive `split(":")` does not unescape that, so an SSID containing a colon parses wrong
+  (rare in practice).
 - The `Super+Shift+W` bind actually reaching Hyprland and `omarchy-kids-wifi picker` actually
   showing/hiding the right thing.
 - `nmcli connection add type wifi con-name kids-<ssid> autoconnect no …` actually creating a *new*

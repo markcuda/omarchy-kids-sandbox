@@ -1,52 +1,6 @@
-// shell.qml — the Level 1/2 big-tile launcher (SPEC.md R-DESK-3,
-// R-DESK-5, Appendix E; I-5 keyboard-complete, I-6 honest UI).
-//
-// ============================== UNTESTED ================================
-// This file has never run against a real Quickshell or Hyprland session --
-// there is no Quickshell install, headless or otherwise, on the machine
-// this was written on, and no Quickshell documentation or source was
-// available to check API names against. Every Quickshell-specific type
-// and property below (as opposed to plain QtQuick ones) is a best-effort
-// guess from general knowledge of the project and MUST be checked against
-// the real thing in the VM before this ships. In particular:
-//
-//   - `Window` vs `PanelWindow`/`WlrLayershell`. The issue that asked for
-//     this file suggested a layer-shell panel. This file uses a plain
-//     QtQuick `Window` instead, fullscreened like every other Level 1/2
-//     app via share/hyprland/L1.lua's `o.window(".*", { fullscreen = true })`
-//     windowrule, and reachable by title with plain `hyprctl dispatch
-//     focuswindow` (see bin/omarchy-kids-launcher-ctl). That sidesteps
-//     needing Quickshell's IPC system (whose CLI syntax could not be
-//     confirmed at all) just to show/raise the launcher, at the cost of
-//     not being a "real" always-on-top overlay. If Quickshell requires
-//     PanelWindow for anything it loads, or if a real always-on-top
-//     overlay is wanted after all, this is the piece to redo.
-//   - `Quickshell.Io.FileView` — whether `reload()`/`text()` exist with
-//     those names and signatures, and how a missing file is reported
-//     (this assumes `text()` throws or returns empty rather than crashing
-//     the shell).
-//   - `Quickshell.Io.Process` — whether `command`/`running` are real
-//     properties and start-on-`running=true` is the right lifecycle.
-//   - issue #43: `columns` below assumes GridView lays tiles out at
-//     exactly `Math.floor(grid.width / grid.cellWidth)` per row (plain
-//     QtQuick GridView behavior in general, but not confirmed against
-//     this Quickshell 0.3.1 build specifically). If the real layout
-//     rounds or reserves space differently, `GridNav.columnsFor()` in
-//     gridnav.js is the one place to correct -- key navigation and the
-//     GridView both read that same value, so a fix there fixes both.
-//   - issue #54: `Quickshell.iconPath()` (used by `iconSource()` below)
-//     is confirmed to exist and to be the real Omarchy launcher's own
-//     icon lookup -- `shell/services/AppLibrary.qml`'s `iconSource()`
-//     (omacom/omarchy@v4.0.2, commit
-//     346e69e1cec6c4e8924531874af6ba010a1bc99e) calls
-//     `Quickshell.iconPath(value, true)` the same way -- but the exact
-//     rendered size/DPI behavior of the returned source still needs a
-//     real Quickshell to confirm, like everything else in this file.
-//
-// What this does NOT depend on the kid's home for (I-3): the tile list
-// comes from $XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json (written by session-start),
-// and the control file is under /run too. Nothing here reads ~/.config.
-// ==========================================================================
+// shell.qml -- the Level 1/2 big-tile launcher. Reads its tile list from
+// /run, never the kid's home (SPEC.md R-DESK-3, R-DESK-5, Appendix E; I-3, I-5, I-6).
+// See docs/levels.md "Open questions" #5 for the Quickshell API guesses still to confirm.
 
 import QtQuick
 import Quickshell

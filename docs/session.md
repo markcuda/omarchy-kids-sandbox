@@ -1,4 +1,4 @@
-# Session entry: `omarchy-kids-session` and `omarchy-kids-ask-grownup` (R-DESK-1, R-DESK-2, R-WEB-4, R-FND-2a, I-3, I-4, I-9)
+# Session entry: `omarchy-kids-session` and `omarchy-kids-blocked` (R-DESK-1, R-DESK-2, R-WEB-4, R-FND-2a, I-3, I-4, I-9)
 
 The kid session entry point. SDDM's `omarchy-kids` tile runs this through
 `/usr/share/sddm/scripts/wayland-session` the same way Omarchy's own session runs
@@ -11,7 +11,7 @@ so this is the whole session command SDDM invokes for a kid tile.
 1. Figures out the account: `id -un`. (`OMARCHY_KIDS_ACCOUNT` overrides this for tests.)
 2. Runs every R-DESK-2 check below, in order.
 3. On the first check that fails closed: shows a full-screen "Ask a grown-up" naming the check
-   (`omarchy-kids-ask-grownup "<check name>"`) and exits 1. **Fail closed** — a kid never lands
+   (`omarchy-kids-blocked "<check name>"`) and exits 1. **Fail closed** — a kid never lands
    on an unfenced desktop because a lock silently went missing (I-4, I-9).
 4. Once every fail-closed check passes: exports `OMARCHY_KIDS_ACCOUNT`, `OMARCHY_KIDS_LEVEL`,
    `OMARCHY_KIDS_BAND`, `OMARCHY_KIDS_HYPRLAND_DIR` and `exec`s
@@ -76,17 +76,17 @@ into them is that other work's job; this ticket only builds and tests the flag i
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `--install-configs`' source (`hyprland/*.lua`) |
 | `OMARCHY_KIDS_ROOT` | (empty — the real paths) | scratch prefix for the two system paths this doesn't own: `/etc/chromium/policies/managed` (check b) and `/etc/polkit-1/rules.d` (check c). Same convention `bin/omarchy-kids-provision` and `lib/posture.sh` already use for `/etc/polkit-1` et al. — see "Judgment calls" below |
 | `OMARCHY_KIDS_RUN_DIR` | `${XDG_RUNTIME_DIR:-/run/user/<uid>}/omarchy-kids` | where the per-session check log (`session-<uid>.log`) is written |
-| `OMARCHY_KIDS_ASK_GROWNUP_BIN` | resolved beside this script, else `/usr/bin/omarchy-kids-ask-grownup` | what runs on the first fail-closed check |
+| `OMARCHY_KIDS_BLOCKED_BIN` | resolved beside this script, else `/usr/bin/omarchy-kids-blocked` | what runs on the first fail-closed check |
 | `OMARCHY_KIDS_ACCOUNT` | `id -un` | which account's profile/checks run (test hook) |
-| `OMARCHY_KIDS_ASK_GROWNUP_SLEEP` | 15 | (on `omarchy-kids-ask-grownup`) seconds the message holds the screen before exiting — tests set this to 0 |
+| `OMARCHY_KIDS_BLOCKED_SLEEP` | 15 | (on `omarchy-kids-blocked`) seconds the message holds the screen before exiting — tests set this to 0 |
 
 `test/shell.d/session-test.sh` runs entirely against scratch trees built from these, with stub
 `findmnt`, `systemctl`, and `Hyprland` on a stub `PATH` that read/report from small control files
 this test writes per scenario — see that file's header comment for exactly how.
 
-## `omarchy-kids-ask-grownup`
+## `omarchy-kids-blocked`
 
-`omarchy-kids-ask-grownup "<check name>"` — the message shown on the first fail-closed check.
+`omarchy-kids-blocked "<check name>"` — the message shown on the first fail-closed check.
 **This is a placeholder, not the real modal**: at the point `omarchy-kids-session` calls it,
 Hyprland hasn't started, so there's no compositor and nothing graphical to draw into. All it can
 honestly do today is print a message and hold the screen for a while:
@@ -94,7 +94,7 @@ honestly do today is print a message and hold the screen for a while:
 - If `gum` is on `PATH`, a big centered `gum style` box.
 - Otherwise, plain text between two banner lines.
 - Either way, to the real tty if one is attached (falling back to stdout, e.g. in a test run with
-  no controlling terminal), then `sleep 15` (override: `OMARCHY_KIDS_ASK_GROWNUP_SLEEP`) and exit 1.
+  no controlling terminal), then `sleep 15` (override: `OMARCHY_KIDS_BLOCKED_SLEEP`) and exit 1.
 
 A real graphical modal — rendered by whatever runs the portal/greeter, or a tiny standalone
 compositor client — is a separate ticket; this script is what that ticket should replace, not
@@ -137,7 +137,7 @@ build on top of.
   makes that table an actual diagnostic (see every check's state at once), which is also what a
   tool like `omarchy-kids-check` needs from it — stopping at the first FAIL would just reproduce
   `omarchy-kids-session`'s own start behavior with extra steps.
-- **`omarchy-kids-ask-grownup`'s tty detection actually attempts the write** (`{ : > /dev/tty; }
+- **`omarchy-kids-blocked`'s tty detection actually attempts the write** (`{ : > /dev/tty; }
   2>/dev/null`) rather than checking `[[ -w /dev/tty ]]` first. The permission-bit check can look
   writable with no controlling terminal attached (common in a test run, or a session started in
   an unusual way) and then fail with `ENXIO` on the real write — attempting the open directly and
@@ -252,7 +252,7 @@ Omarchy's own `uwsm start -g -1 -e -D Hyprland hyprland.desktop`.
 
 Sequence: figure out the account (`id -un`), run every R-DESK-2 check
 in order, and on the first fail-closed miss show a full-screen "Ask a
-grown-up" (omarchy-kids-ask-grownup) and exit 1 -- fail closed, never
+grown-up" (omarchy-kids-blocked) and exit 1 -- fail closed, never
 a silent, unfenced desktop (I-4, I-9). Once every fail-closed check
 passes, export the account/level/band and exec Hyprland with the
 level's root-owned config -- never the kid's own `~/.config/hypr`
@@ -290,9 +290,9 @@ run entirely as a normal user against a scratch tree (AGENTS.md rule
                                 /run/user/<uid>/omarchy-kids) -- deliberately
                                 NOT /run/omarchy-kids, which is root-owned and
                                 this process is never root.
-  OMARCHY_KIDS_ASK_GROWNUP_BIN    path to omarchy-kids-ask-grownup (default:
+  OMARCHY_KIDS_BLOCKED_BIN    path to omarchy-kids-blocked (default:
                                 resolved beside this script, else /usr/bin)
-  OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds omarchy-kids-ask-grownup sleeps for
+  OMARCHY_KIDS_BLOCKED_SLEEP  seconds omarchy-kids-blocked sleeps for
                                 (default 15; tests set this to 0)
 ```
 

@@ -185,6 +185,11 @@ against a real Omarchy 4.0.x install with `omarchy-provision-user` temporarily h
 `PATH`, confirm the kid's fresh desktop does *not* show "Pending Omarchy Migrations", and fix the
 format here if it does.
 
+`omarchy-provision-user` itself can fail even when present: on a VM built from the ISO's offline
+package set it failed on a missing bundled Node tarball (seen live 2026-09-02). `add` treats that
+failure as a warning, not a failed provision — the account, slot, locks, and profile are already
+in place by that point — and falls back to `mark_migrations_done`.
+
 ## Judgment calls made in this implementation
 
 - **A missing lock-screen PAM stack only warns, never fails `add`** (issue #15, R-SEC-2).

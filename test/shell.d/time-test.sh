@@ -372,27 +372,27 @@ set_sessions
 echo
 
 # =========================================================================
-# ask-grownup: runs omarchy-kids-ask-grownup if present, else logs
+# ask-grownup: runs omarchy-kids-blocked if present, else logs
 # =========================================================================
 
 ARGV_LOG="$TMP/ask-argv.log"
-cat >"$STUBS/omarchy-kids-ask-grownup" <<EOF
+cat >"$STUBS/omarchy-kids-blocked" <<EOF
 #!/bin/bash
 echo "\$@" >> "$ARGV_LOG"
 EOF
-chmod +x "$STUBS/omarchy-kids-ask-grownup"
+chmod +x "$STUBS/omarchy-kids-blocked"
 
 RUN_DIR="$TMP/run"
 export OMARCHY_KIDS_RUN="$RUN_DIR"
 
 : >"$ARGV_LOG"
 "$TIME" ask-grownup >/dev/null 2>&1
-check_contains "$(cat "$ARGV_LOG")" "time 15" "ask-grownup: runs omarchy-kids-ask-grownup with 'time 15' when it's on PATH"
+check_contains "$(cat "$ARGV_LOG")" "time 15" "ask-grownup: runs omarchy-kids-blocked with 'time 15' when it's on PATH"
 
-rm -f "$STUBS/omarchy-kids-ask-grownup"
+rm -f "$STUBS/omarchy-kids-blocked"
 rm -rf "$RUN_DIR"
 "$TIME" ask-grownup >/dev/null 2>&1
-check "$?" 0 "ask-grownup: still exits 0 with no omarchy-kids-ask-grownup on PATH"
+check "$?" 0 "ask-grownup: still exits 0 with no omarchy-kids-blocked on PATH"
 log_out="$(cat "$RUN_DIR/session-$(id -u).log" 2>/dev/null || true)"
 check_contains "$log_out" "asked for" "ask-grownup: logs the request when there's nothing to run"
 

@@ -1,13 +1,9 @@
 # shellcheck shell=bash
 # lib/sock.sh -- one Unix-socket request/response client for every daemon
-# this repo speaks to (bin/omarchy-kids-authd, bin/omarchy-kids-wifid).
-#
-# There were three near-identical copies of this (review §3): in
-# bin/omarchy-kids-parent-auth, bin/omarchy-kids-wizard and
-# bin/omarchy-kids-wifi, already drifted on their `elif`/`else` fallback
-# and their timeouts. socat where it exists, python3 otherwise, and a
-# hard failure (empty output, non-zero) when neither does -- never a
-# silent success, because every caller reads "no reply" as "refused".
+# this repo speaks to (bin/omarchy-kids-authd, bin/omarchy-kids-wifid),
+# replacing three copies that had drifted. socat where it exists, python3
+# otherwise, and a hard failure when neither does -- never a silent
+# success, since every caller reads "no reply" as "refused".
 
 # kids_sock_request SOCKET PAYLOAD [TIMEOUT] -- writes PAYLOAD, shuts the
 # write side down, prints whatever comes back. Returns non-zero when

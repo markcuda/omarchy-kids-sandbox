@@ -664,14 +664,14 @@ rm2_out="$(
     OMARCHY_KIDS_ETC="$RM2_ETC" \
     OMARCHY_KIDS_SHARE="$SHARE" \
     OMARCHY_KIDS_SETUP_LOG="$RM2_TMP/setup.log" \
-    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin parentpw123 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin parentpw123 Zzznobody fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
     DRY_RUN=0 "$(wizard_for "$RM2_STUBS")" 2>&1
 )"
 rm2_status=$?
 check_status "$rm2_status" 0 "real mode with every fake succeeding still exits 0"
-check_contains "$rm2_out" "skipping the session check — account kid-ada does not exist" \
+check_contains "$rm2_out" "skipping the session check — account kid-zzznobody does not exist" \
     "the safety check explains why it skipped, rather than handing sudo -u a nonexistent user"
-check_not_contains "$rm2_out" "sudo -u kid-ada" \
+check_not_contains "$rm2_out" "sudo -u kid-zzznobody" \
     "omarchy-kids-session --check is never actually invoked for an account that doesn't exist"
 
 rm -rf "$RM2_TMP"

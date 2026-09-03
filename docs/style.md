@@ -58,7 +58,7 @@ intentionally omit shebangs" entirely.
 "bash, `set -euo pipefail`" for every `bin/omarchy-kids-*` command — but the repo doesn't follow
 its own rule: of 26 bash scripts in `bin/`, 18 use `set -uo pipefail` (missing `-e`) and only 8 use
 the documented `set -euo pipefail`. The 18: `omarchy-kids`, `omarchy-kids-ask`,
-`omarchy-kids-ask-grownup`, `omarchy-kids-assert`, `omarchy-kids-bar`, `omarchy-kids-check`,
+`omarchy-kids-blocked`, `omarchy-kids-assert`, `omarchy-kids-bar`, `omarchy-kids-check`,
 `omarchy-kids-data`, `omarchy-kids-exit`, `omarchy-kids-panel`, `omarchy-kids-parent-auth`,
 `omarchy-kids-remove`, `omarchy-kids-session`, `omarchy-kids-super-tap`, `omarchy-kids-time`,
 `omarchy-kids-time-ledger`, `omarchy-kids-tui-demo`, `omarchy-kids-wifi`, `omarchy-kids-wizard`.
@@ -120,6 +120,18 @@ mechanics, "CONFIRMED/UNVERIFIED" audit trails, and live-test narration into the
 Consider splitting `bin/omarchy-kids-check` (1058 lines) into smaller `lib/check-<area>.sh` pieces
 sourced by one thin dispatcher, mirroring how `bin/omarchy` itself stays a dispatcher over many
 separate `bin/omarchy-<verb>-*` scripts rather than one large file.
+
+**Resolved (issue #56).** `bin/omarchy-kids-check` is now a 182-line thin dispatcher over ten
+`lib/check-<area>.sh` files, exactly the split this section asked for. Comment density in
+`bin/`+`lib/` combined fell from 18% (issue #56's starting point, itself down from round one's
+26%) to 11.85% (`grep -cE '^[[:space:]]*#'` over `wc -l`, every `bin/omarchy-kids-*` and `lib/*.sh`
+file). Every file-level header is at or under setup-form.sh-length now; almost every remaining
+function comment is 0–2 lines. The prose that used to live in those headers moved into the paired `docs/<command>.md` file, with
+a one-line pointer left in the source — nothing was deleted, including comments that explained a
+security or trust-boundary decision. A few small, dense library files
+(`lib/units.sh`, `lib/kids.sh`, `lib/data.sh`) stay above 12% on their own: each is short (12–219
+lines) with almost every remaining comment being a single-line function signature or a
+trust-boundary rationale AGENTS.md rule 9 asks to keep local, not narrative bloat left to trim.
 
 ## 4. Naming
 
@@ -301,6 +313,17 @@ QML header read, including the worked example it's explicitly modeled on
 **Fix.** Same split as section 3 and 9: move the sourcing/audit trail (which upstream files were
 read, what's confirmed vs. not) into `docs/bar.md` (already exists), leaving one pointer line in
 the QML header; fix the five hex colors per section 8's fix.
+
+**Resolved (issue #56).** Every `share/**/*.qml` file's header is three lines or fewer now — what
+the file is, the SPEC.md rule, and a pointer to its `docs/*.md` (`KidsModule.qml`'s included,
+alongside `share/ask/shell.qml`, `share/exit-modal/shell.qml`, `share/launcher/shell.qml`,
+`share/plugins/shell.qml`, `share/qml/KidsTheme.qml`, `share/sddm-theme/Main.qml` (the longest,
+down from 144 lines), and `share/time/timesup.qml`/`toast.qml`/`share/wifi/shell.qml`). Every
+sourcing/CONFIRMED-UNVERIFIED audit trail moved into the matching doc, several of which (e.g.
+`docs/levels.md`, `docs/portal.md`, `docs/wifi.md`) had only a "see the file's own header" pointer
+before and now carry the actual content. `share/exit-modal/shell.qml`'s header no longer
+contradicts the file body the way round two's review found (an `UNTESTED` banner next to code
+already verified live 2026-09-02) — the new header states the verified status directly.
 
 ## 11. Testing
 

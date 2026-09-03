@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests lib/tui.sh and bin/omarchy-kids-tui-demo (issue #18: SPEC.md
+# Tests lib/tui.sh and scripts/omarchy-kids-tui-demo (issue #18: SPEC.md
 # R-WIZ-9, Appendix A).
 #
 # Every scenario runs in its own subshell (lib/tui.sh sourced fresh each
@@ -12,7 +12,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TUI_LIB="$ROOT/lib/tui.sh"
-DEMO="$ROOT/bin/omarchy-kids-tui-demo"
+DEMO="$ROOT/scripts/omarchy-kids-tui-demo"
 
 pass() { echo "PASS  $*"; }
 fail() {

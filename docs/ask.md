@@ -123,7 +123,7 @@ enforces this, not just this script). `DRY_RUN=1` by default; `--apply` makes ei
   `omarchy-kids-web` grows real per-kid policies, approving `roblox.com` for one 6-8 kid makes it
   visible to every 6-8 kid on the machine. This is disclosed here, not hidden — a future ticket for
   per-kid Chromium profiles/groups is the real fix.
-- **`omarchy-kids-ask-grownup` is untouched.** It already exists (issue #11, R-DESK-2's
+- **`omarchy-kids-blocked` is untouched.** It already exists (issue #11, R-DESK-2's
   fail-closed "a check failed before your desktop could start" message) under a very similar name,
   with its own, unrelated command-line contract. R-BUILD-4 names this feature's command `-ask`
   (i.e. `omarchy-kids-ask`), so that's what got built; renaming or merging the two is out of scope
@@ -241,7 +241,7 @@ omarchy-kids-ask -- "Ask a parent" for more time, an app, a plugin, or a
 site (SPEC.md R-ASK-1..3, Appendix D; issue #25). One verb, four kinds.
 
 NOTE on the name: this is the `-ask` command R-BUILD-4 lists.
-bin/omarchy-kids-ask-grownup already exists under a similar name but is
+bin/omarchy-kids-blocked already exists under a similar name but is
 a different, already-shipped thing (issue #11's full-screen message
 for a fail-closed check at login, R-DESK-2) -- it is not touched here.
 

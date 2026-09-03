@@ -1,21 +1,17 @@
 # shellcheck shell=bash
 # lib/assert-locks.sh — omarchy-kids-assert's per-kid and machine-level
 # lock *_ok/*_fix pairs (everything but the Limine locks). Sourced by
-# the dispatcher; not meant to be executed directly.
-
-# --- small helpers not worth a shared lib entry ----------------------------
+# the dispatcher; not meant to be executed directly. See docs/assert.md's
+# "Lock list" and "Judgment calls" for the full table and every rationale
+# below -- each comment here is a one-line pointer, not the full case.
 
 profile_field() { conf_get "$KIDS_DIR/$1.conf" "$2" 2>/dev/null || true; }
 
-# --- per-kid locks ----------------------------------------------------------
-
-# fstab: R-FND-2's bind-mount line. Reuses lib/posture.sh's own writer,
-# which is already idempotent (append-if-missing).
+# fstab: R-FND-2's bind-mount line, via lib/posture.sh's idempotent writer.
 fstab_ok() { grep -qxF "$(posture_fstab_line "$1")" "$(posture_fstab)" 2>/dev/null; }
 fstab_fix() { posture_add_fstab_line "$1"; }
 
-# mount: the home is actually mounted noexec,nosuid,nodev right now (not
-# just that fstab says it should be) -- "mount if not", per the issue.
+# mount: actually mounted noexec,nosuid,nodev right now, not just fstab.
 mount_opts_ok() { [[ "$1" == *noexec* && "$1" == *nosuid* && "$1" == *nodev* ]]; }
 mount_ok() {
     local opts
@@ -51,10 +47,7 @@ accountsservice_ok() {
 }
 accountsservice_fix() { posture_write_accountsservice "$1" "$2"; }
 
-# gecos (issue #39): the greeter's realName comes from passwd's GECOS
-# field, not AccountsService -- SDDM reads getpwnam(3)'s pw_gecos
-# (docs/portal.md). Needs `getent`; a box without one reports "ok"
-# rather than guessing at a fix it can't verify.
+# gecos (issue #39): passwd's GECOS field, which SDDM reads for realName.
 gecos_ok() {
     local account="$1" name="$2" current
     command -v getent >/dev/null 2>&1 || return 2  # no way to read the field back
@@ -63,10 +56,8 @@ gecos_ok() {
 }
 gecos_fix() { usermod -c "$2" "$1"; }
 
-# face (issue #39, live VM finding): the actual file SDDM's UserModel
-# reads for the avatar on this stack -- lib/posture.sh's own header
-# comment on posture_write_face_icon has the full UserModel.cpp
-# citation for why AccountsService's Icon= line isn't it.
+# face (issue #39): the file SDDM's UserModel actually reads for the
+# avatar, not AccountsService's Icon= (docs/portal.md's "Avatars").
 face_ok() {
     local account="$1" avatar="$2" src file
     src="$SHARE/avatars/$avatar.svg"
@@ -75,11 +66,8 @@ face_ok() {
 }
 face_fix() { posture_write_face_icon "$SHARE/avatars/$2.svg" "$1"; }
 
-# groups: member of omarchy-kids and the band group. No writer for this
-# in lib/posture.sh (omarchy-kids-provision sets it once via `useradd -G`
-# at creation time, not through a posture_* function), so this is the one
-# lock re-implemented here rather than reused, per the issue's own
-# `usermod -aG` instruction.
+# groups: member of omarchy-kids and the band group. No lib/posture.sh
+# writer to reuse here (docs/assert.md's "Judgment calls").
 current_groups() { id -nG "$1" 2>/dev/null || true; }
 has_group() { [[ " $1 " == *" $2 "* ]]; }
 groups_ok() {
@@ -99,15 +87,8 @@ groups_fix() {
     usermod -aG "${missing[*]}" "$account"
 }
 
-# theme (issue #53, docs/theming.md): the kid's own current Omarchy
-# theme keeps matching the profile's `theme` override. lib/theme.sh's
-# theme_apply_for is the one writer (the same function `omarchy-kids-conf
-# set <kid> theme <name>` uses), so a kid who deletes/replaces
-# .../current/theme themselves (they own the containing directory, same
-# reasoning as install_kids_chromium_flags's root-owned-file-in-a-kid-
-# writable-dir shape) gets it re-applied here. "ok" with no `theme`
-# override at all -- a profile from before issue #53, or a parent with
-# no theme to copy at provision time.
+# theme (issue #53): the kid's current Omarchy theme still matches the
+# profile's `theme` override -- docs/theming.md.
 theme_ok() {
     local account="$1" expected current
     expected="$(profile_field "$account" theme)"
@@ -122,12 +103,10 @@ theme_fix() {
     theme_apply_for "$account" "$expected"
 }
 
-# --- machine-level locks ----------------------------------------------------
+# --- machine-level locks ---
 
-# The expected text goes into a local first: inline, an unusable parent
-# name makes posture_polkit_admin_rule_text print nothing and an empty
-# rule file compares equal to it -- green forever over a polkit that has
-# no admin rule at all (review §2.2).
+# expected in a local first: inline, an unusable parent name would make an
+# empty rule file compare equal to it -- green forever with no rule (review §2.2).
 polkit_admin_ok() {
     local parent file expected
     parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
@@ -150,9 +129,7 @@ polkit_deny_ok() {
 }
 polkit_deny_fix() { posture_write_polkit_deny_rule; }
 
-# sddm-theme (R-LOGIN, issue #14): the portal's conf.d drop-in, exact
-# content match (same idempotence check posture_write_sddm_theme_dropin
-# itself uses). Machine-level like the polkit rules above.
+# sddm-theme (R-LOGIN, issue #14): the portal's conf.d drop-in, exact match.
 sddm_theme_ok() {
     local file
     file="$(posture_sddm_conf_dir)/zz-omarchy-kids-theme.conf"
@@ -160,10 +137,8 @@ sddm_theme_ok() {
 }
 sddm_theme_fix() { posture_write_sddm_theme_dropin; }
 
-# portal-conf (issue #39): theme.conf.user, rebuilt in full from the
-# current kid profiles + machine.conf's parent= every time -- never
-# reconstructed incrementally. See lib/posture.sh's own header and
-# docs/portal.md for the design this replaces (portal.json + XHR).
+# portal-conf (issue #39): theme.conf.user, rebuilt whole every time from
+# the current kid profiles + machine.conf's parent= -- docs/assert.md.
 portal_conf_expected() {
     local parent entries=() line
     parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
@@ -197,12 +172,7 @@ pam_ok() {
 pam_fix() { posture_ensure_pam_namespace "$1"; }
 
 # parent-unlock (R-SEC-2, R-SEC-3): the pam_exec line docs/authd.md
-# describes, on sddm and on whichever lock-screen stack this box actually
-# has (posture_parent_unlock_lock_stack). "ok" if the stack doesn't exist
-# at all on this box (nothing to disprove -- same shape as boot_hook_ok,
-# chromium_ok's directory guard, limine_editor_ok below); the fix can
-# still fail and report FAIL if the stack exists but has no pam_unix.so
-# line to anchor on, same as every other lock here.
+# describes, on sddm and whichever lock-screen stack this box has.
 parent_unlock_ok() {
     local file
     file="$(posture_pam_dir)/$1"
@@ -211,11 +181,8 @@ parent_unlock_ok() {
 }
 parent_unlock_fix() { posture_ensure_parent_unlock_line "$1"; }
 
-# getty@tty2..6 masked (R-FND-5): masking is nothing more than a symlink
-# to /dev/null at the unit's path -- the same thing `systemctl mask`
-# itself does, --root or not, without needing a live systemd -- so the
-# check reads that symlink directly and only the fix shells out, matching
-# how omarchy-kids-provision already masks these (docs/provision.md).
+# getty@tty2..6 masked (R-FND-5): a symlink to /dev/null, checked
+# directly rather than via systemctl -- docs/assert.md's "Judgment calls".
 getty_unit_path() { printf '%s/etc/systemd/system/getty@tty%s.service' "$(posture_root)" "$1"; }
 getty_ok() {
     local link
@@ -228,12 +195,9 @@ getty_fix() {
     systemctl "${root_args[@]}" mask "getty@tty$1.service"
 }
 
-# units (R-BOOT-3, R-SEC-2): the package's units must be enabled or the
-# per-boot autologin drop-in is never written and the owner's stock
-# autologin wins. Path-based check (like getty_ok) so it works on a test
-# root; the fix is plain `systemctl enable`, which also works with --root.
-# KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS come from lib/units.sh, shared with
-# bin/omarchy-kids-wizard's own Apply-time enable --now (issue #46).
+# units (R-BOOT-3, R-SEC-2): enabled or the autologin drop-in never
+# gets written. KIDS_UNITS/SOCKETS/TIMERS come from lib/units.sh, shared
+# with bin/omarchy-kids-wizard's Apply-time enable --now (issue #46).
 unit_link() { printf '%s/etc/systemd/system/%s.wants/%s' "$(posture_root)" "$1" "$2"; }
 units_ok() {
     local u
@@ -254,9 +218,8 @@ units_fix() {
     [[ -n "$(posture_root)" ]] || systemctl start "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"
 }
 
-# parent-group (R-BAR-3, issue #37): the owner must be in omarchy-parents to read
-# /run/omarchy-kids/status.json (0640 root:omarchy-parents); the bar module renders
-# nothing otherwise (seen live). Membership applies to new sessions only.
+# parent-group (R-BAR-3, issue #37): the parent must be in omarchy-parents
+# to read status.json (0640 root:omarchy-parents), or the bar renders nothing.
 parent_group_ok() {
     local parent; parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
     [[ -n "$parent" ]] || return 2  # machine.conf names no parent yet
@@ -270,10 +233,8 @@ parent_group_fix() {
 }
 
 # hyprland configs: every *.lua in $SHARE/hyprland copied verbatim to
-# $ETC/hyprland (R-DESK-1). Uses `omarchy-kids-session --install-configs`
-# when it is on PATH (bin/omarchy-kids-session implements it), and falls
-# back to copying the files here when it is not -- an installed package
-# always has it; a scratch tree may not.
+# $ETC/hyprland (R-DESK-1), via omarchy-kids-session --install-configs
+# when on PATH, else copied directly here (a scratch tree may lack it).
 HYPR_SHARE="$SHARE/hyprland"
 HYPR_ETC="$ETC/hyprland"
 hyprland_ok() {
@@ -303,20 +264,12 @@ hyprland_fix() {
     done
 }
 
-# Chromium policy files (R-WEB-1): mode/owner only, and only for files
-# that already exist -- this command never creates one (no writer for
-# them exists yet; see docs/assert.md's judgment calls). Ownership is
-# attempted best-effort and never decides ok/fixed/FAIL, matching
-# docs/provision.md's own stated reasoning: real runs are always root, at
-# which point every file this creates is already root-owned anyway.
+# Chromium policy files (R-WEB-1): mode/owner only, for files that
+# already exist -- no writer for them exists yet (docs/assert.md).
 chromium_dir() { printf '%s/etc/chromium/policies/managed' "$(posture_root)"; }
-# The group is part of the lock, not a best-effort afterthought: 0640
-# root:<band group> is what makes the file readable to that band and to
-# nobody else. It used to be chowned best-effort and `return 0` either
-# way, so a file owned by the wrong group reported `fixed` forever
-# (review S11). Where that group does not exist on this box at all (a dev
-# box, a scratch tree), the group half is skipped rather than guessed --
-# every real machine has it, because omarchy-kids-provision created it.
+# The group is part of the lock, not best-effort: chowning best-effort and
+# returning 0 regardless used to report `fixed` on a wrong-group file
+# forever (review S11). Skipped when the band group doesn't exist here.
 chromium_ok() {
     local file="$1" band="${2:-}" group
     [[ "$(file_stat a "$file")" == "640" ]] || return 1
@@ -334,8 +287,8 @@ chromium_fix() {
     chown "root:$group" "$file"
 }
 
-# Boot hook (R-BOOT-5): only checked if the hook file the package installs
-# is actually present on this box; nothing to assert otherwise.
+# Boot hook (R-BOOT-5): checked only if the package's hook file is present.
+# shellcheck disable=SC2034 # read by the sourcing command (bin/omarchy-kids-assert) and lib/check-locks.sh
 HOOK_FILE="$(posture_root)/usr/lib/initcpio/hooks/omarchy-kids-unlock"
 find_uki() {
     if [[ -n "${OMARCHY_KIDS_UKI:-}" ]]; then

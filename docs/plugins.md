@@ -115,9 +115,16 @@ overlay needs from its caller, since the overlay is read-only and needs no passw
 shows the result as a keyboard-navigable list (Up/Down/Enter, Esc closes with no side effect —
 I-5), and Enter on an item runs `omarchy-kids-ask app <plugin-id>` (`Quickshell.execDetached`,
 the existing "Ask a grown-up" flow) then closes itself, handing off to that modal rather than
-layering two overlays. This file has never run against a real Quickshell — see its own `UNTESTED`
-header comment for exactly what's unconfirmed (mainly: the `StdioCollector` shape used to capture
-the shelf command's stdout, which nothing else in this repo does yet).
+layering two overlays. This file has never run against a real Quickshell. It reuses, line for
+line, the layer-shell/keyboard-focus shape `share/exit-modal/shell.qml` verified live
+(`docs/exit.md`'s "Verified live" section, 2026-09-02) — `PanelWindow` +
+`WlrLayershell.layer: WlrLayer.Overlay` + `WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive`,
+and every action via `Quickshell.execDetached` before quitting. What's specific to this file and
+still unconfirmed: `Quickshell.Io.Process`'s `stdout: StdioCollector { onStreamFinished }` shape
+for capturing a finished command's whole stdout — nothing else in this repo captures a Process's
+output (`share/ask` and `share/launcher` only start a Process and read its exit code, or write to
+its stdin), so `StdioCollector`/`onStreamFinished`/`.text` are a best-effort guess at the real
+Quickshell.Io API. Confirm in the VM before trusting this in front of a kid.
 
 ## Env
 

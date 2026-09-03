@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tests bin/omarchy-kids-session and bin/omarchy-kids-ask-grownup
+# Tests bin/omarchy-kids-session and bin/omarchy-kids-blocked
 # (SPEC.md R-DESK-1, R-DESK-2, R-WEB-4, R-FND-2a, I-3, I-4, I-9).
 #
 # Fully self-contained: findmnt, systemctl, and Hyprland are all fakes on
@@ -140,7 +140,7 @@ export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$SYSROOT"
 export OMARCHY_KIDS_RUN_DIR="$RUN"
-export OMARCHY_KIDS_ASK_GROWNUP_SLEEP=0
+export OMARCHY_KIDS_BLOCKED_SLEEP=0
 export HOME="$KIDHOME"
 export OMARCHY_KIDS_TEST_HOME="$KIDHOME"
 export OMARCHY_KIDS_TEST_HOME_OPTS="$HOME_OPTS_FILE"

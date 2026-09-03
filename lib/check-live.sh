@@ -1,24 +1,15 @@
 # shellcheck shell=bash
-# lib/check-live.sh — omarchy-kids-check's --live section: as root,
-# briefly runuser as each kid and confirm sudo/polkit/tmp-noexec/exec
-# are actually denied, not just configured to be. Sourced by the
-# dispatcher; not meant to be executed directly.
+# lib/check-live.sh — omarchy-kids-check's --live section. Sourced by the
+# dispatcher; not meant to be executed directly. docs/check.md.
 
-# --- Live tests (--live only) ------------------------------------------
-
-# kid_uid ACCOUNT — the account's numeric uid via getent, or empty if it
-# can't be resolved (no getent here, unknown account). Used only to find
-# the kid's own /run/user/<uid> — never assume 1000, real machines
-# provision kids in sequence starting well above it.
+# kid_uid ACCOUNT — resolved via getent, never assumed 1000.
 kid_uid() {
     command -v getent >/dev/null 2>&1 || return 0
     getent passwd "$1" 2>/dev/null | cut -d: -f3
 }
 
-# live_session_leader_pid ACCOUNT — prints ACCOUNT's live session
-# leader pid (loginctl's Leader=), or nothing and returns 1 if none.
-# omarchy-kids-session execs Hyprland with no intermediate fork, so this
-# is normally Hyprland's own pid (issue #41).
+# live_session_leader_pid ACCOUNT — ACCOUNT's live session leader pid
+# (loginctl's Leader=), or nothing + return 1. docs/check.md's "Live tests".
 live_session_leader_pid() {
     local acct="$1" list sess uid user _rest leader
     command -v "$LOGINCTL_BIN" >/dev/null 2>&1 || return 1
@@ -35,11 +26,8 @@ live_session_leader_pid() {
     return 1
 }
 
-# mountinfo_noexec FILE MOUNTPOINT — reads a /proc/<pid>/mountinfo-shaped
-# FILE, prints "noexec"/"exec" for the last (currently active) mount at
-# MOUNTPOINT, nothing if it never appears. Checks both the per-mount
-# options (field 6) and the post-"-" super options, per
-# proc_pid_mountinfo(5) -- noexec can show up in either.
+# mountinfo_noexec FILE MOUNTPOINT — "noexec"/"exec" for the last mount at
+# MOUNTPOINT in a mountinfo(5)-shaped FILE, checking both option fields.
 mountinfo_noexec() {
     local file="$1" mountpoint="$2"
     [[ -r "$file" ]] || return 0
@@ -57,11 +45,9 @@ mountinfo_noexec() {
     ' "$file"
 }
 
-# live_test_tmpfs_noexec ACCOUNT — session-aware (issue #41): runuser's
-# PAM stack never opens a pam_namespace session, so `findmnt` through it
-# always saw the global /tmp, not the kid's private mount. Reads the
-# live session leader's own mountinfo if one exists, else falls back to
-# the last omarchy-kids-session --check log, else WARN. See docs/check.md.
+# live_test_tmpfs_noexec ACCOUNT — reads the live session leader's own
+# mountinfo, else falls back to the last session-check log, else WARN.
+# Not proven through runuser: see docs/check.md's "Live tests" for why.
 live_test_tmpfs_noexec() {
     local acct="$1" pid mountinfo tmp_r shm_r uid logf line detail
 
@@ -83,10 +69,7 @@ live_test_tmpfs_noexec() {
             fi
             return
         fi
-        # A session was found but its mountinfo isn't readable right now
-        # (process gone between the loginctl call and this one, or a
-        # genuinely unreadable /proc) -- fall through to the log, same
-        # path as "no session at all".
+        # mountinfo unreadable right now -- fall through to the log.
     fi
 
     uid="$(kid_uid "$acct")"
@@ -115,12 +98,7 @@ live_test_tmpfs_noexec() {
 }
 
 # live_test_pkcheck ACCOUNT ACTION LABEL — same proof method
-# bin/omarchy-kids-session's own check_polkit uses at real login
-# (docs/session.md): ask polkit itself rather than trying to read
-# /etc/polkit-1/rules.d (0750 root:polkitd — unreadable to the kid this
-# runs as). "$$" is expanded *inside* the runuser'd bash, not by this
-# script, so pkcheck sees that shell's own pid, matching how a real kid
-# session's own process would ask.
+# bin/omarchy-kids-session's check_polkit uses at real login (docs/check.md).
 live_test_pkcheck() {
     local acct="$1" action="$2" label="$3" out
     out="$("$RUNUSER_BIN" -u "$acct" -- bash -c 'pkcheck --action-id "$1" --process "$$" 2>&1' _ "$action")"

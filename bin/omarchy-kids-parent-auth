@@ -1,13 +1,7 @@
 #!/bin/bash
 # omarchy:summary=Verify a candidate parent password against omarchy-kids-authd
-# Thin pam_exec client for omarchy-kids-authd (R-SEC-2). See docs/authd.md.
-# Reads the candidate password from stdin (pam_exec expose_authtok), sends
-# it to the verifier socket, exits 0 on "ok" and 1 on anything else.
-#
-# This runs inside the kid's session (hyprlock's PAM stack, the exit modal),
-# so it reads nothing at all from its own environment -- not the socket
-# path, not lib/ (review S4, §2.1). Both are compiled-in constants; only
-# root may move the socket, and only with an argument.
+# Thin pam_exec client for omarchy-kids-authd (R-SEC-2). Reads nothing from
+# its own environment -- runs inside the kid's session (review S4). docs/authd.md.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
@@ -17,10 +11,7 @@ source "$LIB/sock.sh"
 
 DEFAULT_SOCK="/run/omarchy-kids/auth.sock"
 
-# Build-time only. Every shipped copy leaves this empty (asserted by
-# test/shell.d/pkgbuild-test.sh); test/shell.d/parent-unlock-test.sh runs a
-# copy with its own scratch root substituted in, which is the only way a
-# non-root caller may point --socket anywhere but DEFAULT_SOCK.
+# Build-time only, empty in every shipped copy (docs/authd.md).
 TEST_SOCKET_ROOT=""
 
 if [[ -n "${PAM_TYPE:-}" && "$PAM_TYPE" != "auth" ]]; then
@@ -29,9 +20,8 @@ fi
 
 is_root() { [[ "${EUID:-$(id -u)}" == "0" ]]; }
 
-# socket_allowed PATH -- may this caller point us at PATH? Root may point
-# anywhere (it is already the trust boundary). Nobody else may, except at a
-# path under the build-time test root, which is empty in every real install.
+# socket_allowed PATH -- root may point anywhere; else only under the
+# (normally-empty) test root. docs/authd.md.
 socket_allowed() {
   is_root && return 0
   [[ -n "$TEST_SOCKET_ROOT" && "$1" == "$TEST_SOCKET_ROOT"/* ]]
@@ -68,10 +58,8 @@ EOF
   shift
 done
 
-# One line, not "until EOF": pam_exec closes its pipe, but a caller that keeps
-# stdin open (the exit modal's Quickshell Process did, seen live) would hang
-# `cat` forever. `read` returns non-zero on a final line without a newline;
-# the value is still filled in, so keep it.
+# One line, not "until EOF" -- a caller that keeps stdin open would hang
+# otherwise (seen live). docs/authd.md.
 IFS= read -r candidate || true
 
 reply="$(kids_sock_request "$SOCK" "$candidate"$'\n')" || exit 1

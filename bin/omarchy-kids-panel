@@ -34,16 +34,9 @@ ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
 
-# --- what "no flag at all" means here -------------------------------------
-#
-# This command is interactive: a human walks its screens and presses the
-# button. That press *is* the confirmation, so the default is a real run
-# (review §1.5 -- the shipped app entry point used to open the whole
-# product in preview mode and quietly do nothing). AGENTS.md rule 8's
-# DRY_RUN=1 default still holds for every non-interactive command
-# (provision, assert, web, apps, remove) and for every non-interactive
-# caller of this one: a test, a script or CI has no tty and gets a preview
-# unless it asks otherwise. `--dry-run` is always available for review.
+# Interactive: a human's button press is the confirmation, so the default
+# is a real run (review §1.5, docs/panel.md; AGENTS.md rule 8 still holds
+# for every non-interactive caller).
 if launched_by_a_human; then
     DRY_RUN="${DRY_RUN:-0}"
 else
@@ -105,9 +98,7 @@ warm_sudo() {
     sudo -v
 }
 
-# run_priv CMD... — the one place a real system change is either printed
-# (DRY_RUN=1, the default) or actually run, under sudo. Never used for a
-# command that also needs its own stdin.
+# run_priv CMD... — print (DRY_RUN=1) or run under sudo. docs/panel.md.
 run_priv() {
     warm_sudo || return 1
     if [[ "$DRY_RUN" == "1" ]]; then
@@ -119,10 +110,8 @@ run_priv() {
     fi
 }
 
-# read_priv CMD... — the one place a root-only *read* runs (issue #27's
-# Data screen). Separate from run_priv/DRY_RUN: a read changes nothing,
-# so there's no preview to show -- it always runs for real, its own
-# SUDO_READ_WARMED flag keeping the one-password-per-run promise.
+# read_priv CMD... — root-only read (issue #27's Data screen); always
+# runs for real, no DRY_RUN preview. docs/panel.md.
 SUDO_READ_WARMED=0
 read_priv() {
     if ((! SUDO_READ_WARMED)); then
@@ -133,11 +122,8 @@ read_priv() {
     sudo "$@"
 }
 
-# write_root_file FILE — reads the new content from stdin and writes it
-# to FILE as root (`sudo tee`), creating FILE's directory first. Used
-# only by the Web screen's allow-list editor: FILE is world-readable but
-# root-owned (docs/conf.md's convention), so an unprivileged edit has to
-# go through sudo the same as every other write here.
+# write_root_file FILE — stdin -> FILE as root (sudo tee), dir created
+# first. Web screen's allow-list editor only (docs/conf.md).
 write_root_file() {
     local file="$1" content
     content="$(cat)"
@@ -203,8 +189,7 @@ count_open_requests() {
 
 ask_field() { "$PY" "$ASK_PY" show "$1" --field "$2" 2>/dev/null; } # PATH FIELD
 
-# kid_home_line NAME BAND STATUS_OUT NREQ — one Home-screen line: name,
-# band, paused (if any), minutes used/left today, open request count.
+# kid_home_line NAME BAND STATUS_OUT NREQ — one Home-screen line. docs/panel.md.
 kid_home_line() {
     local name="$1" band="$2" status_out="$3" nreq="$4"
     local used left line paused=0
@@ -231,12 +216,8 @@ source "$LIB/panel-home.sh"
 
 tui_init || exit $?
 
-# Every screen_* function below returns 1 (Esc) / 130 (Ctrl+C) as data
-# for its caller to switch on, not as an error -- set +e for the whole
-# interactive tree so that a routine "back" or "leave" never trips -e
-# before the case statement reading $rc gets to see it (same fix as
-# bin/omarchy-kids-wizard's step loop). Real failures inside a screen
-# still exit loud, explicitly (die, or a checked $rc), never implicitly.
+# 1 (Esc) / 130 (Ctrl+C) is data for the case below, not an error --
+# same fix as bin/omarchy-kids-wizard's step loop.
 set +e
 screen_home
 rc=$?

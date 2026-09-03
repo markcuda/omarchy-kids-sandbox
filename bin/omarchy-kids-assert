@@ -12,9 +12,7 @@ LIB="$DIR/lib"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
 source "$LIB/conf.sh"
 # shellcheck source=lib/posture.sh
 source "$LIB/posture.sh"
-# lib/theme.sh's theme_current_name/theme_apply_for, for the "theme:<account>"
-# lock below (issue #53) -- also sourced transitively by lib/posture.sh,
-# named explicitly here since this file calls them directly.
+# theme_current_name/theme_apply_for for the "theme:<account>" lock (issue #53).
 # shellcheck source=lib/theme.sh
 source "$LIB/theme.sh"
 # shellcheck source=lib/units.sh
@@ -75,8 +73,7 @@ for arg in "$@"; do
     esac
 done
 
-# report STATUS LOCK — one line per lock. "ok" is suppressed under
-# --quiet; "fixed"/"FAIL" always print. Sets ANY_FAIL on any "FAIL".
+# report STATUS LOCK — "ok" suppressed under --quiet; sets ANY_FAIL on FAIL.
 report() {
     local status="$1" lock="$2"
     [[ "$status" == "FAIL" ]] && ANY_FAIL=1
@@ -85,10 +82,8 @@ report() {
     return 0
 }
 
-# assert_one LOCK CHECK FIX [ARGS...] — a *_ok exit status is three-way,
-# not a boolean (review S11): 0 ok, 2 "could not look" (reports `warn`,
-# never silently green -- AGENTS.md rule 4), anything else fixes (or
-# FAILs, without stopping the rest) under --dry-run's "would-fix".
+# assert_one LOCK CHECK FIX [ARGS...] — *_ok is three-way (review S11):
+# 0 ok, 2 warn ("could not look"), else fix/FAIL. docs/assert.md.
 assert_one() {
     local lock="$1" check="$2" fix="$3" rc
     shift 3
@@ -128,13 +123,8 @@ main() {
     done < <(kids_list "$KIDS_DIR")
 
     if [[ ${#kids[@]} -eq 0 ]]; then
-        # units enabled is machine-level, not per-kid (R-BOOT-3): a fresh
-        # install before the first kid, or right after
-        # omarchy-kids-remove takes the last one away, still needs the
-        # package's own socket/timers/services enabled so the *next*
-        # wizard run's A2 (docs/authd.md) and Apply both work (issue
-        # #46) -- unlike every other machine-level lock below, this one
-        # doesn't wait for a kid to exist first.
+        # units is machine-level, not per-kid (R-BOOT-3): needed even with
+        # no kid yet so the next wizard run's A2 works (issue #46, docs/assert.md).
         assert_one "units" units_ok units_fix
         [[ "$QUIET" -eq 1 ]] || echo "omarchy-kids-assert: no kids provisioned; nothing else to assert"
         [[ "$ANY_FAIL" -eq 0 ]] || exit 1
@@ -195,11 +185,7 @@ main() {
         assert_one "boot-hook" boot_hook_ok boot_hook_fix
     fi
 
-    # Machine-level, never nested under the boot hook: a box with no
-    # unlock hook (never ran mkinitcpio -P, hook removed, not Limine-plus-
-    # hook) is exactly the box where an unlocked Limine editor hands a kid
-    # init=/bin/bash (review S5). The check itself no-ops where there is no
-    # limine.conf at all.
+    # Machine-level, never nested under the boot hook (review S5, docs/assert.md).
     assert_one "limine-editor" limine_editor_ok limine_editor_fix
 
     assert_one "limine-snapshots" limine_snapshots_ok limine_snapshots_fix
@@ -208,16 +194,13 @@ main() {
         echo "omarchy-kids-assert: one or more locks could not be verified on this machine (warn above)" >&2
     fi
     [[ "$ANY_FAIL" -eq 0 ]] || exit 1
-    # A warn is not a failure for the pacman hook or the boot unit (they
-    # must not fail a transaction over a lock that does not apply here),
-    # but it is printed, and omarchy-kids-check turns the same signal into
-    # its own non-zero "could not verify this machine" verdict.
+    # A warn never fails the pacman hook/boot unit; docs/check.md turns
+    # the same signal into its own non-zero verdict.
     exit 0
 }
 
-# Sourced by omarchy-kids-check for the *_ok functions; only run main
-# when executed directly (BASH_SOURCE[0] == $0), else sourcing this
-# read-only reuse would itself trigger assert_one's writes. See docs/check.md.
+# Sourced by omarchy-kids-check for the *_ok functions only; run main only
+# when executed directly, else sourcing would trigger assert_one's writes.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main
 fi

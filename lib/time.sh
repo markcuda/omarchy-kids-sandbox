@@ -1,22 +1,13 @@
 # shellcheck shell=bash
-# lib/time.sh — shared helpers for the screen-time engine (SPEC.md
-# R-TIME-1..5, Appendix F): bin/omarchy-kids-time-ledger (root, writes)
-# and bin/omarchy-kids-time (the kid, reads). Trust boundary: every
-# function here that writes under $TIME_ROOT is only ever called by the
-# root ledger helper (or `omarchy-kids-time grant`, which itself refuses
-# to run as anyone but root) -- the kid-run command only ever reads, so
-# it can show a stale number if buggy but has no path to make the ledger
-# lie (I-3, R-TIME-1). Every "now" is OMARCHY_KIDS_NOW when set, else the
-# real local clock -- no timezone handling anywhere, same as bands.toml.
-# Not meant to be executed directly; source it. Every path/env var:
-# docs/time.md.
+# lib/time.sh -- shared helpers for the screen-time engine (SPEC.md
+# R-TIME-1..5, Appendix F). Trust boundary: every write under $TIME_ROOT
+# is only ever called by the root ledger helper or `omarchy-kids-time
+# grant` (I-3, R-TIME-1) -- the kid-run command only ever reads. Not
+# meant to be executed directly; source it. Every path/env var: docs/time.md.
 
 TIME_SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 TIME_VARLIB="$TIME_SYSROOT/var/lib/omarchy-kids"
-# Set by the sourcing command *after* it sources this file (never from
-# the environment): the omarchy-kids-conf it already resolved. Empty
-# means "resolve it beside this file", which time_conf does.
-TIME_CONF_BIN=""
+TIME_CONF_BIN="" # set by the caller after sourcing; empty means time_conf resolves it
 
 # time_now — prints "YYYY-MM-DD HH:MM:SS", local wall clock.
 time_now() {
@@ -38,8 +29,7 @@ time_minutes_since_midnight() {
     printf '%d\n' $((10#$h * 60 + 10#$m))
 }
 
-# time_logical_day NOW — prints "DAY\tWEEKEND" (DAY: YYYY-MM-DD; WEEKEND:
-# yes/no), via lib/time.py (day rolls at 04:00 local, R-TIME-2/Appendix F).
+# time_logical_day NOW — "DAY\tWEEKEND" via lib/time.py (rolls at 04:00 local).
 time_logical_day() {
     local now="$1" py out
     py="$(dirname "${BASH_SOURCE[0]}")/time.py"
@@ -48,8 +38,7 @@ time_logical_day() {
     printf '%s\t%s\n' "$(sed -n '1p' <<<"$out")" "$(sed -n '2p' <<<"$out")"
 }
 
-# time_conf KID KEY — omarchy-kids-conf get KID KEY, resolving the
-# binary the same way every other command beside it does.
+# time_conf KID KEY — omarchy-kids-conf get KID KEY.
 time_conf() {
     local kid="$1" key="$2" bin="$TIME_CONF_BIN"
     if [[ -z "$bin" ]]; then
@@ -59,55 +48,41 @@ time_conf() {
     "$bin" get "$kid" "$key"
 }
 
-# time_budget_minutes KID WEEKEND(yes/no) — budget_min or
-# budget_min_weekend, resolved through the band (R-TIME-2).
+# time_budget_minutes KID WEEKEND(yes/no) — budget_min(_weekend), via the band (R-TIME-2).
 time_budget_minutes() {
     local kid="$1" weekend="$2" key=budget_min
     [[ "$weekend" == yes ]] && key=budget_min_weekend
     time_conf "$kid" "$key"
 }
 
-# time_lights_out KID WEEKEND(yes/no) — lights_out or
-# lights_out_weekend, as HH:MM (R-TIME-2).
+# time_lights_out KID WEEKEND(yes/no) — lights_out(_weekend) as HH:MM (R-TIME-2).
 time_lights_out() {
     local kid="$1" weekend="$2" key=lights_out
     [[ "$weekend" == yes ]] && key=lights_out_weekend
     time_conf "$kid" "$key"
 }
 
-# time_kid_dir KID — /var/lib/omarchy-kids/<kid>, this kid's whole
-# recorded-data area (R-DATA-1 will add siblings to usage/ later; this
-# issue only ever touches usage/ and paused).
+# time_kid_dir KID — /var/lib/omarchy-kids/<kid>, this kid's data area.
 time_kid_dir() { printf '%s/%s\n' "$TIME_VARLIB" "$1"; }
 
-# time_usage_dir KID — where per-day ledger/grant files live (R-TIME-1:
-# "per-day totals under /var/lib/omarchy-kids/<name>/usage/").
+# time_usage_dir KID — where per-day ledger/grant files live (R-TIME-1).
 time_usage_dir() { printf '%s/usage\n' "$(time_kid_dir "$1")"; }
 
-# time_usage_file KID DAY — the ledger file for one logical day: a bare
-# integer, minutes used. Root-owned, root-written (see this file's
-# header); missing means 0, never an error.
+# time_usage_file KID DAY — one logical day's ledger: a bare integer,
+# minutes used; missing means 0, never an error.
 time_usage_file() { printf '%s/%s\n' "$(time_usage_dir "$1")" "$2"; }
 
-# time_grant_file KID DAY — a one-off extension on top of DAY's budget
-# (R-TIME-4: "'More time' extends today's budget only"), same shape as
-# the usage file. Missing means 0.
+# time_grant_file KID DAY — a one-off extension on DAY's budget (R-TIME-4).
 time_grant_file() { printf '%s/%s.grant\n' "$(time_usage_dir "$1")" "$2"; }
 
-# time_paused_file KID — its mere existence means "don't count"
-# (R-TIME-2: "Paused or locked time does not count"), independent of
-# whatever loginctl says about the session. Nothing in this issue
-# creates this file yet (R-EXIT --pause isn't implemented -- see
-# bin/omarchy-kids-exit's own header); it exists so the ledger is ready
-# the day something does.
+# time_paused_file KID — its mere existence means "don't count" (R-TIME-2);
+# nothing writes it yet, --pause isn't implemented (docs/exit.md).
 time_paused_file() { printf '%s/paused\n' "$(time_kid_dir "$1")"; }
 
 # time_is_paused KID — 0 (true) if the paused flag file exists.
 time_is_paused() { [[ -e "$(time_paused_file "$1")" ]]; }
 
-# time_read_int FILE — the integer a ledger/grant file holds, or 0 if
-# the file is missing, empty, or not a plain non-negative integer (a
-# corrupt file counts as "nothing recorded yet", not a crash).
+# time_read_int FILE — the integer FILE holds, or 0 if missing/corrupt.
 time_read_int() {
     local file="$1" v
     [[ -r "$file" ]] || { printf '0\n'; return 0; }
@@ -122,10 +97,8 @@ time_used_minutes() { time_read_int "$(time_usage_file "$1" "$2")"; }
 # time_granted_minutes KID DAY
 time_granted_minutes() { time_read_int "$(time_grant_file "$1" "$2")"; }
 
-# time_write_int FILE VALUE — root-only callers (see header): creates
-# the parent directory (0755) if needed, writes VALUE, mode 0644 (world
-# -readable, like every other root-owned-but-kid-readable file this
-# package writes -- e.g. lib/conf.sh's kid profiles).
+# time_write_int FILE VALUE — root-only. Creates the parent dir if
+# needed, writes VALUE mode 0644 (world-readable, like lib/conf.sh's).
 time_write_int() {
     local file="$1" value="$2" dir tmp
     dir="$(dirname "$file")"
@@ -136,8 +109,7 @@ time_write_int() {
     mv "$tmp" "$file"
 }
 
-# time_ledger_add KID DAY MINUTES — adds MINUTES (usually 1, from one
-# timer tick) to DAY's used-minutes file. Root-only (see header).
+# time_ledger_add KID DAY MINUTES — adds MINUTES (usually 1) to DAY's used-minutes file. Root-only.
 time_ledger_add() {
     local kid="$1" day="$2" add="$3" file cur
     file="$(time_usage_file "$kid" "$day")"
@@ -145,8 +117,7 @@ time_ledger_add() {
     time_write_int "$file" "$((cur + add))"
 }
 
-# time_grant_add KID DAY MINUTES — adds MINUTES to DAY's one-off grant.
-# Root-only (see header).
+# time_grant_add KID DAY MINUTES — adds MINUTES to DAY's one-off grant. Root-only.
 time_grant_add() {
     local kid="$1" day="$2" add="$3" file cur
     file="$(time_grant_file "$kid" "$day")"
@@ -154,9 +125,7 @@ time_grant_add() {
     time_write_int "$file" "$((cur + add))"
 }
 
-# time_remaining_minutes KID DAY WEEKEND — budget + grant - used,
-# floored at 0 (never negative: a kid who somehow used more than their
-# budget is just at 0 remaining, not "owes" future days).
+# time_remaining_minutes KID DAY WEEKEND — budget + grant - used, floored at 0.
 time_remaining_minutes() {
     local kid="$1" day="$2" weekend="$3" budget used granted remaining
     budget="$(time_budget_minutes "$kid" "$weekend")"
@@ -167,14 +136,10 @@ time_remaining_minutes() {
     printf '%s\n' "$remaining"
 }
 
-# time_toast_thresholds PREV CURR THRESHOLDS FIRED — the pure decision
-# behind R-TIME-3's toast warnings (issue #40), table-tested in
-# test/shell.d/time-test.sh. Prints two lines: thresholds firing on THIS
-# check, then FIRED updated for the next call. A threshold T fires when
-# PREV > T >= CURR and isn't already in FIRED (PREV="" reads as
-# +infinity); a grant raising CURR back above a fired T drops it from
-# FIRED so it can fire again next crossing. Full contract and the
-# stale-toast bug this fixed: docs/time.md.
+# time_toast_thresholds PREV CURR THRESHOLDS FIRED — R-TIME-3's toast
+# decision (issue #40): prints thresholds firing now, then FIRED updated
+# for next call. Fires when PREV > T >= CURR and T isn't already FIRED;
+# a grant raising CURR back above a fired T un-fires it. docs/time.md.
 time_toast_thresholds() {
     local prev="$1" curr="$2" thresholds="$3" fired="$4"
     local -a th_arr to_fire=()
@@ -203,8 +168,7 @@ time_toast_thresholds() {
     printf '%s\n' "$fired"
 }
 
-# time_is_lights_out KID DAY WEEKEND NOW_HM — yes/no: has the clock
-# reached this kid's lights-out for today.
+# time_is_lights_out KID DAY WEEKEND NOW_HM — yes/no: reached lights-out.
 time_is_lights_out() {
     local kid="$1" weekend="$2" now_hm="$3" lights_out now_min lo_min
     lights_out="$(time_lights_out "$kid" "$weekend")"
@@ -213,10 +177,8 @@ time_is_lights_out() {
     if (( now_min >= lo_min )); then printf 'yes\n'; else printf 'no\n'; fi
 }
 
-# time_next_boundary KID DAY WEEKEND NOW_HM — one line, "KIND HH:MM":
-# KIND is "budget" (the clock time the budget runs out, if that's
-# sooner) or "lights-out" (this kid's lights-out time, if that's
-# sooner or the budget is already exhausted).
+# time_next_boundary KID DAY WEEKEND NOW_HM — "KIND HH:MM": whichever of
+# budget-runs-out or lights-out comes first.
 time_next_boundary() {
     local kid="$1" day="$2" weekend="$3" now_hm="$4"
     local remaining lights_out now_min lo_min budget_out_min h m

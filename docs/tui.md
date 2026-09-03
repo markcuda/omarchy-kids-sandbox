@@ -10,9 +10,10 @@ whole wizard be driven from a file instead of a keyboard.
 - `lib/tui.sh` — the renderer: `tui_init`, `tui_header`, and one function per screen kind
   (`tui_screen_choose`, `tui_screen_input`, `tui_screen_confirm`, `tui_screen_summary`,
   `tui_progress`). Source it from a command; it is never run on its own.
-- `bin/omarchy-kids-tui-demo` — walks three sample screens (Welcome, a choice screen, Done) so a
+- `scripts/omarchy-kids-tui-demo` — walks three sample screens (Welcome, a choice screen, Done) so a
   human can see the look on a real terminal. Not part of the real wizard, which is later issues;
-  this only exercises the renderer.
+  this only exercises the renderer. Lives in `scripts/`, not `bin/`, and is not packaged
+  (issue #56): it is a dev tool for this file, not a user-facing `omarchy-kids-*` command.
 - `test/shell.d/tui-test.sh` — drives the library and the demo through answers files, with gum
   faked on a stub `PATH` so rendering, Esc, Ctrl+C, and the non-tty failure can all be checked
   without a real terminal.
@@ -169,7 +170,7 @@ Every prompt has a non-interactive path, for tests and the acceptance harness:
     `@ctrlc` as leaving directly, matching gum's own behavior above).
 
   Every screen still renders to stdout in this mode — plain, the same as `OMARCHY_KIDS_TUI_PLAIN=1`
-  — so a recorded session is easy to grep, and `bin/omarchy-kids-tui-demo`'s output looks the same
+  — so a recorded session is easy to grep, and `scripts/omarchy-kids-tui-demo`'s output looks the same
   every time it's driven from a file, however the terminal it happens to run in is sized.
 - **Neither** (`stdin` isn't a tty and `OMARCHY_KIDS_TUI_ANSWERS` isn't set): `tui_init` fails
   closed — returns `2` with a message on stderr — rather than hanging or guessing.
@@ -207,10 +208,10 @@ Driving the same screen from a file:
 
 ```text
 $ printf 'filtered\n' > /tmp/answers
-$ OMARCHY_KIDS_TUI_ANSWERS=/tmp/answers bin/omarchy-kids-tui-demo
+$ OMARCHY_KIDS_TUI_ANSWERS=/tmp/answers scripts/omarchy-kids-tui-demo
 ```text
 
-See `bin/omarchy-kids-tui-demo` for a full three-screen walk (Welcome, a choice screen, Done), and
+See `scripts/omarchy-kids-tui-demo` for a full three-screen walk (Welcome, a choice screen, Done), and
 `test/shell.d/tui-test.sh` for every case above driven through a fake `gum`.
 
 ## Verified live (2026-09-03, QEMU test VM, foot)

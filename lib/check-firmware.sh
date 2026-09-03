@@ -1,15 +1,9 @@
 # shellcheck shell=bash
-# lib/check-firmware.sh — omarchy-kids-check's Firmware section: R-TRUST-3's
-# printed-parent-card attestation (machine.conf's firmware.card_done).
-# Sourced by the dispatcher; not meant to be executed directly.
+# lib/check-firmware.sh — omarchy-kids-check's Firmware section (R-TRUST-3).
+# Sourced by the dispatcher; not meant to be executed directly. docs/check.md.
 
-# --- Firmware --------------------------------------------------------------
-
-# run_firmware_section — R-TRUST-3: a firmware password lives outside
-# this OS entirely, so nothing here can measure one -- machine.conf's
-# firmware.card_done=yes (a grown-up's attestation) is what turns this
-# PASS, the caveat kept in the detail text (R-TRUST-2). Skipped before
-# any kid is provisioned. See docs/check.md.
+# run_firmware_section — a firmware password lives outside this OS, so this
+# only checks machine.conf's firmware.card_done, a grown-up's attestation.
 run_firmware_section() {
     if [[ "$(kid_conf_count)" == 0 ]]; then
         add_result Firmware "firmware:password" skip "no kids provisioned yet; the firmware-password step matters once a kid does"

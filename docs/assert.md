@@ -85,6 +85,16 @@ skipped everything else — after still asserting `units` (see above), which is 
 per-kid, and runs either way. `--dry-run` reports what *would* change (`would-fix` instead of
 `fixed`) and writes nothing at all.
 
+## `file_stat` tries GNU `stat` first (issue #49 live fix)
+
+`lib/kids.sh`'s `file_stat FMT FILE`, used by several locks below and by `lib/check-web.sh`, is a
+portable `stat(1)` wrapper. It tries the GNU form first, then falls back to BSD's. A BSD-first
+order silently misbehaves on the real target: Linux's `stat -f` means "filesystem status", not
+BSD's "format" flag, so the fallback path was quietly re-"fixing" an already-correct lock on
+every single run — found live 2026-09-02, fixed by trying GNU first everywhere this helper is
+used. `FMT` is always a GNU format letter (`a`/`G`/`i`/`u`); the BSD translation lives inside the
+function, not at each call site.
+
 ## Judgment calls
 
 - **`--dry-run` opts out of writing; there is no `--apply`.** Every other command in this repo

@@ -152,20 +152,26 @@ of a combo. `bindr = SUPER, SUPER_L, exec, omarchy-kids-super-tap` is the Hyprla
 three level files; `bin/omarchy-kids-super-tap` itself is what does the counting/timing (its own
 tests are in `test/shell.d/exit-test.sh`).
 
+`bin/omarchy-kids-super-tap`'s `now_ms` needs millisecond timestamps to tell "three taps close
+together" from "three taps spread out"; it isn't trying to be exact beyond that. GNU `date`
+(Arch, the real target) supports `%s%N` (seconds and nanoseconds concatenated); BSD `date` (this
+repo's macOS dev/test boxes) doesn't and echoes the literal `"N"` back, so that shape is detected
+(a numeric result longer than 10 digits) and a whole-second fallback used instead when it isn't.
+
 ## What's unverified
 
 Everything that touches a real Hyprland or Quickshell, since neither was available while writing
 this (per the environment this was built in):
 
-- **`share/exit-modal/shell.qml` end to end.** Its own header lists the specifics: whether
+- **`share/exit-modal/shell.qml` end to end.** Now verified live (see "Verified live" below):
   `PanelWindow` + `WlrLayershell.layer: WlrLayer.Overlay` (from `Quickshell.Wayland`) is real API
-  on the target Quickshell version, whether keyboard focus actually reaches the password field on
-  a layer-shell surface with no explicit focus-grab property set, and — the one thing the whole
-  verification flow depends on — whether `Quickshell.Io.Process`'s `stdinEnabled`/`write()`/EOF
-  signaling exist with those names and actually deliver a clean EOF to
-  `omarchy-kids-parent-auth`'s `cat -`. If `Quickshell.Wayland`/`PanelWindow` aren't available at
-  all, the file's header has the exact fallback block (a plain fullscreen `Window`, matching
-  `share/launcher/shell.qml`'s own choice) to swap in.
+  on the target Quickshell version, `WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive` is
+  what gets keyboard focus to the password field on a layer-shell surface, and
+  `Quickshell.Io.Process`'s `stdinEnabled`/`write()` deliver a clean EOF to
+  `omarchy-kids-parent-auth`'s `cat -`. If a future Quickshell version drops
+  `Quickshell.Wayland`/`PanelWindow`, the fallback is a plain fullscreen `Window` (matching
+  `share/launcher/shell.qml`'s own choice) plus an explicit `hyprctl dispatch focuswindow` after
+  showing it, the way `bin/omarchy-kids-launcher-ctl` does for the launcher.
 - **The triple-tap bind itself.** `Hyprland --verify-config` and the live modal in the VM are
   what actually confirm `{ release = true }` and `SUPER_L` behave as documented once run against
   a real Hyprland 0.56.2 — not run here.

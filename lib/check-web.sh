@@ -1,9 +1,6 @@
 # shellcheck shell=bash
-# lib/check-web.sh — omarchy-kids-check's Web section: each band's
-# Chromium policy file mode, group ownership, and DoH setting. Sourced
-# by the dispatcher; not meant to be executed directly.
-
-# --- Web -----------------------------------------------------------------
+# lib/check-web.sh — omarchy-kids-check's Web section. Sourced by the
+# dispatcher; not meant to be executed directly. docs/check.md.
 
 run_web_section() {
     local dir cf bt group owner_group any=0
@@ -24,11 +21,8 @@ run_web_section() {
             add_result Web "web:mode:$bt" fail "$cf is not mode 0640 — run 'omarchy-kids-assert' (R-WEB-1)"
         fi
 
-        # Group ownership, root-run only (same call docs/assert.md's
-        # chromium-policy lock makes): chown only ever succeeds as root,
-        # so a non-root dev/test run can't make it match no matter what's
-        # "really" wrong -- a hard FAIL there would be process noise, not
-        # target posture.
+        # Group ownership: root-only check, same reasoning as the
+        # chromium-policy lock (docs/check.md's "Web" section).
         owner_group="$(file_stat G "$cf")"
         if [[ "$EUID" != 0 ]]; then
             add_result Web "web:owner:$bt" skip "not checked as non-root — a real run of this check is always root, at which point the file's group is already correct by construction (R-WEB-1)"

@@ -1,10 +1,6 @@
 # shellcheck shell=bash
-# lib/check-login.sh — omarchy-kids-check's Login section: the portal
-# theme drop-in, theme.conf.user, face icons, the autologin drop-in's
-# post-boot cleanup. Sourced by the dispatcher; not meant to be executed
-# directly.
-
-# --- Login -----------------------------------------------------------------
+# lib/check-login.sh — omarchy-kids-check's Login section. Sourced by the
+# dispatcher; not meant to be executed directly. docs/check.md.
 
 run_login_section() {
     if sddm_theme_ok; then
@@ -27,10 +23,7 @@ run_login_section() {
     while IFS= read -r acct; do
         [[ -n "$acct" ]] || continue
         avatar="$(profile_field "$acct" avatar)"
-        # Cosmetic only (issue #39): a kid still logs in exactly as
-        # fenced without their avatar showing, so this is a WARN, not a
-        # FAIL — same call the Locks section's lock_check_warn makes
-        # for this same fact.
+        # Cosmetic only (docs/check.md's "Login" section) -- WARN, not FAIL.
         if face_ok "$acct" "$avatar"; then
             add_result Login "login:face:$acct" pass "$acct's face icon is present and matches its avatar ($avatar)"
         else

@@ -1,55 +1,6 @@
-// shell.qml — the Super+Shift+K / triple-Super-tap exit modal (SPEC.md
-// R-EXIT-1..6; I-5 keyboard-complete, I-6 honest UI). Loaded standalone
-// with `quickshell -p share/exit-modal/shell.qml` by bin/omarchy-kids-exit
-// --open, which also exports OMARCHY_KIDS_NAME/AVATAR/ACCOUNT first.
-//
-// ============================== UNTESTED =================================
-// Exactly like share/launcher/shell.qml (this repo's other Quickshell
-// file), this has never run against a real Quickshell or Hyprland --
-// there is no Quickshell install, headless or otherwise, on the machine
-// this was written on. Every Quickshell-specific name below is a
-// best-effort guess and MUST be checked in the VM before this ships
-// (docs/exit.md has the exact command). In particular:
-//
-//   - `PanelWindow` + `WlrLayershell.layer: WlrLayer.Overlay` (from
-//     `Quickshell.Wayland`). This is the *primary* choice here, unlike
-//     the launcher's plain `Window` (share/launcher/shell.qml's header
-//     explains why it made the other call): the launcher is the only
-//     thing running at Level 1, so any top-level window is already "on
-//     top of everything" by default, but this modal has to appear over
-//     whatever the kid was already fullscreened into -- a plain
-//     `Window` would need Hyprland to explicitly focus/raise it (racy,
-//     and still just one window among others to the compositor), where
-//     a wlr-layer-shell overlay layer genuinely always renders above
-//     every normal app window regardless of focus. If `Quickshell.Wayland`
-//     or `PanelWindow` turns out not to be available on the real
-//     Quickshell version this ships with, replace the root `PanelWindow
-//     { ... }` element below with a plain `Window` block -- same
-//     properties minus everything under "--- Layer-shell specifics ---",
-//     plus `visibility: Window.FullScreen` and the same fullscreen
-//     windowrule every other Level 1/2/3 window already gets
-//     (share/hyprland/L1.lua's `o.window(".*", { fullscreen = true })`)
-//     -- and have bin/omarchy-kids-exit's `modal_already_open`/whatever
-//     shows it explicitly `hyprctl dispatch focuswindow` it afterward,
-//     the same way bin/omarchy-kids-launcher-ctl does for the launcher.
-//   - `WlrLayershell.keyboardFocus` (or whatever property actually grabs
-//     keyboard input for a layer-shell surface) is NOT set below at all
-//     -- no confirmed property/enum name was available to guess at.
-//     Confirm in the VM that the password field receives keystrokes the
-//     instant the modal appears; if it doesn't, this is almost
-//     certainly the missing piece.
-//   - `Quickshell.Io.Process`'s stdin support (`stdinEnabled`, `write()`,
-//     and however it signals EOF to the child) is used here for the
-//     first time in this repo -- share/launcher/shell.qml never writes
-//     to a child's stdin, only runs commands. docs/authd.md's contract
-//     (bin/omarchy-kids-parent-auth) is exact: one line, the candidate
-//     password, then EOF, then read the exit code (0 ok, 1 no). If
-//     `write()`/the EOF signal aren't real Quickshell API, this is the
-//     other must-check item before this ships -- the whole verification
-//     path depends on it.
-//   - `TextInput.echoMode: TextInput.Password` for masking is plain
-//     QtQuick, not Quickshell-specific, so this one is low-risk.
-// ===========================================================================
+// shell.qml -- the Super+Shift+K / triple-Super-tap exit modal, loaded by
+// bin/omarchy-kids-exit --open (SPEC.md R-EXIT-1..6; I-5, I-6).
+// Verified live 2026-09-02 against a real Hyprland+Quickshell -- docs/exit.md.
 
 import QtQuick
 import Quickshell

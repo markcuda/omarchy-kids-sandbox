@@ -13,12 +13,9 @@ CONF="$(kids_bin conf "$DIR")"
 
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 
-# Build-time constant, empty in every shipped copy (asserted by
-# test/shell.d/pkgbuild-test.sh): the prefix the R-WEB-4 fail-closed check
-# below and the policy writer resolve against. Not an environment read --
-# a kid must not be able to point a fence check at a tree they own
-# (review §3.8). Tests run a copy with their scratch root substituted in,
-# the same seam bin/omarchy-kids-parent-auth's TEST_SOCKET_ROOT uses.
+# Build-time constant, empty in every shipped copy -- not an environment
+# read, so a kid can't point the R-WEB-4 fence check at their own tree
+# (review §3.8). docs/web.md.
 SYSROOT=""
 
 DRY_RUN="${DRY_RUN:-1}"
@@ -69,18 +66,16 @@ EOF
 }
 
 
-# band_web_mode BAND — none|garden|filtered, from share/bands/bands.toml
-# via omarchy-kids-conf (the one place that table is read from), not a
-# second hardcoded mapping here.
+# band_web_mode BAND — none|garden|filtered, via omarchy-kids-conf, not a
+# second hardcoded mapping.
 band_web_mode() {
     local band="$1" out
     out="$("$CONF" band "$band" 2>/dev/null)" || die "could not read band '$band' defaults from $CONF (see docs/conf.md)"
     first_field web "$out"
 }
 
-# list_domains FILE — one host per line, '#' comments (full-line or
-# trailing) and blank lines stripped. Missing file -> nothing, not an
-# error (a band with no starter list yet is not a bug).
+# list_domains FILE — one host per line, '#' comments/blanks stripped.
+# Missing file -> nothing, not an error.
 list_domains() {
     local file="$1"
     [[ -f "$file" ]] || return 0
@@ -118,11 +113,9 @@ render_policy_json() {
     esac
 }
 
-# install_policy_file BAND [ALLOW_FILE] — renders, then writes
-# /etc/chromium/policies/managed/omarchy-kids-<band>.json at 0640
-# root:omarchy-kids-<band> (R-WEB-1), via a temp file and rename.
-# Ownership is best-effort, same reasoning as omarchy-kids-assert's
-# chromium_fix (docs/assert.md).
+# install_policy_file BAND [ALLOW_FILE] — renders, then writes the policy
+# file at 0640 root:omarchy-kids-<band> (R-WEB-1), temp-file-then-rename.
+# Ownership best-effort, docs/assert.md's chromium_fix.
 install_policy_file() {
     local band="$1" allow_file="${2:-}"
     local dir="$SYSROOT/etc/chromium/policies/managed"
@@ -202,10 +195,8 @@ cmd_install() {
 
 # --- launch ------------------------------------------------------------
 
-# resolve_band — `omarchy-kids-conf get <account> band` for this
-# process's own account. The band decides which managed policy has to be
-# live before Chromium starts (R-WEB-4), so it is read from the
-# root-owned profile, never from the environment (review §3.8).
+# resolve_band — from the root-owned profile, never the environment
+# (R-WEB-4, review §3.8).
 resolve_band() {
     local account band
     account="$(id -un)"
@@ -214,12 +205,8 @@ resolve_band() {
     printf '%s\n' "$band"
 }
 
-# start_url_for_band BAND — the first entry of the rendered policy's
-# RestoreOnStartupURLs, if it has one. None of today's four band
-# templates (share/policy/*.json) set this key, so this is currently
-# always empty -- it exists so a future band policy can define a start
-# page without this script changing (issue #44: "the band's start URL
-# when the policy defines one").
+# start_url_for_band BAND — first RestoreOnStartupURLs entry, if any.
+# Always empty today (no band template sets it) -- issue #44, docs/web.md.
 start_url_for_band() {
     local band="$1" rendered
     rendered="$(render_policy_json "$band")" || return 1
@@ -244,9 +231,7 @@ cmd_launch() {
     band="$(resolve_band)"
     is_valid_band "$band" || die "launch: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
 
-    # R-WEB-4, same fail-closed check bin/omarchy-kids-session-start's
-    # tile-omission already gives the launcher as defense in depth: never
-    # start Chromium unless this band's managed policy is actually live.
+    # R-WEB-4 defense in depth: never start Chromium unless the policy is live.
     local policy="$SYSROOT/etc/chromium/policies/managed/omarchy-kids-$band.json"
     [[ -r "$policy" ]] || die "launch: policy file not readable for band '$band' ($policy) -- refusing to start Chromium unmanaged (R-WEB-4)" 1
 
@@ -254,9 +239,6 @@ cmd_launch() {
         url="$(start_url_for_band "$band")" || true
     fi
 
-    # Reuses list_domains: one item per line, '#' comments and blank
-    # lines stripped -- exactly what a flags file needs too, not just a
-    # host list.
     local -a flags=()
     local flag
     while IFS= read -r flag; do

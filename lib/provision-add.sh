@@ -1,9 +1,7 @@
 # shellcheck shell=bash
-# lib/provision-add.sh — omarchy-kids-provision's "add" subcommand: the
-# Unix account, profile, every posture write, the LUKS slot, the
-# portal/theme.conf.user rebuild, and matching the kid's own desktop
-# theme to the parent's current one (issue #53, docs/theming.md).
+# lib/provision-add.sh — omarchy-kids-provision's "add" subcommand.
 # Sourced by the dispatcher; not meant to be executed directly.
+# docs/provision.md has the full design and every judgment call below.
 
 cmd_add() {
     local display="" band="" avatar="fox"
@@ -30,11 +28,8 @@ cmd_add() {
     done
 
     [[ -n "$display" ]] || die "add: needs a display name"
-    # R-LOGIN / review S10: the display name reaches `usermod -c` (GECOS,
-    # ':'-delimited), the portal's tab-delimited entry, and lib/posture.sh's
-    # ':'/','-delimited kids= field. A name carrying any of those separators
-    # -- or a newline -- silently shifts another kid's avatar or account onto
-    # the wrong greeter tile. Refuse it here, once, at the only entry point.
+    # R-LOGIN / review S10: refused here, once, at the only entry point --
+    # docs/provision.md's "Secrets and LUKS slots" section has the why.
     valid_display_name "$display" || die "add: display name may not contain a tab, newline, ':' or ',' and must be 1-64 characters"
     [[ -n "$band" ]] || die "add: needs --band"
     is_valid_band "$band" || die "add: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
@@ -74,8 +69,7 @@ cmd_add() {
 
     echo "Adding kid '$display' as $account (band $band)"
 
-    # R-FND-2: the account itself.
-    # The package's install scriptlet creates these, but a checkout run (tests, the VM) may not have them.
+    # R-FND-2: the account itself (groupadd -f: a checkout run may lack these).
     run groupadd -f omarchy-kids
     run groupadd -f "$group"
     run useradd -m -s /bin/bash -G "omarchy-kids,$group" "$account"
@@ -87,19 +81,13 @@ cmd_add() {
         printf '%s:%s\n' "$account" "$kid_password" | run chpasswd
     fi
 
-    # R-LOGIN: the greeter's tile shows the kid's display name, not the
-    # bare account suffix (issue #39 -- V1's live VM run showed "ada",
-    # "cy" instead of "Ada", "Cy"). SDDM's UserModel reads "realName"
-    # from the passwd GECOS field (docs/portal.md), not from
-    # AccountsService, so this is `usermod -c`, not a posture_* writer.
-    # `usermod -c` is chfn's non-interactive equivalent -- no PAM prompt,
-    # no argv password. Re-asserted (idempotent, comparing the current
-    # GECOS field) as the "gecos:<account>" lock in omarchy-kids-assert.
+    # R-LOGIN, issue #39: the greeter's tile name comes from passwd's GECOS
+    # field, not AccountsService (docs/portal.md) -- usermod -c, not a
+    # posture_* writer. Re-asserted as the "gecos:<account>" lock.
     run usermod -c "$display" "$account"
 
-    # R-FND-2: home bind-mounted nosuid,nodev,noexec.
+    # R-FND-2: home bind-mounted nosuid,nodev,noexec (must exist before remount).
     run posture_add_fstab_line "$account"
-    # A bind mount must exist before it can be remounted with restrictive flags.
     run mount --bind "$(home_dir_for "$account")" "$(home_dir_for "$account")"
     run mount -o remount,bind,nosuid,nodev,noexec "$(home_dir_for "$account")"
 
@@ -131,12 +119,8 @@ cmd_add() {
 
     run posture_ensure_pam_namespace sddm-autologin
 
-    # R-SEC-2: the parent-unlock verifier line (docs/authd.md), machine-level
-    # and idempotent -- every kid's "add" calls this, but lib/posture.sh's
-    # own marker check means only the first one that finds each stack ready
-    # actually changes anything. Soft-fails (a warning, not a die): the lock
-    # screen's PAM stack may not exist yet on this box (omarchy-apply-lock
-    # hasn't run), and provisioning a kid should not be blocked on that.
+    # R-SEC-2: the parent-unlock verifier line (docs/authd.md), idempotent.
+    # Soft-fails: the lock screen's PAM stack may not exist yet on this box.
     ensure_parent_unlock_soft sddm
     ensure_parent_unlock_soft "$(posture_parent_unlock_lock_stack)"
 
@@ -145,8 +129,8 @@ cmd_add() {
         local device=""
         if device="$(detect_luks_device "$luks_device")"; then
             [[ -n "$parent_password" ]] || die "add: found a LUKS device ($device) but no parent password; pass --parent-password-stdin or --parent-password-fd"
-            # Never through `run`: its `printf ' %q'` preview would print
-            # both secrets (review S6). Same DRY_RUN contract, own preview.
+            # Never through `run`: its preview would print both secrets
+            # (review S6, docs/provision.md). Own DRY_RUN preview instead.
             if [[ "$DRY_RUN" == "0" ]]; then
                 add_luks_slot "$account" "$device" \
                     3< <(printf '%s\n' "$kid_password") \
@@ -162,26 +146,17 @@ cmd_add() {
     # R-LOGIN-3: pin the kid session, no session picker.
     run posture_write_accountsservice "$account" "$avatar"
 
-    # R-LOGIN, issue #39: the actual file SDDM's UserModel reads for the
-    # avatar on this stack -- see lib/posture.sh's own header comment on
-    # posture_write_face_icon for why AccountsService's Icon= line above
-    # isn't it. Copied from the same real avatar directory
-    # posture_accountsservice_text's Icon= line points at, resolved
-    # through $SHARE so tests can point it at a scratch tree.
+    # R-LOGIN, issue #39: the file SDDM's UserModel actually reads for the
+    # avatar, not AccountsService's Icon= above (docs/portal.md's "Avatars").
     run posture_write_face_icon "$SHARE/avatars/$avatar.svg" "$account"
 
-    # R-LOGIN: select the portal theme (share/sddm-theme/ ->
-    # /usr/share/sddm/themes/omarchy-kids). Machine-level like the polkit
-    # rules just above -- written once, left alone by "remove" until
-    # Remove Kids Mode (R-FND-6), since the portal is still correct as
-    # long as any kid profile remains.
+    # R-LOGIN: select the portal theme. Left alone by "remove" until
+    # Remove Kids Mode (R-FND-6) -- still correct while any kid remains.
     run posture_write_sddm_theme_dropin
 
-    # R-LOGIN, issue #39: theme.conf.user, decided from the profile
-    # registry rather than the "kid-" username prefix (docs/portal.md).
-    # Rebuilt in full from every provisioned kid; this kid's entry is
-    # appended explicitly (not read back off $KIDS_DIR) so DRY_RUN=1's
-    # preview shows the correct content even though nothing was written.
+    # R-LOGIN, issue #39: theme.conf.user, rebuilt whole (docs/portal.md).
+    # This kid's entry is appended explicitly, not read back off $KIDS_DIR,
+    # so DRY_RUN=1's preview shows the correct content unwritten.
     local portal_entries=() line
     while IFS= read -r line; do
         [[ -n "$line" ]] && portal_entries+=("$line")
@@ -189,13 +164,9 @@ cmd_add() {
     portal_entries+=("$account"$'\t'"$display"$'\t'"$avatar")
     run posture_write_portal_conf "$parent" "${portal_entries[@]}"
 
-    # Issue #10 finding (b): go through Omarchy's own per-user setup so the
-    # desktop never shows "Pending Omarchy Migrations".
-    # omarchy-provision-user refuses to run as root and needs the user's own $HOME; --first-install
-    # marks every shipped migration done for a freshly created account (its documented purpose).
-    # Its failure is a warning, not a failed provision: the account, slot, locks and profile
-    # are all in place by now, and on a VM built from the ISO's offline set it fails on a
-    # missing bundled Node tarball (seen live 2026-09-02). Fall back to marking migrations.
+    # Issue #10 finding (b): so the desktop never shows "Pending Omarchy
+    # Migrations" -- docs/provision.md's "Known gap". A failure here is a
+    # warning, not a failed provision: everything else is already in place.
     if command -v omarchy-provision-user >/dev/null 2>&1; then
         if ! run runuser -l "$account" -c "omarchy-provision-user --first-install"; then
             echo "warning: omarchy-provision-user failed for $account; marking Omarchy migrations done instead" >&2
@@ -210,19 +181,8 @@ cmd_add() {
     # the extension-loading flag the kids policy always refuses.
     run install_kids_chromium_flags "$account"
 
-    # R-DESK, issue #53: the kid's own desktop should already look like
-    # the house look at first login (docs/theming.md's "Verified live"
-    # section: before this, every Kids Mode surface but the portal/
-    # wizard/bar stayed on Omarchy's stock theme, since a fresh account's
-    # own .../current/theme is whatever omarchy-provision-user left).
-    # theme_current_name (lib/theme.sh) reads the parent's own
-    # .../current/theme.name, with THEME_KIDS_HOME pointed at the
-    # parent's own $HOME via posture_parent_home -- the same lookup the
-    # portal writer above already uses. "$CONF" set is the one writer for
-    # this: its own cmd_set applies the theme to disk as root and
-    # best-effort reloads a live session (lib/theme.sh's theme_apply_for/
-    # theme_reload_if_live), the exact path a parent picking a different
-    # theme later in the wizard/panel goes through too -- nothing here
+    # R-DESK, issue #53: the kid's desktop matches the house look at first
+    # login -- docs/theming.md. "$CONF" set is the one writer; nothing here
     # touches theme files directly.
     local parent_theme=""
     parent_theme="$(THEME_KIDS_HOME="$(posture_parent_home "$parent")" theme_current_name)"
@@ -235,9 +195,8 @@ cmd_add() {
     echo "Done: $account"
 }
 
-# luks_occupied_slots DEVICE — every key slot in use, one number per
-# line, sorted. Handles both dump spellings: LUKS2's "  N: luks2" under
-# Keyslots:, and LUKS1's "Key Slot N: ENABLED".
+# luks_occupied_slots DEVICE — occupied slots, sorted, handling both
+# LUKS2's and LUKS1's luksDump spellings.
 luks_occupied_slots() {
     cryptsetup luksDump "$1" 2>/dev/null | sed -n \
         -e 's/^[[:space:]]*\([0-9][0-9]*\):[[:space:]]*luks2[[:space:]]*$/\1/p' \
@@ -245,14 +204,8 @@ luks_occupied_slots() {
         | sort -n -u
 }
 
-# add_luks_slot ACCOUNT DEVICE — adds the kid's passphrase (fd 3) as a
-# new key slot on DEVICE, authorized by the parent's (fd 4). Secrets
-# arrive on file descriptors, never argv, so this is never called
-# through `run` (whose %q preview would print both, review S6). The new
-# slot is found by diffing luksDump before/after, not by
-# --test-passphrase (which reports the first matching slot -- a kid
-# typing the parent's own passphrase used to land a second "0=" line,
-# review §1.10); that passphrase is now rejected up front instead.
+# add_luks_slot ACCOUNT DEVICE — kid's passphrase on fd 3, parent's on fd
+# 4, never argv, never through `run` (review S6, docs/provision.md).
 add_luks_slot() {
     local account="$1" device="$2"
     local kid_password parent_password

@@ -10,7 +10,7 @@ LIB="$DIR/lib"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
-ASK_GROWNUP_BIN="$(kids_bin ask-grownup "$DIR")"
+BLOCKED_BIN="$(kids_bin blocked "$DIR")"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -30,7 +30,7 @@ the kid session command. With no arguments: runs the R-DESK-2 preflight
 checks for the account running it and, if every fail-closed check
 passes, execs Hyprland with the kid's level config
 ($HYPRLAND_DIR/L<level>.lua). On the first failing check it shows a
-full-screen "Ask a grown-up" message (omarchy-kids-ask-grownup) and
+full-screen "Ask a grown-up" message (omarchy-kids-blocked) and
 exits 1 -- fail closed (I-4, I-9). \$HOME/.config/hypr is never read
 (R-DESK-6).
 
@@ -202,7 +202,7 @@ check_level_config() {
 CHECK_IDS=(profile policy polkit home_noexec tmp_noexec consoles_masked level_config)
 
 check_name() { # check_name ID -> the human-readable name shown in the
-  # table and passed to omarchy-kids-ask-grownup.
+  # table and passed to omarchy-kids-blocked.
   case "$1" in
     profile) echo "profile present" ;;
     policy) echo "browser policy readable" ;;
@@ -260,7 +260,7 @@ do_start() {
       FAIL)
         echo "omarchy-kids-session: FAIL $name: $DETAIL" >&2
         log "start aborted: $name failed"
-        "$ASK_GROWNUP_BIN" "$name"
+        "$BLOCKED_BIN" "$name"
         exit 1
         ;;
     esac

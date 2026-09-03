@@ -97,6 +97,13 @@ The client also refuses immediately, without contacting the daemon, if `PAM_TYPE
 isn't `auth` — `pam_exec` invokes the same line for `account`/`session`/`password` stack entries
 too, and this isn't valid outside of `auth`.
 
+The client reads exactly one line from stdin, not "until EOF": `pam_exec` closes its pipe after
+writing the password, but a caller that keeps stdin open instead (the exit modal's Quickshell
+`Process` did this, found live) would hang `cat -`/`read` forever waiting for a second line.
+`read -r` returns non-zero on a final line with no trailing newline; the candidate password is
+still filled in when that happens, so the client keeps it rather than treating a non-zero `read`
+as "nothing was typed."
+
 **Confirmed (issue #15 review): there is no `PAM_USER` check, on purpose.** The client reads
 `PAM_TYPE` and stdin only; it never looks at which account is being authenticated at all. That's
 deliberate, not a gap: `omarchy-kids-provision`'s `posture_ensure_parent_unlock_line` inserts this

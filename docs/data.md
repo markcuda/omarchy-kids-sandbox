@@ -208,3 +208,127 @@ and a temp root throughout; no real Unix accounts, per AGENTS.md rule 8.
 working once the ledger unit stopped hiding `/run/user` (ProtectHome) and the offset file
 carried the runtime file's inode: after that a tile launched from the launcher appeared in the
 root-owned log at the next tick and in `omarchy-kids-data launches`.
+
+## Source header (moved from `bin/omarchy-kids-data`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-data — recorded data and transparency (SPEC.md R-DATA-1..5,
+I-2, I-6; issue #27). Read-only except `retention`, which prunes.
+
+What's recorded, where, and for how long (R-DATA-1, spec v1.1's issue
+comment): active minutes per day, kept one year (lib/time.sh's own
+usage/<day> tree, R-TIME-1 -- this command only reads and, for
+`retention`, prunes it); app launches (Level 1 tiles only -- see
+lib/data.sh's header), kept ninety days; browsing history read
+straight from the kid's own Chromium profile, kept for as long as the
+browser itself keeps it -- `retention` never touches that db at all
+(I-2/I-6: this package doesn't manage that data, only reads it).
+R-DATA-2's never-list (keystrokes, screenshots, file contents, message
+contents) has no code path here or anywhere else in this package.
+
+Commands:
+  omarchy-kids-data launches <kid> [--since DAYS]
+  omarchy-kids-data sites <kid> [--since DAYS]
+  omarchy-kids-data summary <kid> [--week]
+  omarchy-kids-data mine
+  omarchy-kids-data retention [--apply]
+
+`launches`/`summary`'s minutes-and-apps parts read only root-owned-
+but-world-readable files (lib/time.sh's usage/<day>, lib/data.sh's
+launches.log — same convention every other unprivileged read in this
+package already uses, docs/time.md/docs/panel.md). `sites`, and the
+top-sites part of `summary`, read a kid's own Chromium profile under
+their home, which this account can't reach unless it *is* that kid or
+is root — see require_root_or_self below. `mine` is meant to be run
+by the kid themselves (K5, "What my grown-ups can see" — Appendix A);
+`retention` is meant to be run by root, once a day (no timer unit is
+added by this issue — see docs/data.md).
+
+R-DATA-4: "History visibility is a per-kid cell; off means the panel
+shows none and the kid's screen says so." `sites`, `summary`, and
+`mine` all read Appendix B's `history_visible` key (lib/data.sh's
+data_history_visible) before ever touching a Chromium profile, and say
+so in plain words when it's off — never silently empty (I-6).
+
+Chromium's History db is locked (WAL) while the browser is running:
+every read here copies it (and its -wal/-shm sidecars, if present)
+to a temp file first, then reads *that* with lib/data.py's own
+read-only/immutable sqlite3 connection — never the live file.
+
+Every path is overridable for tests, same convention as
+bin/omarchy-kids-time-ledger:
+  OMARCHY_KIDS_ETC             kid overrides root (default /etc/omarchy-kids)
+  OMARCHY_KIDS_ROOT             scratch prefix for /var/lib/omarchy-kids
+  OMARCHY_KIDS_HOMES_BASE       lib/data.sh: default /home
+  OMARCHY_KIDS_RUN_USER_BASE    lib/data.sh: default /run/user
+  OMARCHY_KIDS_CONF_BIN         path to omarchy-kids-conf
+  OMARCHY_KIDS_LIB              lib/ beside bin/, else /usr/lib/omarchy-kids
+  OMARCHY_KIDS_NOW              "YYYY-MM-DD HH:MM:SS" clock override (tests)
+  OMARCHY_KIDS_ACCOUNT          this account's name, for `mine` and the
+                                require_root_or_self check (default: `id -un`)
+  OMARCHY_KIDS_DATA_REQUIRE_ROOT=0  skip the root/self checks below
+                                (tests run as an ordinary user against a
+                                scratch tree; set by test/shell.d/data-test.sh)
+```
+
+## Source header (moved from `lib/data.sh`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+lib/data.sh — shared helpers for recorded data (SPEC.md R-DATA-1..5,
+issue #27): bin/omarchy-kids-data (reads and prunes) and the
+launch-log folding step bin/omarchy-kids-time-ledger runs once a
+minute alongside its own screen-time tick.
+
+Three things live under /var/lib/omarchy-kids/<kid>/ (spec 5.1) that
+this file touches:
+  usage/<day>        screen-time minutes — lib/time.sh's own tree
+                      (R-TIME-1); this file only *reads* it (for
+                      summaries) and prunes old days for retention.
+  launches.log        one "<timestamp> <app id>" line per Level 1
+                       tile launch (R-DATA-1's "app launches"). Root-
+                       owned, append-only in normal operation.
+  launches.offset      "<inode> <byte-offset>" of the kid's own
+                       *runtime* launches log (below): how much of it
+                       has already been folded into launches.log, and
+                       which incarnation of that path the offset was
+                       measured against (a fresh login gets a fresh
+                       $XDG_RUNTIME_DIR tmpfs at the same path -- a new
+                       inode). Root housekeeping, not itself recorded
+                       data. [Updated post-issue-#49: was a plain byte
+                       count until the ProtectHome/inode-tracking fix.]
+
+The trust boundary is the same shape lib/time.sh's own header
+describes for screen-time minutes, one level up: a kid's own Level 1
+launcher can only ever write to *its own* runtime dir
+($XDG_RUNTIME_DIR/omarchy-kids/launches.log, via
+`omarchy-kids-launcher-ctl log`) — never to the root-owned copy under
+/var/lib. data_fold_launches below is the one thing that promotes a
+kid's own unverified claim ("I opened gcompris at 10:02") into the
+log a parent's panel and the kid's own "what my grown-ups can see"
+screen both read; it is only ever called by bin/omarchy-kids-time-
+ledger's tick (root, once a minute), never by anything that runs as
+the kid.
+
+Folding is deliberately simple, not byte-exact-safe against a torn
+write: each fold takes every byte written to the runtime file since
+the last fold, full stop. A launch line is one short `printf` append
+(bin/omarchy-kids-launcher-ctl's cmd_log), well under PIPE_BUF, so a
+line torn mid-write at the exact instant a tick runs is not a
+realistic risk here — this repo already accepts comparable slop
+elsewhere (lib/time.sh's own R-TIME-1 resolution note).
+
+Not meant to be executed directly; source it from a command:
+  source "$DIR/lib/data.sh"
+
+Every path is overridable for tests, same convention as lib/time.sh:
+  OMARCHY_KIDS_ROOT           scratch prefix for /var/lib/omarchy-kids and /run
+  OMARCHY_KIDS_RUN_USER_BASE  default /run/user (a kid's own XDG_RUNTIME_DIR
+                               is assumed to be <base>/<uid>, systemd-logind's
+                               own convention)
+  OMARCHY_KIDS_HOMES_BASE     default /home (a kid's home is <base>/<kid>)
+  OMARCHY_KIDS_CONF_PY / OMARCHY_KIDS_DATA_PY  python3 and lib/data.py
+```

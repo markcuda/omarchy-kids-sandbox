@@ -236,3 +236,174 @@ a live run can show, from the log alone, exactly what the daemon saw at the 1-mi
 budget-exhausted-Time's-Up, closing both of this "Verified live" note's open questions. None of
 the three (the clock clearance, the re-fire fix, or the 1-minute/budget-exhausted confirmation)
 has run against a real session yet — see "What's unverified" above.
+
+## Source header (moved from `bin/omarchy-kids-time`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-time: the kid-side half of the screen-time engine
+(SPEC.md R-TIME-1..5, R-ASK-1, Appendix F). Started detached from the
+kid's own session by bin/omarchy-kids-session-start; also the CLI a
+parent (or a future panel/bar widget, R-BAR-2) uses to check or grant
+time.
+
+Trust boundary: this whole command runs as the kid. It NEVER decides
+how many minutes a kid has used -- it only reads
+/var/lib/omarchy-kids/<kid>/usage/, which only
+bin/omarchy-kids-time-ledger (root, via systemd/omarchy-kids-time.timer)
+ever writes. A kid can kill this process (the warnings and the Time's
+Up screen stop appearing) but cannot make it lie about the ledger,
+because it has no write path into it -- see lib/time.sh's header for
+the full argument. The one command below that DOES write
+(`grant`) refuses to run as anyone but root, same as
+omarchy-kids-time-ledger.
+
+  daemon           Runs until the session ends: every 30s (poll
+                    interval below), while this session is Active and
+                    unlocked (`loginctl show-session $XDG_SESSION_ID`),
+                    shows a small toast the first time remaining
+                    minutes crosses 10/5/1 downward (SPEC.md R-TIME-3;
+                    lib/time.sh's time_toast_thresholds is the pure
+                    decision, issue #40 -- a grant that raises
+                    remaining minutes back above a threshold lets it
+                    fire again next time it's crossed), and a
+                    full-screen "Time's Up" overlay at 0 remaining or
+                    at lights-out (R-TIME-4). Meant to be started
+                    once, detached, from bin/omarchy-kids-session-start
+                    -- not run twice in one session.
+  status [<kid>]    Minutes used, minutes left, and the next boundary
+                    (budget running out, or lights-out) for <kid>
+                    (default: this account). Read-only; any account
+                    can run this for any kid (the ledger files are
+                    world-readable, same as a kid's own .conf).
+  grant <kid> <n>   Adds <n> minutes to <kid>'s budget for today only
+                    (R-TIME-4: "'More time' extends today's budget
+                    only"). Root only.
+  ask-grownup       Runs `omarchy-kids-ask-grownup time <n>` if that
+                    command exists, else logs that a grant was asked
+                    for and does nothing else. This is a placeholder
+                    for the real "Ask a parent" flow (SPEC.md R-ASK-1,
+                    a separate ticket): today it can only ask, never
+                    itself grant -- share/time/timesup.qml's "Ask a
+                    grown-up" button runs this, and I-6 ("honest UI")
+                    is why that button's own label says "ask", not
+                    "get", more time.
+
+Every path is overridable for tests, same convention as
+bin/omarchy-kids-session-start and lib/time.sh:
+  OMARCHY_KIDS_ETC      kid overrides root (default /etc/omarchy-kids)
+  OMARCHY_KIDS_SHARE    bands.toml, time/ (default /usr/share/omarchy-kids)
+  OMARCHY_KIDS_ROOT     scratch prefix for /var/lib/omarchy-kids
+  OMARCHY_KIDS_RUN      runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
+  OMARCHY_KIDS_ACCOUNT  kid account (default: this process's own user)
+  OMARCHY_KIDS_CONF_BIN path to omarchy-kids-conf
+  OMARCHY_KIDS_LIB      lib/ beside bin/, else /usr/lib/omarchy-kids
+  OMARCHY_KIDS_NOW      "YYYY-MM-DD HH:MM:SS" clock override (tests)
+  OMARCHY_KIDS_TIME_POLL_INTERVAL  daemon's sleep, seconds (default 30)
+  OMARCHY_KIDS_TIME_DAEMON_ONESHOT=1  run one daemon iteration and
+                        return instead of looping forever (test hook)
+  OMARCHY_KIDS_ASK_GROWNUP_MINUTES  minutes `ask-grownup` names
+                        (default 15)
+  OMARCHY_KIDS_TIME_REQUIRE_ROOT=0  skip `grant`'s root check (test hook,
+                        same convention as omarchy-kids-time-ledger's
+                        OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT)
+```
+
+## Source header (moved from `bin/omarchy-kids-time-ledger`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-time-ledger: the ONLY thing that ever writes a kid's
+screen-time usage (SPEC.md R-TIME-1..2, Appendix F). Root, run from
+systemd/omarchy-kids-time.timer (every minute) via
+omarchy-kids-time-ledger.service.
+
+Trust boundary (see lib/time.sh's header for the long version): the
+per-session daemon (bin/omarchy-kids-time) runs as the kid and can
+only read what's under here -- if this script only ran as the kid,
+the "ledger" would just be a kid-writable file with extra steps. It
+runs as root instead, and the only thing that decides what counts is
+what `loginctl` reports about a session it doesn't own, plus a
+root-owned paused flag (lib/time.sh's time_paused_file) -- never
+anything a kid process could write into.
+
+  tick    Lists every session with `loginctl list-sessions`, and for
+          each one belonging to a known kid account (one with a
+          profile under $OMARCHY_KIDS_ETC/kids/) whose session is
+          Active=yes, LockedHint=no, and not paused (R-TIME-2: "Paused
+          or locked time does not count"), adds one minute to that
+          kid's ledger for today's logical day (Appendix F: the day
+          rolls at 04:00). A kid with more than one such session only
+          gets one minute added, not one per session. Also refreshes
+          /run/omarchy-kids/status.json (R-BAR-3) for every known kid,
+          whether or not they're live right now -- best-effort; a
+          failure to write it never fails the tick itself, since the
+          ledger write is the part that actually matters. Finally,
+          for every known kid, folds any new lines from their own
+          kid-writable runtime launches log into their root-owned
+          launches.log (lib/data.sh's data_fold_launches, R-DATA-1's
+          "app launches" -- see that file's header for the trust
+          boundary this mirrors from screen time one level up).
+          Same best-effort rule: a fold failure never fails the tick.
+
+Every path is overridable for tests, same convention as
+bin/omarchy-kids-apps and lib/time.sh:
+  OMARCHY_KIDS_ROOT    scratch prefix for /var/lib/omarchy-kids and
+                       /run/omarchy-kids
+  OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
+  OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf
+  OMARCHY_KIDS_LIB     lib/ beside bin/, else /usr/lib/omarchy-kids
+  OMARCHY_KIDS_NOW     "YYYY-MM-DD HH:MM:SS" clock override (tests)
+  OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT=0  skip the EUID check (tests
+                       run as an ordinary user against a scratch
+                       OMARCHY_KIDS_ROOT; set by test/shell.d/time-test.sh)
+  OMARCHY_KIDS_RUN_USER_BASE  lib/data.sh's launch-log fold source
+                       (default /run/user; see that file's header)
+```
+
+## Source header (moved from `lib/time.sh`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+lib/time.sh — shared helpers for the screen-time engine (SPEC.md
+R-TIME-1..5, Appendix F): bin/omarchy-kids-time-ledger (root, writes)
+and bin/omarchy-kids-time (the kid, reads).
+
+Trust boundary. `bin/omarchy-kids-time` runs as the kid, in the kid's
+own session -- so it can never be the thing that decides how many
+minutes a kid has used today; a kid could just kill it, or a copy of
+it, and print whatever it wanted. The authoritative ledger is written
+only by bin/omarchy-kids-time-ledger, run as root by
+systemd/omarchy-kids-time.timer, never invoked from a kid session.
+Every function in this file that *writes* under $TIME_ROOT
+(time_ledger_add, time_grant_add) is only ever called by that root
+helper (or by `omarchy-kids-time grant`, which itself refuses to run
+as anyone but root -- see that command). Everything
+bin/omarchy-kids-time itself calls here is read-only: it can show a
+kid a stale or wrong number if it's buggy, but it cannot make the
+ledger say something that isn't true, because it has no code path
+that writes to it (I-3: locks live outside every home, root-owned;
+R-TIME-1 puts that root ownership on /var/lib/omarchy-kids/<kid>/
+itself, not just on the profile).
+
+Clock. Every "now" here is OMARCHY_KIDS_NOW when set -- a local
+wall-clock string, "YYYY-MM-DD HH:MM:SS" -- or the real clock
+otherwise (`date '+%Y-%m-%d %H:%M:%S'`). This system has no notion of
+timezone anywhere (budget/lights-out are plain HH:MM, same as
+bands.toml), so nothing here ever converts a zone, only reads local
+fields. Tests set OMARCHY_KIDS_NOW so the whole suite is independent
+of the host's own clock and of GNU-vs-BSD `date` differences (see
+lib/time.py's header for why day-rollover math is Python, not bash).
+
+Not meant to be executed directly; source it from a command:
+  source "$LIB/time.sh"
+
+Every path below is overridable the same way bin/omarchy-kids-apps
+and bin/omarchy-kids-assert already are:
+  OMARCHY_KIDS_ROOT  scratch prefix for /var/lib/omarchy-kids
+  OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf
+  OMARCHY_KIDS_CONF_PY / OMARCHY_KIDS_LIB  python3 and lib/time.py
+```

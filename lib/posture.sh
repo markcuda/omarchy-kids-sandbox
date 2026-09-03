@@ -1,27 +1,11 @@
 # shellcheck shell=bash
-# lib/posture.sh — writers for the machine-level "posture" that
-# omarchy-kids-provision lays down around a kid account: the two polkit
-# rules (R-FND-3, R-FND-4), the pam_namespace lines and PAM stack edits
-# (R-FND-2a), the /etc/fstab bind-mount line (R-FND-2), the AccountsService
-# pin (R-LOGIN-3), and the luks-slots rewrite (R-SEC-4, see docs/provision.md
-# for why it is a full rewrite and not an append).
-#
-# Every real path here is prefixed by OMARCHY_KIDS_ROOT (default: empty, so
-# the real /etc, /var apply) so tests — and a dry run reviewed before it is
-# trusted — can point the whole set at a scratch tree:
-#   OMARCHY_KIDS_ROOT  scratch prefix for /etc/polkit-1, /etc/security,
-#                      /etc/pam.d, /etc/fstab, /var/lib/AccountsService
-#
-# Not meant to be executed directly; source it from a command (after
-# lib/conf.sh, which these functions assume is already loaded for callers
-# that also need conf_get/conf_set, though nothing in here calls them
-# directly).
-#
-# lib/theme.sh (theme_color/theme_font), for posture_theme_conf_lines
-# below — sourced here, not left to each caller, matching how lib/tui.sh
-# sources it for the same reason (every caller of this file already
-# sources it right after lib/conf.sh: bin/omarchy-kids-provision,
-# bin/omarchy-kids-assert, bin/omarchy-kids-remove).
+# lib/posture.sh — writers for the machine-level "posture" a kid account
+# needs: polkit rules (R-FND-3/4), pam_namespace/PAM stack edits
+# (R-FND-2a), the fstab bind-mount line (R-FND-2), the AccountsService
+# pin (R-LOGIN-3), and the luks-slots/portal rewrites (R-SEC-4). Every
+# real path is prefixed by OMARCHY_KIDS_ROOT (default empty) for tests.
+# Not meant to be executed directly; source it after lib/conf.sh. Full
+# design and every env var: docs/portal.md, docs/boot.md.
 # shellcheck source=./theme.sh
 source "$(dirname "${BASH_SOURCE[0]}")/theme.sh"
 
@@ -185,51 +169,14 @@ posture_ensure_pam_namespace() {
 
 # --- parent-unlock PAM line (R-SEC-2, R-SEC-3; SPEC.md I-6; docs/authd.md) --
 #
-# The lock screen and SDDM both need "did a parent type their own password
-# here?" answered the same way (docs/authd.md): pam_exec.so calling
-# omarchy-kids-parent-auth, which asks the omarchy-kids-authd daemon rather
-# than re-implementing password checking. This line is written once, into
-# each real stack this ships on, at a fixed position relative to that
-# stack's own first "auth" line -- not by finding a pam_unix.so line to
-# jump around, which real Omarchy 4.0.2 stacks don't reliably even have
-# (confirmed against a real box; see below).
-#
-# Placement, confirmed against the real /etc/pam.d/sddm and
-# /etc/pam.d/omarchy-lock-password on Omarchy 4.0.2 (there is no
-# /etc/pam.d/hyprlock on that box -- omarchy-apply-lock always writes
-# omarchy-lock-password):
-#
-#   /etc/pam.d/sddm is `auth include system-login` first -- no pam_unix.so
-#   line of its own at all, and no leading pam_faillock preauth line
-#   either. Our line has to go *before* that first "auth" line, so it runs
-#   (and can potentially succeed outright) before system-login's own chain
-#   -- which is what actually checks whichever account is really logging
-#   in -- ever runs.
-#
-#   /etc/pam.d/omarchy-lock-password (bin/omarchy-apply-lock,
-#   scratchpad/pr9750.diff) leads with
-#   "auth required pam_faillock.so preauth ...". Our line goes right
-#   *after* that one line (never before it -- preauth has to run first so
-#   a lockout is tracked correctly), still ahead of pam_unix.so.
-#
-# So the one rule that covers both real shapes: insert right after a
-# leading "auth ... pam_faillock.so ... preauth" line if the very first
-# "auth" line in the file is one, otherwise insert right before that first
-# "auth" line. ("auth", not "-auth" -- a dash-prefixed line is a
-# module-load-failure-is-silent variant of the same facility, never the
-# anchor point.) Never touches system-login or system-auth themselves
-# (I-7): those are included by reference, never opened by this function.
-#
-# The control is fixed, not computed: "[success=done default=ignore]".
-# "done" ends the whole stack successfully the instant a parent's password
-# verifies, so pam_unix (and whatever system-login/system-auth's own chain
-# does) is never even consulted with the parent's password. "default=ignore"
-# on anything else (wrong password, daemon unreachable, rate-limited) falls
-# through to the stack's normal chain, which -- because our line sits
-# ahead of it with `expose_authtok` already having read the typed password
-# -- reuses that exact same token via pam_unix's own `try_first_pass`
-# (already on both real stacks' pam_unix lines), so nobody is ever
-# prompted twice.
+# One pam_exec line, `[success=done default=ignore]`, inserted right
+# after a leading pam_faillock preauth line if the stack has one, else
+# right before the first "auth" line -- covers both real Omarchy 4.0.2
+# stacks (sddm, omarchy-lock-password). "done" ends the stack the instant
+# a parent's password verifies; "default=ignore" falls through to
+# pam_unix's own try_first_pass, so nobody is prompted twice. Never
+# touches system-login/system-auth (I-7). Forensics on both real stacks
+# this was confirmed against: docs/authd.md.
 
 # posture_parent_unlock_marker — the idempotence marker placed immediately
 # above the inserted pam_exec line. A second kid's "add", or
@@ -254,17 +201,10 @@ posture_parent_unlock_line() {
 posture_parent_unlock_lock_stack() { printf 'omarchy-lock-password\n'; }
 
 # posture_ensure_parent_unlock_line STACK — inserts the parent-unlock
-# pam_exec line into /etc/pam.d/<STACK>, once, idempotently (the marker
-# above is the whole idempotence check). STACK is whatever the caller
-# already decided on (sddm, or posture_parent_unlock_lock_stack's
-# answer) -- this function doesn't choose. See the section header above
-# for exactly where the line lands and why.
-#
-# Fails (returns 1, writes nothing) if the file doesn't exist, or has no
-# non-comment "auth" line at all to anchor on -- callers decide whether
-# that's fatal (omarchy-kids-provision warns and keeps going;
-# omarchy-kids-assert reports the lock FAIL and keeps going too, per its
-# own "one bad lock never stops the rest" contract).
+# pam_exec line into /etc/pam.d/<STACK> once, idempotently (the marker
+# above is the whole check). Fails (returns 1, writes nothing) if the
+# file doesn't exist or has no "auth" line to anchor on -- callers
+# decide whether that's fatal.
 posture_ensure_parent_unlock_line() {
     local stack="$1" file marker
     file="$(posture_pam_dir)/$stack"
@@ -401,38 +341,11 @@ posture_remove_accountsservice() {
 
 # --- SDDM face icons (issue #39, live VM finding) --------------------------
 #
-# AccountsService's own Icon= key (posture_accountsservice_text above) is
-# NOT what SDDM's UserModel actually reads for the "icon" role on this
-# stack. UserModel's constructor (sddm/sddm's src/greeter/UserModel.cpp,
-# fetched 2026-09, confirmed by reading it directly) checks, in this
-# order: "<home>/.face.icon" first, then the literal path
-# "/var/lib/AccountsService/icons/<account>" (a cache file the real
-# accountsd daemon populates itself via its own D-Bus SetIconFile method
-# -- nothing in this repo ever calls that method, so this file is never
-# created here and its existence check always fails), then
-# "<FacesDir>/<account>.face.icon" (FacesDir defaults to
-# /usr/share/sddm/faces -- /usr/lib/sddm/sddm.conf.d/default.conf line
-# 58). The third path is the one that actually has to exist on disk for
-# an avatar to render on this stack; posture_accountsservice_text's own
-# Icon= line is kept as-is (it may still matter to a D-Bus-backed
-# AccountsService client elsewhere, and removing a working write is
-# needless churn), it just isn't what SDDM itself reads.
-#
-# Copied, not symlinked, and never under the kid's own home: "~/.face.icon"
-# is the *first* path UserModel checks, ahead of this one, and the kid's
-# home must stay untrusted (I-3) -- writing there would also hand the kid
-# a way to swap their own avatar file for something else read by root's
-# greeter process. Copying instead of pointing straight at
-# share/avatars/<avatar>.svg keeps this file's content independent of
-# wherever the package happens to install avatars, matching
-# posture_accountsservice_text's own reasoning for using a fixed,
-# real path rather than a scratch one for the *destination* -- the
-# *source* is still caller-supplied here (unlike the Icon= line's plain
-# string) because copying needs a real, readable file to copy from, and
-# the real command (omarchy-kids-provision) and its tests use different
-# real/scratch source directories (OMARCHY_KIDS_SHARE) the way
-# omarchy-kids-assert's hyprland-configs lock already does for
-# share/hyprland/*.lua.
+# AccountsService's Icon= key is NOT what SDDM's UserModel actually reads
+# here -- it checks ~/.face.icon, then a cache file this repo never
+# populates, then <FacesDir>/<account>.face.icon (the one that has to
+# exist). Copied here, not symlinked or written under the kid's home
+# (I-3). Full UserModel.cpp citation: docs/portal.md.
 posture_sddm_faces_dir() { printf '%s/usr/share/sddm/faces' "$(posture_root)"; }
 
 # posture_write_face_icon SRC ACCOUNT — SRC is the avatar SVG's full
@@ -466,16 +379,10 @@ posture_remove_face_icon() {
 
 # --- SDDM theme selection (R-LOGIN, issue #14) -----------------------------
 
-# posture_sddm_theme_dropin_text — the whole content of
-# /etc/sddm.conf.d/zz-omarchy-kids-theme.conf: selects our portal
-# (share/sddm-theme/ -> /usr/share/sddm/themes/omarchy-kids) the same way
-# Omarchy's own /etc/sddm.conf.d/10-theme.conf selects "omarchy" --
-# `[Theme]` `Current=<name>` is SDDM's own documented key
-# (data/man/sddm.conf.rst.in upstream), read from every conf.d file in
-# order, so ours (a "zz-" prefix, same convention as
-# zz-omarchy-kids-autologin.conf in docs/boot.md) simply has to sort after
-# Omarchy's "10-" one to win. Kept as its own drop-in, never a hand-edit
-# of Omarchy's 10-theme.conf (I-7: core untouched).
+# posture_sddm_theme_dropin_text — /etc/sddm.conf.d/zz-omarchy-kids-
+# theme.conf: `[Theme] Current=omarchy-kids`, sorting after Omarchy's own
+# 10-theme.conf by filename (SDDM reads every conf.d file in order).
+# Its own drop-in, never a hand-edit of Omarchy's (I-7).
 posture_sddm_theme_dropin_text() {
     cat <<'EOF'
 [Theme]
@@ -501,54 +408,18 @@ posture_remove_sddm_theme_dropin() {
 
 # --- theme.conf.user: parent detection + avatars for the greeter (issue #39) -
 #
-# V1's live VM run (docs/portal.md's "Verified live" section) found the
-# portal's tiles keying "who is the parent" off the "kid-" username prefix
-# broke as soon as the machine's *owner* was named "kid-vm" (a VM test
-# fixture, not a real child) -- the owner's own tile was misclassified as
-# a kid.
-#
-# An earlier version of this fix wrote a separate portal.json and read it
-# from Main.qml with XMLHttpRequest on a file:// URL. Dropped: that read
-# needs QML_XHR_ALLOW_FILE_READ=1 in the greeter's own process
-# environment (Qt refuses local-file XHR reads otherwise), and the only
-# way found to set that was a systemd drop-in on sddm.service -- which
-# only takes effect after `systemctl restart sddm`, which on a live,
-# already-booted machine re-fires the owner's stock autologin. Not an
-# acceptable cost for a display-name/avatar polish fix.
-#
-# Used instead: SDDM's own theme config override mechanism.
-# `ThemeConfig::setTo()` (sddm/sddm's src/common/ThemeConfig.cpp, fetched
-# 2026-09, confirmed by reading it directly) loads `<path>` (the theme's
-# own theme.conf) into a QSettings, then loads a *second* QSettings from
-# `<path> + ".user"` and overwrites every key the second file sets
-# non-empty over the first's -- so `theme.conf.user`, right next to
-# `theme.conf` in the installed theme directory, is read automatically by
-# SDDM itself, with no XHR, no file:// URL, and no extra process
-# environment needed. Main.qml already reads every [General] key through
-# the existing "config" context property (theme.conf's own header
-# comment); "parent" and "kids" below are just two more keys in that
-# same property map.
-#
-# Written to $(posture_sddm_theme_dir)/theme.conf.user -- the *installed*
-# theme directory (PKGBUILD's package() copies share/sddm-theme/ there),
-# not this repo's own share/sddm-theme/theme.conf, which ships as a
-# read-only package file and must never be hand-edited at runtime (I-7).
-# Root-owned 0644, rewritten in full on every add/remove (never appended
-# to), same "recompute the whole thing" shape portal.json used and
-# luks-slots still uses: it holds names and avatar ids, none of which is
-# a secret, and SDDM's greeter runs as an unprivileged user that needs to
-# read it.
+# Replaces an earlier "kid-" username-prefix heuristic (broke on an owner
+# actually named kid-vm) and a portal.json+XHR design (needed a
+# sddm.service restart, which re-fires the owner's stock autologin).
+# Uses SDDM's own ThemeConfig::setTo() override instead: theme.conf.user
+# next to the installed theme.conf, read automatically, no restart.
+# Root-owned 0644, rewritten in full on every add/remove. Full citation
+# and the live-VM finding: docs/portal.md.
 
-# posture_parent_home PARENT — resolves PARENT's $HOME the same way
-# bin/omarchy-kids-provision's own parent_home_dir already does: a real
-# `getent passwd` lookup first (the parent account already exists by the
-# time posture ever writes anything), falling back to
-# OMARCHY_KIDS_HOME_ROOT-prefixed "/home/<parent>" (the same scratch-tree
-# override every other command in bin/ already documents for its own
-# HOME_ROOT) for tests and for a box where the lookup itself fails. Used
-# below to point lib/theme.sh's THEME_KIDS_HOME at the *parent's* theme,
-# not root's — see theme.sh's own header for why there is nothing
-# system-wide to read instead.
+# posture_parent_home PARENT — resolves PARENT's $HOME: `getent passwd`
+# first, falling back to OMARCHY_KIDS_HOME_ROOT-prefixed "/home/<parent>"
+# for tests. Points lib/theme.sh's THEME_KIDS_HOME at the parent's own
+# theme, not root's.
 posture_parent_home() {
     local parent="$1" home
     if command -v getent >/dev/null 2>&1; then
@@ -559,20 +430,11 @@ posture_parent_home() {
 }
 
 # posture_theme_conf_lines PARENT — the nine [General] color/font keys
-# theme.conf(.user) carries (share/sddm-theme/theme.conf's own header has
-# the full list and citation), resolved from PARENT's own current Omarchy
-# theme via lib/theme.sh's theme_color/theme_font (THEME_KIDS_HOME set to
-# PARENT's own $HOME, from posture_parent_home above, so this reads the
-# parent's theme even though posture code itself runs as root). SDDM's
-# ThemeConfig::setTo() layers these over theme.conf's own hardcoded
-# defaults the same way it already layers parent=/kids= below (this
-# file's earlier header comment on posture_write_portal_conf has that
-# citation); Main.qml already reads every one of these nine keys as
-# `config.<key>`. Falls back to theme_color/theme_font's own fallback
-# palette (the exact values theme.conf ships as hardcoded defaults) when
-# the parent hasn't set an Omarchy theme yet, so a box with no theme read
-# yet looks unchanged. Run in a subshell so THEME_KIDS_HOME never leaks
-# into the caller's own environment.
+# theme.conf(.user) carries, resolved from PARENT's own Omarchy theme
+# (THEME_KIDS_HOME points lib/theme.sh at PARENT's $HOME even though this
+# runs as root). Falls back to theme.conf's own hardcoded defaults when
+# the parent hasn't set a theme. Subshell so THEME_KIDS_HOME doesn't leak.
+# Full key list and citation: share/sddm-theme/theme.conf's own header.
 posture_theme_conf_lines() {
     local parent="$1"
     (
@@ -591,18 +453,10 @@ posture_theme_conf_lines() {
 }
 
 # posture_portal_conf_text PARENT [ENTRY...] — ENTRY is
-# "account<TAB>name<TAB>avatar" (a tab, not ':' or ',' -- both are used
-# as separators in the "kids=" value below, so callers are responsible
-# for never handing this a name containing either; the wizard's own name
-# field, once it exists, is the one place that would need to enforce
-# that. A profile with such a name is theme-invisible -- not a crash --
-# until AGENTS.md rule 9's "kid-ada"-only fixture convention meets a
-# real wizard that has to actually sanitize this). Two [General] keys,
-# both plain strings QSettings needs no escaping for on the simple
-# alphanumeric+space names/avatars this repo's own fixtures and bands
-# ever produce:
-#   parent=<account>
-#   kids=<account>:<name>:<avatar>,<account>:<name>:<avatar>,...
+# "account<TAB>name<TAB>avatar" (tab, not ':'/',' -- both are separators
+# in the "kids=" value below, so a name containing either is theme-
+# invisible, not a crash, until a real wizard sanitizes it). Writes
+# "parent=<account>" and "kids=<account>:<name>:<avatar>,...".
 # Followed by posture_theme_conf_lines' nine color/font keys (docs/
 # theming.md, issue #48) — same file, same [General] section, so SDDM's
 # ThemeConfig::setTo() layers all eleven keys over theme.conf's own

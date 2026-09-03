@@ -268,3 +268,111 @@ script), so there is no bash unit test for it here -- item 4 above is the VM che
 `omarchy-kids-assert` adds the parent, and the membership takes effect at the next login. After
 an SDDM restart the module showed its kid indicator at the right end of the bar. The popup
 menu, grant and end actions are not yet exercised live.
+
+## Source header (moved from `bin/omarchy-kids-bar`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-bar: the only thing that ever touches the parent's own bar
+config for Kids Mode (SPEC.md R-BAR, I-1's "Writes into the parent's own
+files happen only when the parent asks (bar widget, ...)"). See
+docs/bar.md for the full picture; share/bar/KidsModule.qml is the widget
+itself.
+
+Omarchy 4.0.2's bar is a Quickshell "shell plugin" (confirmed against
+omacom/omarchy at tag v4.0.2 -- shell/README.md, manual/32-shell-
+plugins.md): a plugin is a directory with a manifest.json plus QML,
+dropped into ~/.config/omarchy/plugins/<id>/, and turned on or off by
+adding or removing its id from the `bar.layout.<section>` array in
+~/.config/omarchy/shell.json. The real `omarchy plugin enable/disable`
+and `omarchy bar put/move` commands are the sanctioned way to do that on
+a live box; this script edits shell.json directly with jq instead, for
+two reasons: it needs to work (and be testable against fixtures) without
+a running `omarchy-shell` or the `omarchy` CLI at all, and it needs to
+make the exact "back up, idempotent, disable restores" contract this
+issue asks for (and that a plain `omarchy plugin disable` doesn't fully
+give you: it removes the layout entry, but was never asked to restore a
+byte-for-byte original).
+
+  enable   Installs share/bar/{manifest.json,KidsModule.qml} into
+           ~/.config/omarchy/plugins/omarchy-kids.bar/, then adds
+           {"id": "omarchy-kids.bar"} to shell.json's bar.layout.right
+           if it isn't already there. If ~/.config/omarchy/shell.json
+           already exists, it is backed up first (once) to
+           shell.json.omarchy-kids.bak. If it does not exist yet, this
+           seeds a new one from $OMARCHY_PATH/config/omarchy/shell.json
+           (Omarchy's own shipped defaults -- shell.json is per-user
+           state, not a file "owned by the omarchy package", so this is
+           not an I-7 core edit) and remembers that it did, so `disable`
+           can remove the file it created rather than leaving a stray
+           shell.json a fresh install never had. Refuses to invent a
+           shell.json from nothing (I-1: never risk silently discarding
+           whatever else is on the parent's real bar).
+  disable  Removes the widget from shell.json: restores the backup (and
+           deletes it) if enable made one, deletes the file entirely if
+           enable created it, otherwise surgically drops just this
+           plugin's layout entries. Idempotent: disabling twice, or a
+           box that was never enabled, is a no-op. The installed plugin
+           files under ~/.config/omarchy/plugins/ are left in place --
+           same as `omarchy plugin disable` on a first-party widget
+           (shell/README.md: "leaving its component available to add
+           again").
+  status   Prints "enabled" or "disabled" (for scripts/tests).
+  grant <kid> <minutes>
+           What the bar widget's "give N more minutes" menu row actually
+           runs (bin/omarchy-kids-bar grant kid-ada 15, via a detached
+           Quickshell Process -- KidsModule.qml never calls
+           bin/omarchy-kids-time itself). `omarchy-kids-time grant`
+           refuses to run as anyone but root, and this widget lives in
+           the parent's own ordinary session, so this opens a real
+           terminal for a plain `sudo` prompt -- the parent's own login
+           password (I-8), same mechanism bin/omarchy-kids-wizard's own
+           Apply step uses, not a polkit action (none is defined for
+           `omarchy-kids-time grant` -- see bin/omarchy-kids-time's own
+           header). Prefers Omarchy's
+           omarchy-launch-floating-terminal-with-presentation helper
+           (confirmed to exist in omacom/omarchy's bin/ at v4.0.2) and
+           falls back to `alacritty -e` if it isn't on PATH.
+  end <kid>
+           R-BAR-2's "end session" action -- same terminal/sudo shape as
+           grant, running `sudo omarchy-kids-exit --finish --kid <kid>`
+           (that command's own root-side mode, added alongside this
+           fix -- see its header and docs/exit.md). NEVER calls
+           loginctl directly: a hard `loginctl terminate-user`/
+           `terminate-session` on a still-live session makes
+           sddm-helper exit 1 and SDDM show nothing at all until
+           `systemctl restart sddm` (found live 2026-09-02, docs/
+           exit.md) -- `omarchy-kids-exit --finish` asks the kid's own
+           Hyprland to exit cleanly first and only falls back to
+           loginctl if that doesn't work.
+
+Every path is overridable for tests, same convention as every other
+command here:
+  OMARCHY_KIDS_HOME              parent's home (default $HOME)
+  OMARCHY_KIDS_SHARE             default /usr/share/omarchy-kids
+                                 (share/bar/manifest.json, KidsModule.qml)
+  OMARCHY_PATH                   Omarchy's own install root -- this is a
+                                 real Omarchy session env var (see
+                                 /usr/share/omarchy/default/bash/env-
+                                 bootstrap upstream), not one of ours;
+                                 default /usr/share/omarchy
+  OMARCHY_KIDS_DEFAULTS_SHELL_JSON  default $OMARCHY_PATH/config/omarchy/shell.json
+  OMARCHY_KIDS_TIME_BIN           path to omarchy-kids-time (default:
+                                  resolved beside this script, else
+                                  /usr/bin/omarchy-kids-time)
+  OMARCHY_KIDS_EXIT_BIN           path to omarchy-kids-exit (default:
+                                  resolved beside this script, else
+                                  /usr/bin/omarchy-kids-exit)
+  OMARCHY_KIDS_TERMINAL_BIN       test hook: force the terminal helper
+                                  used by `grant`/`end` instead of
+                                  probing PATH
+  DRY_RUN                        default 1 (AGENTS.md rule 8); --apply
+                                  or DRY_RUN=0 makes enable/disable real.
+                                  `grant` always runs for real (it is a
+                                  parent clicking a button in their own
+                                  session, same reasoning as
+                                  bin/omarchy-kids-ask's submit/time/app/
+                                  plugin/site -- there is no plan to dry-
+                                  run, only a terminal to open).
+```

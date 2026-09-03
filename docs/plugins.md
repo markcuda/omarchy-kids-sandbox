@@ -7,6 +7,7 @@ R-APPS-7's own wording, and Appendix G already covers the reverse ("Kid deletes 
 plugin -> Cosmetic — plugins are never locks").
 
 ## What "the marketplace catalog" actually is (facts checked against Omarchy 4.0.2 and its
+
 ## community marketplace — read this before changing the index schema below)
 
 Omarchy 4.0.2's own shell-plugin commands (`bin/omarchy-plugin-list`, `-add`, `-remove`,
@@ -204,3 +205,81 @@ everything below is open until it has:
    shows the shelf, Up/Down/Enter/Esc all work with no pointer, and Enter on an item opens the
    "Ask a grown-up" modal for that plugin (`share/ask/shell.qml`) rather than doing anything itself.
 5. Confirm a band-3-5 kid's Level 1 launcher has no "More apps" tile at all.
+
+## Source header (moved from `bin/omarchy-kids-plugins`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-plugins — the kids-plugins shelf (SPEC.md R-APPS-7, I-3,
+I-6; issue #28): marketplace listings filtered to category "Kids",
+verified only, install/remove into one kid's own account.
+
+  shelf [--band BAND] [--all] [--json]
+      Lists shelf entries: id, name, one-line description, and an age
+      hint (SPEC.md Appendix C's own `age` = band floor, reused here —
+      see "Judgment calls" in docs/plugins.md) when the index carries
+      one. Default: category "Kids" AND verified only. --band keeps
+      only entries whose age floor is at or below BAND (an entry with
+      no age floor recorded is never filtered out — an unknown floor
+      is not the same claim as "too old", I-6). --all also lists
+      unverified Kids-category listings, with a warning line first
+      (I-6: never blur "on the shelf" into "verified"); this flag is
+      parent-only by convention — only the panel passes it, never the
+      kid-side share/plugins/shell.qml overlay (docs/plugins.md).
+      --json prints the same, band-filtered set as a JSON array
+      instead of a table (id/name/description/age/verified) — what
+      share/plugins/shell.qml reads. Neither flag changes what
+      `install` will accept: install always refuses anything not
+      verified, --all or not.
+
+  install <plugin> --kid <kid> --apply
+      Root. Refuses unless <plugin> is on the verified Kids shelf (the
+      same rule `shelf` applies by default, enforced here again, not
+      just left to the listing — R-APPS-7: "no plugin may enforce
+      anything" cuts the other way too: nothing here may be installed
+      on a shelf-bypassing say-so). Installs it into <kid>'s own
+      account through Omarchy's own plugin installer
+      (`omarchy-plugin-add <repo> --enable --yes`, run as that kid via
+      `runuser -l`, so $HOME/.config/omarchy/plugins is the kid's
+      own — never root's), then adds the plugin's id to that kid's
+      `apps.extra` (the same profile key `omarchy-kids-apps allowlist`
+      already composes over, R-APPS-4) so it shows up the same way any
+      other allowed app does. DRY_RUN=1 by default (AGENTS.md rule 8);
+      --apply or DRY_RUN=0 makes it real.
+
+  remove <plugin> --kid <kid> --apply
+      Root. The reverse: `omarchy-plugin-remove <plugin> --yes` as the
+      kid, then drops the id from `apps.extra` (never touches
+      `apps.hidden` — a removed plugin isn't hidden, it's gone).
+
+No plugin may enforce anything (R-APPS-7's own words; Appendix G's
+"Kid deletes a launcher plugin -> cosmetic" already covers the
+reverse). This command never marks anything a lock, never writes
+under /etc, and never runs as anyone but the parent invoking it (root,
+by way of the panel's own sudo, same as every other write command
+here) or the kid it installs into (by way of `runuser -l`).
+
+Every path is overridable for tests, same convention as the rest of
+bin/:
+  OMARCHY_KIDS_ETC            default /etc/omarchy-kids (kid profiles)
+  OMARCHY_KIDS_ROOT           scratch prefix for /var/lib/omarchy-kids
+                               (the cached marketplace index), same
+                               convention as omarchy-kids-ask/-apps
+  OMARCHY_KIDS_PLUGIN_INDEX   full path to the marketplace index JSON
+                               (default $OMARCHY_KIDS_ROOT/var/lib/
+                               omarchy-kids/plugin-marketplace/
+                               index.json). Nothing in this issue
+                               fetches or refreshes this file — see
+                               "Judgment calls" in docs/plugins.md for
+                               what that means and what's left undone.
+  OMARCHY_KIDS_CONF_BIN       path to omarchy-kids-conf (default:
+                               resolved beside this script, else
+                               /usr/bin/omarchy-kids-conf)
+  OMARCHY_KIDS_PLUGIN_ADD_BIN   path to omarchy-plugin-add (default:
+                               PATH lookup, i.e. Omarchy's own)
+  OMARCHY_KIDS_PLUGIN_REMOVE_BIN  path to omarchy-plugin-remove (same)
+  OMARCHY_KIDS_RUNUSER_BIN    path to `runuser` (default: PATH lookup)
+  DRY_RUN                     default 1; install/remove only. shelf
+                               never writes, so it is never gated.
+```

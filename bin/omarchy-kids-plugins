@@ -1,77 +1,8 @@
 #!/bin/bash
 # omarchy:summary=Install or remove a kid-approved plugin from the marketplace
 # omarchy:args=<shelf|install|remove> [args]
-# omarchy-kids-plugins — the kids-plugins shelf (SPEC.md R-APPS-7, I-3,
-# I-6; issue #28): marketplace listings filtered to category "Kids",
-# verified only, install/remove into one kid's own account.
-#
-#   shelf [--band BAND] [--all] [--json]
-#       Lists shelf entries: id, name, one-line description, and an age
-#       hint (SPEC.md Appendix C's own `age` = band floor, reused here —
-#       see "Judgment calls" in docs/plugins.md) when the index carries
-#       one. Default: category "Kids" AND verified only. --band keeps
-#       only entries whose age floor is at or below BAND (an entry with
-#       no age floor recorded is never filtered out — an unknown floor
-#       is not the same claim as "too old", I-6). --all also lists
-#       unverified Kids-category listings, with a warning line first
-#       (I-6: never blur "on the shelf" into "verified"); this flag is
-#       parent-only by convention — only the panel passes it, never the
-#       kid-side share/plugins/shell.qml overlay (docs/plugins.md).
-#       --json prints the same, band-filtered set as a JSON array
-#       instead of a table (id/name/description/age/verified) — what
-#       share/plugins/shell.qml reads. Neither flag changes what
-#       `install` will accept: install always refuses anything not
-#       verified, --all or not.
-#
-#   install <plugin> --kid <kid> --apply
-#       Root. Refuses unless <plugin> is on the verified Kids shelf (the
-#       same rule `shelf` applies by default, enforced here again, not
-#       just left to the listing — R-APPS-7: "no plugin may enforce
-#       anything" cuts the other way too: nothing here may be installed
-#       on a shelf-bypassing say-so). Installs it into <kid>'s own
-#       account through Omarchy's own plugin installer
-#       (`omarchy-plugin-add <repo> --enable --yes`, run as that kid via
-#       `runuser -l`, so $HOME/.config/omarchy/plugins is the kid's
-#       own — never root's), then adds the plugin's id to that kid's
-#       `apps.extra` (the same profile key `omarchy-kids-apps allowlist`
-#       already composes over, R-APPS-4) so it shows up the same way any
-#       other allowed app does. DRY_RUN=1 by default (AGENTS.md rule 8);
-#       --apply or DRY_RUN=0 makes it real.
-#
-#   remove <plugin> --kid <kid> --apply
-#       Root. The reverse: `omarchy-plugin-remove <plugin> --yes` as the
-#       kid, then drops the id from `apps.extra` (never touches
-#       `apps.hidden` — a removed plugin isn't hidden, it's gone).
-#
-# No plugin may enforce anything (R-APPS-7's own words; Appendix G's
-# "Kid deletes a launcher plugin -> cosmetic" already covers the
-# reverse). This command never marks anything a lock, never writes
-# under /etc, and never runs as anyone but the parent invoking it (root,
-# by way of the panel's own sudo, same as every other write command
-# here) or the kid it installs into (by way of `runuser -l`).
-#
-# Every path is overridable for tests, same convention as the rest of
-# bin/:
-#   OMARCHY_KIDS_ETC            default /etc/omarchy-kids (kid profiles)
-#   OMARCHY_KIDS_ROOT           scratch prefix for /var/lib/omarchy-kids
-#                                (the cached marketplace index), same
-#                                convention as omarchy-kids-ask/-apps
-#   OMARCHY_KIDS_PLUGIN_INDEX   full path to the marketplace index JSON
-#                                (default $OMARCHY_KIDS_ROOT/var/lib/
-#                                omarchy-kids/plugin-marketplace/
-#                                index.json). Nothing in this issue
-#                                fetches or refreshes this file — see
-#                                "Judgment calls" in docs/plugins.md for
-#                                what that means and what's left undone.
-#   OMARCHY_KIDS_CONF_BIN       path to omarchy-kids-conf (default:
-#                                resolved beside this script, else
-#                                /usr/bin/omarchy-kids-conf)
-#   OMARCHY_KIDS_PLUGIN_ADD_BIN   path to omarchy-plugin-add (default:
-#                                PATH lookup, i.e. Omarchy's own)
-#   OMARCHY_KIDS_PLUGIN_REMOVE_BIN  path to omarchy-plugin-remove (same)
-#   OMARCHY_KIDS_RUNUSER_BIN    path to `runuser` (default: PATH lookup)
-#   DRY_RUN                     default 1; install/remove only. shelf
-#                                never writes, so it is never gated.
+# The kids-plugins shelf: marketplace listings filtered to category "Kids", verified only, install/remove
+# into one kid's account (SPEC.md R-APPS-7, I-3, I-6). See docs/plugins.md for the marketplace format and every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -290,18 +221,10 @@ parse_kid_plugin_args() { # sets PLUGIN, KID; args: "$@" (after the verb)
 }
 
 # edit_apps_extra KID ACTION(add|remove) ID — the same idempotent
-# apps.extra edit bin/omarchy-kids-ask's apply_apps_extra makes when a
-# parent grants an "ask for this plugin" request, kept as its own small
-# copy here rather than a shared helper (this repo's own convention for
-# a handful of lines duplicated across bin/omarchy-kids-apps,
-# bin/omarchy-kids-ask, bin/omarchy-kids-web: see e.g. each file's own
-# `is_in`/`run`). Always goes through omarchy-kids-conf (docs/conf.md:
-# nothing else touches a kid's .conf file directly) — the same field
-# `omarchy-kids-apps allowlist` already reads (R-APPS-4), so this is
-# "via omarchy-kids-apps" in the sense that matters: what makes the
-# plugin show up. omarchy-kids-apps itself has no `extra`-editing verb
-# to call instead (only `hide`/`show`, which edit apps.hidden) — see
-# docs/plugins.md's "Judgment calls".
+# apps.extra edit bin/omarchy-kids-ask's apply_apps_extra makes, through
+# omarchy-kids-conf (docs/conf.md: nothing else touches a kid's .conf
+# directly) -- omarchy-kids-apps itself has no extra-editing verb to
+# call instead. See docs/plugins.md's "Judgment calls".
 edit_apps_extra() {
     local kid="$1" action="$2" id="$3" extra
     extra="$("$CONF_BIN" get "$kid" apps.extra 2>/dev/null || true)"

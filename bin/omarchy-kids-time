@@ -1,72 +1,8 @@
 #!/bin/bash
 # omarchy:summary=Track a kid's remaining screen time and show the toasts/Time's Up screen
 # omarchy:args=<daemon|status|grant|ask-grownup> ...
-# omarchy-kids-time: the kid-side half of the screen-time engine
-# (SPEC.md R-TIME-1..5, R-ASK-1, Appendix F). Started detached from the
-# kid's own session by bin/omarchy-kids-session-start; also the CLI a
-# parent (or a future panel/bar widget, R-BAR-2) uses to check or grant
-# time.
-#
-# Trust boundary: this whole command runs as the kid. It NEVER decides
-# how many minutes a kid has used -- it only reads
-# /var/lib/omarchy-kids/<kid>/usage/, which only
-# bin/omarchy-kids-time-ledger (root, via systemd/omarchy-kids-time.timer)
-# ever writes. A kid can kill this process (the warnings and the Time's
-# Up screen stop appearing) but cannot make it lie about the ledger,
-# because it has no write path into it -- see lib/time.sh's header for
-# the full argument. The one command below that DOES write
-# (`grant`) refuses to run as anyone but root, same as
-# omarchy-kids-time-ledger.
-#
-#   daemon           Runs until the session ends: every 30s (poll
-#                     interval below), while this session is Active and
-#                     unlocked (`loginctl show-session $XDG_SESSION_ID`),
-#                     shows a small toast the first time remaining
-#                     minutes crosses 10/5/1 downward (SPEC.md R-TIME-3;
-#                     lib/time.sh's time_toast_thresholds is the pure
-#                     decision, issue #40 -- a grant that raises
-#                     remaining minutes back above a threshold lets it
-#                     fire again next time it's crossed), and a
-#                     full-screen "Time's Up" overlay at 0 remaining or
-#                     at lights-out (R-TIME-4). Meant to be started
-#                     once, detached, from bin/omarchy-kids-session-start
-#                     -- not run twice in one session.
-#   status [<kid>]    Minutes used, minutes left, and the next boundary
-#                     (budget running out, or lights-out) for <kid>
-#                     (default: this account). Read-only; any account
-#                     can run this for any kid (the ledger files are
-#                     world-readable, same as a kid's own .conf).
-#   grant <kid> <n>   Adds <n> minutes to <kid>'s budget for today only
-#                     (R-TIME-4: "'More time' extends today's budget
-#                     only"). Root only.
-#   ask-grownup       Runs `omarchy-kids-ask-grownup time <n>` if that
-#                     command exists, else logs that a grant was asked
-#                     for and does nothing else. This is a placeholder
-#                     for the real "Ask a parent" flow (SPEC.md R-ASK-1,
-#                     a separate ticket): today it can only ask, never
-#                     itself grant -- share/time/timesup.qml's "Ask a
-#                     grown-up" button runs this, and I-6 ("honest UI")
-#                     is why that button's own label says "ask", not
-#                     "get", more time.
-#
-# Every path is overridable for tests, same convention as
-# bin/omarchy-kids-session-start and lib/time.sh:
-#   OMARCHY_KIDS_ETC      kid overrides root (default /etc/omarchy-kids)
-#   OMARCHY_KIDS_SHARE    bands.toml, time/ (default /usr/share/omarchy-kids)
-#   OMARCHY_KIDS_ROOT     scratch prefix for /var/lib/omarchy-kids
-#   OMARCHY_KIDS_RUN      runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
-#   OMARCHY_KIDS_ACCOUNT  kid account (default: this process's own user)
-#   OMARCHY_KIDS_CONF_BIN path to omarchy-kids-conf
-#   OMARCHY_KIDS_LIB      lib/ beside bin/, else /usr/lib/omarchy-kids
-#   OMARCHY_KIDS_NOW      "YYYY-MM-DD HH:MM:SS" clock override (tests)
-#   OMARCHY_KIDS_TIME_POLL_INTERVAL  daemon's sleep, seconds (default 30)
-#   OMARCHY_KIDS_TIME_DAEMON_ONESHOT=1  run one daemon iteration and
-#                         return instead of looping forever (test hook)
-#   OMARCHY_KIDS_ASK_GROWNUP_MINUTES  minutes `ask-grownup` names
-#                         (default 15)
-#   OMARCHY_KIDS_TIME_REQUIRE_ROOT=0  skip `grant`'s root check (test hook,
-#                         same convention as omarchy-kids-time-ledger's
-#                         OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT)
+# The kid-side half of the screen-time engine: warnings, Time's Up, status, grant (SPEC.md R-TIME-1..5, R-ASK-1, Appendix F).
+# Read-only trust boundary (see lib/time.sh's header). See docs/time.md for every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -241,18 +177,10 @@ cmd_daemon() {
                     dismiss_timesup
                     shown=0; fired=""
                 fi
-                # Every check is logged with previous/current -- not
-                # just the ones that fire a toast -- so a live run can
-                # prove the 30 s poll actually landed on (or straddled)
-                # the 1-minute mark, per issue #40's third ask. Budget
-                # only ever moves in whole minutes (lib/time.sh's
-                # time_remaining_minutes is integer, written once a
-                # minute by the ledger); this loop polls twice as
-                # often (POLL_INTERVAL=30s default), so the 60 s window
-                # a given remaining value holds always contains at
-                # least one 30 s poll -- the value can never be skipped
-                # entirely, only possibly seen on just one of the two
-                # polls it could have landed on.
+                # Logged with previous/current even when nothing fires
+                # (issue #40): budget only moves in whole minutes, and
+                # this loop polls twice as often, so a 60s window always
+                # contains at least one poll.
                 decision="$(time_toast_thresholds "$prev" "$remaining" "$thresholds" "$fired")"
                 to_fire="$(sed -n '1p' <<<"$decision")"
                 fired="$(sed -n '2p' <<<"$decision")"

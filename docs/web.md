@@ -183,3 +183,90 @@ bubble appears after a Finish. DoH and the 9-12/13+ filtered mode are not yet ch
 Same night, after #44: the Web tile launched `/usr/lib/chromium/chromium` with the kids flags
 (basic password store, no extension flags, crash bubble hidden) and opened a clean new-tab page
 with no dialog of any kind; the launcher listed only the installed tiles (#42).
+
+## Source header (moved from `bin/omarchy-kids-web`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-web — renders and installs the per-band managed Chromium
+policy (SPEC.md R-WEB-1..4). Templates and starter lists are data:
+share/policy/<band>.json (the fixed keys, R-WEB-2) and
+share/policy/lists/<band>.txt (the walled-garden starter allowlist,
+R-WEB-3); see share/policy/README.md for every key's citation and
+docs/web.md for how a parent edits the lists.
+
+  render <band> [--allow FILE] [--out FILE]
+      Merges the band's policy template with its starter list (plus an
+      optional extra --allow FILE, same one-host-per-line format --
+      e.g. a kid's own approved sites) into the final managed-policy
+      JSON. Prints to stdout, or writes --out FILE. Only garden bands
+      (6-8, 9-12; share/bands/bands.toml's `web` field) take an
+      allowlist at all -- "none" (3-5) and "filtered" (13+) bands die
+      on --allow rather than silently ignore it (I-6, R-WEB-3: "filtered
+      open web adds neither" list).
+
+  install <band> [--allow FILE] [--apply]
+      Same render, then writes
+      /etc/chromium/policies/managed/omarchy-kids-<band>.json at 0640
+      root:omarchy-kids-<band> (R-WEB-1), under $OMARCHY_KIDS_ROOT if
+      set. DRY_RUN=1 by default (AGENTS.md rule 8); --apply or
+      DRY_RUN=0 writes for real.
+
+  launch [URL]
+      Execs /usr/lib/chromium/chromium directly -- not /usr/bin/chromium,
+      Arch's wrapper script, which reads ~/.config/chromium-flags.conf
+      and appends Omarchy's own flags, including
+      --load-extension=/usr/share/omarchy/default/chromium/extensions/...
+      for its three bundled extensions (omacom/omarchy config/chromium-
+      flags.conf, tag v4.0.2, landed in a fresh account's home by
+      omarchy-provision-user). The kids policy always refuses unpacked
+      extensions (ExtensionInstallBlocklist: ["*"],
+      DeveloperToolsAvailability: 2), so that flag only produced a
+      "Failed to load extension ... disabled by the administrator" modal
+      that steals keyboard focus on every launch (issue #44). This
+      command instead passes share/policy/chromium-flags.conf --
+      Omarchy's own Wayland/password-store/feature flags, same file,
+      minus every --load-extension entry -- plus --no-first-run
+      --no-default-browser-check --hide-crash-restore-bubble
+      --disable-session-crashed-bubble (the last two: Finish ends the
+      compositor mid-session, so the next launch otherwise shows
+      Chromium's "Restore pages?" crash bubble), then URL if given, else
+      the band's `RestoreOnStartupURLs[0]` if its rendered policy
+      defines one. Refuses to start (exit 1) if the band's installed
+      managed-policy file isn't readable (R-WEB-4: never launch
+      Chromium unmanaged). The band comes from $OMARCHY_KIDS_BAND, or
+      `omarchy-kids-conf get $OMARCHY_KIDS_ACCOUNT band` if unset --
+      same resolution bin/omarchy-kids-session-start uses for the Web
+      tile's own exec line.
+
+Every path is overridable for tests, same convention as
+omarchy-kids-provision and omarchy-kids-session:
+  OMARCHY_KIDS_SHARE    package data root (default /usr/share/omarchy-kids;
+                        this reads $OMARCHY_KIDS_SHARE/policy/<band>.json,
+                        $OMARCHY_KIDS_SHARE/policy/lists/<band>.txt, and
+                        $OMARCHY_KIDS_SHARE/policy/chromium-flags.conf)
+  OMARCHY_KIDS_ROOT     scratch prefix for /etc/chromium/policies/managed
+                        (default empty, the real path -- same var
+                        bin/omarchy-kids-session and lib/posture.sh use
+                        for the system paths this package doesn't own)
+  OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf, used to read each
+                        band's `web` mode from share/bands/bands.toml
+                        and (for `launch`) a kid's own band
+                        (default: resolved beside this script, else
+                        /usr/bin)
+  OMARCHY_KIDS_ACCOUNT   `launch`: the kid account to resolve a band
+                        for when $OMARCHY_KIDS_BAND isn't set (default:
+                        this process's own user)
+  OMARCHY_KIDS_BAND      `launch`: band to launch for, skipping the
+                        `omarchy-kids-conf` lookup (set by the Web
+                        tile's own exec line, same as the "more-apps"
+                        tile sets it for bin/omarchy-kids-session-start)
+  OMARCHY_KIDS_CHROMIUM_BIN  `launch`: the real Chromium binary to exec
+                        (default /usr/lib/chromium/chromium)
+  OMARCHY_KIDS_WEB_NO_EXEC=1  `launch`: print the argv that would be
+                        exec'd, one argument per line, and return 0
+                        instead of exec'ing it (test hook, same
+                        convention as bin/omarchy-kids-session-start's
+                        OMARCHY_KIDS_SESSION_START_NO_EXEC)
+```

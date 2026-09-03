@@ -1,22 +1,10 @@
 #!/bin/bash
 # omarchy:summary=Watch for three Super taps within 1.5s and open the exit modal
-# omarchy-kids-super-tap: the "Super pressed three times within 1.5s"
-# half of SPEC.md R-EXIT-1. Meant to be run once per Super *release* --
-# a Hyprland `bindr` (key-release) bind, not a `bind` (key-press) one,
-# so a normal Super+<other key> combo (Super+Home, Super+Shift+K, ...)
-# doesn't also count as a bare tap. See docs/exit.md for why no such
-# bind is actually wired into share/hyprland/L1.lua/L2.lua/L3.lua yet:
-# none of the Omarchy DSL reference material this repo had access to
-# showed a release-bind form (`o.bindr`/`hl.bindr` or otherwise) to
-# confirm the call against, so wiring it is left as a documented gap
-# rather than a guess that could silently do nothing -- or worse, bind
-# the wrong thing -- on a real Hyprland.
-#
-# Each invocation appends "now" (milliseconds since the epoch) to a
-# small per-session file, drops any entries older than the window, and
-# -- once three remain -- clears the file and runs omarchy-kids-exit,
-# so the *next* three taps start a fresh count rather than firing on
-# every release once three have ever landed close together.
+# The "Super pressed three times within 1.5s" half of SPEC.md R-EXIT-1:
+# appends a timestamp to a per-session file each call, and once three
+# land within the window, clears it and runs omarchy-kids-exit. Meant
+# for a Hyprland `bindr` (release) bind -- see docs/exit.md for why none
+# is wired into share/hyprland/*.lua yet.
 set -euo pipefail
 
 RUN="${OMARCHY_KIDS_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"

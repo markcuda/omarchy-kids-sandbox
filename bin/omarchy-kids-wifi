@@ -1,80 +1,8 @@
 #!/bin/bash
 # omarchy:summary=The kid-side Wi-Fi commands: list, join, status, forget, portal, picker
 # omarchy:args=<list|join|status|forget|portal|picker> [args]
-# omarchy-kids-wifi — the kid-side Wi-Fi commands (SPEC.md R-WIFI-1..4).
-#
-# Kid accounts are polkit-denied from
-# `org.freedesktop.NetworkManager.settings.modify` (lib/posture.sh's
-# 41-omarchy-kids-deny.rules, R-FND-4), so none of the subcommands below
-# ever call `nmcli` themselves. Instead they talk to
-# bin/omarchy-kids-wifid, a root, socket-activated daemon that identifies
-# the caller by Unix peer credentials (SO_PEERCRED — never anything the
-# client claims), looks up that account's `wifi` profile key
-# (bin/omarchy-kids-conf, Appendix B), and refuses outright unless it is
-# `helper`. See docs/wifi.md for the wire protocol and docs/conf.md for
-# the profile key.
-#
-#   list                       Nearby networks: SSID, signal, security.
-#   join <ssid> [--password-stdin]
-#                               Joins (creating it if needed). With
-#                               --password-stdin, reads one line of
-#                               password from stdin (never argv, never
-#                               logged — AGENTS.md's rule); omit it for
-#                               an open network. The daemon always
-#                               creates/targets a `kids-<ssid>`
-#                               connection (never a bare-named one it
-#                               didn't create) with ipv4/ipv6
-#                               ignore-auto-dns forced on and connection
-#                               DNS cleared (R-WIFI-2), so a captive
-#                               network or a school's DNS can never
-#                               weaken the DoH filtering already forced
-#                               in the kid's Chromium policy (R-WEB-6/I-1).
-#   status                      The active connection(s), if any.
-#   forget <ssid>               Deletes `kids-<ssid>` — never a
-#                               bare-named connection this daemon didn't
-#                               create, even one for the same SSID.
-#   portal [--apply]            Opens the band's browser to a known
-#                               captive-portal page with a *temporary*
-#                               allow of that one host (R-WIFI-3). See
-#                               the risk note on cmd_portal below and
-#                               docs/wifi.md.
-#   picker                      Launches the kid-facing Quickshell
-#                               picker (share/wifi/shell.qml). Bound to
-#                               Super+Shift+W at every level
-#                               (share/hyprland/L1.lua, L2.lua, L3.lua);
-#                               the bind is unconditional (the level
-#                               configs are static, R-DESK-1), so this
-#                               command itself is what refuses — with a
-#                               small toast, I-6 — when the profile says
-#                               `parent` instead of `helper`.
-#
-# Every subcommand above (list/join/status/forget/picker/portal) does
-# the same `wifi=helper` check twice: once here, fast and friendly,
-# before ever touching the socket, and once again — authoritatively,
-# server-side, from the kernel's own idea of who's connecting — inside
-# omarchy-kids-wifid. Only the second one is real security; this
-# script's own check exists purely so a `parent`-mode kid gets a plain
-# sentence instead of a raw daemon refusal (I-6).
-#
-# `parent` mode (R-WIFI-4: "the kid-side join opens the ask modal") is
-# NOT wired to bin/omarchy-kids-ask in this issue: Appendix D's queue
-# record `kind` enum is `time|app|plugin|site` and does not include
-# `wifi`, so there is no existing modal/record shape to reuse without
-# extending that contract, which is out of scope here (see docs/wifi.md
-# "Known gap"). Every subcommand instead refuses honestly with a
-# one-line reason (I-6: never fake a control that isn't there) — the
-# same shape bin/omarchy-kids-exit's `--pause` uses for its own
-# not-yet-built path.
-#
-# Every path/binary is overridable for tests, same convention as every
-# other command that shells out to omarchy-kids-conf/omarchy-kids-web:
-#   OMARCHY_KIDS_SHARE       default /usr/share/omarchy-kids (wifi/shell.qml, time/toast.qml)
-#   OMARCHY_KIDS_CONF_BIN    path to omarchy-kids-conf (default: resolved beside this script, else /usr/bin)
-#   OMARCHY_KIDS_WEB_BIN     path to omarchy-kids-web, used by `portal` (same resolution)
-#   OMARCHY_KIDS_ACCOUNT     default: this process's own user (id -un)
-#   OMARCHY_KIDS_WIFID_SOCK  default /run/omarchy-kids/wifi.sock
-#   OMARCHY_KIDS_WIFID_TIMEOUT  seconds, default 10 (nmcli's own wifi rescan can be slow)
-#   DRY_RUN                  default 1 for `portal` (AGENTS.md rule 8); --apply or DRY_RUN=0 does it for real
+# The kid-side Wi-Fi commands (SPEC.md R-WIFI-1..4): list, join, status, forget, portal, picker.
+# See docs/wifi.md for the helper-vs-locked-down design and every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -242,44 +170,10 @@ cmd_join() {
     call_wifid "JOIN $ssid" "$password"
 }
 
-# cmd_portal — captive-portal helper (R-WIFI-3): opens the band's
-# browser to a known, always-http (never https, so a captive portal's
-# own intercept actually fires) page, temporarily allowing that one
-# host in the kid's Chromium policy for a fixed window.
-#
-# RISK, documented per AGENTS.md rule 6 (I-6, honest UI) and repeated in
-# docs/wifi.md — read this before wiring this into anything automatic:
-#
-#   - This widens the kid's walled garden (R-WEB-3's URLAllowlist) to
-#     include neverssl.com for up to ten minutes, machine-wide for that
-#     band, not just for this one kid or this one Wi-Fi join. Any other
-#     kid on the same band during that window can also reach it.
-#   - The restore is a *scheduled* systemd-run job (`--on-active=10min`),
-#     not something this process waits around to confirm. If the
-#     machine is suspended, powered off, or `systemd-run` itself is
-#     unavailable before the timer fires, the temporary allow silently
-#     outlives its ten minutes until the next `omarchy-kids-web install`
-#     for that band (e.g. the next time a parent changes a setting).
-#     There is no independent watchdog here confirming the restore
-#     actually ran.
-#   - neverssl.com is a fixed, non-secret hostname (deliberately
-#     designed for exactly this purpose, and never user-supplied), so
-#     the exposure is "this one already-public site is reachable a few
-#     minutes longer than intended," not an arbitrary-host allowlist
-#     injection.
-#   - This only ever runs for a `garden` (walled-garden) band; see the
-#     `web` mode switch below for `filtered` (nothing to allow — the
-#     site isn't blocked in the first place) and `none` (no browser to
-#     open at all).
-#   - `omarchy-kids-web install --apply` writes root-owned files under
-#     /etc/chromium/policies/managed/ (R-WEB-1) and the restore's
-#     `systemd-run` job needs root to schedule against the system
-#     manager — this command has no polkit/pkexec wiring of its own to
-#     let an unprivileged kid session trigger either half for real (the
-#     wifid daemon this file otherwise talks to only ever runs `nmcli`,
-#     never `omarchy-kids-web`). Until a follow-up issue adds that path,
-#     `--apply` here is meant for a root context (the panel, a future
-#     helper), not a kid's own session — see docs/wifi.md "Known gap".
+# cmd_portal — captive-portal helper (R-WIFI-3): opens an always-http
+# page, temporarily widening the band's Chromium allowlist for a fixed
+# window (garden bands only). RISK and every edge case (the restore's no
+# watchdog, --apply needs a root context): docs/wifi.md.
 cmd_portal() {
     local apply=0 arg
     for arg in "$@"; do

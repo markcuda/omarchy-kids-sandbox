@@ -1,41 +1,9 @@
 #!/bin/bash
 # omarchy:summary=Re-assert every Kids Mode lock, fixing whatever has drifted
 # omarchy:args=[--quiet] [--dry-run]
-# omarchy-kids-assert — re-asserts every Kids Mode lock idempotently
-# (SPEC.md I-4, R-TRUST-5, R-BOOT-5, R-WEB-1, R-FND-2..6, §5.1). Called by
-# /usr/share/libalpm/hooks/omarchy-kids.hook after every pacman transaction,
-# by systemd/omarchy-kids-assert.service at boot, and (per docs/assert.md)
-# by Omarchy's own post-update hook -- see that doc for the full lock list,
-# when each caller runs it, and the exit codes.
-#
-# Unlike most other omarchy-kids-* commands, this one applies fixes for
-# real *by default*: it exists precisely so an automatic caller (the
-# pacman hook, the boot unit) never has to pass --apply for a lock to
-# actually be restored. `--dry-run` opts into preview-only mode instead
-# (see "Judgment calls" in docs/assert.md for why this is the one command
-# that inverts AGENTS.md rule 8's usual DRY_RUN=1 default). Every real
-# path is still overridable so tests -- and a --dry-run reviewed before
-# trusting it -- can point the whole run at a scratch tree, and nothing
-# under this dev checkout's real /etc, /var, or /home is ever touched by
-# test/shell.d/assert-test.sh:
-#   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (kid profiles, machine.conf)
-#   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids  (hyprland/*.lua and avatars source)
-#   OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
-#   OMARCHY_KIDS_ROOT       scratch prefix for every real machine path this
-#                           touches: /etc/polkit-1, /etc/security, /etc/pam.d,
-#                           /etc/fstab, /var/lib/AccountsService,
-#                           /etc/sddm.conf.d, /usr/share/sddm/themes/omarchy-kids
-#                           (theme.conf.user), /usr/share/sddm/faces
-#                           (lib/posture.sh), plus /etc/systemd/system
-#                           (getty masks), /etc/chromium/policies/managed
-#                           (kids policy files), /usr/lib/initcpio/hooks
-#                           and /boot (the boot hook)
-#   OMARCHY_KIDS_HOME_ROOT  scratch prefix for /home/<account> itself, for the
-#                           findmnt/mount calls this makes (matches
-#                           omarchy-kids-provision's own env var of the same name)
-#   OMARCHY_KIDS_UKI        overrides which UKI/initramfs image R-BOOT-5 checks,
-#                           instead of the first /boot/EFI/Linux/*.efi found
-# shellcheck disable=SC2329 # every *_ok/*_fix below is invoked indirectly through assert_one's "$check" "$@" / "$fix" "$@"
+# Re-asserts every Kids Mode lock idempotently (SPEC.md I-4, R-TRUST-5, R-BOOT-5, R-WEB-1, R-FND-2..6, section 5.1).
+# Applies fixes for real by default -- --dry-run opts into preview only.
+# See docs/assert.md for the full lock list, when each caller runs it, and every exit code.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -112,19 +80,10 @@ report() {
     return 0
 }
 
-# assert_one LOCK CHECK_FN FIX_FN [ARGS...] — the one control-flow shape
-# every lock below uses: if CHECK_FN "$@" is already true, "ok"; else,
-# under --dry-run, "would-fix" and stop; else run FIX_FN "$@" and report
-# "fixed" on success, "FAIL" (and keep going -- one bad lock never stops
-# the rest from being asserted) on failure.
-# assert_one LOCK CHECK FIX [ARGS...] — a *_ok function's exit status is a
-# three-way answer, not a boolean (review S11): 0 is "this lock holds",
-# 2 is "I could not look" (the tool is missing, the file this lock lives
-# in does not exist on this box), anything else is "it does not hold".
-# A lock that cannot be verified reports `warn` and is never silently
-# green — AGENTS.md rule 4 is fail closed, and a check that cannot see is
-# not a passing check. Nothing is fixed on a warn: there is nothing to
-# fix, and guessing at one is how the boot config gets damaged.
+# assert_one LOCK CHECK FIX [ARGS...] — a *_ok exit status is three-way,
+# not a boolean (review S11): 0 ok, 2 "could not look" (reports `warn`,
+# never silently green -- AGENTS.md rule 4), anything else fixes (or
+# FAILs, without stopping the rest) under --dry-run's "would-fix".
 assert_one() {
     local lock="$1" check="$2" fix="$3" rc
     shift 3
@@ -198,15 +157,10 @@ accountsservice_ok() {
 }
 accountsservice_fix() { posture_write_accountsservice "$1" "$2"; }
 
-# gecos (issue #39): the greeter's realName comes from the passwd GECOS
-# field, not AccountsService -- SDDM's UserModel reads getpwnam(3)'s
-# pw_gecos (docs/portal.md). "add" sets it once with `usermod -c`; this
-# re-asserts it against a stray edit or a package reinstall the same way
-# every other per-kid lock here does. Needs `getent` to read the field
-# back; a box without one (this repo's own macOS dev environment --
-# docs/provision.md's own note on `lsblk` is the same situation) has
-# nothing to compare against, so this reports "ok" rather than guessing
-# at a fix it can't verify.
+# gecos (issue #39): the greeter's realName comes from passwd's GECOS
+# field, not AccountsService -- SDDM reads getpwnam(3)'s pw_gecos
+# (docs/portal.md). Needs `getent`; a box without one reports "ok"
+# rather than guessing at a fix it can't verify.
 gecos_ok() {
     local account="$1" name="$2" current
     command -v getent >/dev/null 2>&1 || return 2  # no way to read the field back
@@ -284,18 +238,10 @@ sddm_theme_ok() {
 }
 sddm_theme_fix() { posture_write_sddm_theme_dropin; }
 
-# portal-conf (issue #39): the installed theme's theme.conf.user,
-# rebuilt from the current, known-correct set of kid profiles plus
-# machine.conf's parent= every time -- same "recompute the whole thing,
-# exact-content match" shape sddm-theme/polkit-admin above already use,
-# not reconstructed incrementally, so a stray hand-edit or a kid profile
-# quietly falling out of sync with the file can't leave stale entries
-# behind. Replaces an earlier portal.json + sddm.service XHR drop-in
-# design: that drop-in only took effect after `systemctl restart sddm`,
-# which on an already-booted machine re-fires the owner's stock
-# autologin -- see lib/posture.sh's own header comment on
-# posture_write_portal_conf for the SDDM ThemeConfig citation this
-# replacement rests on instead.
+# portal-conf (issue #39): theme.conf.user, rebuilt in full from the
+# current kid profiles + machine.conf's parent= every time -- never
+# reconstructed incrementally. See lib/posture.sh's own header and
+# docs/portal.md for the design this replaces (portal.json + XHR).
 portal_conf_expected() {
     local parent entries=() line
     parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null || true)"
@@ -506,14 +452,10 @@ limine_editor_fix() {
 }
 
 # --- Limine snapshot entries (V6, issue #38): a Snapper snapshot from
-# before Kids Mode boots a frozen UKI with no unlock hook, no polkit deny
-# rule, no boot-login unit, and the owner's stock autologin, on top of the
-# live @home -- a kid with a disk password can pick it from the Limine
-# menu and land on the parent's desktop. MAX_SNAPSHOT_ENTRIES=0 in
-# /etc/default/limine hides every such entry; machine.conf's
-# boot.snapshot_entries (docs/conf.md) picks "hide" (default) or "show".
-# Machine-level like the locks above: runs once per invocation, only
-# while at least one kid is provisioned.
+# before Kids Mode boots a frozen UKI with none of its locks -- a kid
+# with a disk password could pick it from the Limine menu and land on
+# the parent's desktop. MAX_SNAPSHOT_ENTRIES=0 hides every such entry;
+# machine.conf's boot.snapshot_entries (docs/conf.md) picks hide/show.
 limine_default() { printf '%s/etc/default/limine' "$(posture_root)"; }
 LIMINE_SNAPSHOTS_MARKER='# omarchy-kids: was MAX_SNAPSHOT_ENTRIES='
 
@@ -679,26 +621,9 @@ main() {
     exit 0
 }
 
-# Sourceable guard (issue #29, docs/check.md): bin/omarchy-kids-check
-# reuses every lock's own *_ok function directly -- "the ok functions
-# only, never *_fix" -- by sourcing this file instead of re-implementing
-# ~20 checks a second time (the same duplication docs/assert.md's own
-# "Judgment calls" already flagged as not worth it for a *third* command
-# once one showed up). Sourcing runs this whole file top to bottom, which
-# is exactly what defines every *_ok/*_fix function and the ETC/SHARE/
-# KIDS_DIR/etc. variables a caller needs -- but a bare, unconditional
-# `main` at the bottom would also run main() (which calls assert_one,
-# which *writes* by default) the instant the file is sourced, before the
-# sourcing caller ever gets a chance to do anything, defeating the whole
-# "read-only" point. This guard only calls main when the file is
-# executed directly (BASH_SOURCE[0] -- this file's own path -- equals $0
-# -- the path of whatever was actually invoked): true for a normal `./
-# omarchy-kids-assert` or `"$BIN"` run (including every existing
-# test/shell.d/assert-test.sh call), false when sourced from another
-# script's larger $0. main() takes no arguments of its own (the CLI's
-# --quiet/--dry-run/--help are parsed by the top-level `for arg in "$@"`
-# loop above, before main is even defined), so there is nothing to
-# forward here either way.
+# Sourced by omarchy-kids-check for the *_ok functions; only run main
+# when executed directly (BASH_SOURCE[0] == $0), else sourcing this
+# read-only reuse would itself trigger assert_one's writes. See docs/check.md.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main
 fi

@@ -1,42 +1,15 @@
 # shellcheck shell=bash
 # lib/time.sh — shared helpers for the screen-time engine (SPEC.md
 # R-TIME-1..5, Appendix F): bin/omarchy-kids-time-ledger (root, writes)
-# and bin/omarchy-kids-time (the kid, reads).
-#
-# Trust boundary. `bin/omarchy-kids-time` runs as the kid, in the kid's
-# own session -- so it can never be the thing that decides how many
-# minutes a kid has used today; a kid could just kill it, or a copy of
-# it, and print whatever it wanted. The authoritative ledger is written
-# only by bin/omarchy-kids-time-ledger, run as root by
-# systemd/omarchy-kids-time.timer, never invoked from a kid session.
-# Every function in this file that *writes* under $TIME_ROOT
-# (time_ledger_add, time_grant_add) is only ever called by that root
-# helper (or by `omarchy-kids-time grant`, which itself refuses to run
-# as anyone but root -- see that command). Everything
-# bin/omarchy-kids-time itself calls here is read-only: it can show a
-# kid a stale or wrong number if it's buggy, but it cannot make the
-# ledger say something that isn't true, because it has no code path
-# that writes to it (I-3: locks live outside every home, root-owned;
-# R-TIME-1 puts that root ownership on /var/lib/omarchy-kids/<kid>/
-# itself, not just on the profile).
-#
-# Clock. Every "now" here is OMARCHY_KIDS_NOW when set -- a local
-# wall-clock string, "YYYY-MM-DD HH:MM:SS" -- or the real clock
-# otherwise (`date '+%Y-%m-%d %H:%M:%S'`). This system has no notion of
-# timezone anywhere (budget/lights-out are plain HH:MM, same as
-# bands.toml), so nothing here ever converts a zone, only reads local
-# fields. Tests set OMARCHY_KIDS_NOW so the whole suite is independent
-# of the host's own clock and of GNU-vs-BSD `date` differences (see
-# lib/time.py's header for why day-rollover math is Python, not bash).
-#
-# Not meant to be executed directly; source it from a command:
-#   source "$LIB/time.sh"
-#
-# Every path below is overridable the same way bin/omarchy-kids-apps
-# and bin/omarchy-kids-assert already are:
-#   OMARCHY_KIDS_ROOT  scratch prefix for /var/lib/omarchy-kids
-#   OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf
-#   OMARCHY_KIDS_CONF_PY / OMARCHY_KIDS_LIB  python3 and lib/time.py
+# and bin/omarchy-kids-time (the kid, reads). Trust boundary: every
+# function here that writes under $TIME_ROOT is only ever called by the
+# root ledger helper (or `omarchy-kids-time grant`, which itself refuses
+# to run as anyone but root) -- the kid-run command only ever reads, so
+# it can show a stale number if buggy but has no path to make the ledger
+# lie (I-3, R-TIME-1). Every "now" is OMARCHY_KIDS_NOW when set, else the
+# real local clock -- no timezone handling anywhere, same as bands.toml.
+# Not meant to be executed directly; source it. Every path/env var:
+# docs/time.md.
 
 TIME_SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 TIME_VARLIB="$TIME_SYSROOT/var/lib/omarchy-kids"
@@ -194,36 +167,13 @@ time_remaining_minutes() {
 }
 
 # time_toast_thresholds PREV CURR THRESHOLDS FIRED — the pure decision
-# behind R-TIME-3's toast warnings (issue #40). Takes no clock, no
-# kid, no files: everything bin/omarchy-kids-time's own daemon loop
-# needs to decide, and nothing it doesn't, so it can be table-tested
-# straight out of lib/time.sh (test/shell.d/time-test.sh does).
-#
-#   PREV        remaining minutes last seen, or "" on the daemon's very
-#                first check (no previous value to compare a downward
-#                crossing against)
-#   CURR        remaining minutes seen now
-#   THRESHOLDS  every warning threshold, space-separated, highest
-#                first (bin/omarchy-kids-time always passes "10 5 1")
-#   FIRED       the subset of THRESHOLDS already fired since CURR last
-#                rose above them, space-separated (possibly empty)
-#
-# Prints two lines: the thresholds that fire on THIS check (space-
-# separated, possibly empty, highest first), then FIRED updated for
-# the caller's next call.
-#
-# A threshold T fires when PREV > T >= CURR (a real downward crossing)
-# and T is not already in FIRED. PREV="" is treated as +infinity, so a
-# daemon that starts already below a threshold (e.g. restarted with 3
-# minutes left) still warns right away, same as before this issue.
-#
-# A grant that raises CURR back above a fired threshold drops it from
-# FIRED first, so it can fire again the next time CURR comes back down
-# past it. This is the actual bug issue #40 reported live: a stale
-# "10 minutes left" toast fired again right after a grant raised the
-# remaining time to 16, because the old code's warned10/5/1 flags only
-# ever reset once Time's Up itself had been shown and dismissed, never
-# on an ordinary grant mid-countdown.
+# behind R-TIME-3's toast warnings (issue #40), table-tested in
+# test/shell.d/time-test.sh. Prints two lines: thresholds firing on THIS
+# check, then FIRED updated for the next call. A threshold T fires when
+# PREV > T >= CURR and isn't already in FIRED (PREV="" reads as
+# +infinity); a grant raising CURR back above a fired T drops it from
+# FIRED so it can fire again next crossing. Full contract and the
+# stale-toast bug this fixed: docs/time.md.
 time_toast_thresholds() {
     local prev="$1" curr="$2" thresholds="$3" fired="$4"
     local -a th_arr to_fire=()

@@ -1,67 +1,9 @@
 #!/bin/bash
 # omarchy:summary=Report whether every Kids Mode lock actually holds
 # omarchy:args=[--json] [--live]
-# omarchy-kids-check — v2: the green/red/yellow "is it safe?" report
-# (SPEC.md R-TRUST-2, R-TRUST-3, R-DESK-2; issue #29). Run at the end of
-# the wizard, from the panel, and (informally, by a grown-up) at kid
-# login when omarchy-kids-ask-grownup points at it. Read-only: never
-# writes anything, never calls a lock's *_fix — see docs/check.md for
-# the full section list and every judgment call below.
-#
-# Sections, in order: Accounts, Locks, Boot, Login, PAM, Web, Time,
-# Firmware, Live tests (only with --live). Each check prints one line —
-# PASS, WARN, or FAIL — and, per R-TRUST-2 ("names what it proves and
-# what it cannot"), a detail naming either what it proved or why it
-# couldn't. A WARN means "could not verify" or "not itself a lock, but
-# worth a grown-up's attention" — never a security gap on its own.
-#
-#   omarchy-kids-check [--json] [--live] [--help]
-#
-# Exit codes (SPEC.md R-TRUST-2's "is it safe?" contract, not the usual
-# 0-good/nonzero-bad shape — same kind of deliberate inversion
-# docs/assert.md's own "Judgment calls" already documents for that
-# command's --dry-run default):
-#   0  every check passed
-#   1  no FAILs, but at least one WARN
-#   2  at least one FAIL
-#
-# Reuses, never re-implements: every lock's own *_ok function from
-# bin/omarchy-kids-assert (sourced, guarded — see that file's own tail
-# comment), by way of lib/conf.sh and lib/posture.sh (which assert
-# itself sources), plus lib/time.sh for the screen-time ledger paths.
-# Nothing here ever calls a *_fix function — a FAIL here means "run
-# omarchy-kids-assert", never "let me fix that for you" (I-4's
-# verify-at-login role is a *check*, not a second copy of assert).
-#
-# Every path below is overridable for tests, same convention as
-# bin/omarchy-kids-assert and bin/omarchy-kids-session (this script
-# builds on both):
-#   OMARCHY_KIDS_ETC          kid profiles, machine.conf (via the sourced
-#                             omarchy-kids-assert; default /etc/omarchy-kids)
-#   OMARCHY_KIDS_SHARE        package data root (default /usr/share/omarchy-kids)
-#   OMARCHY_KIDS_LIB          lib/ beside bin/, else /usr/lib/omarchy-kids
-#   OMARCHY_KIDS_ROOT         scratch prefix for every real machine path this
-#                             touches indirectly through the sourced
-#                             omarchy-kids-assert/lib/posture.sh/lib/time.sh
-#                             (see those files' own headers for the full list)
-#   OMARCHY_KIDS_HOME_ROOT    scratch prefix for /home/<account> (mount checks)
-#   OMARCHY_KIDS_UKI          overrides which UKI/initramfs the boot-hook
-#                             check inspects (same var omarchy-kids-assert uses)
-#   OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS device auto-detection for the
-#                             boot:luks-slots check (same var
-#                             bin/omarchy-kids-provision's "remove" uses)
-#   OMARCHY_KIDS_ASSERT_BIN   path to omarchy-kids-assert (default: sibling,
-#                             else /usr/bin/omarchy-kids-assert) — sourced,
-#                             never executed, for its *_ok functions
-#   OMARCHY_KIDS_RUNUSER_BIN  the runuser binary --live shells out to
-#                             (default: runuser; stub it in tests)
-#   OMARCHY_KIDS_LOGINCTL_BIN the loginctl binary the live tmpfs-noexec
-#                             check uses to find a kid's live session
-#                             (default: loginctl; stub it in tests)
-#   OMARCHY_KIDS_PROC_ROOT    prefix for the /proc/<pid>/mountinfo path
-#                             that check reads (default: /proc; point at
-#                             a fixture tree of <pid>/mountinfo files in
-#                             tests, same idea as OMARCHY_KIDS_HOME_ROOT)
+# The green/red/yellow "is it safe?" report, read-only (SPEC.md R-TRUST-2, R-TRUST-3, R-DESK-2).
+# Reuses omarchy-kids-assert's *_ok functions rather than re-implementing them (see that file's own tail comment).
+# See docs/check.md for the full section list and every judgment call.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -123,15 +65,10 @@ done
 
 [[ -r "$ASSERT_BIN" ]] || { echo "omarchy-kids-check: cannot find omarchy-kids-assert at $ASSERT_BIN" >&2; exit 2; }
 
-# source_assert — pulls in every lock's *_ok/*_fix function plus the
-# ETC/SHARE/HOME_ROOT/KIDS_DIR/MACHINE_CONF variables omarchy-kids-assert
-# itself resolves from the same OMARCHY_KIDS_* env vars this script
-# documents above. Called with no arguments, from inside a function: a
-# function's "$@" is its own (empty here), never the outer script's, so
-# omarchy-kids-assert's own top-level `for arg in "$@"` loop (--quiet/
-# --dry-run/--help parsing) iterates zero times instead of re-parsing
-# THIS script's --json/--live — see that file's own tail-comment guard
-# for the other half of why sourcing it is safe (main() never runs).
+# source_assert — pulls in every lock's *_ok/*_fix plus the ETC/SHARE/
+# KIDS_DIR/etc. variables omarchy-kids-assert resolves. Called from
+# inside a function so its "$@" is empty, not this script's --json/--live
+# -- see that file's own tail-comment guard for why sourcing it is safe.
 source_assert() {
     # shellcheck source=bin/omarchy-kids-assert
     source "$ASSERT_BIN"
@@ -355,20 +292,11 @@ run_locks_section() {
 
 # --- Boot ----------------------------------------------------------------
 
-# boot_check_unlock_hook — R-BOOT-5, with a wider tool chain than
-# omarchy-kids-assert's own boot-hook lock (Locks section above already
-# reuses that one as-is): this repo's own dev box has neither objcopy
-# nor lsinitcpio (both Arch/Linux-specific), so a check tool meant to
-# also run there needs a portable fallback. Tries, in order: (1) a
-# lsinitcpio new enough to analyze a UKI (PE-wrapped) image directly,
-# skipping the objcopy step entirely; (2) objcopy + lsinitcpio, the
-# reference method omarchy-kids-assert's own boot_hook_ok uses (reused
-# here, not re-implemented); (3) objcopy to extract the .initrd section,
-# then bsdtar (libarchive, ships on macOS by default) to list its cpio
-# contents instead of lsinitcpio; (4) bsdtar straight on the UKI/ESP
-# path, best-effort, for a box with no objcopy at all. Whichever finds
-# the hook wins; if none of the tools even exist, this is a WARN
-# ("cannot verify"), never a silent PASS (R-TRUST-2).
+# boot_check_unlock_hook — R-BOOT-5, wider tool chain than
+# omarchy-kids-assert's own boot-hook lock: this dev box has neither
+# objcopy nor lsinitcpio, so tries lsinitcpio-on-UKI, then objcopy+
+# lsinitcpio, then objcopy+bsdtar, then bsdtar alone -- whichever finds
+# the hook wins; none available is WARN, never a silent PASS (R-TRUST-2).
 boot_check_unlock_hook() {
     local uki tool="" found=0 tried=0 tmp
     if ! uki="$(find_uki)"; then
@@ -550,17 +478,12 @@ run_login_section() {
 
 # --- PAM ---------------------------------------------------------------
 
-# pam_faillock_order_check STACK — "faillock ordering intact" (issue
-# #29): omarchy-kids-assert's own parent_unlock_ok only confirms the
-# marker and pam_exec line are present *somewhere* in the file
-# (grep -qxF); it never re-checks that they still sit in the position
-# lib/posture.sh's own placement rule requires after insertion (before
-# the stack's first "auth" line, or right after a leading
-# "pam_faillock.so ... preauth" line if there is one) — a hand-edit
-# could reorder lines around the marker without removing it, silently
-# breaking the "[success=done ...] short-circuits before pam_unix" logic
-# that whole placement exists for, and no lock here would ever notice.
-# This is a genuinely new check, not a restatement of one of assert's.
+# pam_faillock_order_check STACK — omarchy-kids-assert's parent_unlock_ok
+# only confirms the marker/pam_exec line are present *somewhere*
+# (grep -qxF), never that they still sit at lib/posture.sh's required
+# position -- a hand-edit could reorder them without removing them,
+# silently breaking the short-circuit. A genuinely new check, not a
+# restatement of assert's.
 pam_faillock_order_check() {
     local stack="$1" file marker line idx=0 marker_idx=-1 preauth_idx=-1 pam_unix_idx=-1
     file="$(posture_pam_dir)/$stack"
@@ -599,15 +522,11 @@ pam_faillock_order_check() {
     fi
 }
 
-# pam_parent_unlock_check STACK REQS — parent_unlock_ok (sourced from
-# omarchy-kids-assert) reports "ok" whenever the stack file doesn't
-# exist at all -- assert's own documented reasoning is "nothing to
-# disprove", the same shape boot_hook_ok uses (docs/assert.md). That's
-# the right call for a *lock* (nothing to fix if there's nothing to fix
-# it in), but reporting a flat PASS with "the line is present" here
-# would be false — there is no file, so nothing was actually verified.
-# Check existence first, in front of the reused function, so a missing
-# stack is its own honest WARN instead of a misleading PASS (R-TRUST-2).
+# pam_parent_unlock_check STACK REQS — parent_unlock_ok (from
+# omarchy-kids-assert) reports "ok" when the stack file doesn't exist at
+# all -- right for a lock, but a flat PASS here would be false, since
+# nothing was actually verified. Checks existence first, so a missing
+# stack is its own honest WARN (R-TRUST-2).
 pam_parent_unlock_check() {
     local stack="$1" reqs="$2" file
     file="$(posture_pam_dir)/$stack"
@@ -654,15 +573,11 @@ run_web_section() {
             add_result Web "web:mode:$bt" fail "$cf is not mode 0640 — run 'omarchy-kids-assert' (R-WEB-1)"
         fi
 
-        # Group ownership, root-run only (same call docs/assert.md's own
-        # chromium-policy lock makes, and for the same reason: every
-        # real writer of this file chowns it best-effort, which only
-        # ever succeeds as root, so a real run of this check — always
-        # root, per the wizard/panel/pacman-hook callers — sees a file
-        # that's already correct by construction. A non-root dev/test
-        # run can never make chown succeed no matter what's "really"
-        # wrong, so reporting a hard FAIL there would just be noise
-        # about this process's own privilege, not the target's posture.
+        # Group ownership, root-run only (same call docs/assert.md's
+        # chromium-policy lock makes): chown only ever succeeds as root,
+        # so a non-root dev/test run can't make it match no matter what's
+        # "really" wrong -- a hard FAIL there would be process noise, not
+        # target posture.
         owner_group="$(file_stat G "$cf")"
         if [[ "$EUID" != 0 ]]; then
             add_result Web "web:owner:$bt" skip "not checked as non-root — a real run of this check is always root, at which point the file's group is already correct by construction (R-WEB-1)"
@@ -720,21 +635,11 @@ run_time_section() {
 
 # --- Firmware --------------------------------------------------------------
 
-# run_firmware_section — R-TRUST-3: "a printed parent card; red in the
-# check until marked done in machine.conf". A firmware password lives
-# outside this machine's OS entirely (SPEC.md §5.3: "the wall is the
-# parent password plus the firmware password") — nothing running here
-# can read or verify one exists, so this can never be a from-first-
-# -principles PASS the way a lock check is. But R-TRUST-3's own wording
-# is a two-state "red / not red", not "red / warn forever": once a
-# grown-up has attested to it (machine.conf's firmware.card_done=yes,
-# the same "<category>.<field>" shape boot.snapshot_entries already
-# uses, docs/conf.md), this reports PASS, with the software caveat kept
-# right in the detail text (R-TRUST-2: name what it proves — an
-# attestation, not a measurement — and what it doesn't). Skipped
-# entirely before any kid is provisioned: the whole point of a firmware
-# password is defense once there's a kid account to keep off other
-# boot media, which doesn't yet apply to a bare install.
+# run_firmware_section — R-TRUST-3: a firmware password lives outside
+# this OS entirely, so nothing here can measure one -- machine.conf's
+# firmware.card_done=yes (a grown-up's attestation) is what turns this
+# PASS, the caveat kept in the detail text (R-TRUST-2). Skipped before
+# any kid is provisioned. See docs/check.md.
 run_firmware_section() {
     if [[ "$(kid_conf_count)" == 0 ]]; then
         add_result Firmware "firmware:password" skip "no kids provisioned yet; the firmware-password step matters once a kid does"
@@ -761,15 +666,10 @@ kid_uid() {
     getent passwd "$1" 2>/dev/null | cut -d: -f3
 }
 
-# live_session_leader_pid ACCOUNT — prints the pid of ACCOUNT's live
-# session leader (loginctl's own "Leader=", the process logind recorded
-# as having started the session) and returns 0, or prints nothing and
-# returns 1 if ACCOUNT has no session logind knows about right now.
-# omarchy-kids-session execs Hyprland directly with no intermediate fork
-# (do_start's own `exec "$HYPRLAND_BIN" ...`), so in the real case this
-# IS Hyprland's pid — but any process logind considers the session
-# leader lives inside the session's own mount namespace, which is the
-# only thing this needs (issue #41).
+# live_session_leader_pid ACCOUNT — prints ACCOUNT's live session
+# leader pid (loginctl's Leader=), or nothing and returns 1 if none.
+# omarchy-kids-session execs Hyprland with no intermediate fork, so this
+# is normally Hyprland's own pid (issue #41).
 live_session_leader_pid() {
     local acct="$1" list sess uid user _rest leader
     command -v "$LOGINCTL_BIN" >/dev/null 2>&1 || return 1
@@ -787,15 +687,10 @@ live_session_leader_pid() {
 }
 
 # mountinfo_noexec FILE MOUNTPOINT — reads a /proc/<pid>/mountinfo-shaped
-# FILE and prints "noexec" if the last (i.e. currently active — a later
-# line overmounts an earlier one at the same path) tmpfs mount at
-# MOUNTPOINT carries the noexec flag, "exec" if it's mounted but doesn't,
-# or nothing at all if MOUNTPOINT never appears (unreadable file, or this
-# process was never inside a mount namespace with a private mount
-# there). Per proc_pid_mountinfo(5): fields before the lone "-" field are
-# "mountID parentID maj:min root MOUNTPOINT options [optional...]"; after
-# it, "fstype source super-options" — noexec can show up in either the
-# per-mount options (field 6) or the super options, so this checks both.
+# FILE, prints "noexec"/"exec" for the last (currently active) mount at
+# MOUNTPOINT, nothing if it never appears. Checks both the per-mount
+# options (field 6) and the post-"-" super options, per
+# proc_pid_mountinfo(5) -- noexec can show up in either.
 mountinfo_noexec() {
     local file="$1" mountpoint="$2"
     [[ -r "$file" ]] || return 0
@@ -813,23 +708,11 @@ mountinfo_noexec() {
     ' "$file"
 }
 
-# live_test_tmpfs_noexec ACCOUNT — session-aware replacement (issue #41)
-# for the old live:$acct:tmp-noexec probe, which ran `findmnt` through
-# `runuser`. runuser's own PAM stack never opens a pam_namespace session
-# (unlike sddm and sddm-autologin, both covered by R-FND-2a), so that
-# probe always saw the machine's global /tmp and /dev/shm and FAILed
-# even when the kid's real session has private noexec tmpfs mounts —
-# seen live and recorded in docs/check.md's "Verified live" section.
-# In order:
-#   1. ACCOUNT has a live session (loginctl): read the session leader's
-#      OWN /proc/<pid>/mountinfo — the mount table that process actually
-#      lives in, not this script's.
-#   2. no live session: fall back to ACCOUNT's last
-#      "omarchy-kids-session --check" log, whose tmp_noexec line already
-#      answered this from inside a real session (that check only ever
-#      reports PASS or WARN, never FAIL — see check_tmp_noexec's own
-#      comment in bin/omarchy-kids-session).
-#   3. neither: WARN, naming the exact command a grown-up can run.
+# live_test_tmpfs_noexec ACCOUNT — session-aware (issue #41): runuser's
+# PAM stack never opens a pam_namespace session, so `findmnt` through it
+# always saw the global /tmp, not the kid's private mount. Reads the
+# live session leader's own mountinfo if one exists, else falls back to
+# the last omarchy-kids-session --check log, else WARN. See docs/check.md.
 live_test_tmpfs_noexec() {
     local acct="$1" pid mountinfo tmp_r shm_r uid logf line detail
 

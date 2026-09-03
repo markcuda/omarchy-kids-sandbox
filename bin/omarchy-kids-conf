@@ -1,20 +1,10 @@
 #!/bin/bash
 # omarchy:summary=Read and write a kid's settings and a band's defaults
 # omarchy:args=<command> [args]
-# omarchy-kids-conf — one way to read and write every kid setting
-# (SPEC.md R-BAND-1, R-BAND-2, R-BUILD-5, Appendix B, Appendix C).
-#
-# Precedence for every Appendix B key: the kid's override
-# (/etc/omarchy-kids/kids/<account>.conf), else the kid's band default
-# (share/bands/bands.toml, plus share/packs/<band>.toml for allowlist and
-# sites), else the global default (dns, history_visible, password,
-# onboarded). `band`, `name` and `avatar` have no default at all — they
-# must already be in the profile.
-#
-# Every path is overridable for tests, so test/shell.d/conf-test.sh runs
-# entirely against scratch trees:
-#   OMARCHY_KIDS_ETC    default /etc/omarchy-kids        (kid overrides live here)
-#   OMARCHY_KIDS_SHARE  default /usr/share/omarchy-kids  (bands.toml, packs/)
+# The one way to read and write every kid setting (SPEC.md R-BAND-1,
+# R-BAND-2, R-BUILD-5, Appendix B/C): kid override, else band default,
+# else global default. See docs/conf.md for the precedence, the
+# extension keys, and every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,25 +33,8 @@ BAND_KEYS=(level web dns budget_min budget_min_weekend lights_out
 # Resolved from share/packs/<band>.toml when there's no override.
 PACK_KEYS=(allowlist sites)
 VALID_BANDS=("3-5" "6-8" "9-12" "13+")
-# Extension keys (issue #24, docs/apps.md): not in Appendix B, so kept out
-# of APPENDIX_B_KEYS, cmd_show's main table, and "reset"'s identity-key
-# exemption -- but still one KEY=VALUE line in the same profile file,
-# read and written through this same tool (docs/conf.md's "no other
-# command touches a kid's .conf file directly" rule applies to these
-# too). omarchy-kids-apps is the only caller that needs them:
-#   apps.extra   comma-separated launcher ids added on top of the band's
-#                pack for this kid ("hide"/"show" edit this and
-#                apps.hidden through `omarchy-kids-conf set`, never the
-#                raw file)
-#   apps.hidden  comma-separated launcher ids removed from this kid's
-#                allowlist, pack or apps.extra alike
-#   apps.show_missing  yes/no (issue #42, docs/apps.md): whether
-#                bin/omarchy-kids-session-start keeps a tile for a
-#                pack/apps.extra app whose package isn't installed yet,
-#                greyed with a "not installed yet"/"installing..."
-#                caption, instead of the default of omitting it
-#                entirely (I-6: no tile that Enter silently does
-#                nothing on)
+# Extension keys (issue #24): outside Appendix B, but the same profile
+# file and tool as everything else. See docs/conf.md for what each means.
 EXT_KEYS=(apps.extra apps.hidden apps.show_missing)
 
 # global_default KEY — prints the Appendix B global default for a key the

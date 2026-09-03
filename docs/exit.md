@@ -264,3 +264,78 @@ plausible pidfile, but so can they kill the modal outright -- what is gone is th
 block it with an arbitrary process's command line. `bin/omarchy-kids-super-tap` and the
 exit-modal QML also name `/usr/bin/omarchy-kids-exit` absolutely rather than by bare name, since
 the kid owns their session's `PATH` (review S12).
+
+## Source header (moved from `bin/omarchy-kids-exit`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-exit: bound to Super+Shift+K at every level, and to three
+Super taps within 1.5s via bin/omarchy-kids-super-tap (SPEC.md R-EXIT-1
+.. R-EXIT-6; docs/exit.md has the full picture, including what's
+UNTESTED here -- this has never run against a real Hyprland/Quickshell
+session, so treat every claim below about what actually happens on
+screen as unverified until it has).
+
+--open (the default, and what Super+Shift+K/the triple-tap both run):
+  if the modal looks like it's already up (a "quickshell -p .../exit-
+  modal/shell.qml" process is running -- checked with `pgrep`, since
+  this process --open execs into and therefore can't itself track
+  "still running" once launched -- see docs/exit.md), do nothing;
+  otherwise exec the modal (share/exit-modal/shell.qml) with the kid's
+  name/avatar/account exported from omarchy-kids-conf.
+
+--finish (SPEC.md R-EXIT-3, run by the modal's Finish button once the
+  parent password verifies): ends the kid's session so SDDM returns to
+  the greeter -- `hyprctl dispatch 'hl.dsp.exit()'` first, waiting up to
+  OMARCHY_KIDS_EXIT_WAIT seconds for Hyprland to actually be gone, then
+  `loginctl terminate-session "$XDG_SESSION_ID"` as the last resort only
+  (see "Verified live" in docs/exit.md: a hard terminate-session makes
+  sddm-helper exit 1 and SDDM shows nothing at all -- a clean compositor
+  exit is what actually brings the greeter back).
+
+--finish --kid <account> (root only; issue #37's bar widget "end
+  session" action, and the panel's own end-session action if it has
+  one): the same idea, done from outside the kid's session instead of
+  from inside it, so it needs a different way to reach that session's
+  Hyprland -- `runuser -u <account>` into the kid's own
+  `HYPRLAND_INSTANCE_SIGNATURE` under /run/user/<uid>/hypr/<signature>/,
+  found on disk rather than read from an env var this process was never
+  given. Waits the same OMARCHY_KIDS_EXIT_WAIT, then falls back to
+  `loginctl terminate-user <account>` (not terminate-session: there is
+  no session id to hand it here, only the account). See docs/exit.md.
+
+--pause (SPEC.md R-EXIT-3's other half): NOT IMPLEMENTED. Per
+docs/phase1/V1.md and docs/phase1/DECISIONS-NEEDED.md, SDDM's
+Seat.SwitchToGreeter() fails outright on Omarchy 4.0.2 while a session
+holds the seat (HELPER_TTY_ERROR) and even revoked input devices on
+real hardware until a manual udev re-trigger -- so this deliberately
+refuses rather than guessing at a mechanism that was found unsafe to
+even try. share/exit-modal/shell.qml only calls this when
+OMARCHY_KIDS_PAUSE_AVAILABLE=1 is set (I-6: never offer a control that
+isn't enforced), which omarchy-kids-exit itself never sets today.
+```
+
+## Source header (moved from `bin/omarchy-kids-super-tap`, issue #49)
+
+Kept for reference; the file itself now carries a short pointer instead.
+
+```text
+omarchy-kids-super-tap: the "Super pressed three times within 1.5s"
+half of SPEC.md R-EXIT-1. Meant to be run once per Super *release* --
+a Hyprland `bindr` (key-release) bind, not a `bind` (key-press) one,
+so a normal Super+<other key> combo (Super+Home, Super+Shift+K, ...)
+doesn't also count as a bare tap. See docs/exit.md for why no such
+bind is actually wired into share/hyprland/L1.lua/L2.lua/L3.lua yet:
+none of the Omarchy DSL reference material this repo had access to
+showed a release-bind form (`o.bindr`/`hl.bindr` or otherwise) to
+confirm the call against, so wiring it is left as a documented gap
+rather than a guess that could silently do nothing -- or worse, bind
+the wrong thing -- on a real Hyprland.
+
+Each invocation appends "now" (milliseconds since the epoch) to a
+small per-session file, drops any entries older than the window, and
+-- once three remain -- clears the file and runs omarchy-kids-exit,
+so the *next* three taps start a fresh count rather than firing on
+every release once three have ever landed close together.
+```

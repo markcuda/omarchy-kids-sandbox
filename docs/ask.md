@@ -232,3 +232,101 @@ became an open request and granted nothing; a socket redirect from the kid's env
 ignored; the real on-the-spot grant through `omarchy-kids-ask grant` and authd's `GRANT`
 line added minutes from the modal after three live fixes (the time request's minutes, the
 verifier's line reader keeping its remainder, and writable state paths in the service unit).
+
+## Source header (moved from `bin/omarchy-kids-ask`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-ask -- "Ask a parent" for more time, an app, a plugin, or a
+site (SPEC.md R-ASK-1..3, Appendix D; issue #25). One verb, four kinds.
+
+NOTE on the name: this is the `-ask` command R-BUILD-4 lists.
+bin/omarchy-kids-ask-grownup already exists under a similar name but is
+a different, already-shipped thing (issue #11's full-screen message
+for a fail-closed check at login, R-DESK-2) -- it is not touched here.
+
+Kid-side (unprivileged, run inside the kid's session):
+
+  time <minutes>            Opens the modal asking for more screen time.
+  app <package-or-id>       Opens the modal asking for one app.
+  plugin <plugin-id>        Opens the modal asking for one launcher plugin.
+  site <host>                Opens the modal asking for one website.
+
+    Each execs `quickshell -p $OMARCHY_KIDS_SHARE/ask/shell.qml`
+    (share/ask/shell.qml), exporting what's being asked in kid words.
+    The modal itself calls back into this command's `submit`:
+
+  submit <kind> <what> [--minutes N]
+    Writes one Appendix D record, always state=open, into the *kid's
+    own* outbox -- $OMARCHY_KIDS_RUN/ask-outbox/<ts>-<account>-<kind>.json.
+    A kid can only ever write a *claim*, never a decision (review S1):
+    there is deliberately no --state and no --by here.
+
+  grant <kind> <what> [--minutes N]     (parent password on stdin)
+    The "A grown-up is here" path. Sends GRANT plus the typed password
+    to root's omarchy-kids-authd socket and exits 0 only if *root*
+    verified the password, matched the peer uid to this account, and
+    applied the request itself. Nothing in the kid's session decides
+    anything; this command's own exit code grants nothing.
+
+Root-side (run by the parent, from the panel, or by
+systemd/omarchy-kids-ask-collect.timer):
+
+  collect [--apply]          For every kid account, moves whatever is
+                              sitting in that kid's outbox into the
+                              real queue (/var/lib/omarchy-kids/queue/,
+                              Appendix D). It promotes records to
+                              `open` and NOTHING ELSE: it never applies
+                              anything, never honours a state a kid
+                              wrote, and re-attributes every record to
+                              the account that actually owned the
+                              outbox (review S1/S2/S3). On-the-spot
+                              approval is `grant` above, decided by
+                              root in omarchy-kids-authd.
+  apply-grant --kid K --kind KIND --what W [--minutes N] --apply
+                              Root only, invoked by omarchy-kids-authd
+                              once it has verified the parent password
+                              and the peer uid. Records the decision in
+                              the queue and performs it, through the
+                              same apply_record every other path uses.
+  list [<kid>]                Every open (undecided) request, all kids
+                              or one.
+  approve <id> [--apply]      Performs the action, then marks the
+                              record approved (by=panel).
+  decline <id> [--apply]      Marks the record declined (by=panel).
+                              Never performs the action.
+
+Every path is overridable for tests, same convention as
+omarchy-kids-apps and omarchy-kids-web:
+  OMARCHY_KIDS_ETC        default /etc/omarchy-kids (kid overrides, per-kid allow.txt)
+  OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids (share/ask/shell.qml)
+  OMARCHY_KIDS_ROOT       scratch prefix for /var/lib/omarchy-kids (the queue)
+  OMARCHY_KIDS_RUN        kid-side outbox root, default $XDG_RUNTIME_DIR/omarchy-kids
+                          (falls back to /tmp/omarchy-kids, same as
+                          bin/omarchy-kids-super-tap)
+  OMARCHY_KIDS_RUN_USER_ROOT  where `collect` looks for every kid's own
+                          outbox: <this>/*/omarchy-kids/ask-outbox/
+                          (default /run/user, i.e. every logged-in
+                          kid's real $XDG_RUNTIME_DIR)
+  OMARCHY_KIDS_ACCOUNT    kid-side: this session's account (default `id -un`)
+  OMARCHY_KIDS_CONF_BIN   path to omarchy-kids-conf (default: resolved
+                          beside this script, else /usr/bin/omarchy-kids-conf)
+  OMARCHY_KIDS_WEB_BIN    path to omarchy-kids-web (same resolution)
+  OMARCHY_KIDS_AUTH_SOCK  `grant`'s root socket, default
+                          /run/omarchy-kids/auth.sock. Pointing this
+                          somewhere else grants nothing -- the socket
+                          on the other end is what decides -- so unlike
+                          bin/omarchy-kids-parent-auth this one is not
+                          root-gated.
+  OMARCHY_KIDS_UID_MAP    test-only: a file of "uid:account" lines used
+                          instead of `getent passwd` when `collect`
+                          resolves who owned an outbox. Read from
+                          root's own environment, never a kid's.
+  DRY_RUN                 default 1 for collect/approve/decline
+                          (AGENTS.md rule 8); --apply or DRY_RUN=0 does
+                          it for real. submit/time/app/plugin/site only
+                          ever touch the kid's own runtime dir, so they
+                          are never gated by DRY_RUN (same reasoning as
+                          bin/omarchy-kids-super-tap).
+```

@@ -309,3 +309,42 @@ avatar (review S10); `omarchy-kids-provision add` rejects such a name at the one
 that accepts it, and `posture_portal_conf_text` leaves an already-written profile with such a
 name off the greeter rather than corrupting the whole field. `test/shell.d/portal-test.sh`
 covers both.
+
+## SDDM face-icon resolution forensics (moved from `lib/posture.sh`, issue #49)
+
+```text
+--- SDDM face icons (issue #39, live VM finding) --------------------------
+
+AccountsService's own Icon= key (posture_accountsservice_text above) is
+NOT what SDDM's UserModel actually reads for the "icon" role on this
+stack. UserModel's constructor (sddm/sddm's src/greeter/UserModel.cpp,
+fetched 2026-09, confirmed by reading it directly) checks, in this
+order: "<home>/.face.icon" first, then the literal path
+"/var/lib/AccountsService/icons/<account>" (a cache file the real
+accountsd daemon populates itself via its own D-Bus SetIconFile method
+-- nothing in this repo ever calls that method, so this file is never
+created here and its existence check always fails), then
+"<FacesDir>/<account>.face.icon" (FacesDir defaults to
+/usr/share/sddm/faces -- /usr/lib/sddm/sddm.conf.d/default.conf line
+58). The third path is the one that actually has to exist on disk for
+an avatar to render on this stack; posture_accountsservice_text's own
+Icon= line is kept as-is (it may still matter to a D-Bus-backed
+AccountsService client elsewhere, and removing a working write is
+needless churn), it just isn't what SDDM itself reads.
+
+Copied, not symlinked, and never under the kid's own home: "~/.face.icon"
+is the *first* path UserModel checks, ahead of this one, and the kid's
+home must stay untrusted (I-3) -- writing there would also hand the kid
+a way to swap their own avatar file for something else read by root's
+greeter process. Copying instead of pointing straight at
+share/avatars/<avatar>.svg keeps this file's content independent of
+wherever the package happens to install avatars, matching
+posture_accountsservice_text's own reasoning for using a fixed,
+real path rather than a scratch one for the *destination* -- the
+*source* is still caller-supplied here (unlike the Icon= line's plain
+string) because copying needs a real, readable file to copy from, and
+the real command (omarchy-kids-provision) and its tests use different
+real/scratch source directories (OMARCHY_KIDS_SHARE) the way
+omarchy-kids-assert's hyprland-configs lock already does for
+share/hyprland/*.lua.
+```

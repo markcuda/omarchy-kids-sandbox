@@ -424,6 +424,7 @@ every band default, "Minutes a day (weekdays)" 90 → 45 and "Lights out (weekda
 21:00 were marked `(changed)`, Done customizing went straight to the password screen, and Apply
 printed provision followed by exactly two `omarchy-kids-conf set` lines for the changed cells,
 then the web and apps installs.
+
 ## Apply is real when a parent walks the wizard (2026-09-03)
 
 Same change as the panel, same reason (review §1.5): a parent who reached A13, read the summary
@@ -437,3 +438,124 @@ wants the preview, and has its own section proving that a run reaching Apply fro
 really executes `omarchy-kids-provision`. The wizard's `authd` socket client is now
 `lib/sock.sh`'s single `kids_sock_request`, shared with `omarchy-kids-parent-auth` and
 `omarchy-kids-wifi`, which had drifted into three copies with different fallbacks and timeouts.
+
+## Source header (moved from `bin/omarchy-kids-wizard`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-wizard — the parent wizard's Easy path (SPEC.md R-WIZ-1..9,
+Appendix A; issue #19). Bash + gum in Omarchy's floating terminal, every
+screen rendered by lib/tui.sh (issue #18) — this file never calls gum
+directly. See docs/wizard.md for the full screen list and the
+answers-file layout tests drive it with.
+
+This follows Appendix A screen by screen: Welcome (A1), parent password
+(A2), name (A3), face (A4), age band (A5), Simple or Advanced (A6), the
+five Simple one-choice screens (A7-A11: web, time, apps, Wi-Fi, level —
+each with the band's default preselected and a one-line reason per
+option) or Advanced's grouped checklist (A13a, issue #20 — every
+Appendix B cell those five screens don't already cover, one screen,
+lib/wizard-advanced.sh), the kid's password (A12), the summary (A13,
+whose "Change something" opens that same checklist for either path),
+Apply (A13b) with the safety check (A13c), and Done (A14).
+
+Every screen is keyboard-complete (Esc back, Ctrl+C leave with nothing
+changed — see lib/tui.sh) up to the moment Apply actually starts
+running commands; once a system change has begun, stopping partway
+would leave things half-done, so the run is committed at that point,
+same as the installer's own dashboard (R-WIZ-5).
+
+  omarchy-kids-wizard [--dry-run] [--help]
+
+Walked by a human, Apply is real: the summary screen (A13) is itself the
+confirmation (review §1.5). Run with no terminal — a test, a script, CI —
+every command Apply would run is printed instead, `pacman`/`sudo`/
+`omarchy-kids-*` included, and nothing runs. `--dry-run` forces the
+preview, `--apply` forces the real run.
+
+Every path is overridable for tests, same convention as the rest of
+bin/ (test/shell.d/wizard-test.sh runs entirely against scratch trees
+with a stub PATH for gum/pacman/sudo and stub omarchy-kids-provision/
+-web/-assert/-session pointed at by their own env vars below):
+  OMARCHY_KIDS_ETC             default /etc/omarchy-kids
+  OMARCHY_KIDS_SHARE            default /usr/share/omarchy-kids
+  OMARCHY_KIDS_LIB              default lib/ beside bin/, else /usr/lib/omarchy-kids
+                                 (conf.sh, tui.sh, wizard-advanced.sh — the
+                                 Advanced-path grouped checklist, issue #20 —
+                                 and units.sh, the KIDS_UNITS/KIDS_SOCKETS/
+                                 KIDS_TIMERS list Apply shares with
+                                 omarchy-kids-assert, issue #46)
+  OMARCHY_KIDS_CONF_BIN          path to omarchy-kids-conf (default: resolved
+                                 beside this script, else PATH)
+  OMARCHY_KIDS_CONF_PY           python3 interpreter for lib/conf.py (default: python3)
+  OMARCHY_KIDS_PROVISION_BIN     path to omarchy-kids-provision (default: sibling, else PATH)
+  OMARCHY_KIDS_WEB_BIN           path to omarchy-kids-web (default: sibling, else PATH)
+  OMARCHY_KIDS_ASSERT_BIN        path to omarchy-kids-assert (default: sibling, else PATH)
+  OMARCHY_KIDS_SESSION_BIN       path to omarchy-kids-session (default: sibling, else PATH)
+  OMARCHY_KIDS_APPS_BIN          path to omarchy-kids-apps (default: sibling, else PATH)
+  OMARCHY_KIDS_AUTH_SOCK         the parent-password verifier socket (default
+                                 /run/omarchy-kids/auth.sock, same var
+                                 bin/omarchy-kids-parent-auth uses). A2 uses
+                                 it when it's active *and* machine.conf
+                                 actually names a parent, and falls back to
+                                 `sudo -S -v` with the typed password
+                                 otherwise -- see verify_parent_password
+                                 and authd_verifiable (issue #46)
+  OMARCHY_KIDS_INVOKING_USER     who Apply's first step writes into
+                                 machine.conf's parent= (default: `id -un`,
+                                 since the wizard itself always runs
+                                 unprivileged, as the parent; tests pin
+                                 this instead of depending on whoever runs
+                                 the suite -- issue #46)
+  OMARCHY_KIDS_SETUP_LOG         the technical log Apply writes to (R-WIZ-5;
+                                 default /var/log/omarchy-kids/setup.log). A
+                                 real run creates it (`sudo install -d` then
+                                 `sudo tee -a`, since a parent's own process
+                                 can't append to a root-owned file); a
+                                 --dry-run never writes it.
+  OMARCHY_KIDS_TUI_ANSWERS       one answer per line; see lib/tui.sh / docs/tui.md
+  DRY_RUN                        default 0 for a human on a tty or the
+                                 app entry, 1 otherwise; --apply/--dry-run wins
+```
+
+## Advanced path source header (moved from `lib/wizard-advanced.sh`, issue #49)
+
+```text
+lib/wizard-advanced.sh — the wizard's Advanced path: a grouped checklist
+over every Appendix B cell that isn't already collected by a shared
+screen (SPEC.md R-WIZ-2, R-WIZ-3, R-BAND-2, Appendix B; issue #20).
+Reachable from A6 ("Advanced") and from the Easy summary's "Change
+something" (A13, for both paths — bin/omarchy-kids-wizard's
+screen_summary calls the same screen_advanced_checklist this file
+defines). Split out of bin/omarchy-kids-wizard for length, same reason
+lib/tui.sh is its own file — not a generally reusable library, just
+this command's Advanced-path code kept out of the main driver.
+
+Sourced by bin/omarchy-kids-wizard, which by the time any function here
+is actually called has already defined every global variable and
+helper this file reads: $BAND, $DISPLAY_NAME, $SHARE, $PY, $PYHELPER,
+band_field, pack_field, app_label_for, apps_pick_walk,
+friendly_web_mode, friendly_wifi_mode, validate_budget_minutes,
+validate_lights_out, and every lib/tui.sh tui_screen_* function. Not
+meant to be executed or sourced on its own.
+
+One row per key, twelve keys in six groups (Web, Screen time, Apps,
+Wi-Fi, Desktop, Data), Appendix B order within each group. name/avatar/
+band (A3-A5) and password (A12) are collected by their own screens
+before either path reaches here, so they're not rows; onboarded is a
+system-managed flag no screen ever offers a parent, so it isn't either.
+
+Every row's value lives in the SAME plain variable Simple's own A7/A8/
+A9/A10/A11 screens use (WEB_MODE, BUDGET_MIN, ALLOWLIST_IDS, ...) — one
+source of truth regardless of which path set it — plus seven variables
+Simple never touches (DNS_MODE, SITES, MENU_MODE, HISTORY_VISIBLE,
+BUDGET_MIN_WEEKEND, LIGHTS_OUT_WEEKEND). adv_varname maps a key to its
+variable's name; adv_get/adv_set read and write it by that name (the
+same indirect-by-name idiom lib/tui.sh's _tui_array_copy uses, for the
+same reason: no namerefs, no associative arrays — bash 3.2 has neither,
+and test/all has to run on the plain bash macOS ships). adv_init seeds
+every one of them to this band's default; nothing here ever calls
+omarchy-kids-conf itself — only Apply (apply_step_account's
+maybe_override calls) ever writes anything.
+```

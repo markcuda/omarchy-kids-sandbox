@@ -210,3 +210,77 @@ issue #53 makes a kid inherit the parent's theme at provision time and adds a th
 packaging fact: Quickshell resolves QML types only inside the shell's own directory, so
 `KidsTheme.qml` is installed beside every standalone surface rather than imported from
 `share/qml`.
+
+## Source header (moved from `lib/theme.sh`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+lib/theme.sh — resolves Omarchy's per-theme colors and font the exact
+way Omarchy's own tools do, so every Kids Mode surface (the wizard/panel
+TUI, the SDDM portal's theme.conf.user) looks like the rest of the
+machine under whatever theme the parent picked. Not meant to be
+executed directly; source it from a command or from lib/tui.sh.
+
+============================== Ground truth ================================
+Fetched and read directly from omacom/omarchy at tag v4.0.2, 2026-09:
+
+  - bin/omarchy-theme-color: "Resolve semantic colors from an Omarchy
+    theme colors.toml" — the same tool docs/tui.md already cited this
+    repo's own wizard through ("the same tool Omarchy's own templates,
+    OSC sequences, and previews resolve colors through"). Defaults to
+    $HOME/.local/state/omarchy/current/theme/colors.toml, or --file
+    <path>. Resolves a semantic key (background, foreground, accent,
+    muted, red, green, yellow, blue, magenta/purple, cyan, orange,
+    brown, dark_background, darker_background, lighter_background,
+    dark_foreground, light_foreground, bright_foreground, selection,
+    cursor, mode/theme_type, colorN, and every bright_* variant),
+    falling back through legacy color0..15/short-name aliases and
+    derived shades when a theme only defines part of the palette.
+    Omarchy's own palette has no "error"/"warning" semantic key of its
+    own — theme_color below maps those to "red" and "orange" (orange
+    itself falls back to yellow when a theme doesn't define it,
+    omarchy-theme-color's own alias_theme_color call), the same colors
+    Omarchy's generated app configs use for error/warning states.
+  - bin/omarchy-theme-set: $HOME/.local/state/omarchy/current/theme is a
+    real directory (not a symlink), rebuilt whole on every
+    `omarchy-theme-set` — never $HOME/.config/omarchy/current/theme,
+    which does not exist on this stack.
+  - bin/omarchy-theme-current: the theme's own display name lives beside
+    it, in .../current/theme.name (one line, no [General] wrapper).
+  - shell/Commons/Style.qml's fontFamily/resolveFontFamily: the shell's
+    own font is always the fontconfig alias "monospace", resolved via
+    `fc-match -f '%{family[0]}' monospace` — never read from colors.toml
+    (theme Lua/toml never sets a font family; `omarchy font set` rewrites
+    ~/.config/fontconfig/fonts.conf instead). theme_font below runs the
+    exact same command.
+
+There is no *system-wide* (root-level) current theme anywhere in
+Omarchy 4.0.2 — every path above is $HOME-relative, because Omarchy is a
+single-user desktop. THEME_KIDS_HOME (below) is this file's own way to
+point that resolution at another account's $HOME — the parent's, when a
+root-owned caller (lib/posture.sh, provisioning the portal before any
+user has ever logged in) needs the parent's theme rather than root's.
+==============================================================================
+
+Live finding (issue #48, 2026-09): running a Kids Mode command from a
+shell without Omarchy's own session environment sourced (no interactive
+login through Hyprland — an SSH session, a bare `unshare`, a CI runner)
+leaves $OMARCHY_PATH unset, and `omarchy-theme-color` (and Omarchy's
+other bin/omarchy-* tools generally) depend on it being set to find
+their own installed files, dying with "OMARCHY_PATH is not set" instead
+of just failing the one color lookup. Two defenses, both applied the
+moment this file is sourced (before any Omarchy tool below ever runs),
+not per-call:
+  - OMARCHY_PATH defaults to /usr/share/omarchy (where the omarchy
+    package installs itself) when unset, so a real Omarchy tool that
+    needs it to find sibling files still can, even outside a full
+    session.
+  - LANG defaults to C.UTF-8 when unset or the plain "C" locale: gum's
+    own box-drawing characters (lib/tui.sh's bordered header) need a
+    UTF-8 locale to render, not just to look right.
+A theme tool that still fails after that (missing entirely, or dies for
+some other reason) never aborts the caller either way — see
+_theme_kids_tool_ready below — it just falls back to this file's own
+palette, with one log line, not silently and not by crashing.
+```

@@ -1,31 +1,11 @@
 #!/bin/bash
 # omarchy:summary=Add or remove a kid's Unix account and every lock it needs
 # omarchy:args=<add <display-name> --band <band>|remove <account>|list>
-# omarchy-kids-provision — add and remove a kid account (SPEC.md R-FND-2..6,
-# R-SEC-3..5, R-LOGIN-3, R-DESK-1, Appendix B). See docs/provision.md for
-# what "add" and "remove" do, in order, with the exact files each touches.
-#
-# DRY_RUN=1 by default (also the default with no DRY_RUN set at all):
-# every action that would change something is printed, nothing runs.
-# --apply (anywhere in the args) or DRY_RUN=0 in the environment turns
-# actions on for real. Reads that only decide *what* to do (the slug
-# collision check, LUKS device/slot detection, parsing luks-slots) always
-# happen for real, dry run or not, since they never change anything.
-#
-# Every path is overridable for tests, so test/shell.d/provision-test.sh
-# runs entirely against scratch trees with a stub PATH:
-#   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (profiles, machine.conf, luks-slots)
-#   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids   (bands/packs, avatars source)
-#   OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
-#   OMARCHY_KIDS_ROOT       scratch prefix for /etc/polkit-1, /etc/security,
-#                           /etc/pam.d, /etc/fstab, /var/lib/AccountsService,
-#                           /etc/sddm.conf.d (lib/posture.sh)
-#   OMARCHY_KIDS_HOME_ROOT  scratch prefix for /home/<account> itself (not
-#                           part of the spec's env list; added here because
-#                           mount/umount/mv all need somewhere real, if only
-#                           a scratch "real", to act on -- see docs/provision.md)
-#   OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS auto-detection for "remove",
-#                             which has no --luks-device flag of its own
+# Adds and removes a kid account: the Unix account, profile, and every
+# lock provisioning needs (SPEC.md R-FND-2..6, R-SEC-3..5, R-LOGIN-3,
+# Appendix B). DRY_RUN=1 by default; --apply/DRY_RUN=0 makes it real.
+# See docs/provision.md for the exact order, every env var, and what
+# each step touches.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -191,18 +171,10 @@ unique_account() {
 # --- Omarchy per-user migrations (issue #10 finding b) ---------------------
 
 # mark_migrations_done ACCOUNT — best-effort stand-in for
-# `omarchy-provision-user`, run only when that command doesn't exist on the
-# target. Omarchy's own migration runner writes per-user completion markers
-# somewhere under the account's home; this repo has no access to a real
-# Omarchy install to confirm the exact path/format it checks, so this is a
-# documented guess (see docs/provision.md's "Known gap" section): it drops
-# one line per file under OMARCHY_MIGRATIONS_DIR (default
-# /usr/share/omarchy/migrations, if that exists at all) into
-# ~/.local/state/omarchy/migrations.log, timestamped, which is the shape
-# that keeps a bare useradd'd account from reading as "96 pending" without
-# guessing at a binary/systemd-managed state format we can't verify here.
-# TODO(#10): replace with the real marker format once verified against an
-# actual Omarchy install; until then this is a best effort, not a fact.
+# omarchy-provision-user, run only when it doesn't exist. A documented
+# guess at the marker format (~/.local/state/omarchy/migrations.log),
+# not verified against a real Omarchy install -- TODO(#10). See
+# docs/provision.md's "Known gap".
 mark_migrations_done() {
     local account="$1" home migrations_src state_dir f
     home="$(home_dir_for "$account")"
@@ -222,23 +194,13 @@ mark_migrations_done() {
 # --- Chromium launch flags override (issue #44) -----------------------
 
 # install_kids_chromium_flags ACCOUNT — overwrites
-# ~/.config/chromium-flags.conf with Kids Mode's own copy
-# (share/policy/chromium-flags.conf: bin/omarchy-kids-web's
-# `launch` uses the same file). Omarchy's own per-user setup
-# (omarchy-provision-user, called just above, or the mark_migrations_done
-# fallback's account still inheriting whatever the base install left in
-# skel) leaves a copy of omacom/omarchy's config/chromium-flags.conf here,
-# which adds --load-extension=/usr/share/omarchy/default/chromium/
-# extensions/... for Omarchy's three bundled extensions -- always refused
-# by the kids policy (ExtensionInstallBlocklist: ["*"]), so a kid who
-# runs `chromium` directly from a terminal (bands 9-12/13+ have one,
-# R-BAND) hits the same "disabled by the administrator" modal the Web
-# tile's own `omarchy-kids-web launch` already avoids. Written root:root
-# 0644: readable (Chromium's wrapper still picks it up), not writable, so
-# the kid can't put --load-extension back by editing it -- though not
-# undeletable, since the kid still owns ~/.config itself; a kid who
-# deletes it just gets a Chromium with no user flags file at all, never
-# Omarchy's extension-loading one back.
+# ~/.config/chromium-flags.conf with Kids Mode's own copy (same file
+# bin/omarchy-kids-web's `launch` uses), replacing Omarchy's own copy
+# whose --load-extension=... flags the kids policy always refuses (the
+# same "disabled by the administrator" modal `web launch` avoids).
+# Root:root 0644: readable, not writable, so a kid can't put the flag
+# back by editing it (deleting it is still possible -- ~/.config is
+# theirs -- but that just leaves no flags file at all).
 install_kids_chromium_flags() {
     local account="$1" home config_dir dest stage
     home="$(home_dir_for "$account")"
@@ -428,19 +390,11 @@ cmd_add() {
     # long as any kid profile remains.
     run posture_write_sddm_theme_dropin
 
-    # R-LOGIN, issue #39: theme.conf.user -- parent detection and avatars
-    # for the greeter, decided from the profile registry rather than the
-    # "kid-" username prefix (docs/portal.md's "Verified live" section:
-    # a VM whose *owner* account happened to be named kid-vm broke that
-    # heuristic). SDDM's own ThemeConfig loads this file automatically
-    # (lib/posture.sh's own header comment on posture_write_portal_conf
-    # has the citation), so Main.qml reads "parent"/"kids" through the
-    # existing "config" property, no XHR needed. Rebuilt in full from
-    # every provisioned kid, same "full rewrite, never append" shape as
-    # luks-slots above. This kid's own entry is appended explicitly (not
-    # read back off $KIDS_DIR) because DRY_RUN=1's preview must show the
-    # correct planned content even though nothing was actually written
-    # to disk above.
+    # R-LOGIN, issue #39: theme.conf.user, decided from the profile
+    # registry rather than the "kid-" username prefix (docs/portal.md).
+    # Rebuilt in full from every provisioned kid; this kid's entry is
+    # appended explicitly (not read back off $KIDS_DIR) so DRY_RUN=1's
+    # preview shows the correct content even though nothing was written.
     local portal_entries=() line
     while IFS= read -r line; do
         [[ -n "$line" ]] && portal_entries+=("$line")
@@ -482,20 +436,14 @@ luks_occupied_slots() {
         | sort -n -u
 }
 
-# add_luks_slot ACCOUNT DEVICE — adds the kid's passphrase (read from fd 3)
-# as a new key slot on DEVICE, authorized by the parent's (fd 4), and
-# rewrites luks-slots with that slot added.
-#
-# Secrets arrive on file descriptors, never argv (AGENTS.md: "passwords
-# only ever on stdin, never argv, never logged") — this function is
-# therefore never called through `run`, whose %q preview would have
-# printed both of them on the documented dry run (review S6).
-#
-# The new slot is found by diffing luksDump before and after, not by
-# testing the kid's passphrase back: --test-passphrase reports the FIRST
-# slot that matches, so a kid who typed the parent's own passphrase got
-# slot 0 reported and a second "0=" line landed in luks-slots (review
-# §1.10). That passphrase is now rejected up front instead.
+# add_luks_slot ACCOUNT DEVICE — adds the kid's passphrase (fd 3) as a
+# new key slot on DEVICE, authorized by the parent's (fd 4). Secrets
+# arrive on file descriptors, never argv, so this is never called
+# through `run` (whose %q preview would print both, review S6). The new
+# slot is found by diffing luksDump before/after, not by
+# --test-passphrase (which reports the first matching slot -- a kid
+# typing the parent's own passphrase used to land a second "0=" line,
+# review §1.10); that passphrase is now rejected up front instead.
 add_luks_slot() {
     local account="$1" device="$2"
     local kid_password parent_password

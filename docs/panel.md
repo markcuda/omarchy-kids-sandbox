@@ -129,6 +129,7 @@ more minutes today" → 10 printed the exact command in dry-run and, with `--app
 "9 min left today (budget 1 + 25 granted)". Kid rows answer to their number (or the full
 line), not the account name. Requests, Web, Apps, Password and Remove rows share the same
 code path and are not yet exercised live.
+
 ## The panel runs for real when a human opens it (2026-09-03)
 
 `DRY_RUN=1` used to be the unconditional default here, on the reading that AGENTS.md rule 8
@@ -143,3 +144,115 @@ omarchy-kids` -- and `DRY_RUN=1` otherwise, so a test, a script or CI still gets
 `--dry-run` and `--apply` both still win outright. The same rule is in `bin/omarchy-kids-wizard`
 and documented in AGENTS.md rule 8 itself; `provision`, `assert`, `web`, `apps` and `remove` are
 unchanged and still default to a preview.
+
+## Source header (moved from `bin/omarchy-kids-panel`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-panel — everything after the first run (SPEC.md R-WIZ-7,
+R-WIZ-8, R-ASK-2, R-TIME-4/5, R-FND-6, Appendix A's P1-P5; issue #21).
+`bin/omarchy-kids` opens this once at least one kid exists; the wizard
+(bin/omarchy-kids-wizard) stays reachable as `omarchy-kids wizard` and
+as this panel's own "Add a kid" row (R-WIZ-7: "add-a-kid runs the
+per-kid screens only").
+
+Screens, in Appendix A's own numbering:
+
+  P1 Home       One row per kid (name, band, minutes used/left today,
+                paused, open requests), then Add a kid, Requests (N),
+                Remove Kids Mode, Quit.
+  P2 Kid        Screen time (budget/lights-out, "give more minutes"),
+                Web (mode, and the allow-list editor for a walled
+                garden), Apps (hide/show the band's pack), Data
+                (R-DATA-1..5: today's and this week's minutes,
+                launches, and sites — read-only, issue #27), Desktop
+                level, Password, Remove this kid, Back.
+  P3 Requests   Every open "Ask a parent" request, oldest first; Enter
+                opens the reason and Approve/Decline.
+
+P4 (Machine) and P5 (Confirm remove via the parent password) are not
+built here: "Remove Kids Mode" (R-TRUST-4) hands off to omarchy-kids-remove
+command (nothing in this checkout implements it — see docs/panel.md),
+so the Home row for it explains that plainly instead of pretending to
+offer it (I-6). Removing one kid at a time (P2's own row, confirmed by
+typing that kid's name) is what this issue actually delivers.
+
+Every screen is rendered by lib/tui.sh (issue #18) — this file never
+calls gum directly, and OMARCHY_KIDS_TUI_ANSWERS drives it end to end
+in tests (see docs/tui.md, docs/panel.md).
+
+Root and the one sudo prompt (mirrors bin/omarchy-kids-wizard's own
+"Root and the one sudo prompt", docs/wizard.md): this panel runs as
+the parent and is never itself elevated. Reads (omarchy-kids-conf get,
+omarchy-kids-time status, omarchy-kids-ask's queue, omarchy-kids-apps
+list/allowlist, omarchy-kids-provision list) are all unprivileged --
+every file involved is root-owned but world-readable (docs/conf.md,
+docs/time.md, docs/ask.md). The first time a screen would actually
+write something, `warm_sudo` explains why on screen and spends one
+`sudo -v` prompt; every write after that in the same run reuses sudo's
+cached credential. `run_priv` is the one place a real system change is
+either run for real under sudo or printed, so `--dry-run` always shows
+the exact command line. See "what no flag at all means here" below.
+
+  omarchy-kids-panel [--dry-run] [--apply] [--help]
+
+Every path is overridable for tests, same convention as the rest of
+bin/ (test/shell.d/panel-test.sh runs entirely against scratch trees,
+with a pass-through `sudo` fake and every helper binary below pointed
+at a thin spy that logs its own argv and then runs the real thing):
+  OMARCHY_KIDS_ETC            default /etc/omarchy-kids
+  OMARCHY_KIDS_SHARE          default /usr/share/omarchy-kids
+  OMARCHY_KIDS_ROOT           scratch prefix for /var/lib/omarchy-kids
+                              (the ask queue), same convention as
+                              bin/omarchy-kids-ask and -time
+  OMARCHY_KIDS_LIB            lib/ beside bin/, else /usr/lib/omarchy-kids
+                              (this reads lib/ask.py directly for the
+                              Requests screen -- see "Reading the
+                              queue" below)
+  OMARCHY_KIDS_CONF_PY        python3 interpreter (default: python3)
+  OMARCHY_KIDS_CONF_BIN       path to omarchy-kids-conf (default: sibling, else PATH)
+  OMARCHY_KIDS_TIME_BIN       path to omarchy-kids-time (default: sibling, else PATH)
+  OMARCHY_KIDS_ASK_BIN        path to omarchy-kids-ask (default: sibling, else PATH)
+  OMARCHY_KIDS_APPS_BIN       path to omarchy-kids-apps (default: sibling, else PATH)
+  OMARCHY_KIDS_PLUGINS_BIN    path to omarchy-kids-plugins (default: sibling, else PATH)
+  OMARCHY_KIDS_WEB_BIN        path to omarchy-kids-web (default: sibling, else PATH)
+  OMARCHY_KIDS_PROVISION_BIN  path to omarchy-kids-provision (default: sibling, else PATH)
+  OMARCHY_KIDS_WIZARD_BIN     path to omarchy-kids-wizard (default: sibling, else PATH)
+  OMARCHY_KIDS_DATA_BIN       path to omarchy-kids-data (default: sibling, else PATH)
+  OMARCHY_KIDS_TUI_ANSWERS    one answer per line; see lib/tui.sh / docs/tui.md
+  DRY_RUN                     default 0 for a human on a tty or the app
+                              entry, 1 otherwise; --apply/--dry-run wins
+
+Reading the queue: R-ASK-3 says the queue format is "stable and
+documented for a future home-network approver" -- this panel is the
+first such approver, so the Requests screen reads
+lib/ask.py's own `list-open`/`show` directly (tab-separated, exact
+fields) instead of scraping omarchy-kids-ask's human-formatted `list`
+output, which pads columns for a terminal, not a parser.
+```
+
+## Source header (moved from `bin/omarchy-kids`, issue #49)
+
+Kept for reference; the file itself now carries a short pointer instead.
+
+```text
+omarchy-kids: the app entry point (R-FND-1, R-WIZ-1 through R-WIZ-9).
+Launched from the app drawer or Super+Shift+K. With no kid provisioned
+yet, opens the parent wizard (bin/omarchy-kids-wizard, issue #19); once
+at least one kid exists, `omarchy-kids` alone opens the panel
+(bin/omarchy-kids-panel, issue #21) and `omarchy-kids wizard` always
+opens the wizard (R-WIZ-7's "add a kid" runs the same per-kid screens).
+
+One more subcommand lives beside the panel: `remove-kids-mode`, a thin,
+no-argv-surprises dispatch to bin/omarchy-kids-remove (R-TRUST-4) -- see
+docs/remove.md.
+
+--requests (issue #37, the bar widget's "Open requests" menu row, R-ASK-2:
+"the panel lists requests") -- omarchy-kids-panel (issue #21) has a real
+Requests screen (P3) now, but no CLI flag to open straight to it, and a
+bar-widget click wants something faster than launching the full
+interactive panel. So this stays a quick, honest summary instead of a
+deep link: omarchy-kids-ask list's own output, the same source of truth
+the panel's Requests screen reads.
+```

@@ -212,3 +212,54 @@ test can confirm what actually landed in the pre-delete backup) — never touche
 - End to end: reboot after a real `omarchy-kids-remove --yes` run, confirm the portal is gone, the
   parent's own login is unaffected, and each kid's `~/Kids Mode/<name>/` folder still has their
   files — the acceptance-level check R-TRUST-4 and SPEC.md section 8 item 8 actually ask for.
+
+## Source header (moved from `bin/omarchy-kids-remove`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-remove -- "Remove Kids Mode" (SPEC.md R-TRUST-1, R-TRUST-4,
+R-FND-6, section 5.2's Remove flow): the parent's undo button. Reverses
+every lock omarchy-kids-provision and the rest of the package ever wrote,
+removes every kid account and its LUKS slot, but never a kid's files --
+each kid's home is kept, moved to "<parent home>/Kids Mode/<name>/"
+(R-FND-6, same convention `omarchy-kids-provision remove` already uses
+for a single kid) unless --delete-homes, offers the pre-removal Snapper
+snapshot, and ends by
+printing (never running) the pacman command that actually uninstalls the
+package. See docs/remove.md for the exact order, per-step reasoning, and
+what is deliberately left behind.
+
+Usage:
+  omarchy-kids-remove [--yes] [--dry-run] [--delete-homes]
+                       [--parent-password-stdin] [--no-snapshot]
+  omarchy-kids-remove --help
+
+Also reachable as `omarchy-kids remove-kids-mode` (see bin/omarchy-kids).
+
+Always prints the plan first: every step, "skipped" (nothing to do) or
+"would-remove". --dry-run stops right there and writes nothing. Without
+--yes, a parent has to type "yes" before anything real happens. The real
+pass then reports "removed"/"skipped"/"FAILED" per step -- one bad step
+never stops the rest, matching omarchy-kids-assert's own contract: the
+whole point of Remove Kids Mode is to get as much of the machine back to
+stock as it can, not to stop at the first thing that goes wrong.
+Idempotent: a second run finds nothing left to do and reports "skipped"
+for everything (see docs/remove.md's "Judgment calls" for the one
+deliberate exception -- the snapshot offer).
+
+Every path is overridable for tests, the same convention every other
+command in this repo uses:
+  OMARCHY_KIDS_ETC          default /etc/omarchy-kids (profiles, luks-slots)
+  OMARCHY_KIDS_LIB          default lib/ beside bin/, else /usr/lib/omarchy-kids
+  OMARCHY_KIDS_ROOT         scratch prefix for every real machine path this
+                            touches: lib/posture.sh's own list, plus
+                            /etc/systemd/system (getty, package units),
+                            /etc/chromium/policies/managed,
+                            /etc/mkinitcpio.conf.d, /etc/default/limine,
+                            and /root (the pre-delete tarball)
+  OMARCHY_KIDS_HOME_ROOT    scratch prefix for /home/<account> itself
+  OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS auto-detection; remove has no
+                            --luks-device flag, same as
+                            omarchy-kids-provision remove
+```

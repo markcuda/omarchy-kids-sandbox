@@ -304,6 +304,7 @@ laptop, not here.
 After #41, same VM: `live:kid-cy:tmp-noexec` and `shm-noexec` PASS from the session leader's
 mount table, kids without a session get a WARN naming the commands, and the firmware card is the
 only FAIL until a parent marks it done.
+
 ## "Could not verify" is not a pass (2026-09-03)
 
 `bin/omarchy-kids-assert`'s `*_ok` functions now return 2 for "I could not look" -- see
@@ -312,3 +313,100 @@ that third status: exit 2 becomes a `warn` result rather than a `pass`, so a mac
 command could not actually verify no longer reports green, and `omarchy-kids-check`'s existing
 warn handling gives it exit code 1. A lock that genuinely does not hold is still a `fail` and
 exit 2, unchanged.
+
+## Source header (moved from `bin/omarchy-kids-check`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-check — v2: the green/red/yellow "is it safe?" report
+(SPEC.md R-TRUST-2, R-TRUST-3, R-DESK-2; issue #29). Run at the end of
+the wizard, from the panel, and (informally, by a grown-up) at kid
+login when omarchy-kids-ask-grownup points at it. Read-only: never
+writes anything, never calls a lock's *_fix — see docs/check.md for
+the full section list and every judgment call below.
+
+Sections, in order: Accounts, Locks, Boot, Login, PAM, Web, Time,
+Firmware, Live tests (only with --live). Each check prints one line —
+PASS, WARN, or FAIL — and, per R-TRUST-2 ("names what it proves and
+what it cannot"), a detail naming either what it proved or why it
+couldn't. A WARN means "could not verify" or "not itself a lock, but
+worth a grown-up's attention" — never a security gap on its own.
+
+  omarchy-kids-check [--json] [--live] [--help]
+
+Exit codes (SPEC.md R-TRUST-2's "is it safe?" contract, not the usual
+0-good/nonzero-bad shape — same kind of deliberate inversion
+docs/assert.md's own "Judgment calls" already documents for that
+command's --dry-run default):
+  0  every check passed
+  1  no FAILs, but at least one WARN
+  2  at least one FAIL
+
+Reuses, never re-implements: every lock's own *_ok function from
+bin/omarchy-kids-assert (sourced, guarded — see that file's own tail
+comment), by way of lib/conf.sh and lib/posture.sh (which assert
+itself sources), plus lib/time.sh for the screen-time ledger paths.
+Nothing here ever calls a *_fix function — a FAIL here means "run
+omarchy-kids-assert", never "let me fix that for you" (I-4's
+verify-at-login role is a *check*, not a second copy of assert).
+
+Every path below is overridable for tests, same convention as
+bin/omarchy-kids-assert and bin/omarchy-kids-session (this script
+builds on both):
+  OMARCHY_KIDS_ETC          kid profiles, machine.conf (via the sourced
+                            omarchy-kids-assert; default /etc/omarchy-kids)
+  OMARCHY_KIDS_SHARE        package data root (default /usr/share/omarchy-kids)
+  OMARCHY_KIDS_LIB          lib/ beside bin/, else /usr/lib/omarchy-kids
+  OMARCHY_KIDS_ROOT         scratch prefix for every real machine path this
+                            touches indirectly through the sourced
+                            omarchy-kids-assert/lib/posture.sh/lib/time.sh
+                            (see those files' own headers for the full list)
+  OMARCHY_KIDS_HOME_ROOT    scratch prefix for /home/<account> (mount checks)
+  OMARCHY_KIDS_UKI          overrides which UKI/initramfs the boot-hook
+                            check inspects (same var omarchy-kids-assert uses)
+  OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS device auto-detection for the
+                            boot:luks-slots check (same var
+                            bin/omarchy-kids-provision's "remove" uses)
+  OMARCHY_KIDS_ASSERT_BIN   path to omarchy-kids-assert (default: sibling,
+                            else /usr/bin/omarchy-kids-assert) — sourced,
+                            never executed, for its *_ok functions
+  OMARCHY_KIDS_RUNUSER_BIN  the runuser binary --live shells out to
+                            (default: runuser; stub it in tests)
+  OMARCHY_KIDS_LOGINCTL_BIN the loginctl binary the live tmpfs-noexec
+                            check uses to find a kid's live session
+                            (default: loginctl; stub it in tests)
+  OMARCHY_KIDS_PROC_ROOT    prefix for the /proc/<pid>/mountinfo path
+                            that check reads (default: /proc; point at
+                            a fixture tree of <pid>/mountinfo files in
+                            tests, same idea as OMARCHY_KIDS_HOME_ROOT)
+```
+
+## Source header (moved from `bin/omarchy-kids-ask-grownup`, issue #49)
+
+Kept for reference; the file itself now carries a short pointer instead.
+
+```text
+omarchy-kids-ask-grownup: the full-screen "Ask a grown-up" message shown
+by omarchy-kids-session (SPEC.md R-DESK-2) when a fail-closed check
+fails before a kid's desktop starts.
+
+This is a placeholder, not the real thing: R-DESK-2 asks for "a
+full-screen 'Ask a grown-up' naming the check", and at the point
+omarchy-kids-session calls this, Hyprland hasn't started yet -- there is
+no compositor, no Wayland surface, nothing graphical to draw into. All
+this can honestly do today is print a big message to the tty and hold
+it on screen for a while so it's the last thing visible before the
+session exits. A real graphical modal (rendered by whatever runs the
+portal/greeter, or a tiny standalone compositor client of its own)
+is a separate ticket; this script is what that ticket should replace,
+not extend.
+
+Usage: omarchy-kids-ask-grownup "<check name>"
+
+Env:
+  OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds to hold the message on screen
+                                  before exiting (default 15; tests set
+                                  this to 0 so the suite doesn't sit
+                                  through it)
+```

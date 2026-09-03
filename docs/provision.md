@@ -243,6 +243,7 @@ format here if it does.
   already root-owned by virtue of the process; setting an explicit `chown` would only add a
   privileged operation that fails outright in the scratch trees this had to be built and tested
   against on a non-root Mac (AGENTS.md rule 8).
+
 ## Secrets and LUKS slots (2026-09-03 review, S6 and §1.10)
 
 `add_luks_slot` used to be called through `run`, whose dry-run preview is `printf ' %q' "$@"`.
@@ -265,3 +266,35 @@ gone. Separately, `add` refuses a display name containing a tab, newline, `:` or
 S10): those are the separators of the GECOS field, the portal's tab-delimited entry, and
 `lib/posture.sh`'s `kids=` field, and a name carrying one shifts another kid's avatar or account
 onto the wrong greeter tile.
+
+## Source header (moved from `bin/omarchy-kids-provision`, issue #49)
+
+Kept for reference; the file itself now carries a short pointer instead.
+
+```text
+omarchy-kids-provision — add and remove a kid account (SPEC.md R-FND-2..6,
+R-SEC-3..5, R-LOGIN-3, R-DESK-1, Appendix B). See docs/provision.md for
+what "add" and "remove" do, in order, with the exact files each touches.
+
+DRY_RUN=1 by default (also the default with no DRY_RUN set at all):
+every action that would change something is printed, nothing runs.
+--apply (anywhere in the args) or DRY_RUN=0 in the environment turns
+actions on for real. Reads that only decide *what* to do (the slug
+collision check, LUKS device/slot detection, parsing luks-slots) always
+happen for real, dry run or not, since they never change anything.
+
+Every path is overridable for tests, so test/shell.d/provision-test.sh
+runs entirely against scratch trees with a stub PATH:
+  OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (profiles, machine.conf, luks-slots)
+  OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids   (bands/packs, avatars source)
+  OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
+  OMARCHY_KIDS_ROOT       scratch prefix for /etc/polkit-1, /etc/security,
+                          /etc/pam.d, /etc/fstab, /var/lib/AccountsService,
+                          /etc/sddm.conf.d (lib/posture.sh)
+  OMARCHY_KIDS_HOME_ROOT  scratch prefix for /home/<account> itself (not
+                          part of the spec's env list; added here because
+                          mount/umount/mv all need somewhere real, if only
+                          a scratch "real", to act on -- see docs/provision.md)
+  OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS auto-detection for "remove",
+                            which has no --luks-device flag of its own
+```

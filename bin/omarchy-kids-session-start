@@ -1,66 +1,7 @@
 #!/bin/bash
 # omarchy:summary=Set up one kid Hyprland session: launcher tile, apps, time, web
-# omarchy-kids-session-start: run once per kid Hyprland session via
-# `exec-once`/`hl.on("hyprland.start", ...)` from share/hyprland/L1.lua,
-# L2.lua, and L3.lua (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E).
-#
-# Writes the Level 1/2 launcher's tile list to
-# $XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json from the kid's
-# effective allowlist (`omarchy-kids-apps allowlist`, R-APPS-4: the
-# band's pack plus apps.extra minus apps.hidden -- not the raw
-# `omarchy-kids-conf get <kid> allowlist`, so a hide/show lands here too)
-# and pack metadata (share/packs/<band>.toml), then starts the right
-# thing for the level:
-#   Level 1 -> the standalone big-tile launcher (quickshell -p ...), the
-#              *only* thing running (R-DESK-5: not a shell plugin).
-#   Level 2/3 -> Omarchy's own shell, the same way Omarchy's own
-#              default.hypr.autostart does (`omarchy-launch-shell`), after
-#              also writing the same allowlist to $RUN/allowlist.json
-#              (docs/apps.md) for the trimmed-menu extension to read.
-#
-# Also starts, detached, the screen-time engine's per-session daemon
-# (bin/omarchy-kids-time daemon, SPEC.md R-TIME-1..5) -- see that
-# file's own header for what it does and lib/time.sh's for the ledger
-# trust boundary. The exit overlay (bin/omarchy-kids-exit, R-EXIT-1) is
-# bound directly in share/hyprland/L1.lua etc., not started from here.
-#
-# Every path below is overridable for tests, same convention as
-# omarchy-kids-conf and docs/conf.md:
-#   OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
-#   OMARCHY_KIDS_SHARE   bands.toml, packs/, launcher/ (default /usr/share/omarchy-kids)
-#   OMARCHY_KIDS_RUN     runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
-#   OMARCHY_KIDS_ROOT    scratch prefix for /var/lib/omarchy-kids (issue
-#                                   #42: reads the same apps-queue file
-#                                   bin/omarchy-kids-apps writes, to tell
-#                                   a merely-missing tile apart from one
-#                                   that's mid-install; same convention
-#                                   omarchy-kids-apps itself uses)
-#   OMARCHY_KIDS_ACCOUNT  kid account (default: this process's own user)
-#   OMARCHY_KIDS_LEVEL    1/2/3 (default: omarchy-kids-conf get <account> level)
-#   OMARCHY_KIDS_BAND     3-5/6-8/9-12/13+ (default: omarchy-kids-conf get <account> band)
-#   OMARCHY_KIDS_APPLICATIONS_DIRS  colon-separated .desktop dirs to search
-#                                   for a pack app's launcher entry
-#                                   (default /usr/share/applications:/usr/local/share/applications)
-#   OMARCHY_KIDS_APPS_BIN  path to omarchy-kids-apps, used to resolve the
-#                                   effective allowlist (default: resolved
-#                                   beside this script, else /usr/bin)
-#   OMARCHY_KIDS_TIME_BIN  path to omarchy-kids-time, started detached
-#                                   below for the R-TIME screen-time engine
-#                                   (default: resolved beside this script,
-#                                   else /usr/bin)
-#   OMARCHY_KIDS_WEB_BIN   path to omarchy-kids-web, whose `launch`
-#                                   command the Web tile's exec line runs
-#                                   (R-WEB, issue #44; default: resolved
-#                                   beside this script, else /usr/bin)
-#   OMARCHY_KIDS_DATA_BIN  path to omarchy-kids-data, run from the
-#                                   kids-data tile below (R-DATA-3, issue
-#                                   #27; default: resolved beside this
-#                                   script, else /usr/bin)
-#   OMARCHY_KIDS_SESSION_START_NO_EXEC=1  write the JSON, print the exec
-#                                   line that would run, and return 0
-#                                   instead of exec'ing it (test hook --
-#                                   also skips starting omarchy-kids-time,
-#                                   same as it skips the real exec below)
+# Runs once per kid Hyprland session (exec-once/hl.on): the launcher tile, then apps/time/web
+# (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E). See docs/session.md for the tile JSON format and every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -134,15 +75,11 @@ PACK="$SHARE/packs/$BAND.toml"
 UID_NUM="$(id -u)"
 LAUNCHER_JSON="$RUN/launcher-$UID_NUM.json"
 
-# find_desktop_file ID PKG -> a .desktop basename (without the
-# extension) whose name looks like it belongs to this pack app, or
-# nothing (and a non-zero exit) if none is found. This is a heuristic,
-# not exact: pack ids (share/packs/<band>.toml's `id`) are short and
-# human-picked (e.g. "gcompris"), while installed .desktop files are
-# often reverse-DNS ids (e.g. "org.gcompris.GCompris.desktop"). A
-# case-insensitive substring match on either the pack id or the pkg
-# name catches the common cases; anything it misses falls back to
-# running the pack id as a literal command (see resolve_tile below).
+# find_desktop_file ID PKG -> a matching .desktop basename, or nothing.
+# A heuristic, not exact: pack ids are short ("gcompris"), .desktop ids
+# are often reverse-DNS ("org.gcompris.GCompris"). Case-insensitive
+# substring match on either; anything missed falls back to running the
+# pack id as a literal command (resolve_tile below).
 find_desktop_file() {
   # Lowercased with `tr`, not bash 4's ${var,,}: the target (Arch,
   # AGENTS.md) has bash 5, but this stays portable to whatever runs the
@@ -176,30 +113,13 @@ icon_for_desktop() {
   grep -m1 '^Icon=' "$f" | cut -d= -f2-
 }
 
-# resolve_tile ID PKG -> sets RESOLVED_ICON, RESOLVED_EXEC and
-# RESOLVED_INSTALLED for one launcher tile (globals, not "icon\texec" on
-# stdout: bash's word splitting collapses a *leading* empty field on a
-# tab-delimited herestring -- tab is one of the default IFS-whitespace
-# characters -- which silently shifts every field left whenever a tile
-# has no icon; this sidesteps that instead of relying on very careful
-# field order).
-# Prefers a matched .desktop file (launched with gtk-launch, so it picks
-# up the app's own working directory/env the way a normal app-grid
-# entry would); falls back to running the pack id itself as a bare
-# command when no .desktop file is found. Both are best-effort: neither
-# is verified against the actual package names in share/packs/*.toml
-# (pkg names like "aur:turbowarp-desktop-bin" or "gcompris-qt" don't
-# necessarily match their .desktop or binary name exactly).
-#
-# RESOLVED_INSTALLED (issue #42, I-6: never a tile whose Enter silently
-# does nothing) is the "installed" state itself -- deliberately *not*
-# `pacman -Q` (docs/apps.md's `list`/`install` already do that for a
-# band's raw pack; this is about whether the thing this exact tile would
-# run actually exists, which works the same for a pack app, an
-# apps.extra id with no package at all, or a future non-pacman app
-# source): 1 when a .desktop entry was found (resolve_tile's other
-# branch already confirmed that), else whatever `command -v` says about
-# running the resolved exec's first word on PATH.
+# resolve_tile ID PKG -> sets RESOLVED_ICON/RESOLVED_EXEC/RESOLVED_INSTALLED
+# (globals, not stdout -- a tab-delimited herestring silently shifts
+# fields left on a tile with no icon). Prefers a matched .desktop file
+# (gtk-launch), else runs the pack id as a bare command. INSTALLED is
+# whether the resolved exec exists (.desktop match, or `command -v`) --
+# not `pacman -Q`, so an apps.extra id with no package still resolves
+# right (issue #42, I-6: no tile whose Enter silently does nothing).
 RESOLVED_ICON=""
 RESOLVED_EXEC=""
 RESOLVED_INSTALLED=0
@@ -274,29 +194,12 @@ for id in "${ids[@]}"; do
     '{id: $id, label: $label, icon: $icon, exec: $exec, installed: $installed, caption: $caption}' >>"$TILES_FILE"
 done
 
-# R-WEB-4: "The kid launcher refuses to start Chromium if the kid's
-# policy file is not readable." bin/omarchy-kids-session's own R-DESK-2
-# check_policy already fails the *whole* session closed before this
-# script ever runs, for any band whose web mode isn't "none" (see its
-# check_policy). This is defense in depth for whatever calls this
-# script directly (tests, a future re-render of just the launcher tiles
-# without a full session restart): the web tile is simply left out of
-# the tile list when the policy file is missing or unreadable, with a
-# log line naming why -- never a tile that looks real but silently fails
-# to open (I-6: don't show a control that isn't enforced).
-#
-# The tile's own exec is `omarchy-kids-web launch`, not bare "chromium"
-# (issue #44): plain "chromium" runs Arch's /usr/bin/chromium wrapper,
-# which appends Omarchy's own ~/.config/chromium-flags.conf --
-# including --load-extension=... for Omarchy's three bundled extensions
-# -- and the kids policy always refuses unpacked extensions, so every
-# launch showed a "disabled by the administrator" modal that stole
-# keyboard focus. `omarchy-kids-web launch` execs the real Chromium
-# binary directly with the same flags minus every --load-extension (see
-# that script's own header and docs/web.md). $BAND is passed via env,
-# same convention the "more-apps" tile below already uses, since the
-# tile runs as the kid with no other way to tell `launch` which band's
-# policy applies.
+# R-WEB-4 defense in depth: omarchy-kids-session's own check_policy
+# already fails the session closed if the policy file isn't readable;
+# this just leaves the web tile out (logged) rather than show a control
+# that silently fails (I-6). Execs `omarchy-kids-web launch`, not bare
+# "chromium" (issue #44: the Arch wrapper's --load-extension flags get
+# refused by the kids policy). See docs/web.md.
 if [[ "$WEB" != "none" ]]; then
   policy="/etc/chromium/policies/managed/omarchy-kids-$BAND.json"
   if [[ -r "$policy" ]]; then
@@ -324,20 +227,11 @@ if [[ "$LEVEL" == "1" && "$BAND" != "3-5" ]]; then
     >>"$TILES_FILE"
 fi
 
-# R-DATA-3 (issue #27): K5, "What my grown-ups can see", run as the kid
-# via `omarchy-kids-data mine`. Gated on BAND (9-12/13+), not LEVEL:
-# those are the bands old enough to read the screen themselves (the
-# starter-pack terminal column already draws that same line -- R-BAND's
-# table gives 9-12/13+ a terminal and 3-5/6-8 none). 3-5/6-8 kids aren't
-# denied this data -- I-6 is about not showing a control that doesn't
-# work, not about withholding the data itself -- a grown-up can run the
-# same command with them; this issue just doesn't add a tile a
-# pre-reader/early-reader couldn't use unsupervised. Because this is
-# gated on BAND, a 9-12/13+ kid moved to Level 1 by a `level` override
-# still gets it in this grid; their normal Level 2/3 desktop has no
-# tile grid at all (see the allowlist.json branch below), so this
-# command is reachable there only by running it directly -- a real gap,
-# not an oversight (docs/data.md's "Not built here").
+# R-DATA-3 (issue #27): K5, "What my grown-ups can see" (`omarchy-kids-data
+# mine`), gated on BAND (9-12/13+, old enough to read it themselves) not
+# LEVEL -- 3-5/6-8 aren't denied the data, just this tile. A 9-12/13+
+# kid on Level 2/3 has no tile grid at all, so this stays reachable there
+# only by running the command directly: docs/data.md's "Not built here".
 if [[ "$BAND" == "9-12" || "$BAND" == "13+" ]]; then
   DATA_BIN="$(kids_bin data "$DIR")"
   # UNVERIFIED: no terminal-emulator convention exists anywhere in this
@@ -401,15 +295,10 @@ if [[ "${OMARCHY_KIDS_SESSION_START_NO_EXEC:-0}" == "1" ]]; then
   exit 0
 fi
 
-# Screen-time engine (SPEC.md R-TIME-1..5): one per-session accounting/
-# warnings daemon, started once here and left running detached for the
-# life of this session -- it outlives this script's own exec below the
-# same way any backgrounded job does. Runs as the kid; it only ever
-# reads the root-written ledger (bin/omarchy-kids-time-ledger owns every
-# write -- see lib/time.sh's header for the trust boundary). Never
-# fatal: a kid's desktop should still come up even if this can't start
-# (a missing binary logs to its own stderr, swallowed below; there is
-# nothing more useful this script itself can do about it).
+# Screen-time engine (SPEC.md R-TIME-1..5): the per-session daemon,
+# started detached and outliving this script's own exec below. Runs as
+# the kid, read-only (lib/time.sh's header has the trust boundary).
+# Never fatal -- the desktop still comes up if this can't start.
 log "starting omarchy-kids-time daemon for '$ACCOUNT'"
 "$TIME_BIN" daemon >/dev/null 2>&1 &
 disown 2>/dev/null || true

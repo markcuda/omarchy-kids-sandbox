@@ -208,3 +208,45 @@ fully verified" verdict. Review S11's complaint was that seven checks returned *
 could not see anything (`gecos` with no `getent`, `parent-unlock` with no PAM stack file,
 `parent-group` with no `parent=`, `hyprland-configs`, `boot-hook`, `limine-editor`,
 `limine-snapshots`), which is the opposite of AGENTS.md rule 4.
+
+## Source header (moved from `bin/omarchy-kids-assert`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-assert — re-asserts every Kids Mode lock idempotently
+(SPEC.md I-4, R-TRUST-5, R-BOOT-5, R-WEB-1, R-FND-2..6, §5.1). Called by
+/usr/share/libalpm/hooks/omarchy-kids.hook after every pacman transaction,
+by systemd/omarchy-kids-assert.service at boot, and (per docs/assert.md)
+by Omarchy's own post-update hook -- see that doc for the full lock list,
+when each caller runs it, and the exit codes.
+
+Unlike most other omarchy-kids-* commands, this one applies fixes for
+real *by default*: it exists precisely so an automatic caller (the
+pacman hook, the boot unit) never has to pass --apply for a lock to
+actually be restored. `--dry-run` opts into preview-only mode instead
+(see "Judgment calls" in docs/assert.md for why this is the one command
+that inverts AGENTS.md rule 8's usual DRY_RUN=1 default). Every real
+path is still overridable so tests -- and a --dry-run reviewed before
+trusting it -- can point the whole run at a scratch tree, and nothing
+under this dev checkout's real /etc, /var, or /home is ever touched by
+test/shell.d/assert-test.sh:
+  OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (kid profiles, machine.conf)
+  OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids  (hyprland/*.lua and avatars source)
+  OMARCHY_KIDS_LIB        default lib/ beside bin/, else /usr/lib/omarchy-kids
+  OMARCHY_KIDS_ROOT       scratch prefix for every real machine path this
+                          touches: /etc/polkit-1, /etc/security, /etc/pam.d,
+                          /etc/fstab, /var/lib/AccountsService,
+                          /etc/sddm.conf.d, /usr/share/sddm/themes/omarchy-kids
+                          (theme.conf.user), /usr/share/sddm/faces
+                          (lib/posture.sh), plus /etc/systemd/system
+                          (getty masks), /etc/chromium/policies/managed
+                          (kids policy files), /usr/lib/initcpio/hooks
+                          and /boot (the boot hook)
+  OMARCHY_KIDS_HOME_ROOT  scratch prefix for /home/<account> itself, for the
+                          findmnt/mount calls this makes (matches
+                          omarchy-kids-provision's own env var of the same name)
+  OMARCHY_KIDS_UKI        overrides which UKI/initramfs image R-BOOT-5 checks,
+                          instead of the first /boot/EFI/Linux/*.efi found
+shellcheck disable=SC2329 # every *_ok/*_fix below is invoked indirectly through assert_one's "$check" "$@" / "$fix" "$@"
+```

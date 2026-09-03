@@ -1,79 +1,8 @@
 #!/bin/bash
 # omarchy:summary=Walk a parent through provisioning the first kid
 # omarchy:args=[--dry-run]
-# omarchy-kids-wizard — the parent wizard's Easy path (SPEC.md R-WIZ-1..9,
-# Appendix A; issue #19). Bash + gum in Omarchy's floating terminal, every
-# screen rendered by lib/tui.sh (issue #18) — this file never calls gum
-# directly. See docs/wizard.md for the full screen list and the
-# answers-file layout tests drive it with.
-#
-# This follows Appendix A screen by screen: Welcome (A1), parent password
-# (A2), name (A3), face (A4), age band (A5), Simple or Advanced (A6), the
-# five Simple one-choice screens (A7-A11: web, time, apps, Wi-Fi, level —
-# each with the band's default preselected and a one-line reason per
-# option) or Advanced's grouped checklist (A13a, issue #20 — every
-# Appendix B cell those five screens don't already cover, one screen,
-# lib/wizard-advanced.sh), the kid's password (A12), the summary (A13,
-# whose "Change something" opens that same checklist for either path),
-# Apply (A13b) with the safety check (A13c), and Done (A14).
-#
-# Every screen is keyboard-complete (Esc back, Ctrl+C leave with nothing
-# changed — see lib/tui.sh) up to the moment Apply actually starts
-# running commands; once a system change has begun, stopping partway
-# would leave things half-done, so the run is committed at that point,
-# same as the installer's own dashboard (R-WIZ-5).
-#
-#   omarchy-kids-wizard [--dry-run] [--help]
-#
-# Walked by a human, Apply is real: the summary screen (A13) is itself the
-# confirmation (review §1.5). Run with no terminal — a test, a script, CI —
-# every command Apply would run is printed instead, `pacman`/`sudo`/
-# `omarchy-kids-*` included, and nothing runs. `--dry-run` forces the
-# preview, `--apply` forces the real run.
-#
-# Every path is overridable for tests, same convention as the rest of
-# bin/ (test/shell.d/wizard-test.sh runs entirely against scratch trees
-# with a stub PATH for gum/pacman/sudo and stub omarchy-kids-provision/
-# -web/-assert/-session pointed at by their own env vars below):
-#   OMARCHY_KIDS_ETC             default /etc/omarchy-kids
-#   OMARCHY_KIDS_SHARE            default /usr/share/omarchy-kids
-#   OMARCHY_KIDS_LIB              default lib/ beside bin/, else /usr/lib/omarchy-kids
-#                                  (conf.sh, tui.sh, wizard-advanced.sh — the
-#                                  Advanced-path grouped checklist, issue #20 —
-#                                  and units.sh, the KIDS_UNITS/KIDS_SOCKETS/
-#                                  KIDS_TIMERS list Apply shares with
-#                                  omarchy-kids-assert, issue #46)
-#   OMARCHY_KIDS_CONF_BIN          path to omarchy-kids-conf (default: resolved
-#                                  beside this script, else PATH)
-#   OMARCHY_KIDS_CONF_PY           python3 interpreter for lib/conf.py (default: python3)
-#   OMARCHY_KIDS_PROVISION_BIN     path to omarchy-kids-provision (default: sibling, else PATH)
-#   OMARCHY_KIDS_WEB_BIN           path to omarchy-kids-web (default: sibling, else PATH)
-#   OMARCHY_KIDS_ASSERT_BIN        path to omarchy-kids-assert (default: sibling, else PATH)
-#   OMARCHY_KIDS_SESSION_BIN       path to omarchy-kids-session (default: sibling, else PATH)
-#   OMARCHY_KIDS_APPS_BIN          path to omarchy-kids-apps (default: sibling, else PATH)
-#   OMARCHY_KIDS_AUTH_SOCK         the parent-password verifier socket (default
-#                                  /run/omarchy-kids/auth.sock, same var
-#                                  bin/omarchy-kids-parent-auth uses). A2 uses
-#                                  it when it's active *and* machine.conf
-#                                  actually names a parent, and falls back to
-#                                  `sudo -S -v` with the typed password
-#                                  otherwise -- see verify_parent_password
-#                                  and authd_verifiable (issue #46)
-#   OMARCHY_KIDS_INVOKING_USER     who Apply's first step writes into
-#                                  machine.conf's parent= (default: `id -un`,
-#                                  since the wizard itself always runs
-#                                  unprivileged, as the parent; tests pin
-#                                  this instead of depending on whoever runs
-#                                  the suite -- issue #46)
-#   OMARCHY_KIDS_SETUP_LOG         the technical log Apply writes to (R-WIZ-5;
-#                                  default /var/log/omarchy-kids/setup.log). A
-#                                  real run creates it (`sudo install -d` then
-#                                  `sudo tee -a`, since a parent's own process
-#                                  can't append to a root-owned file); a
-#                                  --dry-run never writes it.
-#   OMARCHY_KIDS_TUI_ANSWERS       one answer per line; see lib/tui.sh / docs/tui.md
-#   DRY_RUN                        default 0 for a human on a tty or the
-#                                  app entry, 1 otherwise; --apply/--dry-run wins
+# The parent wizard's Easy path: one screen at a time, Appendix A, ending in Apply (SPEC.md R-WIZ-1..9).
+# See docs/wizard.md for the full screen list, the answers-file format tests drive it with, and every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -117,14 +46,9 @@ INVOKING_USER="${OMARCHY_KIDS_INVOKING_USER:-$(id -un 2>/dev/null || echo "${USE
 
 # --- what "no flag at all" means here -------------------------------------
 #
-# This command is interactive: a human walks its screens and presses the
-# button. That press *is* the confirmation, so the default is a real run
-# (review §1.5 -- the shipped app entry point used to open the whole
-# product in preview mode and quietly do nothing). AGENTS.md rule 8's
-# DRY_RUN=1 default still holds for every non-interactive command
-# (provision, assert, web, apps, remove) and for every non-interactive
-# caller of this one: a test, a script or CI has no tty and gets a preview
-# unless it asks otherwise. `--dry-run` is always available for review.
+# Interactive: a human's own button press is the confirmation, so the
+# default is a real run (review §1.5). AGENTS.md rule 8's DRY_RUN=1
+# default still holds for every non-interactive caller (no tty).
 launched_by_a_human() {
     [[ -n "${OMARCHY_KIDS_LAUNCHED_BY:-}" ]] && return 0   # the .desktop entry
     [[ -t 0 && -t 1 ]]                                     # a terminal
@@ -300,16 +224,9 @@ run_priv_as() {
 
 # --- prefetch (R-WIZ-4): starts on the age screen, never blocks --------
 #
-# Known gap (see docs/wizard.md): there is no dedicated root helper for
-# this yet (R-WIZ-4 calls for one), so a real run only prefetches when
-# sudo already has a cached credential (`sudo -n true`) — this early in
-# the wizard that's only true if the A2 parent-password step already
-# warmed it (see screen_parent_password). Rather than pop a second,
-# unplanned password prompt here, a real run without a warm credential
-# just skips prefetching and says so; Apply's own "installing starter
-# apps" step still works fine either way, from cache if prefetch got to
-# run or freshly downloaded if not (R-APPS-8's "offline: complete and
-# defer" is the same shape of fallback, just for a different reason).
+# Known gap: no dedicated root helper yet, so this only prefetches when
+# sudo already has a cached credential (from A2); otherwise it skips and
+# says so -- Apply's own install step works either way. See docs/wizard.md.
 PREFETCH_PID=""
 start_prefetch() {
     local band="$1"
@@ -393,32 +310,22 @@ verify_parent_password_authd() {
     [[ "$reply" == ok* ]]
 }
 
-# verify_parent_password_sudo CANDIDATE — the fallback used whenever
-# omarchy-kids-authd's socket isn't up: a fresh install before the first
-# kid, or right after `omarchy-kids-remove` disables the package's units
-# again, taking the socket down with them (issue #46). The parent's login
-# password is also their sudo password (SPEC's one-parent-password
-# design), so this is a real, independent check, not a shrug — `sudo -k`
-# clears any cached credential first so this always actually asks rather
-# than riding an unrelated warm ticket, and the candidate goes on stdin
-# only (`sudo -S`), never argv, never logged (AGENTS.md).
+# verify_parent_password_sudo CANDIDATE — fallback for when authd's
+# socket isn't up (fresh install, or right after omarchy-kids-remove).
+# The parent's login password is also their sudo password by design, so
+# `sudo -k` then `sudo -S -v` (stdin only, never argv/logged) is a real,
+# independent check, not a shrug.
 verify_parent_password_sudo() {
     local candidate="$1"
     sudo -k >/dev/null 2>&1
     printf '%s\n' "$candidate" | sudo -S -p '' -v >/dev/null 2>&1
 }
 
-# authd_verifiable — true iff omarchy-kids-authd's socket is active *and*
-# machine.conf actually names a parent for it to check against. Both
-# gates matter independently (issue #46 follow-up, seen live on the test
-# VM): right after a real omarchy-kids-remove, the pacman hook's own
-# units_fix (bin/omarchy-kids-assert, docs/assert.md) re-enables the
-# socket in the very same pacman transaction that omarchy-kids-remove
-# deletes the whole $ETC tree, machine.conf included — socket up, but
-# nobody home, so omarchy-kids-authd answers "no" to every candidate
-# (docs/authd.md: "no parent configured ... every one of those answers
-# no"). A socket that's active but unable to say yes to *any* password is
-# just as unusable here as one that isn't running at all.
+# authd_verifiable — true iff omarchy-kids-authd's socket is active AND
+# machine.conf names a parent for it to check against. Both gates matter
+# independently: right after omarchy-kids-remove, the pacman hook's own
+# units_fix can re-enable the socket in the same transaction that deletes
+# machine.conf -- socket up, nobody home. See docs/authd.md.
 authd_verifiable() {
     [[ -S "$AUTH_SOCK" ]] || return 1
     local parent
@@ -426,17 +333,10 @@ authd_verifiable() {
 }
 
 # verify_parent_password CANDIDATE — true iff the candidate checks out.
-# Prefers omarchy-kids-authd when authd_verifiable says it can actually
-# answer; otherwise falls back to verify_parent_password_sudo. The
-# *reason* for taking the fallback (socket down, or socket up but no
-# parent configured) is a technical detail for the log — stderr here,
-# which a real invocation's caller (the desktop entry, a terminal)
-# captures same as any other diagnostic — never something that stops
-# this screen or gets shown to the parent as a failure; see
-# screen_parent_password for what an actually-wrong password does
-# instead (issue #46: this used to either accept blindly with the socket
-# down, or, in an earlier shape, blow up the whole screen with "failed
-# unexpectedly" — neither is what a parent sees now).
+# Prefers omarchy-kids-authd when authd_verifiable says it can answer,
+# else verify_parent_password_sudo. The fallback reason is a stderr
+# diagnostic only, never shown to the parent as a failure (issue #46) --
+# see screen_parent_password for what an actually-wrong password does.
 verify_parent_password() {
     local candidate="$1"
     if authd_verifiable; then
@@ -479,15 +379,10 @@ maybe_override() {
 }
 
 # apps_pick_walk STEP TOTAL — walks the band's starter pack one app at a
-# time, asking a plain yes/no per app (there's no multi-select checklist
-# widget in lib/tui.sh — see docs/wizard.md); sets $TUI_REPLY to the
-# comma-joined ids of the ones answered yes. Shared by A9's "Let me pick"
-# (screen_apps below) and the Advanced checklist's own apps row
-# (lib/wizard-advanced.sh's adv_edit_allowlist, issue #20's own brief:
-# "the per-app checklist from the Easy path for apps") rather than
-# duplicated. An Esc on any one app is the same as "No" for that app
-# (tui_screen_confirm's own contract) and just moves to the next; only
-# Ctrl+C (130) actually leaves the wizard, from wherever this was called.
+# time (no multi-select widget in lib/tui.sh), yes/no per app; sets
+# $TUI_REPLY to the comma-joined yes ids. Shared by A9's "Let me pick"
+# and the Advanced checklist's apps row. Esc on one app means "No" and
+# moves on; only Ctrl+C leaves the wizard. See docs/wizard.md.
 apps_pick_walk() {
     local step="$1" total="$2" id label chosen=() body
     while IFS= read -r id; do
@@ -519,23 +414,13 @@ screen_welcome() {
     tui_screen_choose "Welcome" 1 "$TOTAL_STEPS" 1 "$omy" choices "begin" "$TUI_FOOTER_FIRST"
 }
 
-# A2: Parent password, right after Welcome (SPEC.md R-WIZ-1). Kept for
-# the whole wizard, in memory only (never written anywhere — R-SEC-1),
-# and reused at Apply for the one sudo prompt (docs/wizard.md). Verified
-# through omarchy-kids-authd (docs/authd.md) when its socket is active,
-# else through `sudo -S -v` with the very same candidate — the parent's
-# login password is also their sudo password by design (see
-# verify_parent_password above). --dry-run never performs a real check
-# (there's nothing real to check against, and shouldn't try even if one
-# happened to exist) and always accepts on the first try. A real run
-# gives three tries before giving up and leaving with the same "nothing
-# changed" exit Ctrl+C uses (issue #46) — not the redraw-and-retry-forever
-# loop lib/tui.sh's own VALIDATOR contract offers, which runs the
-# validator in a subshell via command substitution, so an attempt counter
-# kept there wouldn't survive between tries; counting the tries here
-# instead avoids that trap, and a wrong guess is never reported as the
-# screen having "failed unexpectedly" — see the driver loop's own rc 130
-# handling.
+# A2: Parent password (SPEC.md R-WIZ-1), kept in memory only, reused at
+# Apply for the sudo prompt. Verified via omarchy-kids-authd when its
+# socket is active, else `sudo -S -v` with the same candidate. --dry-run
+# always accepts on the first try; a real run gives three tries then
+# leaves like Ctrl+C (issue #46) -- counted here, not via lib/tui.sh's
+# own retry loop, since that runs the validator in a subshell. See
+# docs/wizard.md.
 PARENT_PASSWORD_TRIES=3
 screen_parent_password() {
     local attempt=0
@@ -873,25 +758,12 @@ screen_summary() {
 # command's real exit code, which run_apply_step below both displays and
 # uses to decide whether to keep going.
 
-# Step 1: the one sudo prompt for the whole Apply step, spending the A2
-# password. Before anything else that follows depends on it (issue #46
-# follow-up): machine.conf's parent= is written first — via the tiny
-# `omarchy-kids-conf machine set parent`, since run_priv's own contract
-# is "sudo <command>", not an inline shell that could call lib/conf.sh's
-# conf_set directly — to $INVOKING_USER, the wizard's own unprivileged
-# identity (it always runs as the parent). Without this, omarchy-kids-authd
-# answers "no" to every password (seen live: right after a real
-# omarchy-kids-remove, which deletes machine.conf, the very same pacman
-# transaction's units_fix already re-enables the socket — active, but
-# with nobody to check against) and omarchy-kids-provision refuses to add
-# a kid at all ("cannot find 'parent=' in machine.conf"). Then the
-# package's own units are enabled and started (the same
-# KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS list omarchy-kids-assert's "units"
-# lock uses, lib/units.sh) — true on a fresh install before the first
-# kid, and right after `omarchy-kids-remove` disables them again; then
-# making sure the technical log's directory exists (a parent's own
-# unprivileged process can't create a root-owned directory itself —
-# run_apply_step's `sudo tee -a` needs it to already exist).
+# Step 1: the one sudo prompt for the whole Apply step. Writes
+# machine.conf's parent=$INVOKING_USER first (before anything that needs
+# it, issue #46 -- without it, authd answers "no" to every password and
+# provision refuses to add a kid), enables the package's units
+# (lib/units.sh, same list omarchy-kids-assert's "units" lock uses), then
+# ensures the technical log's directory exists.
 apply_step_getok() {
     if [[ "$DRY_RUN" == "1" ]]; then
         printf '  [dry-run] sudo -v\n'
@@ -954,39 +826,21 @@ apply_step_web() {
     run_priv "$WEB_BIN" install "$BAND" --apply
 }
 
-# Step 4: starter pack, from cache (R-WIZ-4/R-APPS-3), via omarchy-kids-apps
-# (issue #24) rather than a raw pacman call here — --now makes this
-# synchronous, so the ✓ on screen means the packages are actually in
-# (the default, queue-and-background, would show ✓ before anything was
-# really installed). Prefetch (start_prefetch, the age screen) always
-# downloads the *whole* band pack regardless of A9's "let me pick"
-# (R-WIZ-4: "changed selections need no undo"); only the allowlist
-# written in apply_step_account controls what the kid actually sees in
-# their launcher, so installing the whole pack here even after a partial
-# pick is correct, not a bug.
+# Step 4: starter pack via omarchy-kids-apps --now (R-WIZ-4/R-APPS-3):
+# synchronous, so the on-screen checkmark means the packages are really
+# in. Always installs the whole band pack regardless of A9's "let me
+# pick" -- the allowlist apply_step_account writes is what actually
+# restricts the kid's launcher, so this is correct, not a bug.
 apply_step_pkgs() {
     run_priv "$APPS_BIN" install "$BAND" --now --apply
 }
 
-# Step 5: the safety check (A13c): omarchy-kids-assert (I-4) and the same
-# R-DESK-2 preflight a real login runs, as the new kid's own account
-# (omarchy-kids-session --check figures out who it's checking via
-# `id -un`). Skips the second half with a clear line, rather than handing
-# `sudo -u` a user that was never actually created, whenever the account
-# genuinely doesn't exist in a real run — belt-and-suspenders alongside
-# run_apply_step stopping the whole dashboard on step 2's own failure.
-# --dry-run always shows both commands (there's nothing real to check).
-#
-# TODO(issue #29, docs/check.md "Judgment calls"): NOT swapped to a
-# single `omarchy-kids-check --json` call here, on purpose. Two of
-# these three things omarchy-kids-check itself cannot replace: the
-# `$ASSERT_BIN` call above is the one place in Apply that actually
-# *fixes* a lock (omarchy-kids-check is read-only, by design — a FAIL
-# there means "run omarchy-kids-assert", never "already handled"), and
-# `--json` is a flat machine-readable blob, not the human-readable
-# table this screen shows live to a parent. Revisit only alongside a
-# real A13c redesign (rendering the JSON's sections into gum output),
-# not as a one-line substitution.
+# Step 5: the safety check (A13c) -- omarchy-kids-assert (I-4), then the
+# same R-DESK-2 preflight as the new kid's own account, skipped with a
+# clear line if that account doesn't actually exist yet. Not swapped for
+# one `omarchy-kids-check --json` call: check is read-only (a FAIL there
+# means "run assert"), and --json isn't this screen's human table. See
+# docs/check.md's "Judgment calls".
 apply_step_safety() {
     local rc=0
     run_priv "$ASSERT_BIN"
@@ -1079,19 +933,11 @@ screen_apply() {
     return 0
 }
 
-# A14: Done. SPEC.md's Appendix A row for this screen is exact: one Omy
-# line, two Buttons (Return to my desktop / Open <Kp> desktop) — no third
-# choice. Issue #37 (the bar widget, SPEC.md R-BAR) asked for an
-# interactive "Show kids in my bar?" yes/no line here; that would mean a
-# third tui_screen_confirm/choose prompt consuming its own answer in
-# TUI_MODE=file, which breaks every existing answers_file(...) sequence in
-# test/shell.d/wizard-test.sh (each currently ends "... apply parent",
-# i.e. summary-confirm then this screen's own choice, nothing between).
-# Per AGENTS.md ("if a ticket and the spec disagree, the spec wins and
-# the ticket gets a comment"), this keeps A14 exactly as specced and
-# mentions bin/omarchy-kids-bar in Omy's own line instead — I-1's "only
-# on consent" is satisfied either way, since nothing runs until the
-# parent actually runs that command themselves.
+# A14: Done. Exactly the Appendix A row: one Omy line, two buttons, no
+# third choice -- issue #37 asked for a "Show kids in my bar?" prompt
+# here, which would break every existing answers_file(...) sequence in
+# test/shell.d/wizard-test.sh; per AGENTS.md ("spec wins, ticket gets a
+# comment"), Omy's line mentions omarchy-kids-bar instead.
 screen_done() {
     local headline
     if ((APPLY_OK)); then

@@ -1,52 +1,8 @@
 #!/bin/bash
 # omarchy:summary=Add a minute to today's screen-time ledger for every active kid
 # omarchy:args=tick
-# omarchy-kids-time-ledger: the ONLY thing that ever writes a kid's
-# screen-time usage (SPEC.md R-TIME-1..2, Appendix F). Root, run from
-# systemd/omarchy-kids-time.timer (every minute) via
-# omarchy-kids-time-ledger.service.
-#
-# Trust boundary (see lib/time.sh's header for the long version): the
-# per-session daemon (bin/omarchy-kids-time) runs as the kid and can
-# only read what's under here -- if this script only ran as the kid,
-# the "ledger" would just be a kid-writable file with extra steps. It
-# runs as root instead, and the only thing that decides what counts is
-# what `loginctl` reports about a session it doesn't own, plus a
-# root-owned paused flag (lib/time.sh's time_paused_file) -- never
-# anything a kid process could write into.
-#
-#   tick    Lists every session with `loginctl list-sessions`, and for
-#           each one belonging to a known kid account (one with a
-#           profile under $OMARCHY_KIDS_ETC/kids/) whose session is
-#           Active=yes, LockedHint=no, and not paused (R-TIME-2: "Paused
-#           or locked time does not count"), adds one minute to that
-#           kid's ledger for today's logical day (Appendix F: the day
-#           rolls at 04:00). A kid with more than one such session only
-#           gets one minute added, not one per session. Also refreshes
-#           /run/omarchy-kids/status.json (R-BAR-3) for every known kid,
-#           whether or not they're live right now -- best-effort; a
-#           failure to write it never fails the tick itself, since the
-#           ledger write is the part that actually matters. Finally,
-#           for every known kid, folds any new lines from their own
-#           kid-writable runtime launches log into their root-owned
-#           launches.log (lib/data.sh's data_fold_launches, R-DATA-1's
-#           "app launches" -- see that file's header for the trust
-#           boundary this mirrors from screen time one level up).
-#           Same best-effort rule: a fold failure never fails the tick.
-#
-# Every path is overridable for tests, same convention as
-# bin/omarchy-kids-apps and lib/time.sh:
-#   OMARCHY_KIDS_ROOT    scratch prefix for /var/lib/omarchy-kids and
-#                        /run/omarchy-kids
-#   OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
-#   OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf
-#   OMARCHY_KIDS_LIB     lib/ beside bin/, else /usr/lib/omarchy-kids
-#   OMARCHY_KIDS_NOW     "YYYY-MM-DD HH:MM:SS" clock override (tests)
-#   OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT=0  skip the EUID check (tests
-#                        run as an ordinary user against a scratch
-#                        OMARCHY_KIDS_ROOT; set by test/shell.d/time-test.sh)
-#   OMARCHY_KIDS_RUN_USER_BASE  lib/data.sh's launch-log fold source
-#                        (default /run/user; see that file's header)
+# The ONLY thing that ever writes a kid's screen-time usage (SPEC.md R-TIME-1..2, Appendix F); root, run every minute.
+# See lib/time.sh's header for the trust boundary this enforces, and docs/time.md for every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

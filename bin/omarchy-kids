@@ -1,24 +1,10 @@
 #!/bin/bash
 # omarchy:summary=Open Kids Mode: the parent wizard first, the panel after
 # omarchy:args=[wizard|remove-kids-mode] [--requests] [--dry-run] [--apply]
-# omarchy-kids: the app entry point (R-FND-1, R-WIZ-1 through R-WIZ-9).
-# Launched from the app drawer or Super+Shift+K. With no kid provisioned
-# yet, opens the parent wizard (bin/omarchy-kids-wizard, issue #19); once
-# at least one kid exists, `omarchy-kids` alone opens the panel
-# (bin/omarchy-kids-panel, issue #21) and `omarchy-kids wizard` always
-# opens the wizard (R-WIZ-7's "add a kid" runs the same per-kid screens).
-#
-# One more subcommand lives beside the panel: `remove-kids-mode`, a thin,
-# no-argv-surprises dispatch to bin/omarchy-kids-remove (R-TRUST-4) -- see
-# docs/remove.md.
-#
-# --requests (issue #37, the bar widget's "Open requests" menu row, R-ASK-2:
-# "the panel lists requests") -- omarchy-kids-panel (issue #21) has a real
-# Requests screen (P3) now, but no CLI flag to open straight to it, and a
-# bar-widget click wants something faster than launching the full
-# interactive panel. So this stays a quick, honest summary instead of a
-# deep link: omarchy-kids-ask list's own output, the same source of truth
-# the panel's Requests screen reads.
+# The app entry point (R-FND-1, R-WIZ-1..9): the parent wizard with no
+# kid provisioned yet, else the panel; `wizard` always opens the wizard,
+# `remove-kids-mode` dispatches to omarchy-kids-remove (R-TRUST-4).
+# See docs/panel.md for --requests and every other flag.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

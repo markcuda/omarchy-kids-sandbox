@@ -1,62 +1,8 @@
 #!/bin/bash
 # omarchy:summary=Launch a kid's Wayland session after every fail-closed check passes
 # omarchy:args=[--check | --install-configs]
-# omarchy-kids-session: the kid session launcher (SPEC.md R-DESK-1,
-# R-DESK-2, R-WEB-4, R-FND-2a, I-3, I-4, I-9, §5.2 "Kid login").
-#
-# Run by /usr/share/wayland-sessions/omarchy-kids.desktop
-# (desktop/omarchy-kids-session.desktop), which SDDM starts through
-# /usr/share/sddm/scripts/wayland-session the same way it starts
-# Omarchy's own `uwsm start -g -1 -e -D Hyprland hyprland.desktop`.
-#
-# Sequence: figure out the account (`id -un`), run every R-DESK-2 check
-# in order, and on the first fail-closed miss show a full-screen "Ask a
-# grown-up" (omarchy-kids-ask-grownup) and exit 1 -- fail closed, never
-# a silent, unfenced desktop (I-4, I-9). Once every fail-closed check
-# passes, export the account/level/band and exec Hyprland with the
-# level's root-owned config -- never the kid's own `~/.config/hypr`
-# (R-DESK-6, I-3).
-#
-# --check runs every check and prints a PASS/FAIL/WARN table without
-# starting anything, for `omarchy-kids-check` to reuse.
-#
-# --install-configs copies the level configs this package ships
-# ($OMARCHY_KIDS_SHARE/hyprland/*.lua) to the root-owned copy under
-# $OMARCHY_KIDS_ETC/hyprland the level files' band overlays `dofile()`
-# at Hyprland config-parse time. Meant to be called by the package's
-# post_install/post_upgrade hook and by `omarchy-kids-assert`
-# (R-TRUST-5) so that copy can never silently go stale -- neither of
-# those callers exists yet (both are separate issues' stubs as of this
-# one); wiring this flag into them is that issue's job, not this one's.
-#
-# Never runs anything as root itself and never assumes it -- every path
-# below is overridable so this (and test/shell.d/session-test.sh) can
-# run entirely as a normal user against a scratch tree (AGENTS.md rule
-# 8):
-#   OMARCHY_KIDS_ETC              kid overrides root (default /etc/omarchy-kids;
-#                                 the level configs this reads/writes for
-#                                 --install-configs live at $OMARCHY_KIDS_ETC/hyprland)
-#   OMARCHY_KIDS_SHARE            package data root (default /usr/share/omarchy-kids;
-#                                 --install-configs' source is $OMARCHY_KIDS_SHARE/hyprland)
-#   OMARCHY_KIDS_ROOT             scratch prefix for the system paths this
-#                                 doesn't own -- /etc/chromium/policies/managed
-#                                 and /etc/polkit-1/rules.d -- default empty
-#                                 (the real paths); same convention
-#                                 bin/omarchy-kids-provision and lib/posture.sh
-#                                 already use for /etc/polkit-1 et al.
-#   OMARCHY_KIDS_RUN_DIR           per-session log directory. Default
-#                                 $XDG_RUNTIME_DIR/omarchy-kids (falling back to
-#                                 /run/user/<uid>/omarchy-kids) -- deliberately
-#                                 NOT /run/omarchy-kids, which is root-owned and
-#                                 this process is never root.
-#   OMARCHY_KIDS_HYPRLAND_BIN      compositor binary to exec (default: Hyprland;
-#                                 stub it in tests)
-#   OMARCHY_KIDS_CONF_BIN           path to omarchy-kids-conf (default: resolved
-#                                 beside this script, else /usr/bin)
-#   OMARCHY_KIDS_ASK_GROWNUP_BIN    path to omarchy-kids-ask-grownup (default:
-#                                 resolved beside this script, else /usr/bin)
-#   OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds omarchy-kids-ask-grownup sleeps for
-#                                 (default 15; tests set this to 0)
+# The kid session launcher: every fail-closed check (SPEC.md R-DESK-1, R-DESK-2, I-3, I-4, I-9), then exec Hyprland.
+# See docs/session.md for the check list and every env var.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

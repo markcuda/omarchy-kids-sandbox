@@ -227,3 +227,84 @@ password is absent from the raised text and the subcommand present -- a unit-lev
 runs on every platform, unlike section B, which needs `SO_PEERCRED`. `bin/omarchy-kids-wifi`'s
 socket client is now `lib/sock.sh`'s shared `kids_sock_request`, and the wifi picker's QML names
 `/usr/bin/omarchy-kids-wifi` absolutely.
+
+## Source header (moved from `bin/omarchy-kids-wifi`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-wifi — the kid-side Wi-Fi commands (SPEC.md R-WIFI-1..4).
+
+Kid accounts are polkit-denied from
+`org.freedesktop.NetworkManager.settings.modify` (lib/posture.sh's
+41-omarchy-kids-deny.rules, R-FND-4), so none of the subcommands below
+ever call `nmcli` themselves. Instead they talk to
+bin/omarchy-kids-wifid, a root, socket-activated daemon that identifies
+the caller by Unix peer credentials (SO_PEERCRED — never anything the
+client claims), looks up that account's `wifi` profile key
+(bin/omarchy-kids-conf, Appendix B), and refuses outright unless it is
+`helper`. See docs/wifi.md for the wire protocol and docs/conf.md for
+the profile key.
+
+  list                       Nearby networks: SSID, signal, security.
+  join <ssid> [--password-stdin]
+                              Joins (creating it if needed). With
+                              --password-stdin, reads one line of
+                              password from stdin (never argv, never
+                              logged — AGENTS.md's rule); omit it for
+                              an open network. The daemon always
+                              creates/targets a `kids-<ssid>`
+                              connection (never a bare-named one it
+                              didn't create) with ipv4/ipv6
+                              ignore-auto-dns forced on and connection
+                              DNS cleared (R-WIFI-2), so a captive
+                              network or a school's DNS can never
+                              weaken the DoH filtering already forced
+                              in the kid's Chromium policy (R-WEB-6/I-1).
+  status                      The active connection(s), if any.
+  forget <ssid>               Deletes `kids-<ssid>` — never a
+                              bare-named connection this daemon didn't
+                              create, even one for the same SSID.
+  portal [--apply]            Opens the band's browser to a known
+                              captive-portal page with a *temporary*
+                              allow of that one host (R-WIFI-3). See
+                              the risk note on cmd_portal below and
+                              docs/wifi.md.
+  picker                      Launches the kid-facing Quickshell
+                              picker (share/wifi/shell.qml). Bound to
+                              Super+Shift+W at every level
+                              (share/hyprland/L1.lua, L2.lua, L3.lua);
+                              the bind is unconditional (the level
+                              configs are static, R-DESK-1), so this
+                              command itself is what refuses — with a
+                              small toast, I-6 — when the profile says
+                              `parent` instead of `helper`.
+
+Every subcommand above (list/join/status/forget/picker/portal) does
+the same `wifi=helper` check twice: once here, fast and friendly,
+before ever touching the socket, and once again — authoritatively,
+server-side, from the kernel's own idea of who's connecting — inside
+omarchy-kids-wifid. Only the second one is real security; this
+script's own check exists purely so a `parent`-mode kid gets a plain
+sentence instead of a raw daemon refusal (I-6).
+
+`parent` mode (R-WIFI-4: "the kid-side join opens the ask modal") is
+NOT wired to bin/omarchy-kids-ask in this issue: Appendix D's queue
+record `kind` enum is `time|app|plugin|site` and does not include
+`wifi`, so there is no existing modal/record shape to reuse without
+extending that contract, which is out of scope here (see docs/wifi.md
+"Known gap"). Every subcommand instead refuses honestly with a
+one-line reason (I-6: never fake a control that isn't there) — the
+same shape bin/omarchy-kids-exit's `--pause` uses for its own
+not-yet-built path.
+
+Every path/binary is overridable for tests, same convention as every
+other command that shells out to omarchy-kids-conf/omarchy-kids-web:
+  OMARCHY_KIDS_SHARE       default /usr/share/omarchy-kids (wifi/shell.qml, time/toast.qml)
+  OMARCHY_KIDS_CONF_BIN    path to omarchy-kids-conf (default: resolved beside this script, else /usr/bin)
+  OMARCHY_KIDS_WEB_BIN     path to omarchy-kids-web, used by `portal` (same resolution)
+  OMARCHY_KIDS_ACCOUNT     default: this process's own user (id -un)
+  OMARCHY_KIDS_WIFID_SOCK  default /run/omarchy-kids/wifi.sock
+  OMARCHY_KIDS_WIFID_TIMEOUT  seconds, default 10 (nmcli's own wifi rescan can be slow)
+  DRY_RUN                  default 1 for `portal` (AGENTS.md rule 8); --apply or DRY_RUN=0 does it for real
+```

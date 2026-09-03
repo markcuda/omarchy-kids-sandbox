@@ -99,8 +99,8 @@ entirely; `yes` keeps it, greyed, with a caption. Not read anywhere else.
 `lib/conf.sh`'s `conf_get` by every command that needs one (`omarchy-kids-provision`,
 `omarchy-kids-remove`, `omarchy-kids-assert`, `omarchy-kids-authd`), not through
 `omarchy-kids-conf`: there is no kid argument for a machine-wide *read* to hang off of. `parent`
-has the one exception on the write side: `omarchy-kids-conf machine set parent <name>` (issue
-#46), a tiny, one-key wrapper around `conf_set` — added because `bin/omarchy-kids-wizard`'s Apply
+has the one exception on the write side: `omarchy-kids-conf machine set parent <name>` (issue #46),
+a tiny, one-key wrapper around `conf_set` — added because `bin/omarchy-kids-wizard`'s Apply
 step needs a command it can name on a plain `sudo <command>` argv (`run_priv`'s own contract), not
 an inline shell that could call `conf_set` directly. `boot.snapshot_entries` still has no writer of
 its own in this repo; nothing else needs one yet.
@@ -193,3 +193,48 @@ decomposition, then combining marks and anything non-ASCII dropped), non-alphanu
 dropped, the result truncated to 24 characters. Collisions (`kid-ada` already taken) are the
 caller's job — `omarchy-kids-conf slug` always returns the same answer for the same name and never
 appends a `-2` itself.
+
+## Source header (moved from `bin/omarchy-kids-conf`, issue #49)
+
+Kept for reference; the file itself now carries a short pointer instead.
+
+```text
+omarchy-kids-conf — one way to read and write every kid setting
+(SPEC.md R-BAND-1, R-BAND-2, R-BUILD-5, Appendix B, Appendix C).
+
+Precedence for every Appendix B key: the kid's override
+(/etc/omarchy-kids/kids/<account>.conf), else the kid's band default
+(share/bands/bands.toml, plus share/packs/<band>.toml for allowlist and
+sites), else the global default (dns, history_visible, password,
+onboarded). `band`, `name` and `avatar` have no default at all — they
+must already be in the profile.
+
+Every path is overridable for tests, so test/shell.d/conf-test.sh runs
+entirely against scratch trees:
+  OMARCHY_KIDS_ETC    default /etc/omarchy-kids        (kid overrides live here)
+  OMARCHY_KIDS_SHARE  default /usr/share/omarchy-kids  (bands.toml, packs/)
+```
+
+## Extension keys (moved from `bin/omarchy-kids-conf`, issue #49)
+
+```text
+Extension keys (issue #24, docs/apps.md): not in Appendix B, so kept out
+of APPENDIX_B_KEYS, cmd_show's main table, and "reset"'s identity-key
+exemption -- but still one KEY=VALUE line in the same profile file,
+read and written through this same tool (docs/conf.md's "no other
+command touches a kid's .conf file directly" rule applies to these
+too). omarchy-kids-apps is the only caller that needs them:
+  apps.extra   comma-separated launcher ids added on top of the band's
+               pack for this kid ("hide"/"show" edit this and
+               apps.hidden through `omarchy-kids-conf set`, never the
+               raw file)
+  apps.hidden  comma-separated launcher ids removed from this kid's
+               allowlist, pack or apps.extra alike
+  apps.show_missing  yes/no (issue #42, docs/apps.md): whether
+               bin/omarchy-kids-session-start keeps a tile for a
+               pack/apps.extra app whose package isn't installed yet,
+               greyed with a "not installed yet"/"installing..."
+               caption, instead of the default of omitting it
+               entirely (I-6: no tile that Enter silently does
+               nothing on)
+```

@@ -185,3 +185,134 @@ and `quickshell` running as the kid, the control file present. The owner's disk 
 same machine lands on the owner's own desktop (R-BOOT fail-safe), not the portal. Two package
 gaps found by this run are now assert locks: `units` (the package's units must be enabled) and
 the earlier `limine-editor`.
+
+## Source header (moved from `bin/omarchy-kids-session-start`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-session-start: run once per kid Hyprland session via
+`exec-once`/`hl.on("hyprland.start", ...)` from share/hyprland/L1.lua,
+L2.lua, and L3.lua (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E).
+
+Writes the Level 1/2 launcher's tile list to
+$XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json from the kid's
+effective allowlist (`omarchy-kids-apps allowlist`, R-APPS-4: the
+band's pack plus apps.extra minus apps.hidden -- not the raw
+`omarchy-kids-conf get <kid> allowlist`, so a hide/show lands here too)
+and pack metadata (share/packs/<band>.toml), then starts the right
+thing for the level:
+  Level 1 -> the standalone big-tile launcher (quickshell -p ...), the
+             *only* thing running (R-DESK-5: not a shell plugin).
+  Level 2/3 -> Omarchy's own shell, the same way Omarchy's own
+             default.hypr.autostart does (`omarchy-launch-shell`), after
+             also writing the same allowlist to $RUN/allowlist.json
+             (docs/apps.md) for the trimmed-menu extension to read.
+
+Also starts, detached, the screen-time engine's per-session daemon
+(bin/omarchy-kids-time daemon, SPEC.md R-TIME-1..5) -- see that
+file's own header for what it does and lib/time.sh's for the ledger
+trust boundary. The exit overlay (bin/omarchy-kids-exit, R-EXIT-1) is
+bound directly in share/hyprland/L1.lua etc., not started from here.
+
+Every path below is overridable for tests, same convention as
+omarchy-kids-conf and docs/conf.md:
+  OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
+  OMARCHY_KIDS_SHARE   bands.toml, packs/, launcher/ (default /usr/share/omarchy-kids)
+  OMARCHY_KIDS_RUN     runtime state root (default $XDG_RUNTIME_DIR/omarchy-kids)
+  OMARCHY_KIDS_ROOT    scratch prefix for /var/lib/omarchy-kids (issue
+                                  #42: reads the same apps-queue file
+                                  bin/omarchy-kids-apps writes, to tell
+                                  a merely-missing tile apart from one
+                                  that's mid-install; same convention
+                                  omarchy-kids-apps itself uses)
+  OMARCHY_KIDS_ACCOUNT  kid account (default: this process's own user)
+  OMARCHY_KIDS_LEVEL    1/2/3 (default: omarchy-kids-conf get <account> level)
+  OMARCHY_KIDS_BAND     3-5/6-8/9-12/13+ (default: omarchy-kids-conf get <account> band)
+  OMARCHY_KIDS_APPLICATIONS_DIRS  colon-separated .desktop dirs to search
+                                  for a pack app's launcher entry
+                                  (default /usr/share/applications:/usr/local/share/applications)
+  OMARCHY_KIDS_APPS_BIN  path to omarchy-kids-apps, used to resolve the
+                                  effective allowlist (default: resolved
+                                  beside this script, else /usr/bin)
+  OMARCHY_KIDS_TIME_BIN  path to omarchy-kids-time, started detached
+                                  below for the R-TIME screen-time engine
+                                  (default: resolved beside this script,
+                                  else /usr/bin)
+  OMARCHY_KIDS_WEB_BIN   path to omarchy-kids-web, whose `launch`
+                                  command the Web tile's exec line runs
+                                  (R-WEB, issue #44; default: resolved
+                                  beside this script, else /usr/bin)
+  OMARCHY_KIDS_DATA_BIN  path to omarchy-kids-data, run from the
+                                  kids-data tile below (R-DATA-3, issue
+                                  #27; default: resolved beside this
+                                  script, else /usr/bin)
+  OMARCHY_KIDS_SESSION_START_NO_EXEC=1  write the JSON, print the exec
+                                  line that would run, and return 0
+                                  instead of exec'ing it (test hook --
+                                  also skips starting omarchy-kids-time,
+                                  same as it skips the real exec below)
+```
+
+## Source header (moved from `bin/omarchy-kids-session`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-session: the kid session launcher (SPEC.md R-DESK-1,
+R-DESK-2, R-WEB-4, R-FND-2a, I-3, I-4, I-9, §5.2 "Kid login").
+
+Run by /usr/share/wayland-sessions/omarchy-kids.desktop
+(desktop/omarchy-kids-session.desktop), which SDDM starts through
+/usr/share/sddm/scripts/wayland-session the same way it starts
+Omarchy's own `uwsm start -g -1 -e -D Hyprland hyprland.desktop`.
+
+Sequence: figure out the account (`id -un`), run every R-DESK-2 check
+in order, and on the first fail-closed miss show a full-screen "Ask a
+grown-up" (omarchy-kids-ask-grownup) and exit 1 -- fail closed, never
+a silent, unfenced desktop (I-4, I-9). Once every fail-closed check
+passes, export the account/level/band and exec Hyprland with the
+level's root-owned config -- never the kid's own `~/.config/hypr`
+(R-DESK-6, I-3).
+
+--check runs every check and prints a PASS/FAIL/WARN table without
+starting anything, for `omarchy-kids-check` to reuse.
+
+--install-configs copies the level configs this package ships
+($OMARCHY_KIDS_SHARE/hyprland/*.lua) to the root-owned copy under
+$OMARCHY_KIDS_ETC/hyprland the level files' band overlays `dofile()`
+at Hyprland config-parse time. Meant to be called by the package's
+post_install/post_upgrade hook and by `omarchy-kids-assert`
+(R-TRUST-5) so that copy can never silently go stale -- neither of
+those callers exists yet (both are separate issues' stubs as of this
+one); wiring this flag into them is that issue's job, not this one's.
+
+Never runs anything as root itself and never assumes it -- every path
+below is overridable so this (and test/shell.d/session-test.sh) can
+run entirely as a normal user against a scratch tree (AGENTS.md rule
+8):
+  OMARCHY_KIDS_ETC              kid overrides root (default /etc/omarchy-kids;
+                                the level configs this reads/writes for
+                                --install-configs live at $OMARCHY_KIDS_ETC/hyprland)
+  OMARCHY_KIDS_SHARE            package data root (default /usr/share/omarchy-kids;
+                                --install-configs' source is $OMARCHY_KIDS_SHARE/hyprland)
+  OMARCHY_KIDS_ROOT             scratch prefix for the system paths this
+                                doesn't own -- /etc/chromium/policies/managed
+                                and /etc/polkit-1/rules.d -- default empty
+                                (the real paths); same convention
+                                bin/omarchy-kids-provision and lib/posture.sh
+                                already use for /etc/polkit-1 et al.
+  OMARCHY_KIDS_RUN_DIR           per-session log directory. Default
+                                $XDG_RUNTIME_DIR/omarchy-kids (falling back to
+                                /run/user/<uid>/omarchy-kids) -- deliberately
+                                NOT /run/omarchy-kids, which is root-owned and
+                                this process is never root.
+  OMARCHY_KIDS_HYPRLAND_BIN      compositor binary to exec (default: Hyprland;
+                                stub it in tests)
+  OMARCHY_KIDS_CONF_BIN           path to omarchy-kids-conf (default: resolved
+                                beside this script, else /usr/bin)
+  OMARCHY_KIDS_ASK_GROWNUP_BIN    path to omarchy-kids-ask-grownup (default:
+                                resolved beside this script, else /usr/bin)
+  OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds omarchy-kids-ask-grownup sleeps for
+                                (default 15; tests set this to 0)
+```

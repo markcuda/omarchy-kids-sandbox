@@ -2,55 +2,17 @@
 # lib/data.sh — shared helpers for recorded data (SPEC.md R-DATA-1..5,
 # issue #27): bin/omarchy-kids-data (reads and prunes) and the
 # launch-log folding step bin/omarchy-kids-time-ledger runs once a
-# minute alongside its own screen-time tick.
-#
-# Three things live under /var/lib/omarchy-kids/<kid>/ (spec 5.1) that
-# this file touches:
-#   usage/<day>        screen-time minutes — lib/time.sh's own tree
-#                       (R-TIME-1); this file only *reads* it (for
-#                       summaries) and prunes old days for retention.
-#   launches.log        one "<timestamp> <app id>" line per Level 1
-#                        tile launch (R-DATA-1's "app launches"). Root-
-#                        owned, append-only in normal operation.
-#   launches.offset      "<inode> <byte-offset>" of the kid's own
-#                        *runtime* launches log (below): how much of it
-#                        has already been folded into launches.log, and
-#                        which incarnation of that path the offset was
-#                        measured against (a fresh login gets a fresh
-#                        $XDG_RUNTIME_DIR tmpfs at the same path -- a
-#                        new inode). Root housekeeping, not itself
-#                        recorded data.
-#
-# The trust boundary is the same shape lib/time.sh's own header
-# describes for screen-time minutes, one level up: a kid's own Level 1
-# launcher can only ever write to *its own* runtime dir
-# ($XDG_RUNTIME_DIR/omarchy-kids/launches.log, via
-# `omarchy-kids-launcher-ctl log`) — never to the root-owned copy under
-# /var/lib. data_fold_launches below is the one thing that promotes a
-# kid's own unverified claim ("I opened gcompris at 10:02") into the
-# log a parent's panel and the kid's own "what my grown-ups can see"
-# screen both read; it is only ever called by bin/omarchy-kids-time-
-# ledger's tick (root, once a minute), never by anything that runs as
-# the kid.
-#
-# Folding is deliberately simple, not byte-exact-safe against a torn
-# write: each fold takes every byte written to the runtime file since
-# the last fold, full stop. A launch line is one short `printf` append
-# (bin/omarchy-kids-launcher-ctl's cmd_log), well under PIPE_BUF, so a
-# line torn mid-write at the exact instant a tick runs is not a
-# realistic risk here — this repo already accepts comparable slop
-# elsewhere (lib/time.sh's own R-TIME-1 resolution note).
-#
-# Not meant to be executed directly; source it from a command:
-#   source "$DIR/lib/data.sh"
-#
-# Every path is overridable for tests, same convention as lib/time.sh:
-#   OMARCHY_KIDS_ROOT           scratch prefix for /var/lib/omarchy-kids and /run
-#   OMARCHY_KIDS_RUN_USER_BASE  default /run/user (a kid's own XDG_RUNTIME_DIR
-#                                is assumed to be <base>/<uid>, systemd-logind's
-#                                own convention)
-#   OMARCHY_KIDS_HOMES_BASE     default /home (a kid's home is <base>/<kid>)
-#   OMARCHY_KIDS_CONF_PY / OMARCHY_KIDS_DATA_PY  python3 and lib/data.py
+# minute alongside its own screen-time tick. Trust boundary, same shape
+# as lib/time.sh's: a kid's Level 1 launcher can only ever write its own
+# runtime launches log, never the root-owned
+# /var/lib/omarchy-kids/<kid>/launches.log directly -- data_fold_launches
+# (root only, called from time-ledger's tick) is the one thing that
+# promotes a kid's unverified claim into that file. launches.offset is
+# "<inode> <byte-offset>", not a plain byte count, so a fresh login's new
+# $XDG_RUNTIME_DIR tmpfs (a new inode at the same path) is never read as
+# a continuation of the previous session's file. Not meant to be executed
+# directly; source it. Every path/env var, and the three files this
+# touches under /var/lib/omarchy-kids/<kid>/: docs/data.md.
 
 DATA_SYSROOT="${OMARCHY_KIDS_ROOT:-}"
 DATA_VARLIB="$DATA_SYSROOT/var/lib/omarchy-kids"

@@ -266,3 +266,84 @@ With synced mirrors, `omarchy-kids-apps install 6-8 --now --apply` resolved the 
 the AUR-only Tux Paint with a line, and installed the other seven in one transaction in about
 ninety seconds; `list` showed them installed and the launcher drew nine real tiles at the next
 login.
+
+## Source header (moved from `bin/omarchy-kids-apps`, issue #49)
+
+Kept for reference; the file itself now carries a 3-line pointer instead.
+
+```text
+omarchy-kids-apps — starter-pack installs, the per-kid launcher
+allowlist, and the parent's own opt-in "hide kids' apps from my
+launcher" switch (SPEC.md R-APPS-2..6, Appendix C; I-1, I-6).
+
+  list <band|kid>          Every app in a band's pack (or, given a kid
+                            account, that kid's band) with its
+                            installed/missing state (`pacman -Q`).
+  install <band> [--now]   Missing packages for a band's pack, resolved
+                            against the sync db first (`pacman -Si`,
+                            issue #52) so one bad/missing target never
+                            sinks the whole transaction. By default,
+                            enqueues the resolvable ones to
+                            /var/lib/omarchy-kids/apps-queue and starts
+                            omarchy-kids-apps-install.service in the
+                            background (`systemctl start --no-block`),
+                            so the parent keeps going (R-APPS-3).
+                            --now runs `pacman -S --needed --noconfirm`
+                            for them directly, right away. AUR packages
+                            (pkg = "aur:...") and any target `pacman -Si`
+                            can't find are named on stderr and skipped
+                            either way -- building AUR is R-APPS-1's own
+                            job, not built here. Exits 0 as long as
+                            nothing that *was* attempted failed.
+                            DRY_RUN=1 by default (AGENTS.md rule 8);
+                            --apply or DRY_RUN=0 makes either mode real.
+  install-queued           The queue's worker: resolves everything still
+                            in the queue file against the sync db
+                            (`pacman -Si`, issue #52), installs whatever
+                            resolves and isn't already installed in one
+                            transaction, reports anything that doesn't
+                            resolve, then empties the file. Always runs
+                            for real -- see "Judgment calls" in
+                            docs/apps.md. Meant to be called by
+                            systemd/omarchy-kids-apps-install.service,
+                            not by a parent directly.
+  allowlist <kid>          The kid's effective launcher allowlist:
+                            their band's pack (`allowlist`, Appendix B),
+                            plus `apps.extra`, minus `apps.hidden` (two
+                            profile keys this adds beyond Appendix B --
+                            docs/conf.md). Comma-separated ids, same
+                            format as the `allowlist` key itself.
+  hide <kid> <app>         Adds <app> to the kid's `apps.hidden`.
+  show <kid> <app>         Removes <app> from the kid's `apps.hidden`.
+  hide-from-mine [--apply] Opt-in only (I-1): writes NoDisplay=true
+                            overrides for every provisioned kid's
+                            allowlisted apps into the *current user's
+                            own* ~/.local/share/applications/, so those
+                            apps stop showing in the parent's own
+                            launcher. Never touches a kid's account or
+                            any file owned by `omarchy`/`omarchy-settings`
+                            (I-7). DRY_RUN=1 by default.
+  show-in-mine [--apply]   Removes exactly the override files
+                            hide-from-mine wrote (marked internally with
+                            X-OmarchyKidsHideFromMine=true), never a
+                            file the parent created some other way.
+
+Every path is overridable for tests, same convention as
+omarchy-kids-conf and bin/omarchy-kids-assert:
+  OMARCHY_KIDS_ETC     kid overrides root (default /etc/omarchy-kids)
+  OMARCHY_KIDS_SHARE   bands.toml, packs/ (default /usr/share/omarchy-kids)
+  OMARCHY_KIDS_ROOT    scratch prefix for /var/lib/omarchy-kids (the
+                       install queue), same convention
+                       bin/omarchy-kids-assert and lib/posture.sh use
+                       for system paths this package doesn't own
+  OMARCHY_KIDS_HOME    hide-from-mine/show-in-mine's target home
+                       (default: $HOME) -- always the account running
+                       this command, never a kid's home
+  OMARCHY_KIDS_APPLICATIONS_DIRS  colon-separated .desktop search dirs
+                       for hide-from-mine (default
+                       /usr/share/applications:/usr/local/share/applications)
+  OMARCHY_KIDS_CONF_BIN  path to omarchy-kids-conf (default: resolved
+                       beside this script, else /usr/bin/omarchy-kids-conf)
+  OMARCHY_KIDS_CONF_PY  python3 by default (also read by omarchy-kids-conf)
+  OMARCHY_KIDS_LIB     lib/ beside bin/, else /usr/lib/omarchy-kids
+```

@@ -145,3 +145,23 @@ into a root-owned kiosk session. `session_for` now asks whether
 `-ask` and `-time-ledger` already use, with `OMARCHY_KIDS_ETC` overridable for tests.
 `test/shell.d/boot-login-test.sh` covers both directions: an unprovisioned `kid-vm` gets the
 stock session, and a provisioned account with no `kid-` prefix gets the kid session.
+
+## Source header (moved from `bin/omarchy-kids-boot-login`, issue #49)
+
+Kept for reference; the file itself now carries a short pointer instead.
+
+```text
+omarchy-kids-boot-login — writes or removes the per-boot SDDM autologin
+drop-in based on which LUKS slot unlocked the root device (R-BOOT-3).
+
+Usage:
+  omarchy-kids-boot-login             write the drop-in for this boot
+  omarchy-kids-boot-login --cleanup   remove the drop-in (post-boot)
+
+Every path below is overridable for tests, so test/shell.d/boot-login-test.sh
+runs entirely against a scratch tree:
+  OMARCHY_KIDS_RUN_DIR     default /run/omarchy-kids   (boot-slot lives here)
+  OMARCHY_KIDS_SLOTS_FILE  default /etc/omarchy-kids/luks-slots
+  OMARCHY_KIDS_SDDM_DIR    default /etc/sddm.conf.d
+  OMARCHY_KIDS_ETC         default /etc/omarchy-kids (the profile registry)
+```

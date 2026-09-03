@@ -1,40 +1,13 @@
 # shellcheck shell=bash
 # lib/wizard-advanced.sh — the wizard's Advanced path: a grouped checklist
-# over every Appendix B cell that isn't already collected by a shared
-# screen (SPEC.md R-WIZ-2, R-WIZ-3, R-BAND-2, Appendix B; issue #20).
-# Reachable from A6 ("Advanced") and from the Easy summary's "Change
-# something" (A13, for both paths — bin/omarchy-kids-wizard's
-# screen_summary calls the same screen_advanced_checklist this file
-# defines). Split out of bin/omarchy-kids-wizard for length, same reason
-# lib/tui.sh is its own file — not a generally reusable library, just
-# this command's Advanced-path code kept out of the main driver.
-#
-# Sourced by bin/omarchy-kids-wizard, which by the time any function here
-# is actually called has already defined every global variable and
-# helper this file reads: $BAND, $DISPLAY_NAME, $SHARE, $PY, $PYHELPER,
-# band_field, pack_field, app_label_for, apps_pick_walk,
-# friendly_web_mode, friendly_wifi_mode, validate_budget_minutes,
-# validate_lights_out, and every lib/tui.sh tui_screen_* function. Not
-# meant to be executed or sourced on its own.
-#
-# One row per key, twelve keys in six groups (Web, Screen time, Apps,
-# Wi-Fi, Desktop, Data), Appendix B order within each group. name/avatar/
-# band (A3-A5) and password (A12) are collected by their own screens
-# before either path reaches here, so they're not rows; onboarded is a
-# system-managed flag no screen ever offers a parent, so it isn't either.
-#
-# Every row's value lives in the SAME plain variable Simple's own A7/A8/
-# A9/A10/A11 screens use (WEB_MODE, BUDGET_MIN, ALLOWLIST_IDS, ...) — one
-# source of truth regardless of which path set it — plus seven variables
-# Simple never touches (DNS_MODE, SITES, MENU_MODE, HISTORY_VISIBLE,
-# BUDGET_MIN_WEEKEND, LIGHTS_OUT_WEEKEND). adv_varname maps a key to its
-# variable's name; adv_get/adv_set read and write it by that name (the
-# same indirect-by-name idiom lib/tui.sh's _tui_array_copy uses, for the
-# same reason: no namerefs, no associative arrays — bash 3.2 has neither,
-# and test/all has to run on the plain bash macOS ships). adv_init seeds
-# every one of them to this band's default; nothing here ever calls
-# omarchy-kids-conf itself — only Apply (apply_step_account's
-# maybe_override calls) ever writes anything.
+# over every Appendix B cell not already collected by a shared screen
+# (SPEC.md R-WIZ-2, R-WIZ-3, Appendix B; issue #20), reachable from A6
+# and the summary's "Change something". Sourced by bin/omarchy-kids-
+# wizard, which already defines every global/helper this file reads
+# ($BAND, $DISPLAY_NAME, band_field, every tui_screen_* function); not
+# meant to be sourced on its own. adv_get/adv_set read/write each row's
+# value by variable name (bash 3.2 has no namerefs/associative arrays).
+# Full row list and the six groups: docs/wizard.md.
 
 ADV_KEYS=(web dns sites budget_min budget_min_weekend lights_out lights_out_weekend allowlist wifi level menu history_visible)
 

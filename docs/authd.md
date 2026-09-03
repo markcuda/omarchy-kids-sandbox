@@ -147,3 +147,55 @@ exception (`TEST_SOCKET_ROOT`, empty in every shipped copy and asserted so by
 line in `lib/posture.sh` names the helper as `/usr/bin/omarchy-kids-parent-auth`: pam_exec execs
 that path directly and never consults `PATH`, so neither the binary nor the socket can be
 redirected by anything the kid sets.
+
+## PAM stack placement forensics (moved from `lib/posture.sh`, issue #49)
+
+```text
+--- parent-unlock PAM line (R-SEC-2, R-SEC-3; SPEC.md I-6; docs/authd.md) --
+
+The lock screen and SDDM both need "did a parent type their own password
+here?" answered the same way (docs/authd.md): pam_exec.so calling
+omarchy-kids-parent-auth, which asks the omarchy-kids-authd daemon rather
+than re-implementing password checking. This line is written once, into
+each real stack this ships on, at a fixed position relative to that
+stack's own first "auth" line -- not by finding a pam_unix.so line to
+jump around, which real Omarchy 4.0.2 stacks don't reliably even have
+(confirmed against a real box; see below).
+
+Placement, confirmed against the real /etc/pam.d/sddm and
+/etc/pam.d/omarchy-lock-password on Omarchy 4.0.2 (there is no
+/etc/pam.d/hyprlock on that box -- omarchy-apply-lock always writes
+omarchy-lock-password):
+
+  /etc/pam.d/sddm is `auth include system-login` first -- no pam_unix.so
+  line of its own at all, and no leading pam_faillock preauth line
+  either. Our line has to go *before* that first "auth" line, so it runs
+  (and can potentially succeed outright) before system-login's own chain
+  -- which is what actually checks whichever account is really logging
+  in -- ever runs.
+
+  /etc/pam.d/omarchy-lock-password (bin/omarchy-apply-lock,
+  scratchpad/pr9750.diff) leads with
+  "auth required pam_faillock.so preauth ...". Our line goes right
+  *after* that one line (never before it -- preauth has to run first so
+  a lockout is tracked correctly), still ahead of pam_unix.so.
+
+So the one rule that covers both real shapes: insert right after a
+leading "auth ... pam_faillock.so ... preauth" line if the very first
+"auth" line in the file is one, otherwise insert right before that first
+"auth" line. ("auth", not "-auth" -- a dash-prefixed line is a
+module-load-failure-is-silent variant of the same facility, never the
+anchor point.) Never touches system-login or system-auth themselves
+(I-7): those are included by reference, never opened by this function.
+
+The control is fixed, not computed: "[success=done default=ignore]".
+"done" ends the whole stack successfully the instant a parent's password
+verifies, so pam_unix (and whatever system-login/system-auth's own chain
+does) is never even consulted with the parent's password. "default=ignore"
+on anything else (wrong password, daemon unreachable, rate-limited) falls
+through to the stack's normal chain, which -- because our line sits
+ahead of it with `expose_authtok` already having read the typed password
+-- reuses that exact same token via pam_unix's own `try_first_pass`
+(already on both real stacks' pam_unix lines), so nobody is ever
+prompted twice.
+```

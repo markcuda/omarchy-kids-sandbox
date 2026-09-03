@@ -42,9 +42,7 @@ skeleton (`makepkg` builds it), `omarchy-kids-conf` with the band and pack data,
 
 | File | Note |
 | --- | --- |
-| `bin/omarchy-kids-wizard` | Pre-decision skeleton: five screens, dry-run by default |
 | `bin/omarchy-kids-check` | Green/red self-test, still the right shape |
-| `lib/provision.sh` | Kid account, DNS, browser policy, boot hardening. The per-kid parts survive; the machine-wide DNS and Chromium policy do not (the parent is never restricted) |
 | `test/verify-phase1.sh` | Collects facts for the hub's Phase 1 unknowns |
 | `docs/` | Test-laptop runbook and a T2 MacBook note |
 

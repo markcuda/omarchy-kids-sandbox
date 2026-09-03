@@ -292,6 +292,18 @@ assert_session() {
   done
 }
 
+# wait_kid_ready KID [DEADLINE=60] — the session exists before its binds do: wait for the Level 1
+# launcher to be running (exec-once has run, so the Super-tap bind is live), then settle.
+wait_kid_ready() {
+  local kid="$1" deadline="${2:-60}" waited=0
+  while :; do
+    vmroot "pgrep -u '$kid' -f 'omarchy-kids/launcher/shell.qml' >/dev/null" 2>/dev/null && { sleep 3; return 0; }
+    ((waited >= deadline)) && return 1
+    sleep 5
+    waited=$((waited + 5))
+  done
+}
+
 # assert_no_session KID [DEADLINE=30] — KID has no live loginctl session within DEADLINE seconds.
 assert_no_session() {
   local kid="$1" deadline="${2:-30}" waited=0

@@ -29,6 +29,7 @@ else
   state
 fi
 
+wait_kid_ready "$LIVE_KID1_ACCOUNT" && ok "launcher is up (binds live)" || fail "launcher never came up"
 shot 30-launcher || fail "screenshot failed"
 
 # Three Super taps inside 1.5s opens the exit modal (the `{ release = true }` bind every level

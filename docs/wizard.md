@@ -375,3 +375,8 @@ Level 1 launcher. Two things the first run taught: `DRY_RUN=0` does not cross `s
 repo command gets its own `--apply` flag now, and the step marks follow real exit codes. The
 last provisioning step, Omarchy's own `omarchy-provision-user`, fails on this VM (no offline
 Node tarball) and is a warning with the migrations fallback since then.
+Advanced path, 2026-09-03 (dry-run over `ssh -tt`): A6 Advanced opened the grouped checklist with
+every band default, "Minutes a day (weekdays)" 90 → 45 and "Lights out (weekdays)" 20:30 →
+21:00 were marked `(changed)`, Done customizing went straight to the password screen, and Apply
+printed provision followed by exactly two `omarchy-kids-conf set` lines for the changed cells,
+then the web and apps installs.

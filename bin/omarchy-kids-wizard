@@ -25,7 +25,6 @@ source "$LIB/kids.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
-KIDS_DIR="$ETC/kids"
 
 CONF_BIN="$(kids_bin conf "$DIR")"
 PROVISION_BIN="$(kids_bin provision "$DIR")"

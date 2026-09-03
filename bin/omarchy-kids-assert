@@ -396,6 +396,10 @@ units_ok() {
     for u in "${KIDS_UNITS[@]}"; do [[ -L "$(unit_link multi-user.target "$u")" ]] || return 1; done
     for u in "${KIDS_SOCKETS[@]}"; do [[ -L "$(unit_link sockets.target "$u")" ]] || return 1; done
     for u in "${KIDS_TIMERS[@]}"; do [[ -L "$(unit_link timers.target "$u")" ]] || return 1; done
+    # Enabled is not running: on a live system the sockets and timers must be active too.
+    if [[ -z "$(posture_root)" ]]; then
+        for u in "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"; do systemctl is-active --quiet "$u" || return 1; done
+    fi
 }
 units_fix() {
     local root_args=()

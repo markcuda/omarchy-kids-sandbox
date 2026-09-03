@@ -212,8 +212,15 @@ portal_tile_index() {
 # input devices; a hard terminate leaves SDDM with no greeter at all. If nothing is on seat0 (a
 # black screen), restart SDDM (the owner's stock autologin fires) and exit that session cleanly.
 portal_reset() {
-  local deadline="${1:-45}" who
-  who="$(vmroot "loginctl list-sessions --no-legend | awk '\$4==\"seat0\"{print \$3}' | head -1" 2>/dev/null | tr -d '[:space:]')"
+  local deadline="${1:-45}" who waited=0
+  # Right after a boot the seat may still be empty while the owner's autologin (a recorded
+  # parent slot, docs/boot.md) is starting: give it a moment before treating it as black.
+  while :; do
+    who="$(vmroot "loginctl list-sessions --no-legend | awk '\$4==\"seat0\"{print \$3}' | head -1" 2>/dev/null | tr -d '[:space:]')"
+    [[ -n "$who" || $waited -ge 45 ]] && break
+    sleep 5
+    waited=$((waited + 5))
+  done
   case "$who" in
     sddm) : ;; # the greeter is already up
     "")
@@ -230,7 +237,8 @@ portal_reset() {
 # root, with the instance signature read off /run/user/<uid>/hypr/ (docs/exit.md).
 portal_clean_exit() {
   local acct="$1"
-  vmroot "uid=\$(id -u '$acct'); sig=\$(ls -t /run/user/\$uid/hypr/ 2>/dev/null | head -1); [ -n \"\$sig\" ] && runuser -u '$acct' -- env XDG_RUNTIME_DIR=/run/user/\$uid HYPRLAND_INSTANCE_SIGNATURE=\$sig hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1; true"
+  # Hyprland's instance dir appears a few seconds after the session does; wait for it.
+  vmroot "uid=\$(id -u '$acct'); for i in 1 2 3 4 5 6; do sig=\$(ls -t /run/user/\$uid/hypr/ 2>/dev/null | head -1); [ -n \"\$sig\" ] && break; sleep 5; done; [ -n \"\$sig\" ] && runuser -u '$acct' -- env XDG_RUNTIME_DIR=/run/user/\$uid HYPRLAND_INSTANCE_SIGNATURE=\$sig hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1; true"
 }
 
 # --- build / install ---------------------------------------------------------------------

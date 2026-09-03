@@ -102,6 +102,76 @@ detect_luks_device() {
   return 1
 }
 
+# --- luks-slots (R-SEC-4, and the "LUKS2 reuses slot numbers" finding) -----
+# The one place this file's "slot=account[:session]" lines (docs/boot.md's
+# format) are parsed and rewritten -- previously two identical copies of
+# the three parsers below, one in bin/omarchy-kids-provision and one in
+# bin/omarchy-kids-remove ("Remove Kids Mode"); the writer moved here too
+# (from lib/posture.sh) so nothing needs a second source line for it.
+
+# luks_slots_parent_line FILE -- the "0=account[:session]" line, if any.
+luks_slots_parent_line() {
+  local file="$1" line
+  [[ -r "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      '' | '#'*) continue ;;
+      0=*)
+        printf '%s\n' "$line"
+        return 0
+        ;;
+    esac
+  done <"$file"
+}
+
+# luks_slots_kid_entries FILE — every "slot=account[:session]" line whose
+# slot isn't 0, one per line.
+luks_slots_kid_entries() {
+  local file="$1" line key
+  [[ -r "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in '' | '#'*) continue ;; esac
+    key="${line%%=*}"
+    [[ "$key" == "0" ]] && continue
+    printf '%s\n' "$line"
+  done <"$file"
+}
+
+# luks_slot_for_account FILE ACCOUNT -- the slot number mapped to ACCOUNT, if any.
+luks_slot_for_account() {
+  local file="$1" account="$2" line key val acct
+  [[ -r "$file" ]] || return 0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in '' | '#'*) continue ;; esac
+    key="${line%%=*}"
+    val="${line#*=}"
+    acct="${val%%:*}"
+    if [[ "$acct" == "$account" ]]; then
+      printf '%s\n' "$key"
+      return 0
+    fi
+  done <"$file"
+}
+
+# posture_write_luks_slots FILE PARENT_LINE [ENTRY...] — always a full
+# rewrite, never append/edit-in-place: LUKS2 reuses freed slot numbers,
+# so a stale line could point a reused slot at the wrong account
+# (docs/provision.md). Kept its "posture_" name (it moved from
+# lib/posture.sh, which still owns every other machine-posture writer;
+# only the file changed).
+posture_write_luks_slots() {
+  local file="$1" parent_line="$2" tmp e
+  shift 2
+  install -d -m 0755 "$(dirname "$file")"
+  tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")"
+  {
+    [[ -n "$parent_line" ]] && printf '%s\n' "$parent_line"
+    for e in "$@"; do printf '%s\n' "$e"; done
+  } >"$tmp"
+  chmod 0600 "$tmp"
+  mv -f "$tmp" "$file"
+}
+
 # file_stat FMT FILE -- GNU/BSD stat(1) wrapper, GNU tried first (issue #49, docs/assert.md).
 file_stat() {
   local fmt="$1" file="$2"

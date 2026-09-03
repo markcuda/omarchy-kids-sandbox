@@ -128,6 +128,10 @@ from screenshots. Done since:
   honest-UI rule), and the scenario's extra Tab was moving the selection onto Pause, which the
   modal refuses. The launcher change was never at fault; scenario 30 passes with the launcher
   frame clean of the banner.
+- README and the parent card were reread as a parent would: the Phase 1 status line still said
+  V1 was in progress (it finished and failed, which is why Pause is not built), the card
+  promised a fast user switch that does not exist, and two spec citations became plain words.
+  Every other claim in both checked out against the code.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

@@ -126,11 +126,6 @@ now listed explicitly in `PKGBUILD`'s `depends=` (unverified whether `sddm`/`qt6
 already pull it in transitively; there is no `pacman` on this dev machine to check with
 `pacman -Si sddm`'s own dependency tree).
 
-**2026-09-03, keyboard focus.** Left/Right went dead after a password field had been opened and
-closed once (Enter, Esc): the field kept keyboard focus. `selectTile()` now hands focus back to
-the key scope, and the field's own Escape goes through it. Seen and fixed on the VM: Left, Enter,
-Esc, Left moves the highlight again; the parent tile opens its field from the keyboard.
-
 ## Ground truth this was checked against (2026-09, no local SDDM/Qt install)
 
 Everything below was fetched and read from source, not guessed, since this machine has no SDDM
@@ -299,6 +294,11 @@ above settles it directly.
 Later the same night (#15): the parent's password typed on Cy's tile opened Cy's session
 (journal: "Authentication for user kid-cy successful" through the `sddm` stack's parent-unlock
 line), so a parent can open any kid's desktop from the portal without knowing the kid's password.
+**2026-09-03, keyboard focus.** Left/Right went dead after a password field had been opened and
+closed once (Enter, Esc): the field kept keyboard focus. `selectTile()` now hands focus back to
+the key scope, and the field's own Escape goes through it. Seen and fixed on the VM: Left, Enter,
+Esc, Left moves the highlight again; the parent tile opens its field from the keyboard.
+
 ## Names that root interpolates are validated now (2026-09-03)
 
 `posture_polkit_admin_rule_text` builds `40-omarchy-kids.rules` with an *unquoted* heredoc and

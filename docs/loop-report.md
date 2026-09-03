@@ -142,6 +142,12 @@ from screenshots. Done since:
   ticket, headless from the shell in its own clone; I brief, gate and merge. Its first two jobs:
   an AUR-maintainer pass over `docs/install.md` and `docs/packaging.md` (merged after checking
   every claim it wrote against the files) and a maintainer review of main (running).
+- Codex's review (`docs/reviews/2026-09-03-codex-maintainer.md`) would not bless the repo yet:
+  16 findings, ten high. The real ones: the kid-facing launchers still read path prefixes from
+  the environment (the same class round two closed for the verifier, allowed through as "scratch
+  tree" variables), the launcher runs a kid-writable exec string through a shell, screen time
+  is enforced from the kid's own process, and the group assert accepts a kid who is also in
+  wheel. Filed as #59 to #63; Codex is drafting #59 and #60 now, #61 rides with #59, #62 next.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

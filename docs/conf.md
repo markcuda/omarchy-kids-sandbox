@@ -104,7 +104,7 @@ entirely against a throwaway tree — see `test/shell.d/conf-test.sh`.
 
 ## Commands
 
-```
+```text
 omarchy-kids-conf get <kid> <key>          effective value: override, else band, else default
 omarchy-kids-conf set <kid> <key> <value>  write an override (validated against the table above)
 omarchy-kids-conf show <kid>                every key, its value, and where it came from
@@ -120,7 +120,7 @@ exit 2 and a one-line reason on stderr. `get` on an unknown key also exits 2. `g
 
 ## Examples
 
-```
+```text
 $ omarchy-kids-conf set kid-ada name Ada
 kid-ada: name=Ada
 $ omarchy-kids-conf set kid-ada avatar fox

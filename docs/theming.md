@@ -210,4 +210,3 @@ issue #53 makes a kid inherit the parent's theme at provision time and adds a th
 packaging fact: Quickshell resolves QML types only inside the shell's own directory, so
 `KidsTheme.qml` is installed beside every standalone surface rather than imported from
 `share/qml`.
-

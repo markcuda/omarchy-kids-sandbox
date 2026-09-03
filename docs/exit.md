@@ -203,4 +203,3 @@ Not yet exercised live: the wrong-password shake and the 30 s lockout, Esc to cl
 (needs the decision in docs/phase1/DECISIONS-NEEDED.md), and the parent password on a kid's
 tile at the portal (#15's PAM line is installed; a portal login with the parent password is
 the next check).
-

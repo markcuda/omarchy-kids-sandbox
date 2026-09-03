@@ -36,7 +36,7 @@
 #   OMARCHY_KIDS_UKI        overrides which UKI/initramfs image R-BOOT-5 checks,
 #                           instead of the first /boot/EFI/Linux/*.efi found
 # shellcheck disable=SC2329 # every *_ok/*_fix below is invoked indirectly through assert_one's "$check" "$@" / "$fix" "$@"
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids

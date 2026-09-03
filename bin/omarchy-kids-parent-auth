@@ -7,7 +7,7 @@
 # This runs inside the kid's session (hyprlock's PAM stack, the exit modal),
 # so it trusts nothing from its own environment: the socket path is a
 # compiled-in constant unless the caller is already root (review S4).
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids

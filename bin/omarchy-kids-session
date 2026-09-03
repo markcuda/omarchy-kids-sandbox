@@ -57,7 +57,7 @@
 #                                 resolved beside this script, else /usr/bin)
 #   OMARCHY_KIDS_ASK_GROWNUP_SLEEP  seconds omarchy-kids-ask-grownup sleeps for
 #                                 (default 15; tests set this to 0)
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
@@ -300,8 +300,12 @@ do_check_mode() {
 do_start() {
   local id name
   for id in "${CHECK_IDS[@]}"; do
-    run_check "$id"
-    local rc=$?
+    # check_$id's own non-zero return is FAIL/WARN, read from $RESULT
+    # just below, not a script error -- run_check in an if/else so a
+    # failing check doesn't trip -e before that read (same fix as
+    # bin/omarchy-kids-wizard's step loop).
+    local rc
+    if run_check "$id"; then rc=0; else rc=$?; fi
     name="$(check_name "$id")"
     case "$RESULT" in
       WARN)

@@ -47,7 +47,7 @@
 #                        OMARCHY_KIDS_ROOT; set by test/shell.d/time-test.sh)
 #   OMARCHY_KIDS_RUN_USER_BASE  lib/data.sh's launch-log fold source
 #                        (default /run/user; see that file's header)
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids

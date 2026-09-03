@@ -75,7 +75,7 @@
 #   OMARCHY_KIDS_WIFID_SOCK  default /run/omarchy-kids/wifi.sock
 #   OMARCHY_KIDS_WIFID_TIMEOUT  seconds, default 10 (nmcli's own wifi rescan can be slow)
 #   DRY_RUN                  default 1 for `portal` (AGENTS.md rule 8); --apply or DRY_RUN=0 does it for real
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids

@@ -58,7 +58,7 @@
 #   OMARCHY_KIDS_DATA_REQUIRE_ROOT=0  skip the root/self checks below
 #                                 (tests run as an ordinary user against a
 #                                 scratch tree; set by test/shell.d/data-test.sh)
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids
@@ -157,7 +157,7 @@ cmd_launches() {
         local cutoff; cutoff="$(data_py since-cutoff "$since" "$(time_now)")"
         rows="$(data_py filter-log "$log" "$cutoff")"
     else
-        rows="$(cat "$log" 2>/dev/null)"
+        rows="$(cat "$log" 2>/dev/null || true)"
     fi
 
     if [[ -z "$rows" ]]; then

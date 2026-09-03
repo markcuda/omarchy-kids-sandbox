@@ -102,7 +102,7 @@
 #                                   bin/omarchy-kids-ask's submit/time/app/
 #                                   plugin/site -- there is no plan to dry-
 #                                   run, only a terminal to open).
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids

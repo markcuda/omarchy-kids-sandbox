@@ -9,7 +9,7 @@
 #
 # See docs/tui.md for the answers-file format (one answer per line, plus
 # the reserved @esc / @ctrlc lines).
-set -uo pipefail
+set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=../lib/tui.sh
 source "$DIR/lib/tui.sh"
@@ -33,6 +33,11 @@ EOF
 done
 
 tui_init || exit $?
+
+# Every tui_screen_choose call below returns 1 (Esc) / 130 (Ctrl+C) as
+# data for the case right after it, not as an error -- set +e for the
+# rest of this demo (same fix as bin/omarchy-kids-wizard's step loop).
+set +e
 
 # --- Screen 1: Welcome (A1) — Omy speaks, single "Begin" choice ------------
 # shellcheck disable=SC2034 # read by tui_screen_choose via nameref (by name)

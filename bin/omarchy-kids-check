@@ -62,7 +62,7 @@
 #                             that check reads (default: /proc; point at
 #                             a fixture tree of <pid>/mountinfo files in
 #                             tests, same idea as OMARCHY_KIDS_HOME_ROOT)
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids

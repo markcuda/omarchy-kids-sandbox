@@ -81,7 +81,7 @@
 # lib/ask.py's own `list-open`/`show` directly (tab-separated, exact
 # fields) instead of scraping omarchy-kids-ask's human-formatted `list`
 # output, which pads columns for a terminal, not a parser.
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
@@ -882,8 +882,16 @@ screen_home() {
 
 tui_init || exit $?
 
+# Every screen_* function below returns 1 (Esc) / 130 (Ctrl+C) as data
+# for its caller to switch on, not as an error -- set +e for the whole
+# interactive tree so that a routine "back" or "leave" never trips -e
+# before the case statement reading $rc gets to see it (same fix as
+# bin/omarchy-kids-wizard's step loop). Real failures inside a screen
+# still exit loud, explicitly (die, or a checked $rc), never implicitly.
+set +e
 screen_home
 rc=$?
+set -e
 case "$rc" in
     130)
         echo "Left Kids Mode." >&2

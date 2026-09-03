@@ -74,6 +74,20 @@ every exit path and genuinely can't use `-e` safely (as may be true for `omarchy
 upstream would, and narrow `AGENTS.md`'s Layout-table claim to name the exception instead of
 stating a blanket rule the code doesn't follow.
 
+**Resolved (issue #49): (a).** All 18 files now carry `set -euo pipefail`, and `omarchy-kids`/
+`omarchy-kids-exit` need no exception after all — their `exec` calls are each already the last
+statement on their path, so `-e` never gets a chance to fire after them. Three files needed a
+narrower, in-line exception instead of a blanket one: `bin/omarchy-kids-wizard`'s step-dispatch
+loop, all of `bin/omarchy-kids-panel`'s screen tree (from `tui_init` on), and all of
+`bin/omarchy-kids-tui-demo` after its own `tui_init` — each `set +e`/`set -e` around exactly the
+region where a screen function's return code (1=Esc, 130=Ctrl+C) is data for the caller's own
+`case`, not an error, per a one-line comment at each site. Two more genuine bugs `-e` surfaced in
+the process, both now fixed regardless of `-e`: `bin/omarchy-kids-wizard`'s `stop_prefetch` used
+`[[ -n "$PREFETCH_PID" ]] && kill ...` as its whole body, which returns non-zero (and, under `-e`,
+kills the whole script) whenever there was nothing to kill; `bin/omarchy-kids-session`'s `do_start`
+called `run_check "$id"` bare, so a real FAIL exited before the FAIL/ask-grownup handling below it
+ever ran.
+
 ## 3. Length and comment density
 
 **Observed.** Short single-purpose commands stay short and almost bare: `bin/omarchy-system-logout`

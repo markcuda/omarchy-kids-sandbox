@@ -92,7 +92,7 @@
 #                           ever touch the kid's own runtime dir, so they
 #                           are never gated by DRY_RUN (same reasoning as
 #                           bin/omarchy-kids-super-tap).
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/ask.py" ]] || LIB=/usr/lib/omarchy-kids
@@ -554,7 +554,10 @@ cmd_approve() {
     local state; state="$("$PY" "$ASKPY" show "$path" --field state)"
     [[ "$state" == "open" ]] || die "request '$id' is already decided ($state)"
 
-    apply_record "$path"
+    # A failed apply (root required, the target not installed yet) is
+    # never a reason to leave the request stuck "open" -- same
+    # graceful-degradation apply_time's own comment documents.
+    apply_record "$path" || echo "omarchy-kids-ask: could not apply $id (see above) -- approving it anyway" >&2
     if [[ "$DRY_RUN" == "0" ]]; then
         "$PY" "$ASKPY" decide "$path" --state approved --by panel
         echo "omarchy-kids-ask: approved $id"

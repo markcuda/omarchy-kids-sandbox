@@ -67,7 +67,7 @@
 #   OMARCHY_KIDS_TIME_REQUIRE_ROOT=0  skip `grant`'s root check (test hook,
 #                         same convention as omarchy-kids-time-ledger's
 #                         OMARCHY_KIDS_TIME_LEDGER_REQUIRE_ROOT)
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/time.sh" ]] || LIB=/usr/lib/omarchy-kids

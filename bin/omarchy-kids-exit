@@ -45,7 +45,7 @@
 # even try. share/exit-modal/shell.qml only calls this when
 # OMARCHY_KIDS_PAUSE_AVAILABLE=1 is set (I-6: never offer a control that
 # isn't enforced), which omarchy-kids-exit itself never sets today.
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids

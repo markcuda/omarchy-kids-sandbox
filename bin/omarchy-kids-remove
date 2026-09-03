@@ -45,7 +45,7 @@
 #   OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS auto-detection; remove has no
 #                             --luks-device flag, same as
 #                             omarchy-kids-provision remove
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids

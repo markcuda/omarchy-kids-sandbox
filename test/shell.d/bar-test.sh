@@ -278,7 +278,7 @@ chmod +x "$STUBS5/sudo" "$STUBS5/omarchy-kids-time" "$STUBS5/alacritty"
 
 LOGFILE2="$TMP/grant2.log"
 : >"$LOGFILE2"
-PATH="$STUBS5" LOGFILE="$LOGFILE2" OMARCHY_KIDS_TIME_BIN="$STUBS5/omarchy-kids-time" \
+PATH="$STUBS5:$PATH" LOGFILE="$LOGFILE2" OMARCHY_KIDS_TIME_BIN="$STUBS5/omarchy-kids-time" \
   "$BAR" grant kid-ada 15 </dev/null >/dev/null 2>&1
 log2="$(cat "$LOGFILE2")"
 check_contains "$log2" "ALACRITTY -e sh -c" "no floating-terminal helper on PATH falls back to alacritty -e"

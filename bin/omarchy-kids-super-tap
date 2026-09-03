@@ -17,7 +17,7 @@
 # -- once three remain -- clears the file and runs omarchy-kids-exit,
 # so the *next* three taps start a fresh count rather than firing on
 # every release once three have ever landed close together.
-set -uo pipefail
+set -euo pipefail
 
 RUN="${OMARCHY_KIDS_RUNTIME_DIR:-${XDG_RUNTIME_DIR:-/tmp}/omarchy-kids}"
 FILE="$RUN/super-taps"

@@ -74,7 +74,7 @@
 #   OMARCHY_KIDS_TUI_ANSWERS       one answer per line; see lib/tui.sh / docs/tui.md
 #   DRY_RUN                        default 0 for a human on a tty or the
 #                                  app entry, 1 otherwise; --apply/--dry-run wins
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
@@ -329,7 +329,9 @@ start_prefetch() {
     fi
 }
 stop_prefetch() {
-    [[ -n "$PREFETCH_PID" ]] && kill "$PREFETCH_PID" >/dev/null 2>&1
+    if [[ -n "$PREFETCH_PID" ]]; then
+        kill "$PREFETCH_PID" >/dev/null 2>&1 || true
+    fi
     PREFETCH_PID=""
 }
 trap stop_prefetch EXIT
@@ -1150,6 +1152,10 @@ tui_init || exit $?
 STEP=1
 while ((STEP <= TOTAL_STEPS)); do
     rc=0
+    # A screen's own non-zero return (1=Esc back, 130=Ctrl+C leave) is a
+    # normal signal read from $rc just below, not a failure -- set +e
+    # for exactly this call so it doesn't trip `set -e` before that read.
+    set +e
     case "$STEP" in
         1) screen_welcome ;;
         2) screen_parent_password ;;
@@ -1179,6 +1185,7 @@ while ((STEP <= TOTAL_STEPS)); do
         15) screen_done ;;
     esac
     rc=$?
+    set -e
     case "$rc" in
         0)
             if ((STEP == 7)) && [[ "$MODE" == advanced ]]; then

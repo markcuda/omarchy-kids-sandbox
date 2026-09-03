@@ -22,7 +22,7 @@
 #                                   before exiting (default 15; tests set
 #                                   this to 0 so the suite doesn't sit
 #                                   through it)
-set -uo pipefail
+set -euo pipefail
 
 usage() {
   cat <<'EOF'

@@ -19,7 +19,7 @@
 # interactive panel. So this stays a quick, honest summary instead of a
 # deep link: omarchy-kids-ask list's own output, the same source of truth
 # the panel's Requests screen reads.
-set -uo pipefail
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LIB="${OMARCHY_KIDS_LIB:-$DIR/lib}"; [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids

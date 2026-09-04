@@ -22,10 +22,10 @@ source "$LIB/wizard-advanced.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
 
-ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 
 CONF_BIN="$(kids_bin conf "$DIR")"
+PARENT_AUTH_BIN="$(kids_bin parent-auth "$DIR")"
 PROVISION_BIN="$(kids_bin provision "$DIR")"
 WEB_BIN="$(kids_bin web "$DIR")"
 ASSERT_BIN="$(kids_bin assert "$DIR")"
@@ -37,7 +37,6 @@ PYHELPER="$LIB/conf.py"
 # check anywhere (AGENTS.md, "The trust boundary").
 AUTH_SOCK=/run/omarchy-kids/auth.sock
 SETUP_LOG="${OMARCHY_KIDS_SETUP_LOG:-/var/log/omarchy-kids/setup.log}"
-MACHINE_CONF="$ETC/machine.conf"
 # The parent's own login name, written into machine.conf's parent= by
 # Apply's first step (issue #46) -- docs/wizard.md.
 INVOKING_USER="${OMARCHY_KIDS_INVOKING_USER:-$(id -un 2>/dev/null || echo "${USER:-}")}"
@@ -160,7 +159,7 @@ run_priv() {
     printf ' %q' "$@"
     printf '\n'
   else
-    sudo "$@"
+    sudo -n "$@"
   fi
 }
 
@@ -173,7 +172,7 @@ run_priv_stdin() {
     printf '\n'
     cat >/dev/null
   else
-    sudo "$@"
+    sudo -n "$@"
   fi
 }
 
@@ -186,7 +185,7 @@ run_priv_as() {
     printf ' %q' "$@"
     printf '\n'
   else
-    sudo -u "$user" "$@"
+    sudo -n -u "$user" "$@"
   fi
 }
 
@@ -251,46 +250,30 @@ validate_kid_password() {
   return 0
 }
 
-# verify_parent_password_authd CANDIDATE — same protocol
-# bin/omarchy-kids-parent-auth speaks (docs/authd.md); fails closed if
-# neither socat nor python3 is available.
-verify_parent_password_authd() {
-  local candidate="$1" reply
-  reply="$(kids_sock_request "$AUTH_SOCK" "$candidate"$'\n')" || return 1
-  [[ "$reply" == ok* ]]
-}
-
-# verify_parent_password_sudo CANDIDATE — fallback for when authd's
-# socket isn't up: sudo -S -v, stdin only, never argv/logged. docs/wizard.md.
-verify_parent_password_sudo() {
+# establish_privilege CANDIDATE — warm sudo only after authd accepted it.
+establish_privilege() {
   local candidate="$1"
-  sudo -k >/dev/null 2>&1
   printf '%s\n' "$candidate" | sudo -S -p '' -v >/dev/null 2>&1
+  sudo -n -v >/dev/null 2>&1
 }
 
-# authd_verifiable — true iff the authd socket is active AND machine.conf
-# names a parent. Both gates matter independently -- docs/authd.md.
-authd_verifiable() {
-  [[ -S "$AUTH_SOCK" ]] || return 1
-  local parent
-  parent="$(conf_get "$MACHINE_CONF" parent 2>/dev/null)" && [[ -n "$parent" ]]
-}
-
-# verify_parent_password CANDIDATE — authd when authd_verifiable allows
-# it, else sudo. The fallback reason is a stderr diagnostic only, never
-# shown to the parent (issue #46) -- docs/wizard.md.
+# verify_parent_password CANDIDATE — authd decides identity; sudo only
+# receives the accepted candidate to establish a noninteractive ticket.
 verify_parent_password() {
   local candidate="$1"
-  if authd_verifiable; then
-    verify_parent_password_authd "$candidate"
-    return $?
+  PARENT_AUTH_ERROR=wrong
+  if ! printf '%s\n' "$candidate" | "$PARENT_AUTH_BIN" --bootstrap --socket "$AUTH_SOCK"; then
+    local rc=${PIPESTATUS[1]}
+    if ((rc == 2)); then
+      PARENT_AUTH_ERROR=unavailable
+    fi
+    return 1
   fi
-  if [[ -S "$AUTH_SOCK" ]]; then
-    echo "omarchy-kids-wizard: $MACHINE_CONF has no 'parent=' line — verifying the parent password via sudo instead" >&2
-  else
-    echo "omarchy-kids-wizard: omarchy-kids-authd socket not active ($AUTH_SOCK) — verifying the parent password via sudo instead" >&2
+  if ! establish_privilege "$candidate"; then
+    PARENT_AUTH_ERROR=privilege
+    return 1
   fi
-  verify_parent_password_sudo "$candidate"
+  return 0
 }
 
 friendly_wifi_mode() {

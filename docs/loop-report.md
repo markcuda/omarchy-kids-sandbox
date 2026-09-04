@@ -189,6 +189,7 @@ from screenshots. Done since:
   refused every root-owned 755 app, a kid without a theme of their own could not get a manifest,
   and a settings change made the next login fail closed on a stale manifest until the next
   assert. All three fixed with tests; `omarchy-kids-conf set` now rebuilds the manifest itself.
+- The standing order and the definition of done are written down in `docs/GOAL.md`.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

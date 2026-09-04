@@ -27,13 +27,19 @@ launcher_map_find_desktop() {
 }
 
 # launcher_map_executable_ok FILE — the first argv item must not be mutable by a kid.
+# launcher_map_mode_writable_by_others MODE -- group or other write bit set (755 no, 775/757 yes).
+# The owner digit is not looked at: root-owned 755 is the normal case, not a threat.
+launcher_map_mode_writable_by_others() {
+  local mode="$1"
+  [[ "${mode: -2:1}" == [2367] || "${mode: -1}" == [2367] ]]
+}
+
 launcher_map_executable_ok() {
-  local file="$1" mode
+  local file="$1"
   [[ "$file" == /* && -f "$file" && ! -L "$file" && -x "$file" ]] || return 1
   is_root || return 0
-  mode="$(file_stat a "$file")"
   [[ "$(file_stat u "$file")" == 0 ]] || return 1
-  [[ "${mode: -3:1}" != [2367] && "${mode: -1}" != [2367] ]]
+  ! launcher_map_mode_writable_by_others "$(file_stat a "$file")"
 }
 
 # launcher_map_exec_json FILE — fixed absolute argv from a trusted desktop entry.

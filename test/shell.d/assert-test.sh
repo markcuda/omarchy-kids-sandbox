@@ -564,6 +564,7 @@ check_status "$out" "theme:kid-ada" "ok" "theme: no override at all reports ok, 
 # restore for the rest of this file's own idempotence checks below
 printf 'theme=tokyo-night\n' >>"$ETC/kids/kid-ada.conf"
 theme_apply_for kid-ada tokyo-night
+"$BIN" >/dev/null # the theme is back in the profile, so the manifest must follow before it is the reference
 
 # session manifest: missing files are rebuilt without changing the profile.
 profile_before="$(cat "$ETC/kids/kid-ada.conf")"

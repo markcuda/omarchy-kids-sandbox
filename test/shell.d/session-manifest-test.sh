@@ -196,3 +196,25 @@ fi
 check_contains "$(cat "$TMP/unknown.err")" "unknown launcher" "unknown launcher failure says why"
 
 exit "$fail"
+
+# --- a kid with no theme of their own (follows the parent's): the manifest says "" -------------
+NOTHEME="$ETC/kids/kid-plain.conf"
+printf 'name=Plain\navatar=owl\nband=6-8\n' >"$NOTHEME"
+if session_manifest_build kid-plain 2>"$TMP/plain.err"; then
+  check "$(jq -r '.theme' "$(session_manifest_path kid-plain)")" "" "manifest: a kid without a theme builds with theme \"\""
+else
+  check "built" "failed: $(cat "$TMP/plain.err")" "manifest: a kid without a theme still builds"
+fi
+rm -f "$NOTHEME"
+
+# --- the executable mode rule looks at group and other, never the owner digit ------------------
+launcher_map_mode_writable_by_others 755
+check "$?" "1" "mode 755 is not writable by others (root's normal executable)"
+launcher_map_mode_writable_by_others 775
+check "$?" "0" "mode 775 is group-writable"
+launcher_map_mode_writable_by_others 757
+check "$?" "0" "mode 757 is world-writable"
+launcher_map_mode_writable_by_others 4755
+check "$?" "1" "mode 4755 (setuid, owner-only write) is not writable by others"
+
+exit $fail

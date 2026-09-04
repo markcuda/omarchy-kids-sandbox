@@ -66,8 +66,9 @@ session_manifest_validate_profile() {
     session_manifest_error "profile '$account' has an invalid level '$value'"
     return 1
   }
-  value="$(session_manifest_profile_value "$account" theme)" || return 1
-  [[ "$value" =~ ^[a-z0-9][a-z0-9-]*$ ]] || {
+  # theme is optional: unset means "follow the parent's theme" (docs/theming.md).
+  value="$("$CONF_BIN" get "$account" theme 2>/dev/null || true)"
+  [[ -z "$value" || "$value" =~ ^[a-z0-9][a-z0-9-]*$ ]] || {
     session_manifest_error "profile '$account' has an invalid theme"
     return 1
   }
@@ -162,10 +163,8 @@ session_manifest_render() {
     rm -f "$map"
     return 1
   }
-  theme="$(session_manifest_profile_value "$account" theme)" || {
-    rm -f "$map"
-    return 1
-  }
+  # A kid without a theme of their own follows the parent's (docs/theming.md); the manifest says "".
+  theme="$("$CONF_BIN" get "$account" theme 2>/dev/null || true)"
   web="$(session_manifest_profile_value "$account" web)" || {
     rm -f "$map"
     return 1
@@ -213,7 +212,7 @@ session_manifest_json_is_valid() {
     (.name | type == "string" and length > 0) and
     (.avatar | type == "string" and test("^[a-z0-9][a-z0-9-]*$")) and
     (.band | type == "string") and (.level | type == "number" and . >= 1 and . <= 3) and
-    (.theme | type == "string" and length > 0) and
+    (.theme | type == "string") and
     (.allowlist | type == "array" and all(.[]; type == "string")) and
     (.web | type == "string" and (IN("garden", "filtered", "none"))) and
     (.policy_id | type == "string" and length > 0) and

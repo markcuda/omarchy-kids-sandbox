@@ -224,7 +224,13 @@ stop_sudo_keeper() {
   fi
   SUDO_KEEPER_PID=""
 }
-trap 'stop_prefetch; stop_sudo_keeper' EXIT
+# shellcheck disable=SC2329 # invoked by the EXIT trap
+cleanup() {
+  stop_prefetch
+  stop_sudo_keeper
+  PARENT_PASSWORD=""
+}
+trap cleanup EXIT
 
 # --- validators ----------------------------------------------------------
 

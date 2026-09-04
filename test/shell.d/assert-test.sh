@@ -397,6 +397,8 @@ KIDS_DIR="$ETC/kids"
 CONF_BIN="$ROOT_DIR/bin/omarchy-kids-conf"
 KIDS_PY=python3
 source "$ROOT_DIR/lib/launcher-map.sh"
+# shellcheck source=lib/session-manifest.sh
+source "$ROOT_DIR/lib/session-manifest.sh"
 
 # chromium policy: one band's file, already 0640
 mkdir -p "$SCRATCH_ROOT/etc/chromium/policies/managed"
@@ -405,11 +407,18 @@ echo '{}' >"$CHROMIUM_FILE"
 chmod 0640 "$CHROMIUM_FILE"
 launcher_map_fix kid-ada
 
+# The baseline is fully provisioned, including the session input assert owns.
+session_manifest_build kid-ada
+MANIFEST_FILE="$ETC/sessions/kid-ada.json"
+
 # A failed allowlist (here: an account with no profile) must leave no map behind, never an empty one.
 launcher_map_fix kid-nosuch 2>/dev/null
-check "$?" "1" "launcher_map_fix: fails when the allowlist cannot be built"
-[[ ! -e "$(launcher_map_path kid-nosuch)" ]]
-check "$?" "0" "launcher_map_fix: writes no map when it fails"
+check_eq "$?" "1" "launcher_map_fix: fails when the allowlist cannot be built"
+if [[ ! -e "$(launcher_map_path kid-nosuch)" ]]; then
+  pass "launcher_map_fix: writes no map when it fails"
+else
+  fail "launcher_map_fix: writes no map when it fails"
+fi
 
 # boot hook: the package's hook file present, a fake UKI to "check", and
 # lsinitcpio's fixture already reporting the hook is in it
@@ -441,7 +450,7 @@ for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
   "pam:sddm" "pam:systemd-user" "pam:sddm-autologin" "parent-unlock:sddm" "parent-unlock:omarchy-lock-password" \
   "getty:tty2" "getty:tty3" "getty:tty4" \
   "getty:tty5" "getty:tty6" "units" "hyprland-configs" "chromium-policy:6-8" "boot-hook" \
-  "launcher-map:kid-ada" "limine-editor" "limine-snapshots"; do
+  "launcher-map:kid-ada" "session-manifest:kid-ada" "limine-editor" "limine-snapshots"; do
   check_status "$out" "$lock" "ok" "first run: $lock is ok"
 done
 
@@ -555,6 +564,29 @@ check_status "$out" "theme:kid-ada" "ok" "theme: no override at all reports ok, 
 # restore for the rest of this file's own idempotence checks below
 printf 'theme=tokyo-night\n' >>"$ETC/kids/kid-ada.conf"
 theme_apply_for kid-ada tokyo-night
+
+# session manifest: missing files are rebuilt without changing the profile.
+profile_before="$(cat "$ETC/kids/kid-ada.conf")"
+manifest_before="$(cat "$MANIFEST_FILE")"
+rm -f "$MANIFEST_FILE"
+out="$($BIN)"
+check_status "$out" "session-manifest:kid-ada" "fixed" "session-manifest: missing manifest is rebuilt"
+check_eq "$(cat "$ETC/kids/kid-ada.conf")" "$profile_before" \
+  "session-manifest: rebuilding does not change profile intent"
+check_eq "$(cat "$MANIFEST_FILE")" "$manifest_before" \
+  "session-manifest: rebuild restores the same valid bytes"
+manifest_inode="$(file_stat i "$MANIFEST_FILE")"
+
+# An unbuildable source must fail the lock and keep the previous valid document.
+printf 'budget_min=0\n' >>"$ETC/kids/kid-ada.conf"
+out="$($BIN)"
+check_status "$out" "session-manifest:kid-ada" "FAIL" "session-manifest: unbuildable profile reports FAIL"
+check_eq "$(cat "$MANIFEST_FILE")" "$manifest_before" \
+  "session-manifest: failed rebuild keeps the last valid manifest"
+check_eq "$(file_stat i "$MANIFEST_FILE")" "$manifest_inode" \
+  "session-manifest: failed rebuild keeps the manifest inode"
+sed -i.bak '/^budget_min=0$/d' "$ETC/kids/kid-ada.conf"
+rm -f "$ETC/kids/kid-ada.conf.bak"
 
 # polkit admin
 ADMIN_RULE="$SCRATCH_ROOT/etc/polkit-1/rules.d/40-omarchy-kids.rules"

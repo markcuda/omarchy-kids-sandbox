@@ -12,15 +12,32 @@ shell command.
 
 For example: `{"schema_version":1,"account":"kid-ada","name":"Display Name","avatar":"fox","band":"6-8","level":1,"theme":"tokyo-night","allowlist":["gcompris"],"web":"garden","policy_id":"omarchy-kids-6-8","budget_min":60,"budget_min_weekend":60,"lights_out":"19:30","lights_out_weekend":"20:00","tiles":[]}`.
 
-Only root-side provisioning and assert callers write manifests by calling `session_manifest build
-<kid>`. They may validate one with `session_manifest check <kid>`.
+Root-side provisioning builds the manifest immediately after the launcher map. Provision removal
+removes both root-owned inputs. The assert caller writes manifests by calling `session_manifest
+build <kid>` and may validate one with `session_manifest check <kid>`.
 
 `omarchy-kids-session --manifest` is the caller-bound read verb. It derives the account from
 `id -un`, then opens only `/etc/omarchy-kids/sessions/<account>.json` through the command's fixed
 `ETC` constant. It refuses a missing, linked, non-regular, non-root-owned, or non-0644 document,
 malformed JSON, a schema other than 1, a stale document, or an account mismatch. A refusal emits
 one plain line on stderr and no stdout; success prints the validated JSON. It accepts no account or
-path argument. Session startup and assert do not consume this verb yet; those are later tickets.
+path argument. Session startup and the launcher consume this validated document; assert checks and
+rebuilds the same manifest for every provisioned kid after package updates or drift.
+
+## Manifest-backed session startup
+
+`bin/omarchy-kids-session-start` reads the caller's manifest once through the fixed sibling
+`omarchy-kids-session --manifest` command. It parses the document as a whole, then exports its
+account, band, level, theme, web mode, budget, and lights-out values to the session surfaces. It
+creates only `/run/user/<uid>/omarchy-kids/launcher-control` for the existing keyboard activation
+path. It does not read the profile, scan desktop files, or write launcher or allowlist JSON in the
+kid's runtime directory.
+
+It starts the detached `omarchy-kids-time daemon`, then executes the level surface directly from
+an argv array: Level 1 runs `/usr/bin/quickshell -p
+/usr/share/omarchy-kids/launcher/shell.qml`; Levels 2 and 3 run
+`/usr/bin/omarchy-launch-shell`. Missing or invalid manifest output fails closed with one plain
+stderr line and no launcher surface.
 
 The kid session entry point. SDDM's `omarchy-kids` tile runs this through
 `/usr/share/sddm/scripts/wayland-session` the same way Omarchy's own session runs
@@ -178,12 +195,12 @@ open until it has:
 
 Cold boot with a kid's password → LUKS slot recorded → per-boot autologin into the `omarchy-kids`
 session → every R-DESK-2 check passed (private `/tmp` and `/dev/shm` verified) → `Hyprland --config
-/etc/omarchy-kids/hyprland/L1.lua` → `omarchy-kids-session-start` wrote the tile file and started
-the Level 1 launcher (Quickshell): nine tiles for the 6-8 pack plus the web app, a clock, keyboard
-highlight. Fixes that came out of the run: the polkit check goes through `pkcheck` (the rules
-directory is 0750 root:polkitd), `Hyprland --verify-config` is a fail-closed check because
-emergency mode binds a terminal, the level configs set their own Lua path, and all launcher state
-lives under the kid's `XDG_RUNTIME_DIR`.
+/etc/omarchy-kids/hyprland/L1.lua` → `omarchy-kids-session-start` read the validated manifest and
+started the Level 1 launcher (Quickshell): nine tiles for the 6-8 pack plus the web app, a clock,
+keyboard highlight. Fixes that came out of the run: the polkit check goes through `pkcheck` (the
+rules directory is 0750 root:polkitd), `Hyprland --verify-config` is a fail-closed check because
+emergency mode binds a terminal, the level configs set their own Lua path, and launcher execution
+data remains in the root-owned manifest rather than the kid's `XDG_RUNTIME_DIR`.
 
 Confirmed again later the same night on a clean package install and a cold boot with no manual
 step: slot recorded, `omarchy-kids-boot-login` wrote the drop-in, kid-cy on seat0, `Hyprland`
@@ -192,49 +209,14 @@ same machine lands on the owner's own desktop (R-BOOT fail-safe), not the portal
 gaps found by this run are now assert locks: `units` (the package's units must be enabled) and
 the earlier `limine-editor`.
 
-## Source header (moved from `bin/omarchy-kids-session-start`, issue #49)
+## `omarchy-kids-session-start` source contract
 
-Kept for reference; the file itself now carries a 3-line pointer instead.
-
-```text
-omarchy-kids-session-start: run once per kid Hyprland session via
-`exec-once`/`hl.on("hyprland.start", ...)` from share/hyprland/L1.lua,
-L2.lua, and L3.lua (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E).
-
-Writes display-only tile metadata to
-$XDG_RUNTIME_DIR/omarchy-kids/launcher-<uid>.json. The root-owned
-/etc/omarchy-kids/launchers/<account>.json map is built at provision
-and assert time from the effective allowlist and pack metadata
-(share/packs/<band>.toml); it holds fixed absolute argv arrays, not
-shell strings. The launcher activates by tile id and uses the map's
-argv, so runtime JSON cannot choose what runs. Then starts the right
-thing for the level:
-  Level 1 -> the standalone big-tile launcher (quickshell -p ...), the
-             *only* thing running (R-DESK-5: not a shell plugin).
-  Level 2/3 -> Omarchy's own shell, the same way Omarchy's own
-             default.hypr.autostart does (`omarchy-launch-shell`), after
-             also writing the same allowlist to $RUN/allowlist.json
-             (docs/apps.md) for the trimmed-menu extension to read.
-
-Also starts, detached, the screen-time engine's per-session daemon
-(bin/omarchy-kids-time daemon, SPEC.md R-TIME-1..5) -- see that
-file's own header for what it does and lib/time.sh's for the ledger
-trust boundary. The exit overlay (bin/omarchy-kids-exit, R-EXIT-1) is
-bound directly in share/hyprland/L1.lua etc., not started from here.
-
-Paths are build-time constants: `ETC=/etc/omarchy-kids`,
-`SHARE=/usr/share/omarchy-kids`, `RUN=/run/user/<uid>/omarchy-kids`, and
-`SYSROOT=`, and `QUICKSHELL_BIN=/usr/bin/quickshell`. The launcher map derives
-from `ETC` at `/etc/omarchy-kids/launchers/<account>.json`; the Level 1 QML
-path derives from `SHARE`. Tests substitute these constants only in a copied
-command tree; the session's environment cannot redirect its data or executable
-paths.
-  OMARCHY_KIDS_SESSION_START_NO_EXEC=1  write the JSON, print the exec
-                                  line that would run, and return 0
-                                  instead of exec'ing it (test hook --
-                                  also skips starting omarchy-kids-time,
-                                  same as it skips the real exec below)
-```
+The command runs once per kid Hyprland session from `share/hyprland/L1.lua`, `L2.lua`, or `L3.lua`.
+Its only session input is the caller-bound manifest. The manifest's tile records already contain
+labels, icons, installed state, and fixed argv arrays, so startup does not create a display JSON
+file, read the root launcher map, scan desktop entries, or write an allowlist file. The test-only
+`OMARCHY_KIDS_SESSION_START_NO_EXEC=1` hook prints the direct argv that would run and skips the
+daemon and exec.
 
 ## Source header (moved from `bin/omarchy-kids-session`, issue #49)
 
@@ -249,13 +231,13 @@ Run by /usr/share/wayland-sessions/omarchy-kids.desktop
 /usr/share/sddm/scripts/wayland-session the same way it starts
 Omarchy's own `uwsm start -g -1 -e -D Hyprland hyprland.desktop`.
 
-Sequence: figure out the account (`id -un`), run every R-DESK-2 check
-in order, and on the first fail-closed miss show a full-screen "Ask a
-grown-up" (omarchy-kids-blocked) and exit 1 -- fail closed, never
-a silent, unfenced desktop (I-4, I-9). Once every fail-closed check
-passes, export the account/level/band and exec Hyprland with the
-level's root-owned config -- never the kid's own `~/.config/hypr`
-(R-DESK-6, I-3).
+Sequence: derive the account (`id -un`), run every R-DESK-2 check in
+order, and on the first fail-closed miss show a full-screen "Ask a
+grown-up" (omarchy-kids-blocked) and exit 1 -- fail closed, never a
+silent, unfenced desktop (I-4, I-9). Once every check passes, read the
+caller-bound manifest, export the account/level/band, and exec Hyprland
+with the level's root-owned config -- never the kid's own
+`~/.config/hypr` (R-DESK-6, I-3).
 
 --check runs every check and prints a PASS/FAIL table without
 starting anything, for `omarchy-kids-check` to reuse.
@@ -277,11 +259,10 @@ The sole runtime setting here is the test-only `OMARCHY_KIDS_BLOCKED_SLEEP`.
 
 ## Level and band are outputs, not inputs (issue #58)
 
-`bin/omarchy-kids-session-start` used to prefer `$OMARCHY_KIDS_LEVEL` / `$OMARCHY_KIDS_BAND` over
-the root-owned profile, so a 13+ kid on Level 1 could run
-`OMARCHY_KIDS_LEVEL=2 omarchy-kids-session-start` from their terminal and get Omarchy's full shell
-and launcher inside their own session (review §3.4). Both now come from
-`omarchy-kids-conf get <account> <key>` unconditionally, and the account comes from `id -un`.
+`bin/omarchy-kids-session-start` now takes level, band, theme, web mode, budget, and lights-out
+values from the caller-bound manifest returned by `omarchy-kids-session --manifest`. The account
+is still derived from `id -un` inside that read command, and the session-start command cannot be
+redirected to another account or path by its environment.
 
 `bin/omarchy-kids-session` execs `/usr/bin/start-hyprland --config …` (Hyprland's own launcher since 0.5x; starting `/usr/bin/Hyprland` directly earns a red "started without start-hyprland" banner on every login, seen live 2026-09-03) after verifying the config with `/usr/bin/Hyprland --verify-config` (both constants, not `$OMARCHY_KIDS_HYPRLAND_BIN`
 and not a bare name resolved through the kid's own `PATH`, which a kid can set through

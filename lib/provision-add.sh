@@ -218,6 +218,8 @@ cmd_add() {
 
   # Root-built argv keeps kid-writable runtime data out of execution (finding 2).
   run launcher_map_fix "$account"
+  # The manifest is the single session input and must follow the launcher map.
+  run session_manifest_build "$account"
 
   echo "Done: $account"
 }

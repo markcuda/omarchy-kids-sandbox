@@ -189,38 +189,6 @@ time_remaining_minutes() {
   printf '%s\n' "$remaining"
 }
 
-# time_toast_thresholds PREV CURR THRESHOLDS FIRED — R-TIME-3's toast
-# decision (issue #40): prints thresholds firing now, then FIRED updated
-# for next call. Fires when PREV > T >= CURR and T isn't already FIRED;
-# a grant raising CURR back above a fired T un-fires it. docs/time.md.
-time_toast_thresholds() {
-  local prev="$1" curr="$2" thresholds="$3" fired="$4"
-  local -a th_arr to_fire=()
-  local t next_fired=""
-
-  read -r -a th_arr <<<"$thresholds"
-
-  # Un-fire anything CURR has now risen back above.
-  for t in "${th_arr[@]+"${th_arr[@]}"}"; do
-    if ((curr <= t)) && [[ " $fired " == *" $t "* ]]; then
-      next_fired+="${next_fired:+ }$t"
-    fi
-  done
-  fired="$next_fired"
-
-  # Fire anything freshly crossed this step, highest threshold first.
-  for t in "${th_arr[@]+"${th_arr[@]}"}"; do
-    if [[ " $fired " != *" $t "* ]] && ((t >= curr)) &&
-      { [[ -z "$prev" ]] || ((prev > t)); }; then
-      to_fire+=("$t")
-      fired+="${fired:+ }$t"
-    fi
-  done
-
-  printf '%s\n' "${to_fire[*]+"${to_fire[*]}"}"
-  printf '%s\n' "$fired"
-}
-
 # time_is_lights_out KID DAY WEEKEND NOW_HM — yes/no: reached lights-out.
 time_is_lights_out() {
   local kid="$1" weekend="$2" now_hm="$3" lights_out now_min lo_min
@@ -252,6 +220,26 @@ time_next_boundary() {
 # time_state_dir/state_file — root-owned runtime status readable by the kid.
 time_state_dir() { printf '%s/run/omarchy-kids/time\n' "$TIME_SYSROOT"; }
 time_state_file() { printf '%s/%s.json\n' "$(time_state_dir)" "$1"; }
+
+# time_state_boundary FILE — format the root-published next deadline for a parent display.
+time_state_boundary() {
+  local file="$1" reason last_wall remaining
+  reason="$(jq -r '.reason' "$file")"
+  last_wall="$(jq -r '.last_wall' "$file")"
+  remaining="$(jq -r '.remaining_seconds' "$file")"
+  if [[ "$reason" == lights-out ]]; then
+    printf 'lights-out %s\n' "$(time_hm "$last_wall")"
+    return 0
+  fi
+  "$KIDS_PY" - "$last_wall" "$remaining" <<'PY'
+import datetime
+import sys
+
+wall = datetime.datetime.strptime(sys.argv[1], "%Y-%m-%d %H:%M:%S")
+deadline = wall + datetime.timedelta(seconds=int(sys.argv[2]))
+print(f"budget {deadline:%H:%M}")
+PY
+}
 
 # time_warning_thresholds PREV_SECONDS CURRENT_SECONDS FIRED — prints the
 # thresholds fired now, then the retained threshold list for the next tick.

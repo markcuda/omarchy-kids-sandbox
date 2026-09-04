@@ -74,6 +74,9 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Changed
 
+- Kid screen-time display now follows the root-published runtime state; the kid path no longer
+  calculates budget or lights-out policy, and the Time's Up card no longer has a finish action
+  (#70, ticket 3).
 - Maintainer-eye review (`docs/reviews/2026-09-03-maintainer-eye.md`): the wizard shows a wrong
   parent password on the redrawn card, one `is_in` in `lib/kids.sh`, `.SRCINFO` and the units'
   `Documentation=` match what ships, the app entry has an icon, four `--help` texts and README's

@@ -1,6 +1,7 @@
 # Provisioning: `omarchy-kids-provision add` / `remove`
 
-R-FND-2..6, R-SEC-3..5, R-LOGIN-3, R-DESK-1, Appendix B.
+R-FND-2..6, R-SEC-3..5, R-LOGIN-3, R-DESK-1, R-BOOTMODE-3,
+R-BOOTMODE-4, R-BOOTMODE-11, Appendix B.
 
 `omarchy-kids-provision` is the one command that turns "a display name and a band" into a real
 Unix account a kid can log into, and the one command that turns it back into nothing. Everything
@@ -15,6 +16,8 @@ own use of it, docs/conf.md); `bin/omarchy-kids-provision` is the sequencing and
 run, unless `--apply` is passed or `DRY_RUN=0` is set. The few things that only *decide* what to
 do — the slug collision check, LUKS device/slot detection, reading `luks-slots` and
 `machine.conf` — always happen for real, dry run or not, since reading never changes anything.
+Before reading a password or changing state, `add` and `remove` read `boot=` through the fixed-path
+trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the command with exit 1.
 
 ## `add <display-name> --band <band> [--avatar ID] [--password-stdin | --no-password] [--parent-password-stdin | --parent-password-fd N] [--luks-device DEV]`
 
@@ -71,16 +74,19 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
    `pam_unix.so` line worth jumping around (`lib/posture.sh`'s own header comment has the full
    placement rule). A stack that doesn't exist yet on this box (the lock screen hasn't been
    configured) is a warning, not a reason to fail the whole `add` — see "Judgment calls" below.
-11. **A LUKS key slot** (R-SEC-4), only when a password was given *and* an encrypted device is
-   found (`--luks-device`, or auto-detected via `lsblk` for the first `crypto_LUKS` device — see
-   "Known gap" below): the parent's own passphrase (needed to authorize the add; the second line
+11. **A LUKS key slot** (R-SEC-4), only in `boot=disk` when a password was given. Disk mode
+   requires an encrypted device (`--luks-device`, or the first `crypto_LUKS` device from `lsblk`)
+   and the parent's passphrase; failure stops before the account is created. The parent's
+   passphrase (the second line
    of stdin with `--parent-password-stdin`, or an already-open fd with `--parent-password-fd`)
    unlocks the device long enough to add the kid's password as a new slot
    (`cryptsetup luksAddKey --key-file=<(parent password) DEVICE <(kid password)`); the new slot's
    *number* is then read back by testing the kid's password
    (`cryptsetup open --test-passphrase --verbose --key-file=<(kid password) DEVICE`, parsing its
    own `Key slot N unlocked.` line) — see "Why luks-slots is rewritten whole" below for why this
-   step exists at all instead of just remembering the slot cryptsetup handed out.
+   step exists at all instead of just remembering the slot cryptsetup handed out. Portal mode
+   makes no LUKS call and rejects `--luks-device`, `--parent-password-stdin`, and
+   `--parent-password-fd`.
 12. **AccountsService** (R-LOGIN-3): `/var/lib/AccountsService/users/<account>` gets
     `Session=omarchy-kids`, `XSession=omarchy-kids`, `Icon=/usr/share/omarchy-kids/avatars/<avatar>.svg`
     so the tile has no session picker at all.
@@ -114,16 +120,16 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
     `/etc/omarchy-kids/sessions/<account>.json`. The manifest is the validated input for the next
     kid login; `omarchy-kids-assert` rebuilds it after package updates.
 
-## `remove <account> [--keep-home]`
+## `remove <account> [--keep-home] [--luks-device DEV]`
 
 Reverses every account-level step `add` took, in reverse-ish order, then removes the account:
 
-1. **LUKS slot** (R-SEC-4): looked up by *slot number* in `luks-slots` (a kid's own password
+1. **LUKS slot** (R-SEC-4), disk mode only: looked up by *slot number* in `luks-slots` (a kid's own password
    isn't available to `remove`, so `--test-passphrase` isn't an option here — this is the one
    place slot number, not password, is the key), killed with
-   `cryptsetup luksKillSlot --batch-mode DEVICE SLOT` (device the same way `add` finds one, plus
-   `OMARCHY_KIDS_LUKS_DEVICE` since `remove` has no `--luks-device` flag of its own), then
-   `luks-slots` is rewritten without that entry.
+   `cryptsetup luksKillSlot --batch-mode DEVICE SLOT` (`--luks-device`, or auto-detection), then
+   `luks-slots` is rewritten without that entry. A failed kill leaves the mapping and profile in
+   place. Portal mode skips the map and cryptsetup entirely, and rejects `--luks-device`.
 2. `pam_namespace` lines for the account removed from `namespace.conf` (the `pam.d/sddm` and
    `pam.d/systemd-user` marker lines stay — they're not per-account).
 3. The AccountsService file removed.
@@ -173,7 +179,6 @@ account being added or removed — never assuming a slot number that wasn't just
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `omarchy-kids-conf`'s bands/packs (passed through); the avatar SVG `posture_write_face_icon` copies from (issue #39) |
 | `OMARCHY_KIDS_ROOT` | (none — the real paths) | prefixes every path `lib/posture.sh` writes: `/etc/polkit-1`, `/etc/security`, `/etc/pam.d`, `/etc/fstab`, `/var/lib/AccountsService`, `/usr/share/sddm/themes/omarchy-kids` (`theme.conf.user`), `/usr/share/sddm/faces`; also passed to `systemctl --root=` for the console masks |
 | `OMARCHY_KIDS_HOME_ROOT` | (none — the real `/home`) | prefixes `/home/<account>` for every `mount`/`umount`/`mv` this command itself runs (**not** in the spec's original env list — added here; see "Judgment calls" below) |
-| `OMARCHY_KIDS_LUKS_DEVICE` | (none) | `remove`'s LUKS device, since it has no `--luks-device` flag |
 | `OMARCHY_MIGRATIONS_DIR` | `/usr/share/omarchy/migrations` | source list for `mark_migrations_done`'s guessed markers |
 
 `test/shell.d/provision-test.sh` runs entirely against a scratch tree built from these, with a
@@ -246,10 +251,8 @@ in place by that point — and falls back to `mark_migrations_done`.
   `test/shell.d/provision-test.sh` stubs `umount` and `userdel` too (`gpasswd` is stubbed but
   currently unused — nothing in `add`/`remove` touches group membership beyond `useradd -G` at
   creation time and `userdel` at removal).
-- **LUKS device auto-detection (`lsblk`)** is implemented (first `crypto_LUKS` device it finds)
-  but not exercised by the test suite, since `lsblk` doesn't exist on the macOS box this was
-  built on and isn't one of the fakes the issue asked for; every test drives `--luks-device`
-  (`add`) or `OMARCHY_KIDS_LUKS_DEVICE` (`remove`) explicitly instead.
+- **LUKS device auto-detection (`lsblk`)** is implemented (first `crypto_LUKS` device it finds).
+  Tests use the disk-only `--luks-device` option so they never inspect the development Mac.
 - **Ownership bits** (`root:root`, `root:polkitd`, etc.) on the files this writes are left
   alone — only permission bits are set. Actually running this always requires root in
   production (`useradd`, `mount`, `cryptsetup` all do), at which point everything it creates is
@@ -296,8 +299,9 @@ actions on for real. Reads that only decide *what* to do (the slug
 collision check, LUKS device/slot detection, parsing luks-slots) always
 happen for real, dry run or not, since they never change anything.
 
-Every path is overridable for tests, so test/shell.d/provision-test.sh
-runs entirely against scratch trees with a stub PATH:
+Data paths use scratch prefixes in tests. The boot-mode reader stays fixed, so
+`test/shell.d/provision-test.sh` copies the command tree and rewrites its build-time constant.
+The test runs entirely against scratch trees with a stub PATH:
   OMARCHY_KIDS_ETC        default /etc/omarchy-kids   (profiles, machine.conf, luks-slots)
   OMARCHY_KIDS_SHARE      default /usr/share/omarchy-kids   (bands/packs, avatars source)
   OMARCHY_KIDS_ROOT       scratch prefix for /etc/polkit-1, /etc/security,
@@ -307,8 +311,6 @@ runs entirely against scratch trees with a stub PATH:
                           part of the spec's env list; added here because
                           mount/umount/mv all need somewhere real, if only
                           a scratch "real", to act on -- see docs/provision.md)
-  OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS auto-detection for "remove",
-                            which has no --luks-device flag of its own
 ```
 
 ## The trust boundary (issue #58)

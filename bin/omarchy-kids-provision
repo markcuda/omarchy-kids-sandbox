@@ -17,10 +17,15 @@ source "$LIB/conf.sh"
 source "$LIB/posture.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
+# shellcheck source=lib/boot-mode.sh
+source "$LIB/boot-mode.sh"
 # shellcheck source=lib/launcher-map.sh
 source "$LIB/launcher-map.sh"
 # shellcheck source=lib/session-manifest.sh
 source "$LIB/session-manifest.sh"
+
+# Device selection is an explicit option or local detection, never ambient state.
+unset OMARCHY_KIDS_LUKS_DEVICE
 
 DRY_RUN="${DRY_RUN:-1}"
 
@@ -43,7 +48,8 @@ Usage: omarchy-kids-provision add <display-name> --band <band>
            [--avatar ID] [--password-stdin | --no-password]
            [--parent-password-stdin] [--parent-password-fd N]
            [--luks-device DEV] [--apply]
-       omarchy-kids-provision remove <account> [--keep-home] [--apply]
+       omarchy-kids-provision remove <account> [--keep-home]
+           [--luks-device DEV] [--apply]
        omarchy-kids-provision list
        omarchy-kids-provision --help
 
@@ -59,17 +65,18 @@ add     Creates the Unix account, the profile, the polkit/pam/fstab
         The kid's password is read from stdin (never argv), one line,
         with --password-stdin. --no-password locks the account instead,
         and is only accepted for band 3-5 (R-SEC-3). When a LUKS slot is
-        also being added, the parent's own passphrase (needed to
+        also being added in disk mode, the parent's own passphrase (needed to
         authorize the add) is the *second* line of the same stdin with
         --parent-password-stdin, or comes from an already-open file
-        descriptor with --parent-password-fd N.
+        descriptor with --parent-password-fd N. Those options and
+        --luks-device are rejected in portal mode.
 
 remove  Reverses everything "add" did for that account: LUKS slot,
         luks-slots rewrite, pam_namespace lines, AccountsService file,
         fstab line and mount, profile, then the account itself. The home
         moves to "<parent home>/Kids Mode/<name>/" unless --keep-home.
         Machine-level pieces (groups, console masks, the polkit rules)
-        are left for Remove Kids Mode.
+        are left for Remove Kids Mode. --luks-device is disk-mode only.
 
 list    One line per provisioned kid: account, name, band.
 
@@ -102,6 +109,12 @@ valid_display_name() {
 # command's own error message (docs/conf.md).
 band_field() {
   kids_band_field "$CONF_BIN" "$@" || die "could not read band '$1' defaults from $CONF_BIN"
+}
+
+read_boot_mode() {
+  local mode
+  mode="$(boot_mode_get 2>/dev/null)" || die "invalid or missing boot mode in machine.conf; set boot=disk or boot=portal" 1
+  printf '%s\n' "$mode"
 }
 
 # read_parent — the "parent=" account name from $MACHINE_CONF, via

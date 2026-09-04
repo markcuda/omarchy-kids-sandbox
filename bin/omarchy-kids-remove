@@ -1,6 +1,6 @@
 #!/bin/bash
 # omarchy:summary=Remove Kids Mode: reverse every lock and account it created
-# omarchy:args=[--yes] [--dry-run] [--delete-homes] [--no-snapshot] [--keep-parent-group]
+# omarchy:args=[--yes] [--dry-run] [--delete-homes] [--no-snapshot] [--keep-parent-group] [--luks-device DEV]
 # "Remove Kids Mode": the parent's undo button -- reverses every lock, keeps every kid's files
 # (SPEC.md R-TRUST-1, R-TRUST-4, R-FND-6). See docs/remove.md for the exact order and what's deliberately left behind.
 set -euo pipefail
@@ -14,6 +14,11 @@ source "$LIB/conf.sh"
 source "$LIB/posture.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
+# shellcheck source=lib/boot-mode.sh
+source "$LIB/boot-mode.sh"
+
+# Device selection is an explicit option or local detection, never ambient state.
+unset OMARCHY_KIDS_LUKS_DEVICE
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
@@ -26,6 +31,8 @@ NO_SNAPSHOT=0
 PARENT_PW_STDIN=0
 PARENT_PASSWORD=""
 KEEP_PARENT_GROUP=0
+LUKS_DEVICE=""
+BOOT_MODE=""
 DRY_RUN=0
 ANY_FAIL=0
 FAILED_STEPS=()
@@ -39,7 +46,7 @@ usage() {
   cat <<'EOF'
 Usage: omarchy-kids-remove [--yes] [--dry-run] [--delete-homes]
                             [--parent-password-stdin] [--no-snapshot]
-                            [--keep-parent-group]
+                            [--keep-parent-group] [--luks-device DEV]
        omarchy-kids-remove --help
 
 Remove Kids Mode (SPEC.md R-TRUST-4): reverses every lock, removes every
@@ -63,6 +70,8 @@ the package itself -- this command never runs it.
                             required (root can kill a slot without one,
                             same as omarchy-kids-provision remove -- see
                             docs/remove.md).
+  --luks-device DEV         LUKS root when disk-mode auto-detection is
+                            unavailable. Rejected in portal mode.
   --no-snapshot             Skip the Snapper snapshot offer outright.
   --keep-parent-group       Leave the parent in omarchy-parents instead of
                             removing them at the end of the run.
@@ -79,20 +88,26 @@ for arg in "$@"; do
   esac
 done
 
-for arg in "$@"; do
-  case "$arg" in
+while (($#)); do
+  case "$1" in
     --yes) YES=1 ;;
     --dry-run) REAL_DRY_RUN=1 ;;
     --delete-homes) DELETE_HOMES=1 ;;
     --parent-password-stdin) PARENT_PW_STDIN=1 ;;
     --no-snapshot) NO_SNAPSHOT=1 ;;
     --keep-parent-group) KEEP_PARENT_GROUP=1 ;;
+    --luks-device)
+      [[ $# -ge 2 ]] || die "--luks-device needs a value"
+      LUKS_DEVICE="$2"
+      shift
+      ;;
     *)
-      echo "omarchy-kids-remove: unknown argument '$arg'" >&2
+      echo "omarchy-kids-remove: unknown argument '$1'" >&2
       usage >&2
       exit 2
       ;;
   esac
+  shift
 done
 
 # --- small helpers -----------------------------------------------------
@@ -155,14 +170,14 @@ luks_present() { [[ -n "$(luks_slot_for_account "$SLOTS_FILE" "$1" || true)" ]];
 luks_remove() {
   local account="$1" slot device
   slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
-  if device="$(detect_luks_device)"; then
-    if [[ -n "$PARENT_PASSWORD" ]]; then
-      cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$PARENT_PASSWORD") "$device" "$slot" || return 1
-    else
-      cryptsetup luksKillSlot --batch-mode "$device" "$slot" || return 1
-    fi
+  if ! device="$(detect_luks_device "$LUKS_DEVICE")"; then
+    echo "omarchy-kids-remove: disk mode cannot find the LUKS root for slot $slot" >&2
+    return 1
+  fi
+  if [[ -n "$PARENT_PASSWORD" ]]; then
+    cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$PARENT_PASSWORD") "$device" "$slot" || return 1
   else
-    echo "warning: no LUKS device found; slot $slot for $account was not killed on disk (luks-slots is rewritten anyway)" >&2
+    cryptsetup luksKillSlot --batch-mode "$device" "$slot" || return 1
   fi
   local parent_line entries=() line acct
   parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
@@ -220,12 +235,16 @@ home_remove() {
 }
 
 remove_kid() {
-  local account="$1" display_name
+  local account="$1" display_name failures_before
   display_name="$(conf_get "$KIDS_DIR/$account.conf" name 2>/dev/null || true)"
   [[ -n "$display_name" ]] || display_name="$account"
+  if [[ "$BOOT_MODE" == disk ]]; then
+    failures_before="$ANY_FAIL"
+    plan_one "luks:$account" luks_present luks_remove "$account"
+    ((ANY_FAIL == failures_before)) || return 0
+  fi
   plan_one "mount:$account" mount_present mount_remove "$account"
   plan_one "fstab:$account" fstab_present fstab_remove "$account"
-  plan_one "luks:$account" luks_present luks_remove "$account"
   plan_one "namespace:$account" namespace_present namespace_remove "$account"
   plan_one "accountsservice:$account" accountsservice_present accountsservice_remove "$account"
   plan_one "face:$account" face_present face_remove "$account"
@@ -306,27 +325,42 @@ limine_snapshots_present() {
   grep -qF "$LIMINE_SNAPSHOTS_MARKER" "$f" || grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$f"
 }
 limine_snapshots_remove() {
-  local f old tmp
+  local f old tmp backup mode owner group
   f="$(limine_default)"
   old="$(grep -F "$LIMINE_SNAPSHOTS_MARKER" "$f" 2>/dev/null | tail -n1 || true)"
   old="${old#"$LIMINE_SNAPSHOTS_MARKER"}"
-  tmp="$(mktemp)" || return 1
+  mode="$(file_stat a "$f")"
+  owner="$(file_stat u "$f")"
+  group="$(file_stat G "$f")"
+  [[ -n "$mode" && -n "$owner" && -n "$group" ]] || return 1
+  tmp="$(mktemp "$(dirname "$f")/.limine.XXXXXX")" || return 1
+  backup="$(mktemp "$(dirname "$f")/.limine.backup.XXXXXX")" || {
+    rm -f "$tmp"
+    return 1
+  }
+  cp -p "$f" "$backup" || {
+    rm -f "$tmp" "$backup"
+    return 1
+  }
   {
     grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${LIMINE_SNAPSHOTS_MARKER}" "$f" || true
     [[ -n "$old" ]] && printf 'MAX_SNAPSHOT_ENTRIES=%s\n' "$old"
     true
   } >"$tmp" || {
-    rm -f "$tmp"
+    rm -f "$tmp" "$backup"
     return 1
   }
-  cat "$tmp" >"$f" || {
-    rm -f "$tmp"
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$f"; then
+    rm -f "$tmp" "$backup"
     return 1
-  }
-  rm -f "$tmp"
-  if [[ -z "$(posture_root)" ]] && command -v limine-snapper-sync >/dev/null 2>&1; then
-    limine-snapper-sync
   fi
+  if [[ -z "$(posture_root)" ]] && command -v limine-snapper-sync >/dev/null 2>&1; then
+    if ! limine-snapper-sync; then
+      mv -f "$backup" "$f" || return 1
+      return 1
+    fi
+  fi
+  rm -f "$backup"
   return 0
 }
 
@@ -334,10 +368,26 @@ limine_snapshots_remove() {
 # own MAX_SNAPSHOT_ENTRIES line/comment above is ours to restore.
 
 mkinitcpio_dropin() { printf '%s/etc/mkinitcpio.conf.d/omarchy_kids.conf' "$(posture_root)"; }
-mkinitcpio_dropin_present() { [[ -f "$(mkinitcpio_dropin)" ]]; }
+mkinitcpio_dropin_present() { [[ "$BOOT_MODE" == disk ]]; }
 mkinitcpio_dropin_remove() {
-  rm -f "$(mkinitcpio_dropin)" || return 1
-  mkinitcpio -P
+  local file backup=""
+  file="$(mkinitcpio_dropin)"
+  if [[ -f "$file" ]]; then
+    backup="$(mktemp "$(dirname "$file")/.omarchy_kids.conf.XXXXXX")" || return 1
+    cp -p "$file" "$backup" || {
+      rm -f "$backup"
+      return 1
+    }
+    rm -f "$file" || {
+      rm -f "$backup"
+      return 1
+    }
+  fi
+  if ! mkinitcpio -P; then
+    [[ -n "$backup" ]] && mv -f "$backup" "$file"
+    return 1
+  fi
+  [[ -z "$backup" ]] || rm -f "$backup"
 }
 
 autologin_dropin() { printf '%s/zz-omarchy-kids-autologin.conf' "$(posture_sddm_conf_dir)"; }
@@ -398,7 +448,10 @@ parent_group_remove() {
 }
 
 varlib_dir() { printf '%s/var/lib/omarchy-kids' "$(posture_root)"; }
-purge_present() { [[ -d "$ETC" ]] || [[ -d "$(varlib_dir)" ]]; }
+purge_present() {
+  ((ANY_FAIL == 0)) || return 1
+  [[ -d "$ETC" ]] || [[ -d "$(varlib_dir)" ]]
+}
 purge_remove() {
   local base varlib stamp tar_dir tarball paths=()
   base="$(posture_root)"
@@ -459,6 +512,7 @@ run_body() {
   for account in "${kids[@]+"${kids[@]}"}"; do
     remove_kid "$account"
   done
+  ((ANY_FAIL == 0)) || return 0
 
   plan_one "polkit-admin" polkit_admin_present polkit_admin_remove
   plan_one "polkit-deny" polkit_deny_present polkit_deny_remove
@@ -488,8 +542,10 @@ run_body() {
     done
   fi
 
-  plan_one "limine-snapshots" limine_snapshots_present limine_snapshots_remove
-  plan_one "mkinitcpio-hook" mkinitcpio_dropin_present mkinitcpio_dropin_remove
+  if [[ "$BOOT_MODE" == disk ]]; then
+    plan_one "limine-snapshots" limine_snapshots_present limine_snapshots_remove
+    plan_one "mkinitcpio-hook" mkinitcpio_dropin_present mkinitcpio_dropin_remove
+  fi
   plan_one "sddm-autologin" autologin_present autologin_remove
   plan_one "units" units_present units_remove
   plan_one "parent-group" parent_group_present parent_group_remove
@@ -499,6 +555,12 @@ run_body() {
 # --- main --------------------------------------------------------------
 
 main() {
+  BOOT_MODE="$(boot_mode_get 2>/dev/null)" ||
+    die "invalid or missing boot mode in machine.conf; set boot=disk or boot=portal" 1
+  if [[ "$BOOT_MODE" == portal ]] && ((PARENT_PW_STDIN || ${#LUKS_DEVICE})); then
+    die "LUKS options are not available in portal mode"
+  fi
+
   if ((PARENT_PW_STDIN)) && ((!REAL_DRY_RUN)); then
     IFS= read -r PARENT_PASSWORD || die "--parent-password-stdin needs a line on stdin"
   fi

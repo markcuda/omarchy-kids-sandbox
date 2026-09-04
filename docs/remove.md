@@ -1,6 +1,7 @@
 # Remove Kids Mode: `omarchy-kids-remove`
 
-SPEC.md R-TRUST-1, R-TRUST-4, R-FND-6, section 5.2's Remove flow.
+SPEC.md R-TRUST-1, R-TRUST-4, R-FND-6, R-BOOTMODE-3, R-BOOTMODE-4,
+R-BOOTMODE-11, section 5.2's Remove flow.
 
 `omarchy-kids-remove` is the parent's undo button: it reverses every lock this package ever wrote,
 removes every kid account and its LUKS slot, but never touches a kid's own files. It is also
@@ -11,6 +12,11 @@ does, never run it (docs/packaging.md already documents that `pacman -R` alone l
 and account in place — Remove Kids Mode is the separate, explicit step that actually reverses
 things, run first).
 
+Before reading a password, printing a plan, or changing state, the command reads `boot=` through
+`lib/boot-mode.sh`'s fixed-path trusted reader. Missing or unsafe mode state exits 1 without a
+mutation. Portal mode rejects `--luks-device` and `--parent-password-stdin` and never enters a
+LUKS, Limine, or mkinitcpio path.
+
 ## What it does, in order
 
 1. **Offers a Snapper snapshot**, if `snapper` is on `PATH`: `snapper -c root create --print-number
@@ -18,15 +24,17 @@ things, run first).
    snapshot: #<n>`, issue #45) so a parent has it to hand if they ever need `snapper undochange` or
    the GUI. Skippable with `--no-snapshot`; silently does nothing if `snapper` isn't installed.
 2. **For every kid** (every `$OMARCHY_KIDS_ETC/kids/<account>.conf`), in this order:
-   1. Unmounts the home's noexec bind mount (`umount`), and best-effort stops whatever transient
+   1. In disk mode, kills the account's exact LUKS key slot (looked up by *number* in
+      `/etc/omarchy-kids/luks-slots`) and only then rewrites `luks-slots` without that entry.
+      `--luks-device` supplies the device when auto-detection is unavailable. A failed kill leaves
+      the mapping and profile in place, stops that kid's removal, and prevents machine cleanup.
+      Portal mode skips this step without reading the slot map.
+   2. Unmounts the home's noexec bind mount (`umount`), and best-effort stops whatever transient
       systemd mount unit fstab's own generator may have made for it (`systemd-escape --path
       --suffix=mount` then `systemctl stop`, both skipped quietly if `systemd-escape` isn't
       available or there's no such unit) — this has to happen *before* the fstab line goes, and
       before the home can be moved.
-   2. Removes the `/etc/fstab` bind line (`lib/posture.sh`'s `posture_remove_fstab_line`).
-   3. Kills the account's LUKS key slot (looked up by *number* in `/etc/omarchy-kids/luks-slots`,
-      same as `omarchy-kids-provision remove` — a kid's own password isn't available here) and
-      rewrites `luks-slots` without that entry.
+   3. Removes the `/etc/fstab` bind line (`lib/posture.sh`'s `posture_remove_fstab_line`).
    4. Removes the account's `pam_namespace.conf` lines (`posture_remove_namespace_lines`).
    5. Removes the AccountsService pin (`posture_remove_accountsservice`).
    6. Removes the SDDM face-icon file (`posture_remove_face_icon`, issue #39 — distinct from the
@@ -50,12 +58,14 @@ things, run first).
      `posture_parent_unlock_lock_stack` names (`omarchy-lock-password` on Omarchy 4.0.2) —
      (`posture_remove_parent_unlock_line`).
    - Removes every `/etc/chromium/policies/managed/omarchy-kids-*.json` this package wrote.
-   - Restores `/etc/default/limine`: drops our `MAX_SNAPSHOT_ENTRIES=0` line and its
+   - In disk mode only, atomically restores `/etc/default/limine`: drops our
+     `MAX_SNAPSHOT_ENTRIES=0` line and its
      `# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=<old>` marker, putting `<old>` back if there was
      one. `editor_enabled` is left exactly as it is — the parent chose that, Kids Mode never owned
      it, so there's nothing of ours to undo there (see "Judgment calls").
-   - Removes `/etc/mkinitcpio.conf.d/omarchy_kids.conf` and runs `mkinitcpio -P` so the very next
-     boot's image no longer carries the `omarchy-kids-unlock` hook.
+   - In disk mode only, removes `/etc/mkinitcpio.conf.d/omarchy_kids.conf` and runs exactly one
+     final `mkinitcpio -P`, even if that drop-in is already absent. A failed rebuild restores the
+     previous drop-in and fails the run.
    - Removes the per-boot SDDM autologin drop-in (`zz-omarchy-kids-autologin.conf`) if this boot
      happened to still have one around.
    - Disables and stops every unit `lib/kids.sh` lists — `KIDS_UNITS`/`KIDS_SOCKETS`/`KIDS_TIMERS`,
@@ -81,10 +91,9 @@ things, run first).
    that reported `FAILED`, so a bad step can't get lost among a long run of ordinary
    `removed`/`skipped` lines. Exit is 0 unless at least one step actually reported `FAILED` — a run
    that only ever skipped (nothing left to do) or removed cleanly always exits 0.
-5. **Idempotent**: every step above checks whether there's anything left to do before touching
-   anything, and reports `skipped` if not — running the whole command again finds nothing left for
-   every destructive step. The one deliberate exception is the snapshot offer itself (see
-   "Judgment calls").
+5. Every successful full removal deletes `machine.conf`; another run therefore requires a newly
+   established valid boot mode. This is deliberate fail-closed behavior, not an idempotent
+   post-removal shortcut.
 
 ## The plan/confirm/dry-run contract
 
@@ -95,10 +104,10 @@ Every run prints **the plan first**: every step above, either `skipped` (nothing
 - **Without `--yes`**, the plan is followed by a `Type "yes" to continue` prompt; anything else
   (including EOF) cancels with exit 1 and changes nothing.
 - **With `--yes`**, or after typing `yes`, a second pass runs for real, reporting `removed` /
-  `skipped` / `FAILED` per step, printed under a `Removing:` header. **One bad step never stops the
-  rest** — the whole point of Remove Kids Mode is to get as much of the machine back to stock as it
-  can, matching `omarchy-kids-assert`'s own "one bad lock never stops the rest" contract (exit code
-  1 if anything reported `FAILED`, 0 otherwise).
+  `skipped` / `FAILED` per step, printed under a `Removing:` header. Ordinary independent failures
+  are collected for the summary. A disk-slot failure stops dependent account and machine removal;
+  any failure preserves `/etc/omarchy-kids` so the operation can be retried. Exit is 1 if anything
+  failed, 0 otherwise.
 
 This is the same `AGENTS.md` rule 8 exception `omarchy-kids-assert` already documents (see
 `docs/assert.md`'s "Judgment calls"): a command whose whole reason to exist is a single, deliberate
@@ -204,11 +213,9 @@ reports `skipped`, with no separate `rm -rf` or move needed.
 
 | Env var | Default | Affects |
 | --- | --- | --- |
-| `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | profiles, `luks-slots` |
+| `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | profiles, `machine.conf`, `luks-slots` |
 | `OMARCHY_KIDS_ROOT` | (none — the real paths) | every real machine path this touches: `lib/posture.sh`'s own list, plus `/etc/systemd/system` (getty masks, package units), `/etc/chromium/policies/managed`, `/etc/mkinitcpio.conf.d`, `/etc/default/limine`, and `/root` (the pre-delete tarball) |
 | `OMARCHY_KIDS_HOME_ROOT` | (none — the real `/home`) | prefixes `/home/<account>` and `<parent>`'s own home for `umount`/`mv`/`rm` (`parent_home_dir` falls back to this prefix when `getent` isn't available) |
-| `OMARCHY_KIDS_LUKS_DEVICE` | (none) | the LUKS device, since `remove` has no `--luks-device` flag (same as `omarchy-kids-provision remove`) |
-
 `test/shell.d/remove-test.sh` builds a fully-provisioned scratch tree the same way
 `test/shell.d/assert-test.sh` does (seeding every lock directly through `lib/posture.sh`'s own
 writers, plus the same verbatim real `/etc/pam.d/sddm` and `/etc/pam.d/omarchy-lock-password`
@@ -255,6 +262,7 @@ what is deliberately left behind.
 Usage:
   omarchy-kids-remove [--yes] [--dry-run] [--delete-homes]
                        [--parent-password-stdin] [--no-snapshot]
+                       [--luks-device DEV]
   omarchy-kids-remove --help
 
 Also reachable as `omarchy-kids remove-kids-mode` (see bin/omarchy-kids).
@@ -262,13 +270,9 @@ Also reachable as `omarchy-kids remove-kids-mode` (see bin/omarchy-kids).
 Always prints the plan first: every step, "skipped" (nothing to do) or
 "would-remove". --dry-run stops right there and writes nothing. Without
 --yes, a parent has to type "yes" before anything real happens. The real
-pass then reports "removed"/"skipped"/"FAILED" per step -- one bad step
-never stops the rest, matching omarchy-kids-assert's own contract: the
-whole point of Remove Kids Mode is to get as much of the machine back to
-stock as it can, not to stop at the first thing that goes wrong.
-Idempotent: a second run finds nothing left to do and reports "skipped"
-for everything (see docs/remove.md's "Judgment calls" for the one
-deliberate exception -- the snapshot offer).
+pass then reports "removed"/"skipped"/"FAILED" per step. A LUKS failure
+keeps its mapping and profile and stops dependent removal. Any failure
+keeps /etc/omarchy-kids for a safe retry.
 
 Every path is overridable for tests, the same convention every other
 command in this repo uses:
@@ -280,9 +284,6 @@ command in this repo uses:
                             /etc/mkinitcpio.conf.d, /etc/default/limine,
                             and /root (the pre-delete tarball)
   OMARCHY_KIDS_HOME_ROOT    scratch prefix for /home/<account> itself
-  OMARCHY_KIDS_LUKS_DEVICE  overrides LUKS auto-detection; remove has no
-                            --luks-device flag, same as
-                            omarchy-kids-provision remove
 ```
 
 ## The trust boundary (issue #58)

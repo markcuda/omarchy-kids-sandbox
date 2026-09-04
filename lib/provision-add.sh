@@ -69,6 +69,12 @@ cmd_add() {
     [[ "$optional" == "true" ]] || die "add: --no-password is only allowed for band 3-5"
   fi
 
+  local boot_mode device=""
+  boot_mode="$(read_boot_mode)"
+  if [[ "$boot_mode" == portal ]] &&
+    { ((parent_pw_stdin)) || [[ -n "$parent_pw_fd" || -n "$luks_device" ]]; }; then
+    die "add: LUKS options are not available in portal mode"
+  fi
   local base_account account group
   base_account="$("$CONF_BIN" slug "$display")"
   account="$(unique_account "$base_account")"
@@ -89,6 +95,12 @@ cmd_add() {
     fi
   elif [[ -n "$parent_pw_fd" ]]; then
     IFS= read -r parent_password <&"$parent_pw_fd" || die "add: could not read the parent password from fd $parent_pw_fd"
+  fi
+  if [[ "$boot_mode" == disk ]] && ((want_password)); then
+    device="$(detect_luks_device "$luks_device")" ||
+      die "add: disk mode needs a LUKS root; pass --luks-device if auto-detection failed" 1
+    [[ -n "$parent_password" ]] ||
+      die "add: disk mode needs the parent passphrase via --parent-password-stdin or --parent-password-fd"
   fi
 
   echo "Adding kid '$display' as $account (band $band)"
@@ -148,22 +160,17 @@ cmd_add() {
   ensure_parent_unlock_soft sddm
   ensure_parent_unlock_soft "$(posture_parent_unlock_lock_stack)"
 
-  # R-SEC-4: a LUKS key slot, only when there's a password and a device.
-  if ((want_password)); then
-    local device=""
-    if device="$(detect_luks_device "$luks_device")"; then
-      [[ -n "$parent_password" ]] || die "add: found a LUKS device ($device) but no parent password; pass --parent-password-stdin or --parent-password-fd"
-      # Never through `run`: its preview would print both secrets
-      # (review S6, docs/provision.md). Own DRY_RUN preview instead.
-      if [[ "$DRY_RUN" == "0" ]]; then
-        add_luks_slot "$account" "$device" \
-          3< <(printf '%s\n' "$kid_password") \
-          4< <(printf '%s\n' "$parent_password")
-      else
-        printf '  [dry-run]'
-        printf ' %q' add_luks_slot "$account" "$device"
-        printf ' <secret> <secret>\n'
-      fi
+  # R-SEC-4: portal never enters the disk path.
+  if [[ "$boot_mode" == disk ]] && ((want_password)); then
+    # Never through `run`: its preview would print both secrets.
+    if [[ "$DRY_RUN" == "0" ]]; then
+      add_luks_slot "$account" "$device" \
+        3< <(printf '%s\n' "$kid_password") \
+        4< <(printf '%s\n' "$parent_password")
+    else
+      printf '  [dry-run]'
+      printf ' %q' add_luks_slot "$account" "$device"
+      printf ' <secret> <secret>\n'
     fi
   fi
 

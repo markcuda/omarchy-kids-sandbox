@@ -220,8 +220,8 @@ else
   ok "trust boundary: every command resolves lib/ from readlink -f \"\$0\", else the installed prefix"
 fi
 
-if grep -qx 'BOOT_MODE_ETC=/etc/omarchy-kids' lib/boot-mode.sh &&
-  grep -qx 'BOOT_MODE_MACHINE_CONF="\$BOOT_MODE_ETC/machine.conf"' lib/boot-mode.sh &&
+if grep -qx 'BOOT_MODE_MACHINE_CONF=/etc/omarchy-kids/machine.conf' lib/boot-mode.sh &&
+  ! grep -q '^BOOT_MODE_ETC=' lib/boot-mode.sh &&
   ! grep -q 'OMARCHY_KIDS_' lib/boot-mode.sh; then
   ok "trust boundary: boot-mode reads machine.conf from a fixed build-time path"
 else

@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tests bin/omarchy-kids-conf, lib/conf.sh, and lib/conf.py (SPEC.md
-# R-BAND-1, R-BAND-2, R-BUILD-5, R-CONFIG-1/2/6, Appendix B, Appendix C).
+# R-BAND-1, R-BAND-2, R-BUILD-5, R-CONFIG-1/2/6, R-BOOTMODE-1, R-BOOTMODE-12,
+# Appendix B, Appendix C).
 # Self-contained: runs entirely against scratch OMARCHY_KIDS_ETC and
 # OMARCHY_KIDS_SHARE trees, so it never touches the real /etc or
 # /usr/share. share/ is copied from the repo rather than faked, so this
@@ -513,20 +514,28 @@ mkdir -p "$BOOT_ETC" "$BOOT_STUBS"
 kids_tree "$BOOT_TREE" "$DIR"
 rm -f "$BOOT_TREE/lib"
 cp -a "$DIR/lib" "$BOOT_TREE/lib"
-kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_ETC "$BOOT_ETC"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$BOOT_ETC/machine.conf"
 BOOT_CONF="$BOOT_TREE/bin/omarchy-kids-conf"
 kids_id_stub "$BOOT_STUBS" mark 0
 REAL_STAT="$(command -v stat)"
 cat >"$BOOT_STUBS/stat" <<EOF
 #!/bin/bash
-if [[ "\${1:-}" == --version ]]; then exit 1; fi
-if [[ "\${3:-}" == "$BOOT_ETC/machine.conf" ]]; then
-  case "\${2:-}" in
-    %u) [[ -e "$TMP/unsafe-owner" ]] && echo 501 || echo 0 ;;
-    %Sg) [[ -e "$TMP/unsafe-owner" ]] && echo staff || echo root ;;
-    %Lp) exec "$REAL_STAT" -f '%Lp' "\$3" ;;
-    %i) exec "$REAL_STAT" -f '%i' "\$3" ;;
+if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
+format=""
+target=""
+case "\${1:-}" in
+  -c | -f)
+    format="\${2:-}"
+    target="\${3:-}"
+    ;;
+esac
+if [[ "\$target" == "$BOOT_ETC" || "\$target" == "$BOOT_ETC/machine.conf" ]]; then
+  case "\$format" in
+    %u) [[ -e "$TMP/unsafe-owner" || -e "$TMP/unsafe-dir-owner" ]] && echo 501 || echo 0 ;;
+    %G | %Sg) [[ -e "$TMP/unsafe-owner" || -e "$TMP/unsafe-dir-owner" ]] && echo staff || echo root ;;
+    %a) exec "$REAL_STAT" -c '%a' "\$target" ;;
+    %Lp) exec "$REAL_STAT" -f '%Lp' "\$target" ;;
+    %i) if [[ "\${1:-}" == -c ]]; then exec "$REAL_STAT" -c '%i' "\$target"; else exec "$REAL_STAT" -f '%i' "\$target"; fi ;;
     *) exit 1 ;;
   esac
   exit 0
@@ -585,6 +594,22 @@ touch "$TMP/unsafe-owner"
 out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
 check_status "$?" 1 "machine get boot: wrong owner exits 1"
 rm -f "$TMP/unsafe-owner"
+
+chmod 0775 "$BOOT_ETC"
+out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
+check_status "$?" 1 "machine get boot: user-writable parent exits 1"
+check "$out" "" "machine get boot: user-writable parent has no stdout"
+chmod 0755 "$BOOT_ETC"
+
+SYMLINK_ETC="$TMP/boot-etc-link"
+mkdir -p "$TMP/real-boot-etc"
+cp "$BOOT_ETC/machine.conf" "$TMP/real-boot-etc/machine.conf"
+ln -s "$TMP/real-boot-etc" "$SYMLINK_ETC"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$SYMLINK_ETC/machine.conf"
+out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
+check_status "$?" 1 "machine get boot: symlinked parent exits 1"
+check "$out" "" "machine get boot: symlinked parent has no stdout"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$BOOT_ETC/machine.conf"
 
 ln -sf "$BOOT_ETC/machine.conf" "$TMP/machine-link"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$TMP/machine-link"

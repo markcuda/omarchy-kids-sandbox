@@ -4,11 +4,19 @@
 # invent a second mode detector. Its paths are build-time constants: tests
 # substitute them in a copied tree, never through the environment.
 
-BOOT_MODE_ETC=/etc/omarchy-kids
-BOOT_MODE_MACHINE_CONF="$BOOT_MODE_ETC/machine.conf"
+BOOT_MODE_MACHINE_CONF=/etc/omarchy-kids/machine.conf
 
 boot_mode_valid() {
   [[ "$1" == disk || "$1" == portal ]]
+}
+
+boot_mode_dir_safe() {
+  local dir="$1" mode
+  [[ -d "$dir" && ! -L "$dir" ]] || return 1
+  mode="$(file_stat a "$dir")"
+  [[ "$mode" =~ ^7[0-5][0-5]$ ]] || return 1
+  [[ "$(file_stat u "$dir")" == 0 ]] || return 1
+  [[ "$(file_stat G "$dir")" == root ]] || return 1
 }
 
 boot_mode_file_safe() {
@@ -50,6 +58,7 @@ boot_mode_scan() {
 }
 
 boot_mode_get() {
+  boot_mode_dir_safe "$(dirname "$BOOT_MODE_MACHINE_CONF")" || return 1
   boot_mode_file_safe "$BOOT_MODE_MACHINE_CONF" || return 1
   boot_mode_scan "$BOOT_MODE_MACHINE_CONF" 0
 }
@@ -62,6 +71,17 @@ boot_mode_set() {
     return 1
   }
 
+  dir="$(dirname "$file")"
+  if [[ -e "$dir" || -L "$dir" ]]; then
+    boot_mode_dir_safe "$dir" || {
+      echo "omarchy-kids-conf: refusing unsafe machine.conf directory" >&2
+      return 1
+    }
+  else
+    install -d -m 0755 "$dir" || return 1
+    boot_mode_dir_safe "$dir" || return 1
+  fi
+
   if [[ -e "$file" || -L "$file" ]]; then
     boot_mode_file_safe "$file" || {
       echo "omarchy-kids-conf: refusing unsafe machine.conf" >&2
@@ -71,12 +91,8 @@ boot_mode_set() {
       echo "omarchy-kids-conf: refusing invalid machine.conf" >&2
       return 1
     }
-  else
-    dir="$(dirname "$file")"
-    install -d -m 0755 "$dir" || return 1
   fi
 
-  dir="$(dirname "$file")"
   tmp="$(mktemp "$dir/.machine.conf.XXXXXX")" || return 1
   if ! {
     if [[ -f "$file" ]]; then

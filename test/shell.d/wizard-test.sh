@@ -131,6 +131,14 @@ export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 BIN="$(wizard_for "$STUBS")"
+# The EXIT cleanup must clear the in-memory parent candidate, not only stop
+# background work. Keep this as a source-level contract because the process
+# exits before a child test can inspect its shell variables.
+cleanup_body="$(sed -n '/^cleanup() {/,/^}/p' "$DIR/bin/omarchy-kids-wizard")"
+check_contains "$cleanup_body" 'PARENT_PASSWORD=""' \
+  "wizard EXIT cleanup clears the parent password"
+check_contains "$(grep '^trap ' "$DIR/bin/omarchy-kids-wizard")" 'cleanup' \
+  "wizard EXIT trap runs secret cleanup"
 # This hostile value must not affect Apply. The expected identity is the
 # process's real account, read the same way the wizard reads it.
 EXPECTED_INVOKING_USER="$(id -un)"
@@ -480,6 +488,10 @@ if ((noninteractive && validates)) && [[ -n "${SUDO_FAIL_V_AT:-}" ]]; then
     printf '%s\n' "$count" >"$count_file"
     ((count < SUDO_FAIL_V_AT)) || exit 1
 fi
+if ((noninteractive && validates)) && [[ -n "${KEEPER_RELEASE_FILE:-}" ]] &&
+    [[ -f "$KEEPER_RELEASE_FILE" ]]; then
+    touch "$KEEPER_REFRESH_FILE"
+fi
 if ((${#args[@]} == 0)); then
     ((reads_stdin)) && cat >/dev/null
     exit 0
@@ -497,6 +509,15 @@ read -r candidate || candidate=""
 EOF
 cat >"$RM3_STUBS/systemctl" <<'EOF'
 #!/bin/bash
+if [[ -n "${KEEPER_RELEASE_FILE:-}" ]]; then
+    touch "$KEEPER_RELEASE_FILE"
+    for _ in $(seq 1 200); do
+        [[ -e "${KEEPER_REFRESH_FILE:-}" ]] && exit 0
+        /bin/sleep 0.01
+    done
+    echo "keeper did not refresh authorization" >&2
+    exit 1
+fi
 exit 0
 EOF
 for name in omarchy-kids-provision omarchy-kids-web omarchy-kids-apps omarchy-kids-assert omarchy-kids-session; do
@@ -608,6 +629,68 @@ check_not_contains "$(cat "$RM3_ARGV_LOG" 2>/dev/null)" "hunter2" \
   "R-BOOTMODE-8: the candidate never appears in child argv logs"
 check_not_contains "$SUDO_LOG" "hunter2" \
   "R-BOOTMODE-8: the candidate never appears in sudo argv logs"
+
+# Make the new account visible to the safety check without changing the
+# wizard's invoking identity lookup.
+REAL_ID="$(command -v id)"
+cat >"$RM3_STUBS/id" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == kid-ada ]]; then
+  exit 0
+fi
+exec "$REAL_ID" "\$@"
+EOF
+chmod +x "$RM3_STUBS/id"
+
+SLEEP_COUNT_FILE="$RM3_TMP/keeper-sleep-count"
+KEEPER_SLEEP_ARGS_FILE="$RM3_TMP/keeper-sleep-args"
+KEEPER_RELEASE_FILE="$RM3_TMP/keeper-release"
+KEEPER_REFRESH_FILE="$RM3_TMP/keeper-refresh"
+KEEPER_SUDO_LOG="$RM3_TMP/keeper-sudo.log"
+cat >"$RM3_STUBS/sleep" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >>"$KEEPER_SLEEP_ARGS_FILE"
+count=0
+[[ -f "$SLEEP_COUNT_FILE" ]] && count="$(<"$SLEEP_COUNT_FILE")"
+count=$((count + 1))
+printf '%s\n' "$count" >"$SLEEP_COUNT_FILE"
+if ((count == 1)); then
+  while [[ ! -e "$KEEPER_RELEASE_FILE" ]]; do /bin/sleep 0.01; done
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "$RM3_STUBS/sleep"
+
+# The Apply step cannot pass its systemctl call until the background keeper
+# has refreshed sudo, so this proves the refresh came from the 60-second loop.
+keeper_out="$({
+  PATH="$RM3_STUBS:$PATH" \
+    OMARCHY_KIDS_ETC="$RM3_ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_SETUP_LOG="$RM3_TMP/keeper-setup.log" \
+    SUDO_LOG="$KEEPER_SUDO_LOG" \
+    SLEEP_COUNT_FILE="$SLEEP_COUNT_FILE" \
+    KEEPER_SLEEP_ARGS_FILE="$KEEPER_SLEEP_ARGS_FILE" \
+    KEEPER_RELEASE_FILE="$KEEPER_RELEASE_FILE" \
+    KEEPER_REFRESH_FILE="$KEEPER_REFRESH_FILE" \
+    CORRECT_PW="hunter2" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
+    DRY_RUN=0 "$(wizard_for "$RM3_STUBS")" 2>&1
+})"
+keeper_status=$?
+check_status "$keeper_status" 0 "the wizard completes after the keeper refreshes authorization"
+check_eq "$(head -n 1 "$KEEPER_SLEEP_ARGS_FILE")" "60" \
+  "the authorization keeper waits on its 60-second interval"
+if [[ -f "$KEEPER_REFRESH_FILE" ]]; then
+  pass "the 60-second keeper performs a noninteractive authorization refresh"
+else
+  fail "the 60-second keeper performs a noninteractive authorization refresh"
+fi
+check_contains "$keeper_out" "Ada's desktop is ready." \
+  "keeper-backed Apply reaches the success headline"
+check_contains "$(cat "$RM3_TMP/keeper-setup.log" 2>/dev/null)" "FAKE-omarchy-kids-session: ok" \
+  "keeper-backed Apply runs the kid session check"
 
 # If the cached authorization has expired before Apply, the wizard must
 # return to Step 2 rather than claiming Done. The fake fails the second

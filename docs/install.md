@@ -106,7 +106,7 @@ Two separate steps:
 This is early: the spec is further along than the build. Read this before you hand a kid their
 password.
 
-- **Pause** is not built. The exit modal leaves it disabled and offers Finish instead. Omarchy
+- **Pause** is not built. The exit modal offers Finish only. Omarchy
   4.0.2 cannot open a second SDDM login screen while a session is live
   (`bin/omarchy-kids-exit:44-45,150-153`, `docs/phase1/V1.md`).
 - **The firmware password** is outside Kids Mode. Set one in the machine's firmware before

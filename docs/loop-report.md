@@ -170,7 +170,12 @@ from screenshots. Done since:
   session manifest builder and the kid's own validated read of it), #68 and #69 (the root ledger
   tick now decides budget and lights-out from root-owned data and ends the session itself; the
   kid-side overlay only warns). #66 (session startup reads one manifest, no scans, no runtime
-  exec strings: session-start went from 253 lines to 108) is at its gates.
+  exec strings: session-start went from 253 lines to 108) passed both suites, was merged, and
+  was reverted the same hour: nothing built the manifest on a provisioned machine yet, so a kid
+  got a black screen, and scenario 10 had passed because it only checked that the session was
+  live. Two rules came out of it and are now code: a consumer never merges before its producer
+  is wired, and a live scenario asserts the launcher is running, not that a session exists.
+  Ticket 4 re-lands it with the wiring.
 - A side track is scanning the Omacom Discord's #omarchy-kids channel through your browser for
   everyone else's Kids Mode work: repos get read by Codex, Discord text stays on the Mac, and a
   report with three recommended tickets lands in the scratchpad.

@@ -36,6 +36,16 @@ PYHELPER="$LIB/conf.py"
 # The verifier socket is a constant: a kid may not point a password
 # check anywhere (AGENTS.md, "The trust boundary").
 AUTH_SOCK=/run/omarchy-kids/auth.sock
+# Fixed production tools and configuration used only to choose the initial
+# boot-mode default. Tests rewrite these constants in a copied tree.
+BOOT_FINDMNT=/usr/bin/findmnt
+BOOT_LSBLK=/usr/bin/lsblk
+BOOT_CRYPTSETUP=/usr/bin/cryptsetup
+BOOT_STAT=/usr/bin/stat
+BOOT_ENV=/usr/bin/env
+BOOT_BASH=/bin/bash
+BOOT_MKINITCPIO_CONF=/etc/mkinitcpio.conf
+BOOT_MKINITCPIO_CONF_DIR=/etc/mkinitcpio.conf.d
 SETUP_LOG="${OMARCHY_KIDS_SETUP_LOG:-/var/log/omarchy-kids/setup.log}"
 # The parent's own login name, written into machine.conf's parent= by
 # Apply's first step (issue #46) -- docs/wizard.md.
@@ -63,8 +73,10 @@ Usage: omarchy-kids-wizard [--dry-run] [--help]
 Walks a parent through adding one kid, screen by screen (SPEC.md
 Appendix A): parent password, name, face, age band, Simple or Advanced,
 web, screen time, apps, Wi-Fi, desktop level, the kid's password, a
-plain-words summary, then Apply with a progress dashboard and a safety
-check. Run it directly, or as 'omarchy-kids wizard'. See docs/wizard.md.
+plain-words summary including startup mode, then Apply with a progress
+dashboard and a safety check. Advanced can change startup mode when disk
+startup is eligible. Run it directly, or as 'omarchy-kids wizard'. See
+docs/wizard.md.
 
   --dry-run   Print every command Apply would run instead of running it.
               Walked by a human (a terminal, or the Kids Mode app entry)
@@ -284,6 +296,88 @@ start_sudo_keeper() {
   SUDO_KEEPER_PID=$!
 }
 
+boot_config_path_safe() {
+  local path="$1" kind="$2" owner mode
+  [[ ! -L "$path" ]] || return 1
+  if [[ "$kind" == dir ]]; then
+    [[ -d "$path" ]] || return 1
+  else
+    [[ -f "$path" ]] || return 1
+  fi
+  read -r owner mode < <("$BOOT_STAT" -c '%u %a' "$path" 2>/dev/null) || return 1
+  [[ "$owner" == 0 && "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+  ((8#$mode & 022)) && return 1
+  return 0
+}
+
+boot_hook_shape_supported() {
+  local -a configs=()
+  local file
+  if [[ -e "$BOOT_MKINITCPIO_CONF" || -L "$BOOT_MKINITCPIO_CONF" ]]; then
+    boot_config_path_safe "$BOOT_MKINITCPIO_CONF" file || return 1
+    configs+=("$BOOT_MKINITCPIO_CONF")
+  fi
+  boot_config_path_safe "$BOOT_MKINITCPIO_CONF_DIR" dir || return 1
+  shopt -s nullglob
+  for file in "$BOOT_MKINITCPIO_CONF_DIR"/*.conf; do
+    boot_config_path_safe "$file" file || {
+      shopt -u nullglob
+      return 1
+    }
+    configs+=("$file")
+  done
+  shopt -u nullglob
+  ((${#configs[@]})) || return 1
+
+  "$BOOT_ENV" -i PATH=/usr/bin:/bin "$BOOT_BASH" --noprofile --norc -s -- "${configs[@]}" <<'EOF'
+set -uo pipefail
+for config in "$@"; do
+  # shellcheck disable=SC1090 # fixed, root-owned mkinitcpio configuration
+  source "$config"
+done
+has_encrypt=0
+for hook in "${HOOKS[@]-}"; do
+  [[ "$hook" == encrypt ]] && has_encrypt=1
+  [[ "$hook" == sd-encrypt ]] && exit 1
+done
+((has_encrypt))
+EOF
+}
+
+boot_root_luks_device() {
+  local source tree path fstype device=""
+  source="$("$BOOT_FINDMNT" -nro SOURCE --target / 2>/dev/null)" || return 1
+  source="${source%%\[*}"
+  [[ "$source" == /dev/* ]] || return 1
+  tree="$("$BOOT_LSBLK" -srno PATH,FSTYPE "$source" 2>/dev/null)" || return 1
+  while read -r path fstype; do
+    [[ "$fstype" == crypto_LUKS ]] || continue
+    device="$path"
+    break
+  done <<<"$tree"
+  [[ "$device" == /dev/* ]] || return 1
+  printf '%s\n' "$device"
+}
+
+detect_initial_boot_mode() {
+  local candidate="$1" device
+  BOOT_MODE=portal
+  BOOT_DETECTED_MODE=portal
+  BOOT_DISK_ELIGIBLE=0
+  BOOT_DISK_DEVICE=""
+  [[ "$DRY_RUN" != 1 ]] || return 0
+  device="$(boot_root_luks_device)" || return 0
+  boot_hook_shape_supported || return 0
+  if ! printf '%s' "$candidate" |
+    sudo -n "$BOOT_CRYPTSETUP" open --test-passphrase --key-file=- "$device" >/dev/null 2>&1; then
+    return 0
+  fi
+  BOOT_DISK_DEVICE="$device"
+  BOOT_DISK_ELIGIBLE=1
+  BOOT_MODE=disk
+  BOOT_DETECTED_MODE=disk
+}
+
 # verify_parent_password CANDIDATE — authd decides identity; sudo only
 # receives the accepted candidate to establish a noninteractive ticket.
 verify_parent_password() {
@@ -367,6 +461,10 @@ DNS_MODE=""
 SITES=""
 MENU_MODE=""
 HISTORY_VISIBLE=""
+BOOT_MODE=portal
+BOOT_DETECTED_MODE=portal
+BOOT_DISK_ELIGIBLE=0
+BOOT_DISK_DEVICE=""
 NO_PASSWORD=0
 KID_PASSWORD=""
 PARENT_PASSWORD=""

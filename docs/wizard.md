@@ -32,14 +32,14 @@ at the bottom of `bin/omarchy-kids-wizard` jumps straight from step 7 to step 12
 | Step | Appendix A | Screen | What happens |
 | --- | --- | --- | --- |
 | 1 | A1 | Welcome | Omy's line and three bullets; **Begin** is the only choice. |
-| 2 | A2 | Parent password | Right after Welcome. Verified against `omarchy-kids-authd` with the caller-bound `BOOTSTRAP` frame (`docs/authd.md`), kept in memory (never written anywhere), and used to establish and maintain Apply's noninteractive sudo authorization. |
+| 2 | A2 | Parent password | Right after Welcome. Verified against `omarchy-kids-authd` with the caller-bound `BOOTSTRAP` frame (`docs/authd.md`) and kept in memory (never written anywhere). The wizard selects disk startup only when the root filesystem is LUKS-backed, the mkinitcpio hook shape is supported, and this same candidate opens that device; otherwise it selects portal startup. |
 | 3 | A3 | Name | Letters, spaces, and hyphens, 1-24 characters; previews the `kid-<slug>` account name via `omarchy-kids-conf slug`. |
 | 4 | A4 | Face | One of the twelve `share/avatars/*.svg` animals (Q18), as a keyboard list — `lib/tui.sh` has no separate grid widget, and a list is exactly as keyboard-complete. |
 | 5 | A5 | Age band | 3-5 / 6-8 / 9-12 / 13+, each with its `bands.toml` blurb as the reason line. **Prefetch starts here** (see below) and never blocks; so does `adv_init` (see "The Advanced path" below), seeding every Advanced-only cell to this band's default whether or not Advanced is ever opened. |
 | 6 | A6 | Simple or Advanced | **Simple**: walk A7-A11 next. **Advanced** (issue #20): open the grouped checklist (A13a) next instead — see "The Advanced path" below. |
 | 12 | A12 | Kid's password | Twice, masked. Band 3-5 gets an extra "set a password or not" choice first (R-BAND's `password_optional`); every other band always sets one. Explains what it unlocks. |
-| 13 | A13 | Summary | A plain-words table — account, face, age band, desktop level, web mode, screen time, bedtime, Wi-Fi, starter apps, password, plus any of the seven Advanced-only cells that were changed — changed rows marked `(custom)` — then **Apply** or **Change something** (which opens the same grouped checklist, for a kid built either way, then redraws this summary). |
-| 14 | A13b/A13c | Apply | A step-by-step progress dashboard (`tui_progress`, R-WIZ-5): the account (plus every cell, from either path, that overrides the band default), the web policy, the starter pack, and the safety check (A13c). |
+| 13 | A13 | Summary | A plain-words table — account, face, age band, startup mode, desktop level, web mode, screen time, bedtime, Wi-Fi, starter apps, password, plus any Advanced-only cells that were changed — changed rows marked `(custom)` — then **Apply** or **Change something** (which opens the same grouped checklist, for a kid built either way, then redraws this summary). |
+| 14 | A13b/A13c | Apply | A step-by-step progress dashboard (`tui_progress`, R-WIZ-5): parent identity, startup-mode convergence and services, the account (plus every cell that overrides the band default), web policy, starter pack, and safety check (A13c). Disk startup reuses the held candidate; there is no second disk-secret prompt. |
 | 15 | A14 | Done | Omy's line; **Return to my desktop** or **Open `<Name>`'s desktop** (R-WIZ-6). |
 
 ### Step 7, Simple: A7-A11
@@ -69,11 +69,12 @@ way just leaves that one app out and moves to the next.
 
 Picking **Advanced** at A6 opens `lib/wizard-advanced.sh`'s `screen_advanced_checklist`: one row
 per Appendix B cell that isn't already collected by a screen both paths share — name/avatar/band
-(A3-A5) and the kid's password (A12) — thirteen rows in six groups, Appendix B order within each
+(A3-A5) and the kid's password (A12) — fourteen rows in seven groups, Appendix B order within each
 group:
 
 | Group | Rows |
 | --- | --- |
+| Startup | Boot (`boot`): disk when every prerequisite passed, or portal; disk is unavailable otherwise |
 | Web | Web access (`web`), Safe-search DNS (`dns`), Allowed sites (`sites`) |
 | Screen time | Minutes a day, weekdays and weekends (`budget_min`, `budget_min_weekend`), Lights out, weekdays and weekends (`lights_out`, `lights_out_weekend`) |
 | Apps | Starter apps (`allowlist`) |
@@ -123,13 +124,14 @@ anything else that depends on it, writes `machine.conf`'s `parent=` — `omarchy
 set parent $INVOKING_USER` (issue #46 follow-up; `$INVOKING_USER` always comes from `id -un`, since
 the wizard always runs unprivileged, as the parent) — since nothing else in this repo writes that line, and
 without it `omarchy-kids-authd` answers "no" to every password and `omarchy-kids-provision`
-refuses to add a kid at all. Only then does it run `sudo systemctl enable --now` on the package's
+refuses to add a kid at all. Apply then converges the selected startup mode. Only after that
+producer succeeds does it run `sudo systemctl enable --now` on the package's
 own units — `KIDS_UNITS`/`KIDS_SOCKETS`/`KIDS_TIMERS`, `lib/kids.sh`, the same list
 `omarchy-kids-assert`'s `units` lock uses (`docs/assert.md`) — *before* provisioning (issue #46): a
 fresh install before the first kid, or right after `omarchy-kids-remove` disables them again, needs
 the boot-time autologin and a working authd socket back before Step 2 (the account) and the *next*
 wizard run both need them. Every subsequent Apply command (`run_priv`/`run_priv_stdin`/
-`run_priv_as`, called from one of the five
+`run_priv_as`, called from one of the six
 `apply_step_*` functions) is then a noninteractive `sudo <command>`, which shouldn't prompt
 again inside that cached window. If `sudo -n -v` fails before or during Apply, the wizard stops and
 returns to Step 2 without prompting from Apply. The keeper stops when the wizard exits. This needs
@@ -174,10 +176,10 @@ mode) regardless of what the A9 apps screen later picks — R-WIZ-4's own words,
 need no undo" — Apply's own install step (below) installs the whole pack too; only the allowlist
 override A9 writes actually restricts what the kid sees in their launcher.
 
-## Apply's five steps: exit codes, stopping on failure, and the technical log
+## Apply's steps: exit codes, stopping on failure, and the technical log
 
-Each of Apply's five dashboard rows is one function (`apply_step_getok`, `apply_step_account`,
-`apply_step_web`, `apply_step_pkgs`, `apply_step_safety`), and `run_apply_step` is the one place
+Each of Apply's six dashboard rows is one function (`apply_step_getok`, `apply_step_boot`,
+`apply_step_account`, `apply_step_web`, `apply_step_pkgs`, `apply_step_safety`), and `run_apply_step` is the one place
 that runs one, decides ✓ or ✗, and does something about it:
 
 - **✓/✗ is the step's own real exit code**, not "we got this far without the script itself
@@ -191,10 +193,12 @@ that runs one, decides ✓ or ✗, and does something about it:
   ready.
 - **The technical log** (R-WIZ-5's tip line, `$SETUP_LOG`, default `/var/log/omarchy-kids/setup.log`)
   is now actually written on a real run, not just named: `apply_step_getok` also writes
-  machine.conf's `parent=`, enables and starts the package's own units (`sudo systemctl enable
-  --now`, issue #46, see "Root and the one sudo prompt" above) and creates the log's own directory
-  (`sudo install -d`, since a parent's own unprivileged wizard process can't create anything under
-  `/var/log` itself), and every step's combined output is piped through `sudo tee -a "$SETUP_LOG"`
+  machine.conf's `parent=` and creates the log's own directory. `apply_step_boot` commits the
+  chosen startup mode before enabling the package's own units (`sudo systemctl enable --now`,
+  issue #46, see "Root and the one sudo prompt" above), so consumers never start against stale
+  mode state. The directory uses `sudo install -d`, since a parent's own unprivileged wizard
+  process can't create anything under `/var/log` itself, and every step's combined output is piped
+  through `sudo tee -a "$SETUP_LOG"`
   on its way to the screen — a second, separate `sudo` call from the step's own (already-elevated)
   command, which the A2-warmed credential cache covers the same way it covers everything else. A
   `--dry-run` never touches this file at all; the tip line only mentions it after the real dashboard
@@ -295,7 +299,7 @@ provision's flags (`--apply` and the face included), the `omarchy-kids-conf set`
 any cell, from either path, that differs from the band default (and their absence when every cell
 matches the default — R-BAND-2), the web install call (also with `--apply`), and the
 `omarchy-kids-apps install <band> --now --apply` call (always the whole band pack, regardless of
-A9's or Advanced's pick — see "Apply's five steps" above) — plus name validation, the A8/A9
+A9's or Advanced's pick — see "Apply's steps" above) — plus name validation, the A8/A9
 branches, Esc-back, and that Ctrl+C right after Welcome prints no command at all. A separate block
 of scenarios runs with `DRY_RUN=0` against a fake `sudo` that actually execs its argv, to check the
 things `--dry-run` can't: a failing step showing ✗ and stopping the dashboard before any later step
@@ -363,7 +367,7 @@ parent
 | --- | --- | --- |
 | `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | kid profiles (only read, to preview slug collisions) |
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `bands.toml`, `packs/<band>.toml`, `avatars/*.svg` |
-| `OMARCHY_KIDS_SETUP_LOG` | `/var/log/omarchy-kids/setup.log` | Apply's technical log (see "Apply's five steps" above) — a real run writes it; `--dry-run` never does |
+| `OMARCHY_KIDS_SETUP_LOG` | `/var/log/omarchy-kids/setup.log` | Apply's technical log (see "Apply's steps" above) — a real run writes it; `--dry-run` never does |
 | `OMARCHY_KIDS_TUI_ANSWERS` | (unset — real terminal) | see `docs/tui.md` |
 | `DRY_RUN` | `1` | `0` (or `--apply`) makes Apply real |
 
@@ -492,16 +496,16 @@ friendly_web_mode, friendly_wifi_mode, validate_budget_minutes,
 validate_lights_out, and every lib/tui.sh tui_screen_* function. Not
 meant to be executed or sourced on its own.
 
-One row per key, twelve keys in six groups (Web, Screen time, Apps,
-Wi-Fi, Desktop, Data), Appendix B order within each group. name/avatar/
+One row per key, fourteen keys in seven groups (Startup, Web, Screen time,
+Apps, Wi-Fi, Desktop, Data), Appendix B order within each group. name/avatar/
 band (A3-A5) and password (A12) are collected by their own screens
 before either path reaches here, so they're not rows; onboarded is a
 system-managed flag no screen ever offers a parent, so it isn't either.
 
 Every row's value lives in the SAME plain variable Simple's own A7/A8/
 A9/A10/A11 screens use (WEB_MODE, BUDGET_MIN, ALLOWLIST_IDS, ...) — one
-source of truth regardless of which path set it — plus seven variables
-Simple never touches (DNS_MODE, SITES, MENU_MODE, HISTORY_VISIBLE,
+source of truth regardless of which path set it — plus eight variables
+Simple never touches (BOOT_MODE, DNS_MODE, SITES, MENU_MODE, HISTORY_VISIBLE,
 BUDGET_MIN_WEEKEND, LIGHTS_OUT_WEEKEND). adv_varname maps a key to its
 variable's name; adv_get/adv_set read and write it by that name (the
 same indirect-by-name idiom lib/tui.sh's _tui_array_copy uses, for the

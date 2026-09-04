@@ -1,24 +1,30 @@
 # shellcheck shell=bash
 # lib/wizard-apply.sh -- omarchy-kids-wizard's Apply screen (A13b) and its
-# five steps: getok, account, web, pkgs, safety, then Done (A14). Sourced
+# six steps: getok, boot, account, web, pkgs, safety, then Done (A14). Sourced
 # by the dispatcher; not meant to be executed directly. See docs/wizard.md
-# "Apply's five steps" for the exit-code/logging contract each step follows.
+# "Apply's steps" for the exit-code/logging contract each step follows.
 
-# Step 1: write machine.conf's parent= first. Step 2 already holds the
+# Step 1: write machine.conf's parent= first. Apply already holds the
 # sudo ticket used by every command in this run.
 apply_step_getok() {
   if [[ "$DRY_RUN" == "1" ]]; then
     printf '  [dry-run] sudo -v\n'
     printf '  [dry-run] sudo %q machine set parent %q\n' "$CONF_BIN" "$INVOKING_USER"
-    printf '  [dry-run] sudo systemctl enable --now'
-    printf ' %q' "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"
-    printf '\n'
     printf '  [dry-run] sudo install -d -m 0755 %q\n' "$(dirname "$SETUP_LOG")"
     return 0
   fi
   sudo -n "$CONF_BIN" machine set parent "$INVOKING_USER" || return 1
-  sudo -n systemctl enable --now "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" || return 1
   sudo -n install -d -m 0755 "$(dirname "$SETUP_LOG")"
+}
+
+apply_step_boot() {
+  if [[ "$BOOT_MODE" == disk ]]; then
+    printf '%s\n' "$PARENT_PASSWORD" |
+      run_priv_stdin "$CONF_BIN" machine set boot disk --secrets-stdin || return 1
+  else
+    run_priv "$CONF_BIN" machine set boot portal || return 1
+  fi
+  run_priv systemctl enable --now "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"
 }
 
 # prepare_apply_log — establish the existing ticket and open the log
@@ -37,9 +43,12 @@ apply_step_account() {
   local rc=0
   if ((NO_PASSWORD)); then
     run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --no-password --apply </dev/null
-  else
+  elif [[ "$BOOT_MODE" == disk ]]; then
     printf '%s\n%s\n' "$KID_PASSWORD" "$PARENT_PASSWORD" |
-      run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --password-stdin --parent-password-stdin --apply
+      run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --password-stdin --parent-password-stdin --luks-device "$BOOT_DISK_DEVICE" --apply
+  else
+    printf '%s\n' "$KID_PASSWORD" |
+      run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --password-stdin --apply
   fi
   rc=$?
   ((rc == 0)) || return "$rc"
@@ -92,7 +101,7 @@ apply_step_safety() {
 
 # run_apply_step LABEL FUNC — runs FUNC, tees its output live and (a real
 # run only) to $SETUP_LOG (R-WIZ-5). FUNC's own exit code, via
-# PIPESTATUS, decides ✓/✗ -- docs/wizard.md "Apply's five steps".
+# PIPESTATUS, decides ✓/✗ -- docs/wizard.md "Apply's steps".
 run_apply_step() {
   local func="$2" tmp rc
   tmp="$(mktemp)"
@@ -120,7 +129,7 @@ run_apply_step() {
 
 # A13b/A13c: Apply, then the safety check. Stops at the first failing
 # step (real run only) rather than reporting success for a step that
-# changed nothing -- docs/wizard.md "Apply's five steps".
+# changed nothing -- docs/wizard.md "Apply's steps".
 screen_apply() {
   tui_header "Apply" 14 "$TOTAL_STEPS" 0 ""
   echo
@@ -128,12 +137,13 @@ screen_apply() {
   # shellcheck disable=SC2034 # read by tui_progress via nameref-by-name
   local steps=(
     "Getting your OK"
+    "Setting how this computer starts"
     "Setting up $DISPLAY_NAME's account"
     "Turning on the safe browser rules"
     "Installing $BAND starter apps"
     "Double-checking everything is safe"
   )
-  local -a funcs=(apply_step_getok apply_step_account apply_step_web apply_step_pkgs apply_step_safety)
+  local -a funcs=(apply_step_getok apply_step_boot apply_step_account apply_step_web apply_step_pkgs apply_step_safety)
   local total=${#steps[@]} i rc k
 
   tui_progress steps 0 "You can watch this happen — nothing here needs another click."

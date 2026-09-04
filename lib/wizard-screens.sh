@@ -30,6 +30,7 @@ screen_parent_password() {
     if [[ "$DRY_RUN" == "1" ]] || verify_parent_password "$TUI_REPLY"; then
       # shellcheck disable=SC2034 # global read by bin/omarchy-kids-wizard's driver
       PARENT_PASSWORD="$TUI_REPLY"
+      detect_initial_boot_mode "$PARENT_PASSWORD"
       return 0
     fi
 
@@ -262,9 +263,13 @@ screen_password() {
     fi
   fi
 
+  local password_hint="This unlocks $DISPLAY_NAME's screen after they choose their tile."
+  if [[ "$BOOT_MODE" == disk ]]; then
+    password_hint="This unlocks $DISPLAY_NAME's screen and this computer's disk, then opens their desktop."
+  fi
   while true; do
     tui_screen_input "Now a password for $DISPLAY_NAME." 12 "$TOTAL_STEPS" 0 "" \
-      password "This unlocks $DISPLAY_NAME's screen (and this computer's disk, if it's encrypted) and logs them in." \
+      password "$password_hint" \
       validate_kid_password
     local rc=$?
     ((rc == 0)) || return $rc
@@ -304,6 +309,7 @@ screen_summary() {
       "Account|$ACCOUNT"
       "Face|$AVATAR"
       "Age band|$label ($blurb)"
+      "Startup|$(mark_if_changed boot "$(friendly_boot_mode "$BOOT_MODE")")"
       "Desktop|$(mark_if_changed level "Level $LEVEL")"
       "Web|$(mark_if_changed web "$(friendly_web_mode "$WEB_MODE")")"
       "Screen time|$(mark_if_changed budget_min "$BUDGET_MIN minutes a day")"

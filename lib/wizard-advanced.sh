@@ -6,10 +6,11 @@
 # docs/wizard.md's "The Advanced path" section for the full row list,
 # groups, and editor-by-editor walkthrough.
 
-ADV_KEYS=(web dns sites budget_min budget_min_weekend lights_out lights_out_weekend allowlist wifi level menu theme history_visible)
+ADV_KEYS=(boot web dns sites budget_min budget_min_weekend lights_out lights_out_weekend allowlist wifi level menu theme history_visible)
 
 adv_varname() { # KEY -> the bash variable name holding its current value
   case "$1" in
+    boot) echo BOOT_MODE ;;
     web) echo WEB_MODE ;;
     dns) echo DNS_MODE ;;
     sites) echo SITES ;;
@@ -28,6 +29,7 @@ adv_varname() { # KEY -> the bash variable name holding its current value
 
 adv_group_of() { # KEY -> the group its row is shown under
   case "$1" in
+    boot) echo "Startup" ;;
     web | dns | sites) echo "Web" ;;
     budget_min | budget_min_weekend | lights_out | lights_out_weekend) echo "Screen time" ;;
     allowlist) echo "Apps" ;;
@@ -39,6 +41,7 @@ adv_group_of() { # KEY -> the group its row is shown under
 
 adv_label_of() { # KEY -> the row's label, in parent words
   case "$1" in
+    boot) echo "Boot" ;;
     web) echo "Web access" ;;
     dns) echo "Safe-search DNS" ;;
     sites) echo "Allowed sites" ;;
@@ -66,6 +69,7 @@ pack_sites() {
 # current Omarchy theme instead (docs/theming.md).
 adv_default() {
   case "$1" in
+    boot) printf '%s\n' "$BOOT_DETECTED_MODE" ;;
     sites) pack_sites "$BAND" ;;
     allowlist) pack_field "$BAND" id | paste -sd, - ;;
     theme) theme_current_name ;;
@@ -136,11 +140,20 @@ friendly_allowlist() {
   echo "$out"
 }
 
+friendly_boot_mode() {
+  case "$1" in
+    disk) echo "Disk password opens that person's desktop" ;;
+    portal) echo "Kids choose their tile in the portal after the computer starts" ;;
+    *) echo "$1" ;;
+  esac
+}
+
 # adv_friendly KEY VALUE — human words for a raw value, reusing the same
 # friendly_* functions the Easy summary uses so both paths agree.
 adv_friendly() {
   local key="$1" value="$2"
   case "$key" in
+    boot) friendly_boot_mode "$value" ;;
     web) friendly_web_mode "$value" ;;
     wifi) friendly_wifi_mode "$value" ;;
     dns) friendly_dns "$value" ;;
@@ -322,6 +335,26 @@ adv_edit_allowlist() {
   return 0
 }
 
+adv_edit_boot() {
+  local step="$1" total="$2"
+  local disk_reason="Use one disk password per person to open their desktop."
+  if ((!BOOT_DISK_ELIGIBLE)); then
+    disk_reason="Unavailable: the encrypted-root, encrypt-hook, or password check did not pass."
+  fi
+  local -a choices=(
+    "disk|Disk password opens a desktop|$disk_reason"
+    "portal|Kids choose a tile after startup|Leaves the stock disk unlock and parent startup unchanged."
+  )
+  tui_screen_choose "How should this computer start?" "$step" "$total" 0 "" choices "$(adv_get boot)"
+  local rc=$?
+  ((rc == 0)) || return $rc
+  if [[ "$TUI_REPLY" == disk ]] && ((!BOOT_DISK_ELIGIBLE)); then
+    echo "Disk startup is unavailable because every disk check must pass first."
+    return 1
+  fi
+  adv_set boot "$TUI_REPLY"
+}
+
 # adv_edit_theme STEP TOTAL — tui_screen_choose over theme_list_installed
 # (system themes dir only, docs/theming.md); no themes found is a message
 # and "row untouched", same as an Esc.
@@ -344,6 +377,7 @@ adv_edit_theme() {
 adv_edit() {
   local key="$1" step="$2" total="$3"
   case "$key" in
+    boot) adv_edit_boot "$step" "$total" ;;
     web)
       adv_edit_enum web "What can $DISPLAY_NAME see on the web?" "$step" "$total" \
         "garden|Only sites you choose|A short list you can grow. Best for younger kids." \

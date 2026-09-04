@@ -1,6 +1,7 @@
 #!/bin/bash
-# Tests bin/omarchy-kids-wizard (SPEC.md R-WIZ-1..9; issue #19: the Easy
-# path). Drives the whole flow through OMARCHY_KIDS_TUI_ANSWERS, with gum
+# Tests bin/omarchy-kids-wizard (SPEC.md R-WIZ-1..9, R-BOOTMODE-2,
+# R-BOOTMODE-8; issues #19 and #97). Drives the whole flow through
+# OMARCHY_KIDS_TUI_ANSWERS, with gum
 # faked on a stub PATH (same convention as test/shell.d/tui-test.sh: it
 # logs nothing interesting itself here, since --dry-run means the wizard's
 # own `run_priv`/`run_priv_stdin` print every command instead of ever
@@ -15,23 +16,31 @@ set -uo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 BIN="" # a copy in a scratch tree per stub set: the wizard resolves
 # every sibling command beside itself now (AGENTS.md, "The trust
 # boundary"), so each fake is placed there rather than exported.
 
-# wizard_for STUBDIR [AUTH_SOCK] — prints the path of a wizard copy whose
+# wizard_for STUBDIR [AUTH_SOCK] [BOOT_FIXTURE] — prints the path of a wizard copy whose
 # siblings are STUBDIR's fakes and whose verifier socket is AUTH_SOCK (by
 # default one that cannot exist, so no run here can ever reach a real
 # omarchy-kids-authd -- on the VM there is one). Both are build-time
 # constants in a copy, never environment overrides.
 wizard_for() {
-  local stubs="$1" tree="$1.tree" sock f
+  local stubs="$1" tree="$1.tree" sock boot_fixture f
   sock="${2:-$stubs/no-such-auth.sock}"
+  boot_fixture="${3:-$STUBS/no-boot-fixture}"
   kids_tree "$tree" "$DIR"
   for f in "$stubs"/omarchy-kids-*; do
     [[ -e "$f" ]] && cp "$f" "$tree/bin/"
   done
   kids_set_const "$tree/bin/omarchy-kids-wizard" AUTH_SOCK "$sock"
+  kids_set_const "$tree/bin/omarchy-kids-wizard" BOOT_FINDMNT "$boot_fixture/findmnt"
+  kids_set_const "$tree/bin/omarchy-kids-wizard" BOOT_LSBLK "$boot_fixture/lsblk"
+  kids_set_const "$tree/bin/omarchy-kids-wizard" BOOT_CRYPTSETUP "$boot_fixture/cryptsetup"
+  kids_set_const "$tree/bin/omarchy-kids-wizard" BOOT_STAT "$boot_fixture/stat"
+  kids_set_const "$tree/bin/omarchy-kids-wizard" BOOT_MKINITCPIO_CONF "$boot_fixture/mkinitcpio.conf"
+  kids_set_const "$tree/bin/omarchy-kids-wizard" BOOT_MKINITCPIO_CONF_DIR "$boot_fixture/mkinitcpio.conf.d"
   kids_set_const "$tree/bin/omarchy-kids-parent-auth" DEFAULT_SOCK "$sock"
   printf '%s\n' "$tree/bin/omarchy-kids-wizard"
 }
@@ -151,6 +160,25 @@ answers_file() { # writes $@ (one per line) to a fresh file, prints its path
   printf '%s' "$f"
 }
 
+write_machine_conf_stub() {
+  local stubs="$1" log="$2"
+  cat >"$stubs/omarchy-kids-conf" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == machine && "\${2:-}" == set ]]; then
+  printf 'omarchy-kids-conf %s\n' "\$*" >>"$log"
+  if [[ "\${3:-}" == boot && "\${4:-}" == disk ]]; then
+    [[ ! -e "$log.fail-boot" ]] || exit 23
+    lines=0
+    while IFS= read -r _; do lines=\$((lines + 1)); done
+    printf 'boot-stdin-lines=%s\n' "\$lines" >>"$log"
+  fi
+  exit 0
+fi
+exec "$DIR/bin/omarchy-kids-conf" "\$@"
+EOF
+  chmod +x "$stubs/omarchy-kids-conf"
+}
+
 # run_wizard ANSWERS_FILE -> stdout+stderr in $out, exit status in
 # $WIZ_STATUS. --dry-run is passed explicitly: walked by a human the
 # wizard's own default is a real Apply now (review §1.5), and every
@@ -178,13 +206,17 @@ check_contains "$out" "Screen time" "summary shows the screen-time row"
 check_contains "$out" "60 minutes a day" "summary shows band 6-8's budget"
 check_contains "$out" "19:30" "summary shows band 6-8's bedtime"
 check_contains "$out" "Face          owl" "summary shows the chosen face"
+check_contains "$out" "Startup" "summary names the chosen startup behavior"
+check_contains "$out" "Kids choose their tile in the portal" \
+  "a conservative preview explains portal startup in plain words"
 
 # --dry-run means Apply's run_priv/run_priv_stdin print the command
 # instead of ever calling sudo/pacman/omarchy-kids-*, so this is checking
 # the wizard's own "[dry-run] sudo ..." lines in $out, not a stub's argv.
-# Apply's first step (issue #46) writes machine.conf's parent= (via the
+# Apply first writes machine.conf's parent= (via the
 # tiny "omarchy-kids-conf machine set parent", issue #46 follow-up) to
-# $OMARCHY_KIDS_INVOKING_USER, then enables and starts the package's own
+# $OMARCHY_KIDS_INVOKING_USER, converges the boot mode, then enables and
+# starts the package's own
 # units -- the same KIDS_UNITS/KIDS_SOCKETS/KIDS_TIMERS list lib/kids.sh
 # shares with omarchy-kids-assert's "units" lock -- before provisioning,
 # so a fresh install (or right after omarchy-kids-remove) has both a
@@ -193,22 +225,28 @@ check_contains "$out" "Face          owl" "summary shows the chosen face"
 # them.
 check_contains "$out" "omarchy-kids-conf machine set parent $EXPECTED_INVOKING_USER" \
   "Apply's first step writes machine.conf's parent=, to id -un"
+check_contains "$out" "omarchy-kids-conf machine set boot portal" \
+  "Apply converges the selected portal mode"
 check_not_contains "$out" "omarchy-kids-conf machine set parent forged-parent" \
   "OMARCHY_KIDS_INVOKING_USER cannot change Apply's parent identity"
 check_contains "$out" "sudo systemctl enable --now omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-wifid.socket omarchy-kids-time.timer omarchy-kids-ask-collect.timer" \
-  "Apply's first step enables and starts the package's units, before provisioning"
-check_contains "$out" "omarchy-kids-provision add Ada --band 6-8 --avatar owl --password-stdin --parent-password-stdin --apply" \
-  "apply runs provision add with the exact flags, including the chosen face"
+  "Apply enables and starts the package's units after boot mode converges"
+check_contains "$out" "omarchy-kids-provision add Ada --band 6-8 --avatar owl --password-stdin --apply" \
+  "portal Apply gives provisioning the kid password without a disk secret"
+check_not_contains "$out" "--parent-password-stdin" \
+  "portal Apply passes no parent disk secret to provisioning"
 machine_pos="${out%%machine set parent*}"
 machine_pos="${#machine_pos}"
 units_pos="${out%%sudo systemctl enable --now*}"
 units_pos="${#units_pos}"
+boot_pos="${out%%machine set boot portal*}"
+boot_pos="${#boot_pos}"
 provision_pos="${out%%omarchy-kids-provision add*}"
 provision_pos="${#provision_pos}"
-if ((machine_pos < units_pos && units_pos < provision_pos)); then
-  pass "machine.conf's parent is written first, then units are enabled, then the account is provisioned"
+if ((machine_pos < boot_pos && boot_pos < units_pos && units_pos < provision_pos)); then
+  pass "parent and boot mode converge before the account is provisioned"
 else
-  fail "step ordering is wrong (machine at $machine_pos, units at $units_pos, provision at $provision_pos)"
+  fail "step ordering is wrong (parent $machine_pos, units $units_pos, boot $boot_pos, provision $provision_pos)"
 fi
 check_contains "$out" "omarchy-kids-conf set kid-ada web filtered" "a web choice that differs from the band default is written as an override"
 check_contains "$out" "omarchy-kids-conf set kid-ada wifi helper" "a Wi-Fi choice that differs from the band default is written as an override"
@@ -290,12 +328,248 @@ check_status "$WIZ_STATUS" 0 "the Advanced path completes"
 check_contains "$out" "[Web] Web access" "the checklist groups the web row under Web"
 check_contains "$out" "[Web] Safe-search DNS" "the checklist groups the dns row under Web too"
 check_contains "$out" "[Screen time] Minutes a day (weekdays)" "the checklist groups budget_min under Screen time"
+check_contains "$out" "[Startup] Boot" "Advanced always exposes the Boot row"
 check_contains "$out" "now: Filtered open web (changed)" "a changed row is marked, showing the new value"
 check_contains "$out" "omarchy-kids-conf set kid-ada web filtered" "Apply writes the web override chosen in Advanced"
 check_contains "$out" "omarchy-kids-conf set kid-ada dns cleanbrowsing-family" "Apply writes the dns override chosen in Advanced"
 check_contains "$out" "omarchy-kids-conf set kid-ada budget_min 75" "Apply writes the budget_min override chosen in Advanced"
 check_not_contains "$out" "omarchy-kids-conf set kid-ada wifi" "a row never opened in Advanced writes no override"
 check_not_contains "$out" "omarchy-kids-conf set kid-ada menu" "a row never opened in Advanced writes no override"
+
+# --- R-BOOTMODE-2: the default is disk only when the root is LUKS, the
+# configured hook path uses encrypt, and the verified parent candidate
+# unlocks that device. Every command and file is owned by this fixture.
+
+BOOT_TMP="$TMP/boot-mode"
+BOOT_STUBS="$BOOT_TMP/stubs"
+BOOT_TOOLS="$BOOT_TMP/tools"
+BOOT_BASE="$BOOT_TMP/base"
+BOOT_ARGV="$BOOT_TMP/argv.log"
+mkdir -p "$BOOT_STUBS" "$BOOT_TOOLS/mkinitcpio.conf.d"
+BOOT_PATH="$(kids_base_path "$BOOT_BASE" paste)"
+
+cp "$STUBS/gum" "$BOOT_STUBS/gum"
+cat >"$BOOT_STUBS/omarchy-kids-parent-auth" <<'EOF'
+#!/bin/bash
+read -r candidate || candidate=""
+[[ "$candidate" == hunter2 ]]
+EOF
+cat >"$BOOT_STUBS/sudo" <<'EOF'
+#!/bin/bash
+args=()
+reads_stdin=0
+while (($#)); do
+  case "$1" in
+    -n | -v) shift ;;
+    -S) reads_stdin=1; shift ;;
+    -p | -u) shift 2 ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+if ((${#args[@]} == 0)); then
+  ((reads_stdin)) && cat >/dev/null
+  exit 0
+fi
+exec "${args[@]}"
+EOF
+cat >"$BOOT_STUBS/pacman" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat >"$BOOT_STUBS/sleep" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+cat >"$BOOT_TOOLS/findmnt" <<'EOF'
+#!/bin/bash
+echo /dev/mapper/cryptroot
+EOF
+cat >"$BOOT_TOOLS/lsblk" <<EOF
+#!/bin/bash
+echo '/dev/mapper/cryptroot btrfs'
+if [[ -e "$BOOT_TMP/root-is-luks" ]]; then
+  echo '/dev/nvme0n1p2 crypto_LUKS'
+fi
+EOF
+cat >"$BOOT_TOOLS/cryptsetup" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >>"$BOOT_ARGV"
+cat >/dev/null
+[[ -e "$BOOT_TMP/passphrase-works" ]]
+EOF
+cat >"$BOOT_TOOLS/stat" <<'EOF'
+#!/bin/bash
+echo '0 755'
+EOF
+chmod +x "$BOOT_STUBS"/* "$BOOT_TOOLS"/{findmnt,lsblk,cryptsetup,stat}
+
+run_boot_summary() {
+  local answers="$1"
+  boot_out="$(
+    PATH="$BOOT_STUBS:$BOOT_PATH" \
+      HOME="$HOME" \
+      OMARCHY_PATH="$OMARCHY_PATH" \
+      OMARCHY_KIDS_ETC="$ETC" \
+      OMARCHY_KIDS_SHARE="$SHARE" \
+      OMARCHY_KIDS_TUI_ANSWERS="$answers" \
+      DRY_RUN=0 "$(wizard_for "$BOOT_STUBS" "" "$BOOT_TOOLS")" 2>&1
+  )"
+  BOOT_STATUS=$?
+}
+
+printf 'HOOKS=(base block encrypt filesystems)\n' >"$BOOT_TOOLS/mkinitcpio.conf"
+: >"$BOOT_TMP/root-is-luks"
+: >"$BOOT_TMP/passphrase-works"
+: >"$BOOT_ARGV"
+answers="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 @ctrlc yes)"
+run_boot_summary "$answers"
+check_status "$BOOT_STATUS" 130 "eligible disk detection reaches the summary before leaving"
+check_contains "$boot_out" "Disk password opens that person's desktop" \
+  "all three prerequisites select and explain disk startup"
+check_contains "$boot_out" "unlocks Ada's screen and this computer's disk" \
+  "disk mode gives the kid password an honest disk-unlock label"
+check_contains "$(cat "$BOOT_ARGV")" "open --test-passphrase --key-file=- /dev/nvme0n1p2" \
+  "detection tests the candidate against the root LUKS device through stdin"
+
+rm -f "$BOOT_TMP/root-is-luks"
+: >"$BOOT_ARGV"
+run_boot_summary "$answers"
+check_contains "$boot_out" "Kids choose their tile in the portal" \
+  "a non-LUKS root defaults to portal"
+check_eq "$(wc -l <"$BOOT_ARGV" | tr -d ' ')" 0 \
+  "the owned cryptsetup stub is not called when the root is not LUKS"
+
+: >"$BOOT_TMP/root-is-luks"
+printf 'HOOKS=(base block sd-encrypt filesystems)\n' >"$BOOT_TOOLS/mkinitcpio.conf"
+: >"$BOOT_ARGV"
+run_boot_summary "$answers"
+check_contains "$boot_out" "Kids choose their tile in the portal" \
+  "an unsupported hook shape defaults to portal"
+check_eq "$(wc -l <"$BOOT_ARGV" | tr -d ' ')" 0 \
+  "the owned cryptsetup stub is not called when encrypt is absent"
+
+printf 'HOOKS=(base block encrypt filesystems)\n' >"$BOOT_TOOLS/mkinitcpio.conf"
+rm -f "$BOOT_TMP/passphrase-works"
+: >"$BOOT_ARGV"
+run_boot_summary "$answers"
+check_contains "$boot_out" "Kids choose their tile in the portal" \
+  "a candidate that does not unlock the root defaults to portal"
+check_eq "$(wc -l <"$BOOT_ARGV" | tr -d ' ')" 1 \
+  "the owned cryptsetup stub records the failed prerequisite check"
+
+# Portal is always selectable. Disk can be selected only after detection
+# established every prerequisite, and the summary follows the final choice.
+: >"$BOOT_TMP/passphrase-works"
+answers="$(answers_file begin hunter2 Ada fox 6-8 advanced boot portal done secret1 secret1 @ctrlc yes)"
+run_boot_summary "$answers"
+check_contains "$boot_out" "Kids choose their tile in the portal after the computer starts (custom)" \
+  "Advanced accepts portal when disk was the detected default"
+
+answers="$(answers_file begin hunter2 Ada fox 6-8 advanced boot portal boot disk done secret1 secret1 @ctrlc yes)"
+run_boot_summary "$answers"
+check_contains "$boot_out" "Disk password opens that person's desktop" \
+  "Advanced accepts disk when every prerequisite passed"
+
+rm -f "$BOOT_TMP/passphrase-works"
+answers="$(answers_file begin hunter2 Ada fox 6-8 advanced boot disk done secret1 secret1 @ctrlc yes)"
+run_boot_summary "$answers"
+check_contains "$boot_out" "Disk startup is unavailable" \
+  "Advanced rejects disk when a prerequisite failed"
+check_contains "$boot_out" "Kids choose their tile in the portal" \
+  "a rejected disk choice leaves portal selected"
+
+# Disk Apply reuses the candidate once for mode convergence and once for
+# provisioning. Both consumers read stdin, and the mode converges first.
+: >"$BOOT_TMP/passphrase-works"
+cat >"$BOOT_STUBS/systemctl" <<EOF
+#!/bin/bash
+printf 'systemctl %s\n' "\$*" >>"$BOOT_ARGV"
+exit 0
+EOF
+cat >"$BOOT_STUBS/omarchy-kids-provision" <<EOF
+#!/bin/bash
+printf 'omarchy-kids-provision %s\n' "\$*" >>"$BOOT_ARGV"
+lines=0
+while IFS= read -r _; do lines=\$((lines + 1)); done
+printf 'provision-stdin-lines=%s\n' "\$lines" >>"$BOOT_ARGV"
+exit 0
+EOF
+for name in omarchy-kids-web omarchy-kids-apps omarchy-kids-assert omarchy-kids-session; do
+  cat >"$BOOT_STUBS/$name" <<EOF
+#!/bin/bash
+printf '$name %s\n' "\$*" >>"$BOOT_ARGV"
+exit 0
+EOF
+done
+REAL_BOOT_ID="$(command -v id)"
+cat >"$BOOT_STUBS/id" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == kid-ada ]]; then
+  exit 0
+fi
+exec "$REAL_BOOT_ID" "\$@"
+EOF
+write_machine_conf_stub "$BOOT_STUBS" "$BOOT_ARGV"
+chmod +x "$BOOT_STUBS"/*
+
+: >"$BOOT_ARGV"
+boot_apply_out="$(
+  PATH="$BOOT_STUBS:$BOOT_PATH" \
+    HOME="$HOME" \
+    OMARCHY_PATH="$OMARCHY_PATH" \
+    OMARCHY_KIDS_ETC="$ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_SETUP_LOG="$BOOT_TMP/setup.log" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
+    DRY_RUN=0 "$(wizard_for "$BOOT_STUBS" "" "$BOOT_TOOLS")" 2>&1
+)"
+boot_apply_status=$?
+check_status "$boot_apply_status" 0 "disk Apply completes with owned command stubs"
+check_eq "$(grep -c 'First, your password.' <<<"$boot_apply_out")" 1 \
+  "disk Apply renders the parent-password prompt exactly once"
+check_contains "$(cat "$BOOT_ARGV")" "omarchy-kids-conf machine set boot disk --secrets-stdin" \
+  "disk Apply uses the noninteractive transition interface"
+check_contains "$(cat "$BOOT_ARGV")" "boot-stdin-lines=1" \
+  "disk convergence receives the held parent candidate once on stdin"
+check_contains "$(cat "$BOOT_ARGV")" "--password-stdin --parent-password-stdin --luks-device /dev/nvme0n1p2 --apply" \
+  "disk provisioning receives both held secrets and the detected root device"
+check_contains "$(cat "$BOOT_ARGV")" "provision-stdin-lines=2" \
+  "disk provisioning receives exactly the kid and parent secret lines"
+boot_set_line="$(grep -n 'machine set boot disk' "$BOOT_ARGV" | cut -d: -f1)"
+provision_line="$(grep -n '^omarchy-kids-provision ' "$BOOT_ARGV" | cut -d: -f1)"
+if [[ "$boot_set_line" =~ ^[0-9]+$ && "$provision_line" =~ ^[0-9]+$ ]] &&
+  ((boot_set_line < provision_line)); then
+  pass "disk mode converges before the first kid is provisioned"
+else
+  fail "disk mode did not converge before provisioning"
+fi
+check_not_contains "$boot_apply_out" hunter2 "the parent candidate is absent from disk Apply output"
+check_not_contains "$(cat "$BOOT_TMP/setup.log" 2>/dev/null)" hunter2 \
+  "the parent candidate is absent from the disk Apply log"
+check_not_contains "$(cat "$BOOT_ARGV")" hunter2 \
+  "the parent candidate is absent from every disk Apply argv log"
+
+# A failed mode producer must stop before either service or account consumer.
+: >"$BOOT_ARGV.fail-boot"
+: >"$BOOT_ARGV"
+boot_failure_out="$(
+  PATH="$BOOT_STUBS:$BOOT_PATH" \
+    HOME="$HOME" \
+    OMARCHY_PATH="$OMARCHY_PATH" \
+    OMARCHY_KIDS_ETC="$ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_SETUP_LOG="$BOOT_TMP/failure-setup.log" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
+    DRY_RUN=0 "$(wizard_for "$BOOT_STUBS" "" "$BOOT_TOOLS")" 2>&1
+)"
+boot_failure_status=$?
+check_status "$boot_failure_status" 0 "a failed boot convergence reaches the honest Done screen"
+check_contains "$boot_failure_out" 'Setup stopped at "Setting how this computer starts"' \
+  "a failed boot convergence is reported as the failed step"
+check_not_contains "$(cat "$BOOT_ARGV")" "systemctl " \
+  "a failed boot convergence never starts service consumers"
+check_not_contains "$(cat "$BOOT_ARGV")" "omarchy-kids-provision " \
+  "a failed boot convergence never starts account provisioning"
 
 # --- issue #53: the Desktop group's theme row -- default is the parent's
 # own current theme (tokyo-night, from $HOME above), not a band value;
@@ -430,6 +704,7 @@ exit 0
 EOF
 cp "$STUBS/gum" "$RM_STUBS/gum"
 cp "$STUBS/omarchy-kids-parent-auth" "$RM_STUBS/omarchy-kids-parent-auth"
+write_machine_conf_stub "$RM_STUBS" "$RM_TMP/conf.log"
 chmod +x "$RM_STUBS"/*
 
 rm_out="$(
@@ -529,6 +804,7 @@ exit 0
 EOF
 done
 cp "$STUBS/gum" "$RM3_STUBS/gum"
+write_machine_conf_stub "$RM3_STUBS" "$RM3_ARGV_LOG"
 chmod +x "$RM3_STUBS"/*
 
 # The right password (first try) gets all the way through.
@@ -774,6 +1050,7 @@ exit 0
 EOF
   done
   cp "$STUBS/gum" "$RM4_STUBS/gum"
+  write_machine_conf_stub "$RM4_STUBS" "$RM4_TMP/conf.log"
   chmod +x "$RM4_STUBS"/*
 
   rm4_out="$(
@@ -837,6 +1114,7 @@ EOF
 done
 cp "$STUBS/gum" "$RM2_STUBS/gum"
 cp "$STUBS/omarchy-kids-parent-auth" "$RM2_STUBS/omarchy-kids-parent-auth"
+write_machine_conf_stub "$RM2_STUBS" "$RM2_TMP/conf.log"
 chmod +x "$RM2_STUBS"/*
 
 rm2_out="$(
@@ -880,6 +1158,7 @@ printf '%s\n' "\$*" >> "$DEF_MARK"
 EOF
 cp "$RM_STUBS_SUDO" "$DEF_STUBS/sudo" # the real-mode sudo fake from above
 cp "$STUBS/omarchy-kids-parent-auth" "$DEF_STUBS/omarchy-kids-parent-auth"
+write_machine_conf_stub "$DEF_STUBS" "$DEF_TMP/conf.log"
 for n in omarchy-kids-web omarchy-kids-apps omarchy-kids-session omarchy-kids-assert \
   pacman systemctl runuser chpasswd usermod; do
   printf '#!/bin/bash\nexit 0\n' >"$DEF_STUBS/$n"

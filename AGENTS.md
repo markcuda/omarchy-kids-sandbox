@@ -46,6 +46,7 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
 
 10. **Nothing about a real child.** No names, ages, photos, or transcripts in code, tests, docs,
    fixtures, or commit messages. Fixtures use `kid-ada` with band `6-8` and nothing else.
+11. Drafting agents never drive the test VM: nothing under `test/live/` and no `scripts/vm-*.sh` runs from a draft; the gate runner alone does, one scenario at a time, from a clone that holds `test/live/config.env`. Draft clones do not get that file. (A draft ran a live scenario and rebooted the VM under three other gates, 2026-09-04.)
 
 ## Layout
 

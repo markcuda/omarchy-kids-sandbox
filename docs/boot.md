@@ -128,9 +128,9 @@ plain package removal leaves runtime state in place, as documented in `docs/pack
 
 ## Why the drop-in uses an underscore
 
-R-BOOT-2 requires a mkinitcpio conf.d drop-in that rebuilds `HOOKS` with the Kids Mode hook
-before `encrypt` and does nothing when `encrypt` is absent; it does not specify the filename. This
-repo uses **`omarchy_kids.conf`** (underscore). Reason: `/etc/mkinitcpio.conf.d/*.conf`
+R-BOOT-2 names the drop-in `/etc/mkinitcpio.conf.d/omarchy_kids.conf` (SPEC.md, underscore on
+purpose) and requires it to rebuild `HOOKS` with the Kids Mode hook before `encrypt` and do
+nothing when `encrypt` is absent. Why the underscore: `/etc/mkinitcpio.conf.d/*.conf`
 is sourced in lexical (byte) order, and on the reference machine `HOOKS` is *assigned* (not
 appended to) by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`. A hyphen (`0x2D`) sorts before an
 underscore (`0x5F`), so a literal `omarchy-kids.conf` would be sourced *before*

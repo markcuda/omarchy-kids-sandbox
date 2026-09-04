@@ -287,3 +287,11 @@ with sol reviews. #72 (config schema) passed sol's third round on the Mac. Decis
 the standing order: snapshot entries hidden in disk mode (§3), AUR out of scope (§4), the exit
 modal ships Finish only (#102). New UX tickets from the screenshots: #100 stray portal tiles,
 #101 launcher frame after an app closes.
+
+### 05:10, merges and the queue
+
+Merged: #72 (config schema, three sol rounds) and #102 (exit modal is Finish only). Drafted and
+in gates: #92 (boot setting; rebasing over the schema merge), #96 (PAM-only parent auth; sol's
+second-round items being fixed), #100 (portal tiles), the #71 fix-forward on `roottime-5`, and
+#73 (wizard and panel read the schema). Screenshot and video passes resume once #100 and the
+fix-forward land, so the portal and the screen-time surfaces are shot as they will ship.

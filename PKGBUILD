@@ -32,7 +32,6 @@ optdepends=(
 )
 install=omarchy-kids.install
 source=()
-backup=('etc/mkinitcpio.conf.d/omarchy_kids.conf')
 
 package() {
 	cd "$startdir" || exit 1
@@ -67,11 +66,6 @@ package() {
 	install -m755 initcpio/hooks/* "$pkgdir/usr/lib/initcpio/hooks/"
 	install -m755 initcpio/install/* "$pkgdir/usr/lib/initcpio/install/"
 	install -Dm755 initcpio/omarchy-kids-open "$pkgdir/usr/lib/initcpio/omarchy-kids-open"
-
-	# HOOKS insertion (R-BOOT-2). Marked backup= above: it's a config file
-	# under /etc that a local admin could reasonably hand-edit.
-	install -Dm644 etc/mkinitcpio.conf.d/omarchy_kids.conf \
-		"$pkgdir/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 
 	# systemd units (authd socket/service, wifid socket/service (R-WIFI-2,
 	# issue #26), boot-login + its cleanup unit, the screen-time ledger's

@@ -28,6 +28,15 @@ running. It does not create a kid or apply Kids Mode locks. The installed pacman
 `omarchy-kids-assert --quiet` after the transaction; the wizard's Apply step also enables and
 starts the required units, sockets, and timers.
 
+On upgrade, `pre_upgrade` captures a regular legacy boot drop-in that contains the Kids Mode hook
+before pacman replaces package files. `post_upgrade` preserves an explicit valid `boot=disk` or
+`boot=portal` setting; when the setting is missing, it chooses disk only for a configured parent
+and kid on a LUKS root with that legacy drop-in evidence, and chooses portal otherwise. It writes
+the result through the trusted configuration command, reads it back, and restores the captured
+drop-in only for disk mode. This preserves existing disk boots while making unconfigured,
+unencrypted, or incomplete installations fail safe to portal mode as ownership of the active
+drop-in moves from the package to the disk transition.
+
 ## AUR readiness (issue #32, R-BUILD-2)
 
 The package is not ready for a first AUR upload yet. The local packaging pieces are mostly here,
@@ -46,7 +55,7 @@ but these items still need to happen:
 - **Create and upload the AUR package repository.** No AUR repository or first upload exists yet
   (`docs/install.md:19-31`).
   Because `source=()` is empty, that repository must include every path read by `package()`,
-  including `bin/`, `lib/`, `initcpio/`, `etc/`, `systemd/`, `share/`, `desktop/`, `pacman/`, and
+  including `bin/`, `lib/`, `initcpio/`, `systemd/`, `share/`, `desktop/`, `pacman/`, and
   `LICENSE` (`PKGBUILD:34,37-109`).
 - **Choose the public scope.** `pkgver=0.1.0` describes this as an early build, and the runtime
   gaps remain documented in `docs/install.md` and the command docs. Decide whether the first AUR
@@ -56,7 +65,7 @@ but these items still need to happen:
 Already done in this checkout:
 
 - `PKGBUILD` declares the package name, version, release, architecture, license, URL, required
-  and optional dependencies, install scriptlet, empty source list, and `backup=` file
+  and optional dependencies, install scriptlet, and empty source list
   (`PKGBUILD:15-35`).
 - `.SRCINFO` contains the matching package metadata and dependency lists (`.SRCINFO:1-27`). It
   still needs regeneration as described above.
@@ -80,7 +89,7 @@ files are created later by the commands.
 | `initcpio/hooks/*` | `/usr/lib/initcpio/hooks/` | 755 | mkinitcpio runtime hooks |
 | `initcpio/install/*` | `/usr/lib/initcpio/install/` | 755 | mkinitcpio install hooks |
 | `initcpio/omarchy-kids-open` | `/usr/lib/initcpio/omarchy-kids-open` | 755 | Boot-time cryptsetup helper |
-| `etc/mkinitcpio.conf.d/omarchy_kids.conf` | `/etc/mkinitcpio.conf.d/omarchy_kids.conf` | 644 | Adds the Kids Mode hook before `encrypt`; listed in `backup=` |
+| `share/boot/omarchy_kids.conf` | `/usr/share/omarchy-kids/boot/omarchy_kids.conf` | 644 | Package-owned inactive template; the disk transition copies it to `/etc/mkinitcpio.conf.d/omarchy_kids.conf` |
 | `systemd/*.service`, `systemd/*.socket`, `systemd/*.timer` | `/usr/lib/systemd/system/` | 644 | Auth, Wi-Fi, boot/login, assertion, screen-time, request, and app-install units |
 | `share/**` | `/usr/share/omarchy-kids/` | source modes | Bands, packs, desktop data, policy, avatars, menus, and QML |
 | `share/sddm-theme/**` | `/usr/share/sddm/themes/omarchy-kids/` | source modes | The SDDM greeter theme is copied there separately |
@@ -90,7 +99,8 @@ files are created later by the commands.
 | `LICENSE` | `/usr/share/licenses/omarchy-kids/LICENSE` | 644 | MIT license text |
 
 The package does not create these runtime paths itself: `/etc/omarchy-kids/kids/<account>.conf`,
-`/etc/omarchy-kids/machine.conf`, `/etc/omarchy-kids/luks-slots`, Chromium policy files,
+`/etc/omarchy-kids/machine.conf`, `/etc/omarchy-kids/luks-slots`, the transition-owned
+`/etc/mkinitcpio.conf.d/omarchy_kids.conf`, Chromium policy files,
 polkit and PAM changes, SDDM runtime configuration, `/run/omarchy-kids/`, or
 `/var/lib/omarchy-kids/`. The wizard, provisioning, web, assertion, and removal commands create
 or remove them as their jobs require.

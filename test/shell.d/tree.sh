@@ -65,8 +65,8 @@ EOF
 # kids_set_const FILE NAME VALUE — rewrite a `NAME=<constant>` line in a
 # *copied* command, the one relocation seam a test may use: the same
 # build-time substitution PKGBUILD does at package time (KIDS_PY,
-# TEST_SOCKET_ROOT, omarchy-kids-web's SYSROOT, omarchy-kids-conf's SCHEMA).
-# Never an env override.
+# TEST_SOCKET_ROOT, omarchy-kids-web's SYSROOT, omarchy-kids-conf's SCHEMA, and
+# BOOT_MODE_MACHINE_CONF). Never an env override.
 kids_set_const() {
   local file="$1" name="$2" value="$3" tmp line
   tmp="$(mktemp)"

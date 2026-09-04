@@ -127,11 +127,12 @@ root, no `$OMARCHY_PATH/themes` on this box) still leaves the override written; 
 ### Machine-level keys (`machine.conf`, not profile keys)
 
 `/etc/omarchy-kids/machine.conf` (SPEC.md §5.1) holds settings with no kid to scope them to —
-`parent` (docs/provision.md) and the key below — as plain `key=value` lines, read directly with
-`lib/conf.sh`'s `conf_get` by every command that needs one (`omarchy-kids-provision`,
-`omarchy-kids-remove`, `omarchy-kids-assert`, `omarchy-kids-authd`), not through
-`omarchy-kids-conf`: there is no kid argument for a machine-wide *read* to hang off of. `parent`
-has the one exception on the write side: `omarchy-kids-conf machine set parent <name>` (issue #46),
+`parent` (docs/provision.md) and `boot` — as plain `key=value` lines. `parent` is read directly
+with `lib/conf.sh`'s `conf_get` by commands that need the account name. `boot` is different:
+`lib/boot-mode.sh` is the sole validator and reads the fixed
+`/etc/omarchy-kids/machine.conf` path; it is never selected by an environment variable or a
+second parser. The public reader is `omarchy-kids-conf machine get boot`, not a direct `conf_get`.
+`parent` has the one exception on the write side: `omarchy-kids-conf machine set parent <name>` (issue #46),
 a tiny, one-key wrapper around `conf_set` — added because `bin/omarchy-kids-wizard`'s Apply
 step needs a command it can name on a plain `sudo <command>` argv (`run_priv`'s own contract), not
 an inline shell that could call `conf_set` directly. `boot.snapshot_entries` still has no writer of
@@ -151,6 +152,7 @@ a naming question — that needs a human to resolve the slot mapping by hand.
 | Key | Values | Default | What it does |
 | --- | --- | --- | --- |
 | `parent` | a login name | *(none — see below)* | The parent's own account name. Read by `omarchy-kids-authd` (`docs/authd.md`) to know whose shadow hash to check, and by `omarchy-kids-provision`, which refuses to add a kid without it. Written by `omarchy-kids-conf machine set parent <name>` — `bin/omarchy-kids-wizard`'s Apply step does this first, before anything else, to `$OMARCHY_KIDS_INVOKING_USER` (default `id -un`, since the wizard always runs unprivileged, as the parent) — since nothing else in this repo writes it (issue #46: seen live, missing entirely right after a real `omarchy-kids-remove`, which deletes the whole `$ETC` tree). |
+| `boot` | `disk` `portal` | *(migration or explicit choice)* | The machine startup path. Read and validated only by `omarchy-kids-conf machine get boot` through `lib/boot-mode.sh` from the fixed `/etc/omarchy-kids/machine.conf` path (R-BOOTMODE-1). |
 | `boot.snapshot_entries` | `hide` `show` | `hide` | `omarchy-kids-assert`'s `limine-snapshots` lock (docs/assert.md, issue #38): while `hide` and any kid exists, `/etc/default/limine`'s `MAX_SNAPSHOT_ENTRIES=0` hides Snapper's boot-menu entries, so a kid with a disk password can't pick a pre-Kids-Mode snapshot from Limine's menu and land on the parent's desktop. `show` restores the value `MAX_SNAPSHOT_ENTRIES` held before we touched it. The parent's own rollback path stays `snapper rollback` from the running system. |
 
 ## Band defaults
@@ -165,16 +167,18 @@ a naming question — that needs a human to resolve the slot mapping by hand.
 `omarchy-kids-conf bands` prints each band's `label` and `blurb`; `omarchy-kids-conf band <band>`
 prints its full default table, including the band-only fields above.
 
-## File locations (overridable for tests)
+## File locations (profile/data roots are overridable for tests)
 
 | What | Default path | Env override |
 | --- | --- | --- |
 | Kid overrides directory | `/etc/omarchy-kids/kids/` | `OMARCHY_KIDS_ETC` (the `/etc/omarchy-kids` root) |
 | `bands.toml` and `packs/` | `/usr/share/omarchy-kids/` | `OMARCHY_KIDS_SHARE` |
 
-Every path a real run touches is built from these two roots, so
+Profile and package-data paths in the table are built from these two roots, so
 `OMARCHY_KIDS_ETC=$scratch/etc OMARCHY_KIDS_SHARE=$scratch/share omarchy-kids-conf ...` runs
-entirely against a throwaway tree — see `test/shell.d/conf-test.sh`.
+entirely against a throwaway tree — see `test/shell.d/conf-test.sh`. The boot-mode reader is the
+exception: its installed machine path is fixed at `/etc/omarchy-kids/machine.conf` and tests
+rewrite its build-time constant in a copied command tree.
 
 ## Commands
 
@@ -186,6 +190,8 @@ omarchy-kids-conf reset <kid>                clear overrides except band/name/av
 omarchy-kids-conf bands                      list bands with their label and blurb
 omarchy-kids-conf band <band>                print one band's defaults
 omarchy-kids-conf slug <display name>        the kid- account-name slug for a display name (Appendix B.1)
+omarchy-kids-conf machine get boot           print the trusted machine boot mode
+omarchy-kids-conf machine set boot <mode>    set disk or portal, after validation
 omarchy-kids-conf machine set parent <name>  write machine.conf's parent= (issue #46),
                                               then record the parent's LUKS slot 0
 ```text

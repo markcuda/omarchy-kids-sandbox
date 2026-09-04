@@ -220,6 +220,14 @@ else
   ok "trust boundary: every command resolves lib/ from readlink -f \"\$0\", else the installed prefix"
 fi
 
+if grep -qx 'BOOT_MODE_MACHINE_CONF=/etc/omarchy-kids/machine.conf' lib/boot-mode.sh &&
+  ! grep -q '^BOOT_MODE_ETC=' lib/boot-mode.sh &&
+  ! grep -q 'OMARCHY_KIDS_' lib/boot-mode.sh; then
+  ok "trust boundary: boot-mode reads machine.conf from a fixed build-time path"
+else
+  bad "trust boundary: boot-mode has an environment-selected machine.conf path"
+fi
+
 # =====================================================================
 # 3. One root check, and it reads nothing but the kernel's answer.
 # =====================================================================

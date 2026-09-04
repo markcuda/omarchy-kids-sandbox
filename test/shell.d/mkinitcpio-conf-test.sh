@@ -1,5 +1,5 @@
 #!/bin/bash
-# etc/mkinitcpio.conf.d/omarchy_kids.conf (R-BOOT-2): inserts
+# share/boot/omarchy_kids.conf (R-BOOT-2): inserts
 # omarchy-kids-unlock immediately before 'encrypt' exactly once, and is a
 # no-op when 'encrypt' isn't in HOOKS. Each case runs in its own subshell
 # so sourcing the conf.d file in one case can't leak HOOKS into another.
@@ -12,7 +12,7 @@ fail() {
 rc=0
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-CONF="$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+CONF="$ROOT/share/boot/omarchy_kids.conf"
 
 [[ -f "$CONF" ]] || {
   fail "conf.d file not found at $CONF"

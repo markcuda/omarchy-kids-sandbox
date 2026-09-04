@@ -49,7 +49,7 @@ fail-safe list, how to verify the hook is actually in the image, and how to remo
 | `initcpio/hooks/omarchy-kids-unlock` → `/usr/lib/initcpio/hooks/omarchy-kids-unlock` | The runtime hook (ash, R-BOOT-1) |
 | `initcpio/install/omarchy-kids-unlock` → `/usr/lib/initcpio/install/omarchy-kids-unlock` | mkinitcpio install file: pulls in `dm-crypt`, `cryptsetup`, the helper, same as upstream's `install/encrypt` |
 | `initcpio/omarchy-kids-open` → `/usr/lib/initcpio/omarchy-kids-open` | The passphrase-reading helper the hook shells out to |
-| `etc/mkinitcpio.conf.d/omarchy_kids.conf` → `/etc/mkinitcpio.conf.d/omarchy_kids.conf` | Inserts `omarchy-kids-unlock` before `encrypt` in `HOOKS` (R-BOOT-2) |
+| `share/boot/omarchy_kids.conf` → `/usr/share/omarchy-kids/boot/omarchy_kids.conf` | Package-owned inactive template; disk mode copies it to the transition-owned `/etc/mkinitcpio.conf.d/omarchy_kids.conf` (R-BOOT-2) |
 | `bin/omarchy-kids-boot-login` → `/usr/bin/omarchy-kids-boot-login` | Writes/removes the SDDM autologin drop-in (R-BOOT-3) |
 | `systemd/omarchy-kids-boot-login.service` | Writes the drop-in, before `display-manager.service` |
 | `systemd/omarchy-kids-boot-login-cleanup.service` | Removes it, after `display-manager.service` |
@@ -112,8 +112,8 @@ directly on `/boot/initramfs-linux.img`.
 
 ## Removing the hook
 
-1. Remove `omarchy-kids-unlock` from `HOOKS` — either delete
-   `/etc/mkinitcpio.conf.d/omarchy_kids.conf` (the package removal does this) or, in
+1. Remove `omarchy-kids-unlock` from `HOOKS` — delete the transition-owned
+   `/etc/mkinitcpio.conf.d/omarchy_kids.conf` or, in
    `/etc/mkinitcpio.conf` itself, take `omarchy-kids-unlock` back out if it was ever hand-added
    there.
 2. `sudo mkinitcpio -P` to rebuild every installed kernel's image without it.
@@ -123,12 +123,14 @@ directly on `/boot/initramfs-linux.img`.
    and remove `/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf` if present — Omarchy's own
    autologin drop-in (if any) then applies again, unchanged.
 
-Package removal (`Remove Kids Mode`, R-FND-6 / §5.2 Remove flow) does all four steps.
+Remove Kids Mode (R-FND-6 / §5.2 Remove flow) does all four steps before the package is removed;
+plain package removal leaves runtime state in place, as documented in `docs/packaging.md`.
 
-## Naming deviation from SPEC.md
+## Why the drop-in uses an underscore
 
-SPEC.md's R-BOOT-2 names the mkinitcpio conf.d file `omarchy-kids.conf` (hyphen). This
-repo ships it as **`omarchy_kids.conf`** (underscore) instead. Reason: `/etc/mkinitcpio.conf.d/*.conf`
+R-BOOT-2 names the drop-in `/etc/mkinitcpio.conf.d/omarchy_kids.conf` (SPEC.md, underscore on
+purpose) and requires it to rebuild `HOOKS` with the Kids Mode hook before `encrypt` and do
+nothing when `encrypt` is absent. Why the underscore: `/etc/mkinitcpio.conf.d/*.conf`
 is sourced in lexical (byte) order, and on the reference machine `HOOKS` is *assigned* (not
 appended to) by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`. A hyphen (`0x2D`) sorts before an
 underscore (`0x5F`), so a literal `omarchy-kids.conf` would be sourced *before*
@@ -137,8 +139,7 @@ that (nonexistent) edit thrown away the moment `omarchy_hooks.conf` assigns `HOO
 Every real boot would silently end up with the hook never added — exactly the failure mode I-9
 exists to rule out. Naming it `omarchy_kids.conf` sorts it immediately after
 `omarchy_hooks.conf`, which is what R-BOOT-2 actually needs to work. `test/shell.d/mkinitcpio-conf-test.sh`
-and this file are the record of why; SPEC.md should be corrected to match on the next pass over
-R-BOOT.
+and this section are the record of why.
 ## `boot-login` decides by the registry, not the username (2026-09-03)
 
 `session_for` used to be `case "$1" in kid-*)`. `lib/posture.sh` already documents that exact

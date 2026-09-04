@@ -3,13 +3,17 @@
 # Sourced by the dispatcher; not meant to be executed directly. docs/provision.md.
 
 cmd_remove() {
-  local account="" keep_home=0
+  local account="" keep_home=0 luks_device=""
 
   while (($#)); do
     case "$1" in
       --keep-home)
         keep_home=1
         shift
+        ;;
+      --luks-device)
+        luks_device="${2:?--luks-device needs a value}"
+        shift 2
         ;;
       -h | --help)
         usage
@@ -25,6 +29,11 @@ cmd_remove() {
   done
 
   [[ -n "$account" ]] || die "remove: needs an account"
+  local boot_mode
+  boot_mode="$(read_boot_mode)"
+  if [[ "$boot_mode" == portal && -n "$luks_device" ]]; then
+    die "remove: --luks-device is not available in portal mode"
+  fi
   local profile="$KIDS_DIR/$account.conf"
   [[ -e "$profile" ]] || die "remove: no such kid account '$account' (no profile at $profile)"
 
@@ -35,15 +44,14 @@ cmd_remove() {
   echo "Removing kid $account"
 
   # R-SEC-4: kill the LUKS slot by number, then rewrite luks-slots.
-  local slot
-  slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+  local slot="" device=""
+  if [[ "$boot_mode" == disk ]]; then
+    slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+  fi
   if [[ -n "$slot" ]]; then
-    local device=""
-    if device="$(detect_luks_device "")"; then
-      run cryptsetup luksKillSlot --batch-mode "$device" "$slot"
-    else
-      echo "warning: no LUKS device found; slot $slot for $account was not killed on disk (luks-slots is rewritten anyway)" >&2
-    fi
+    device="$(detect_luks_device "$luks_device")" ||
+      die "remove: disk mode cannot find the LUKS root for slot $slot" 1
+    run cryptsetup luksKillSlot --batch-mode "$device" "$slot"
     local parent_line entries=() line acct
     parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
     while IFS= read -r line; do

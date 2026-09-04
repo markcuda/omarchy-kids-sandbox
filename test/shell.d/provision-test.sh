@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tests bin/omarchy-kids-provision and lib/posture.sh (SPEC.md R-FND-2..6,
-# R-SEC-3..5, R-LOGIN-3, R-DESK-1, Appendix B) and issue #10's three
+# R-SEC-3..5, R-LOGIN-3, R-DESK-1, R-BOOTMODE-3, R-BOOTMODE-4,
+# R-BOOTMODE-11, Appendix B) and issue #10's three
 # findings: (a) luks-slots is a full rewrite after every slot change, (b)
 # omarchy-provision-user runs when present, else migration markers are
 # written, (c) pam_namespace lands on both sddm and systemd-user.
@@ -17,10 +18,10 @@ set -uo pipefail
 
 # shellcheck source=test/shell.d/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=test/shell.d/tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$ROOT_DIR/bin/omarchy-kids-provision"
-CONFBIN="$ROOT_DIR/bin/omarchy-kids-conf"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "SKIP provision-test.sh: python3 not found (needed by omarchy-kids-conf)"
@@ -67,6 +68,7 @@ HOMEROOT="$TMP/homeroot" # OMARCHY_KIDS_HOME_ROOT
 STUBS="$TMP/stubs"
 LOG="$TMP/log"
 ARGV_LOG="$LOG/argv.log"
+TREE="$TMP/tree"
 
 mkdir -p "$ETC/kids" "$SHARE/bands" "$SHARE/packs" "$SHARE/avatars" "$SHARE/policy" "$SCRATCH_ROOT" "$HOMEROOT" "$STUBS" "$LOG"
 cp "$ROOT_DIR/share/bands/bands.toml" "$SHARE/bands/"
@@ -76,11 +78,19 @@ cp "$ROOT_DIR"/share/avatars/*.svg "$SHARE/avatars/"
 cp "$ROOT_DIR/share/policy/chromium-flags.conf" "$SHARE/policy/"
 touch "$ARGV_LOG"
 
+kids_tree "$TREE" "$ROOT_DIR"
+rm -f "$TREE/lib"
+cp -a "$ROOT_DIR/lib" "$TREE/lib"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$ETC/machine.conf"
+BIN="$TREE/bin/omarchy-kids-provision"
+CONFBIN="$TREE/bin/omarchy-kids-conf"
+
 # The machine's owner (SPEC.md's "parent"); machine setup writes this
 # before any kid is ever provisioned, and slot 0 in luks-slots, both
 # preconditions omarchy-kids-provision assumes are already in place.
 cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
+boot=disk
 EOF
 mkdir -p "$HOMEROOT/home/mark"
 echo "0=mark:omarchy.desktop" >"$ETC/luks-slots"
@@ -170,12 +180,34 @@ case "$1" in
         [[ -e "__LOG__/luks-added" ]] && echo "  3: luks2"
         ;;
     luksAddKey) : > "__LOG__/luks-added" ;;
+    luksKillSlot) [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1 ;;
     open) [[ -e "__LOG__/luks-open-ok" ]] || exit 1 ;;
 esac
 '
+stub lsblk 'echo "fake0 crypto_LUKS"'
 stub omarchy-provision-user
 stub groupadd
 stub runuser
+
+# The fixed-path boot reader requires root ownership. This fixture owns the
+# scratch files, so only the ownership fields are substituted.
+REAL_STAT="$(command -v stat)"
+cat >"$STUBS/stat" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
+format="\${2:-}"
+target="\${3:-}"
+if [[ "\$target" == "$ETC" || "\$target" == "$ETC/machine.conf" ]]; then
+  case "\$format" in
+    %u) echo 0 ;;
+    %G | %Sg) echo root ;;
+    *) exec "$REAL_STAT" "\$@" ;;
+  esac
+  exit 0
+fi
+exec "$REAL_STAT" "\$@"
+EOF
+chmod +x "$STUBS/stat"
 
 # Only the stubs and a base toolset: an Omarchy box has the real
 # omarchy-*/omarchy-kids-* commands on PATH, and a check that one is
@@ -209,10 +241,73 @@ check_eq "$st" 2 "add with neither password option exits 2"
 # --- add: default DRY_RUN=1 writes nothing --------------------------------
 
 : >"$ARGV_LOG"
-out="$(printf 'somepassword\n' | DRY_RUN=1 "$BIN" add "Dry Kid" --band 6-8 --avatar fox --password-stdin 2>&1)"
+out="$(printf 'somepassword\nparentpass1\n' | DRY_RUN=1 "$BIN" add "Dry Kid" --band 6-8 --avatar fox \
+  --password-stdin --parent-password-stdin --luks-device /dev/fake0 2>&1)"
 check_contains "$out" "[dry-run]" "default DRY_RUN=1 prints dry-run lines"
 [[ -e "$ETC/kids/kid-drykid.conf" ]] && fail "DRY_RUN=1 must not write a profile" || pass "DRY_RUN=1 wrote no profile"
 [[ -s "$ARGV_LOG" ]] && fail "DRY_RUN=1 must not invoke useradd/chpasswd/etc" || pass "DRY_RUN=1 invoked no real commands"
+
+# --- boot mode gates every add/remove before mutation ---------------------
+
+printf 'parent=mark\nboot=portal\n' >"$ETC/machine.conf"
+: >"$ARGV_LOG"
+out_empty_env="$(printf 'kidpass1\n' | env -i PATH="$PATH" DRY_RUN=1 \
+  OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" OMARCHY_KIDS_ROOT="$SCRATCH_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$HOMEROOT" OMARCHY_PATH="$OMARCHY_PATH" \
+  "$BIN" add "Cy" --band 6-8 --avatar fox --password-stdin 2>&1)"
+st=$?
+check_eq "$st" 0 "portal add works with an empty environment and no HOME"
+check_contains "$out_empty_env" "[dry-run]" "empty-environment add remains a preview"
+for option in "--luks-device /dev/fake0" "--parent-password-stdin"; do
+  : >"$ARGV_LOG"
+  # shellcheck disable=SC2086 # the two fixed option shapes are intentional
+  out_portal_reject="$(printf 'kidpass1\nparentpass1\n' | "$BIN" add "Dot" --band 6-8 --password-stdin $option 2>&1)"
+  st=$?
+  check_eq "$st" 2 "portal add rejects disk-only option: $option"
+  check_contains "$out_portal_reject" "not available in portal mode" "portal add names why $option is rejected"
+  [[ -e "$ETC/kids/kid-dot.conf" ]] && fail "portal rejection must not create kid-dot" ||
+    pass "portal rejection for $option mutates no profile"
+  check_eq "$(cat "$ARGV_LOG")" "" "portal rejection for $option invokes no system command"
+done
+
+: >"$ARGV_LOG"
+out_portal="$(printf 'kidpass1\n' | "$BIN" add "Cy" --band 6-8 --avatar fox --password-stdin 2>&1)"
+st=$?
+check_eq "$st" 0 "portal add succeeds without a disk secret"
+check_contains "$out_portal" "Done: kid-cy" "portal add reports completion"
+check_not_contains "$(cat "$ARGV_LOG")" "cryptsetup" "portal add makes no LUKS call"
+[[ -e "$ETC/kids/kid-cy.conf" ]] && pass "portal add creates the kid profile" || fail "portal add did not create kid-cy"
+
+: >"$ARGV_LOG"
+"$BIN" remove kid-cy >/dev/null 2>&1
+st=$?
+check_eq "$st" 0 "portal per-kid remove succeeds"
+check_not_contains "$(cat "$ARGV_LOG")" "cryptsetup" "portal per-kid remove makes no LUKS call"
+
+printf 'parent=mark\nboot=invalid\n' >"$ETC/machine.conf"
+: >"$ARGV_LOG"
+out_invalid="$("$BIN" add "Dot" --band 3-5 --no-password 2>&1)"
+st=$?
+check_eq "$st" 1 "invalid mode blocks add"
+check_contains "$out_invalid" "invalid or missing boot mode" "invalid-mode add names the trusted setting"
+[[ -e "$ETC/kids/kid-dot.conf" ]] && fail "invalid mode must not create kid-dot" || pass "invalid mode add mutates no profile"
+check_eq "$(cat "$ARGV_LOG")" "" "invalid mode add invokes no system command"
+
+cat >"$ETC/kids/kid-test.conf" <<'EOF'
+name=Test
+band=6-8
+password=set
+EOF
+: >"$ARGV_LOG"
+out_invalid="$("$BIN" remove kid-test 2>&1)"
+st=$?
+check_eq "$st" 1 "invalid mode blocks per-kid remove"
+check_contains "$out_invalid" "invalid or missing boot mode" "invalid-mode remove names the trusted setting"
+[[ -e "$ETC/kids/kid-test.conf" ]] && pass "invalid mode remove leaves the profile" || fail "invalid mode removed kid-test"
+check_eq "$(cat "$ARGV_LOG")" "" "invalid mode remove invokes no system command"
+rm -f "$ETC/kids/kid-test.conf"
+
+printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
 
 # --- add: kid-ada, band 6-8, password + LUKS slot -------------------------
 
@@ -369,6 +464,7 @@ check_eq "$(cat "$HOMEROOT/home/$SLUG/.local/state/omarchy/current/theme.name" 2
 
 # --- add: slug collision gets -2 ------------------------------------------
 
+printf 'parent=mark\nboot=portal\n' >"$ETC/machine.conf"
 : >"$ARGV_LOG"
 out2="$(printf 'kidpass2\n' | "$BIN" add "Ada Lovelace" --band 6-8 --avatar bear --password-stdin 2>&1)"
 check_contains "$out2" "as $SLUG-2" "second kid with the same name gets the -2 suffix"
@@ -392,6 +488,7 @@ check_eq "$(grep '^kids=' "$PORTAL_CONF" 2>/dev/null)" \
 
 # --- add: --no-password only for band 3-5 --------------------------------
 
+printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
 : >"$ARGV_LOG"
 "$BIN" add "Sam" --band 3-5 --avatar bear --no-password --luks-device /dev/fake0 >/dev/null 2>&1
 st=$?
@@ -411,6 +508,7 @@ check_contains "$out4" "too short" "add: short-password message names the reason
 
 # --- omarchy-provision-user missing: migration markers are written --------
 
+printf 'parent=mark\nboot=portal\n' >"$ETC/machine.conf"
 rm -f "$STUBS/omarchy-provision-user"
 out5="$(printf 'kidpass3\n' | "$BIN" add "Ben" --band 6-8 --avatar fox --password-stdin 2>&1)"
 SLUG_BEN="$("$CONFBIN" slug "Ben")"
@@ -436,6 +534,8 @@ check_eq "$(grep -c '^theme=' "$ETC/kids/$SLUG_NIA.conf")" "0" \
   pass "add: $SLUG_NIA's own theme directory was never created"
 mv "$TMP/theme.name.bak" "$HOMEROOT/home/mark/.local/state/omarchy/current/theme.name"
 
+printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
+
 # --- list ------------------------------------------------------------------
 
 list_out="$("$BIN" list)"
@@ -452,8 +552,22 @@ check_eq "$?" 2 "no arguments exits 2"
 # --- remove: reverses kid-ada (has a LUKS slot, home moved) -----------------
 
 : >"$ARGV_LOG"
-export OMARCHY_KIDS_LUKS_DEVICE=/dev/fake0 # remove has no --luks-device flag
-"$BIN" remove "$SLUG" >/dev/null 2>&1
+: >"$LOG/luks-kill-fail"
+slots_before="$(cat "$ETC/luks-slots")"
+out_remove_fail="$(OMARCHY_KIDS_LUKS_DEVICE=/dev/hostile "$BIN" remove "$SLUG" 2>&1)"
+st=$?
+rm -f "$LOG/luks-kill-fail"
+check_eq "$st" 1 "failed disk slot removal exits 1"
+check_contains "$out_remove_fail" "Removing kid $SLUG" "failed disk removal identifies the account"
+check_eq "$(cat "$ETC/luks-slots")" "$slots_before" "failed disk slot removal preserves the slot map"
+check_contains "$(cat "$ARGV_LOG")" "/dev/fake0 3" "disk removal ignores environment-selected devices"
+check_not_contains "$(cat "$ARGV_LOG")" "/dev/hostile" "hostile device environment never reaches cryptsetup"
+[[ -e "$ETC/kids/$SLUG.conf" ]] && pass "failed disk slot removal preserves the profile" || fail "failed disk slot removal removed the profile"
+check_not_contains "$(cat "$ARGV_LOG")" "userdel" "failed disk slot removal stops before account deletion"
+check_not_contains "$(cat "$ARGV_LOG")" "umount" "failed disk slot removal stops before home mutation"
+
+: >"$ARGV_LOG"
+"$BIN" remove "$SLUG" --luks-device /dev/fake0 >/dev/null 2>&1
 st=$?
 argv6="$(cat "$ARGV_LOG")"
 

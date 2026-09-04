@@ -1,7 +1,8 @@
 #!/bin/bash
-# Tests bin/omarchy-kids-remove (SPEC.md R-TRUST-1, R-TRUST-4, R-FND-6):
+# Tests bin/omarchy-kids-remove (SPEC.md R-TRUST-1, R-TRUST-4, R-FND-6,
+# R-BOOTMODE-3, R-BOOTMODE-4, R-BOOTMODE-11):
 # every lock it reverses, the kept-vs-deleted home, the plan/confirm/dry-run
-# contract, and the "running it twice is safe" idempotence claim.
+# contract, and fail-closed mode selection.
 #
 # Builds a fully-provisioned scratch tree the same way
 # test/shell.d/assert-test.sh does -- seeding every lock directly through
@@ -14,17 +15,16 @@
 # fake on a stub PATH that only logs its argv and fakes just enough state
 # for the script under test to react to, same shape as
 # test/shell.d/provision-test.sh's and assert-test.sh's stub() helper.
-# Never touches the real /etc, /var, or /home (AGENTS.md rule 8). One
-# provisioned kid throughout: kid-ada, band 6-8 (AGENTS.md rule 9).
+# Never touches the real /etc, /var, or /home (AGENTS.md rule 8).
 # shellcheck disable=SC2015 # "A && B || C" below is always used with B, C that can't fail
 set -uo pipefail
 
 # shellcheck source=test/shell.d/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=test/shell.d/tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$ROOT_DIR/bin/omarchy-kids-remove"
-APP="$ROOT_DIR/bin/omarchy-kids"
 
 pass() { echo "PASS  $*"; }
 fail() {
@@ -67,13 +67,22 @@ HOMEROOT="$TMP/homeroot"        # OMARCHY_KIDS_HOME_ROOT
 STUBS="$TMP/stubs"
 LOG="$TMP/log"
 ARGV_LOG="$LOG/argv.log"
+TREE="$TMP/tree"
 
 mkdir -p "$ETC/kids" "$SHARE/avatars" "$SCRATCH_ROOT/usr/lib/pam.d" "$HOMEROOT" "$STUBS" "$LOG"
 cp "$ROOT_DIR"/share/avatars/fox.svg "$SHARE/avatars/"
 touch "$ARGV_LOG"
 
+kids_tree "$TREE" "$ROOT_DIR"
+rm -f "$TREE/lib"
+cp -a "$ROOT_DIR/lib" "$TREE/lib"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$ETC/machine.conf"
+BIN="$TREE/bin/omarchy-kids-remove"
+APP="$TREE/bin/omarchy-kids"
+
 cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
+boot=disk
 EOF
 
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
@@ -87,8 +96,17 @@ EOF
 cat >"$ETC/luks-slots" <<'EOF'
 0=mark:omarchy.desktop
 3=kid-ada
+5=kid-cy
 EOF
 chmod 0600 "$ETC/luks-slots"
+
+cat >"$ETC/kids/kid-cy.conf" <<'EOF'
+name=Cy
+avatar=bear
+band=6-8
+password=set
+onboarded=no
+EOF
 
 # --- stub PATH -------------------------------------------------------------
 
@@ -170,6 +188,7 @@ if [[ "$1" == "luksKillSlot" ]]; then
             --key-file=*) cat "${a#--key-file=}" >> "__LOG__/luks-keyfile-used" 2>/dev/null ;;
         esac
     done
+    [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1
 fi
 '
 # systemctl: unmask drops the getty symlink; disable [--now] drops
@@ -205,6 +224,7 @@ esac
 '
 # mkinitcpio -P: just logged (argv is asserted directly).
 stub mkinitcpio ''
+stub lsblk 'echo "fake0 crypto_LUKS"'
 # snapper -c root create --print-number -d "...": prints a fake snapshot
 # number on stdout when --print-number is given, same as a real snapper --
 # lets the test confirm omarchy-kids-remove prints it back out (issue #45).
@@ -225,6 +245,29 @@ if [[ "${1:-}" == "-d" ]]; then
     rm -f "__LOG__/parent-group-$2"
 fi
 '
+
+# The fixed-path boot reader requires root ownership. This fixture owns the
+# scratch files, so only the ownership fields are substituted.
+REAL_STAT="$(command -v stat)"
+cat >"$STUBS/stat" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
+format="\${2:-}"
+target="\${3:-}"
+if [[ "\$target" == "$ETC" || "\$target" == "$ETC/machine.conf" ||
+  "\$target" == "$TMP/fail/etc/omarchy-kids" || "\$target" == "$TMP/fail/etc/omarchy-kids/machine.conf" ||
+  "\$target" == "$TMP/portal/etc/omarchy-kids" || "\$target" == "$TMP/portal/etc/omarchy-kids/machine.conf" ||
+  "\$target" == "$TMP/invalid/etc/omarchy-kids" || "\$target" == "$TMP/invalid/etc/omarchy-kids/machine.conf" ]]; then
+  case "\$format" in
+    %u) echo 0 ;;
+    %G | %Sg) echo root ;;
+    *) exec "$REAL_STAT" "\$@" ;;
+  esac
+  exit 0
+fi
+exec "$REAL_STAT" "\$@"
+EOF
+chmod +x "$STUBS/stat"
 # tar: a spy, not a stub -- argv is logged like every other fake here, but
 # the archive itself is real (delegates to the real /usr/bin/tar), so this
 # file can inspect luks-slots' content as it stood the moment it was
@@ -242,7 +285,6 @@ export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_ROOT="$SCRATCH_ROOT"
 export OMARCHY_KIDS_HOME_ROOT="$HOMEROOT"
-export OMARCHY_KIDS_LUKS_DEVICE=/dev/fake0
 
 # --- seed every lock as "already provisioned" -----------------------------
 
@@ -363,14 +405,9 @@ for desc in "mount:kid-ada" "fstab:kid-ada" "luks:kid-ada" "namespace:kid-ada" \
   "units" "parent-group" "etc-and-varlib"; do
   check_status "$out" "$desc" "would-remove" "--dry-run: $desc would be removed"
 done
-# portal-conf's own check is content-based (does theme.conf.user match
-# what it should hold for whatever's *actually* still under $KIDS_DIR),
-# not presence-based like every lock above -- a --dry-run pass never
-# removes kid-ada's profile first, so at the moment this check runs the
-# file is still correctly in sync with a kid-ada that (in this preview
-# pass) hasn't gone anywhere yet. It only shows would-remove/removed once
-# the profile itself is actually gone -- exercised below, in the real run.
-check_status "$out" "portal-conf" "skipped" "--dry-run: portal-conf has nothing to resync yet (kid-ada's profile is still on disk during the plan pass)"
+# The second slot fixture has a profile but no portal entry, so this seeded
+# portal file already needs a rebuild during the preview.
+check_status "$out" "portal-conf" "would-remove" "--dry-run: portal-conf would be rebuilt"
 # Read-only check functions (findmnt, id) do run for real even under
 # --dry-run, same as every check function in bin/omarchy-kids-assert --
 # only the destructive fix side is skipped. Assert those never ran.
@@ -392,7 +429,8 @@ check_contains "$out" "cancelled" "declining names the cancellation"
 # --- real run: --yes, --parent-password-stdin ------------------------------
 
 : >"$ARGV_LOG"
-out="$(printf 'parentpass1\n' | "$BIN" --yes --parent-password-stdin 2>&1)"
+out="$(printf 'parentpass1\n' | OMARCHY_KIDS_LUKS_DEVICE=/dev/hostile \
+  "$BIN" --yes --parent-password-stdin 2>&1)"
 st=$?
 argv="$(cat "$ARGV_LOG")"
 
@@ -407,9 +445,12 @@ check_status "$out" "fstab:kid-ada" "removed" "fstab:kid-ada removed"
 check_eq "$(grep -c "kid-ada" "$SCRATCH_ROOT/etc/fstab" 2>/dev/null)" "0" "fstab: the line for kid-ada is gone"
 
 check_status "$out" "luks:kid-ada" "removed" "luks:kid-ada removed"
+check_status "$out" "luks:kid-cy" "removed" "luks:kid-cy removed"
 check_contains "$argv" "cryptsetup luksKillSlot --batch-mode --key-file=" "luks: cryptsetup luksKillSlot called with a key-file"
 check_contains "$argv" "/dev/fake0 3" "luks: killed the exact slot (3) on the right device"
-check_eq "$(cat "$LOG/luks-keyfile-used" 2>/dev/null)" "parentpass1" "luks: the parent password reached cryptsetup via its key-file"
+check_contains "$argv" "/dev/fake0 5" "luks: killed the second exact slot (5) on the right device"
+check_not_contains "$argv" "/dev/hostile" "luks: environment-selected devices are ignored"
+check_eq "$(cat "$LOG/luks-keyfile-used" 2>/dev/null)" "parentpass1parentpass1" "luks: the parent password reached both exact slot removals via key files"
 check_not_contains "$argv" "parentpass1" "luks: the parent password never appears in any command's argv"
 # luks-slots itself is checked below, before the run's own final
 # "etc-and-varlib" step deletes the whole $ETC tree it lives under.
@@ -495,6 +536,7 @@ check_status "$out" "mkinitcpio-hook" "removed" "mkinitcpio-hook removed"
 [[ -e "$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" ]] && fail "mkinitcpio drop-in should be removed" ||
   pass "mkinitcpio drop-in removed"
 check_contains "$argv" "mkinitcpio -P" "mkinitcpio-hook: mkinitcpio -P was run"
+check_eq "$(grep -c '^mkinitcpio -P$' <<<"$argv")" "1" "disk removal runs one final rebuild after all kid slots"
 
 check_status "$out" "sddm-autologin" "removed" "sddm-autologin removed"
 [[ -e "$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf" ]] && fail "autologin drop-in should be removed" ||
@@ -542,6 +584,7 @@ if [[ -n "$tarball" ]]; then
   member="${ETC#/}/luks-slots"
   slots_backed_up="$(tar xzf "$tarball" -O "$member" 2>/dev/null || true)"
   check_eq "$(grep -c '^3=kid-ada$' <<<"$slots_backed_up")" "0" "backup: luks-slots in the tarball has no entry for kid-ada"
+  check_eq "$(grep -c '^5=kid-cy$' <<<"$slots_backed_up")" "0" "backup: luks-slots in the tarball has no entry for kid-cy"
   check_eq "$(grep -c '^0=mark:omarchy.desktop$' <<<"$slots_backed_up")" "1" "backup: luks-slots in the tarball still has the parent's slot 0"
   varlib_member="${SCRATCH_ROOT#/}/var/lib/omarchy-kids/kid-ada/usage/day.log"
   check_contains "$(tar xzf "$tarball" -O "$varlib_member" 2>/dev/null || true)" "45" \
@@ -562,17 +605,15 @@ check_not_contains "$argv" "pacman" "the pacman command itself is never invoked"
 check_contains "$out" "Summary: every step removed or skipped, nothing failed." \
   "summary: a clean run says so explicitly"
 
-# --- idempotence: a second run (kids all gone) reports skipped -----------
+# --- missing mode blocks a second run before mutation ---------------------
 
 : >"$ARGV_LOG"
 : >"$LOG/luks-keyfile-used"
 out2="$("$BIN" --yes --no-snapshot 2>&1)"
 st2=$?
-check_eq "$st2" 0 "second run exits 0"
-still_active="$(grep -Ev '^skipped ' <<<"$out2" | grep -v '^Plan:$' | grep -v '^Removing:$' | grep -v '^$' | grep -v 'sudo pacman' | grep -v 'not removed yet' | grep -v '^Summary:' || true)"
-[[ -z "$still_active" ]] && pass "second run: every remaining lock reports skipped" ||
-  fail "second run: unexpected non-skipped line(s):"$'\n'"$still_active"
-check_eq "$(cat "$ARGV_LOG")" "" "second run invoked no real destructive commands"
+check_eq "$st2" 1 "missing mode blocks a second run"
+check_contains "$out2" "invalid or missing boot mode" "missing mode names the trusted setting"
+check_eq "$(cat "$ARGV_LOG")" "" "missing mode invokes no destructive command"
 
 echo "remove-test RESULT (part 1): $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 
@@ -581,6 +622,7 @@ echo "remove-test RESULT (part 1): $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 # rebuilt -- kids/ included -- before seeding this fixture)
 
 mkdir -p "$ETC/kids"
+printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
 cat >"$ETC/kids/kid-ben.conf" <<'EOF'
 name=Ben
 avatar=bear
@@ -612,6 +654,7 @@ check_status "$out4" "home:kid-ben" "skipped" "--delete-homes: the home step its
 mkdir -p "$ETC"
 cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
+boot=disk
 EOF
 touch "$LOG/parent-group-mark"
 
@@ -633,6 +676,8 @@ check_not_contains "$argv7" "gpasswd" "--keep-parent-group: gpasswd was never in
 
 mkdir -p "$SCRATCH_ROOT/etc/mkinitcpio.conf.d"
 echo "# omarchy-kids hook insertion" >"$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+mkdir -p "$ETC"
+printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
 cat >"$STUBS/mkinitcpio" <<'EOF'
 #!/bin/bash
 { printf '%s' "mkinitcpio"; printf ' %s' "$@"; printf '\n'; } >> "__ARGVLOG__"
@@ -649,6 +694,113 @@ check_eq "$st8" 1 "a run with a real FAILED step exits 1"
 check_status "$out8" "mkinitcpio-hook" "FAILED" "a failing fix function reports FAILED, not removed/skipped"
 check_contains "$out8" "Summary: 1 step(s) FAILED: mkinitcpio-hook" \
   "summary: names the failed step by its exact description (issue #45 item 4)"
+[[ -e "$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" ]] &&
+  pass "failed rebuild restores the previous mkinitcpio drop-in" ||
+  fail "failed rebuild must not discard the previous mkinitcpio drop-in"
+
+# --- disk slot failure preserves the retry state --------------------------
+
+FAIL_ETC="$TMP/fail/etc/omarchy-kids"
+FAIL_ROOT="$TMP/fail/root"
+FAIL_HOME="$TMP/fail/home"
+mkdir -p "$FAIL_ETC/kids" "$FAIL_ROOT" "$FAIL_HOME/home/kid-dot"
+printf 'parent=mark\nboot=disk\n' >"$FAIL_ETC/machine.conf"
+printf 'name=Dot\nband=6-8\npassword=set\n' >"$FAIL_ETC/kids/kid-dot.conf"
+printf '0=mark:omarchy.desktop\n9=kid-dot\n' >"$FAIL_ETC/luks-slots"
+touch "$LOG/account-kid-dot" "$LOG/luks-kill-fail"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$FAIL_ETC/machine.conf"
+
+: >"$ARGV_LOG"
+out_luks_fail="$(OMARCHY_KIDS_ETC="$FAIL_ETC" OMARCHY_KIDS_ROOT="$FAIL_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$FAIL_HOME" "$BIN" --yes --no-snapshot --luks-device /dev/fake0 2>&1)"
+st=$?
+rm -f "$LOG/luks-kill-fail"
+luks_fail_argv="$(cat "$ARGV_LOG")"
+check_eq "$st" 1 "failed disk slot removal fails the full run"
+check_status "$out_luks_fail" "luks:kid-dot" "FAILED" "failed disk slot removal is reported"
+check_contains "$luks_fail_argv" "/dev/fake0 9" "failed disk removal targeted the exact recorded slot"
+check_eq "$(cat "$FAIL_ETC/luks-slots")" $'0=mark:omarchy.desktop\n9=kid-dot' "failed disk removal preserves the slot map"
+[[ -e "$FAIL_ETC/kids/kid-dot.conf" ]] && pass "failed disk removal preserves the profile" || fail "failed disk removal removed the profile"
+check_not_contains "$luks_fail_argv" "userdel" "failed disk removal stops before account deletion"
+check_not_contains "$luks_fail_argv" "mkinitcpio" "failed disk removal stops before the final rebuild"
+
+# --- portal and invalid modes are decided before boot mutation ------------
+
+PORTAL_ETC="$TMP/portal/etc/omarchy-kids"
+PORTAL_ROOT="$TMP/portal/root"
+PORTAL_HOME="$TMP/portal/home"
+mkdir -p "$PORTAL_ETC/kids" "$PORTAL_ROOT/etc/mkinitcpio.conf.d" "$PORTAL_ROOT/etc/default" "$PORTAL_HOME/home/kid-test"
+printf 'parent=mark\nboot=portal\n' >"$PORTAL_ETC/machine.conf"
+cat >"$PORTAL_ETC/kids/kid-test.conf" <<'EOF'
+name=Test
+avatar=fox
+band=6-8
+password=set
+onboarded=no
+EOF
+printf '0=mark:omarchy.desktop\n7=kid-test\n' >"$PORTAL_ETC/luks-slots"
+printf 'portal drop-in must stay\n' >"$PORTAL_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+printf '# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=8\nMAX_SNAPSHOT_ENTRIES=0\n' >"$PORTAL_ROOT/etc/default/limine"
+portal_dropin_before="$(cat "$PORTAL_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf")"
+portal_limine_before="$(cat "$PORTAL_ROOT/etc/default/limine")"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$PORTAL_ETC/machine.conf"
+
+: >"$ARGV_LOG"
+out_empty_env="$(env -i PATH="$PATH" OMARCHY_KIDS_ETC="$PORTAL_ETC" \
+  OMARCHY_KIDS_ROOT="$PORTAL_ROOT" OMARCHY_KIDS_HOME_ROOT="$PORTAL_HOME" \
+  "$BIN" --dry-run --no-snapshot 2>&1)"
+st=$?
+check_eq "$st" 0 "portal full removal works with an empty environment and no HOME"
+check_contains "$out_empty_env" "Plan:" "empty-environment removal remains a preview"
+
+: >"$ARGV_LOG"
+out_portal_reject="$(printf 'parentpass1\n' | OMARCHY_KIDS_ETC="$PORTAL_ETC" OMARCHY_KIDS_ROOT="$PORTAL_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$PORTAL_HOME" "$BIN" --yes --no-snapshot --parent-password-stdin 2>&1)"
+st=$?
+check_eq "$st" 2 "portal full removal rejects --parent-password-stdin"
+check_contains "$out_portal_reject" "not available in portal mode" "portal disk-secret rejection names the reason"
+[[ -e "$PORTAL_ETC/kids/kid-test.conf" ]] && pass "portal option rejection leaves the kid profile" || fail "portal option rejection mutated the profile"
+check_eq "$(cat "$ARGV_LOG")" "" "portal option rejection invokes no system command"
+
+: >"$ARGV_LOG"
+out_portal_reject="$(OMARCHY_KIDS_ETC="$PORTAL_ETC" OMARCHY_KIDS_ROOT="$PORTAL_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$PORTAL_HOME" "$BIN" --yes --no-snapshot --luks-device /dev/fake0 2>&1)"
+st=$?
+check_eq "$st" 2 "portal full removal rejects --luks-device"
+check_contains "$out_portal_reject" "not available in portal mode" "portal device rejection names the reason"
+[[ -e "$PORTAL_ETC/kids/kid-test.conf" ]] && pass "portal device rejection leaves the kid profile" || fail "portal device rejection mutated the profile"
+check_eq "$(cat "$ARGV_LOG")" "" "portal device rejection invokes no system command"
+
+: >"$ARGV_LOG"
+out_portal="$(OMARCHY_KIDS_ETC="$PORTAL_ETC" OMARCHY_KIDS_ROOT="$PORTAL_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$PORTAL_HOME" "$BIN" --yes --no-snapshot 2>&1)"
+st=$?
+portal_argv="$(cat "$ARGV_LOG")"
+check_eq "$st" 0 "portal full removal succeeds"
+check_contains "$out_portal" "Summary: every step removed or skipped" "portal full removal reports completion"
+for command in cryptsetup mkinitcpio limine limine-snapper-sync; do
+  check_not_contains "$portal_argv" "$command" "portal full removal makes no $command call"
+done
+check_eq "$(cat "$PORTAL_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf")" "$portal_dropin_before" "portal full removal leaves the boot drop-in untouched"
+check_eq "$(cat "$PORTAL_ROOT/etc/default/limine")" "$portal_limine_before" "portal full removal leaves Limine untouched"
+
+INVALID_ETC="$TMP/invalid/etc/omarchy-kids"
+INVALID_ROOT="$TMP/invalid/root"
+mkdir -p "$INVALID_ETC/kids" "$INVALID_ROOT"
+printf 'parent=mark\nboot=invalid\n' >"$INVALID_ETC/machine.conf"
+printf 'name=Test\nband=6-8\npassword=set\n' >"$INVALID_ETC/kids/kid-test.conf"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$INVALID_ETC/machine.conf"
+: >"$ARGV_LOG"
+out_invalid="$(OMARCHY_KIDS_ETC="$INVALID_ETC" OMARCHY_KIDS_ROOT="$INVALID_ROOT" "$BIN" --yes --no-snapshot 2>&1)"
+st=$?
+check_eq "$st" 1 "invalid mode blocks full removal"
+check_contains "$out_invalid" "invalid or missing boot mode" "invalid mode names the trusted setting"
+[[ -e "$INVALID_ETC/kids/kid-test.conf" ]] && pass "invalid mode leaves the kid profile" || fail "invalid mode removed the kid profile"
+check_eq "$(cat "$ARGV_LOG")" "" "invalid mode invokes no system command"
+
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$ETC/machine.conf"
+mkdir -p "$ETC"
+printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
 
 # --- remove-kids-mode dispatch through bin/omarchy-kids -------------------
 

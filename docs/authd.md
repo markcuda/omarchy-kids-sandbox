@@ -9,7 +9,7 @@ own login password, and never stores it.
 ## Pieces
 
 - `bin/omarchy-kids-authd` — a root, socket-activated Python daemon. Reads the parent's shadow
-  hash fresh on every request (never cached) and answers a one-word yes/no.
+  hash fresh on every request (never cached) and answers with a short `ok` or `no` reply.
 - `bin/omarchy-kids-parent-auth` — a small bash client for `pam_exec`. Reads a candidate password
   from stdin, asks the daemon, and turns the answer into an exit code.
 - `systemd/omarchy-kids-authd.socket` / `.service` — the socket unit owns
@@ -18,25 +18,40 @@ own login password, and never stores it.
 
 ## Wire protocol
 
-A client connects to the Unix socket, writes exactly one line — the candidate password,
-newline-terminated, at most 512 bytes — and reads the reply:
+A client connects to the Unix socket and sends one framed request. The candidate line is always
+newline-terminated and at most 512 bytes:
 
 ```text
-client -> "hunter2\n"
-server -> "ok\n"    # or "no\n"
+client -> "VERIFY\nhunter2\n"
+server -> "ok\n"       # or "no\n"
+server closes the connection
+```
+
+The wizard bootstrap uses a caller-bound frame:
+
+```text
+client -> "BOOTSTRAP\nhunter2\n"
+server -> "ok\n"       # or "no\n"
+server closes the connection
+```
+
+The `GRANT` form sends a JSON request line followed by the password and may include a reason in a
+negative reply:
+
+```text
+client -> "GRANT {…}\nhunter2\n"
+server -> "ok\n"       # or "no <reason>\n"
 server closes the connection
 ```text
 
-Anything that doesn't fit that shape (no newline, over 512 bytes, a client that goes quiet for
-more than 5 seconds) gets `no`. The daemon serves one client at a time; there's no reason for it
-to do otherwise; and it never writes the candidate anywhere — not to a log, not to disk, not into
-an exception message.
+Anything that doesn't fit one of those shapes, including an unframed password, gets `no`. A client
+that goes quiet for more than 5 seconds also gets `no`. The daemon never writes the candidate
+anywhere, not to a log, not to disk, and not into an exception message.
 
 ## Where the parent's identity and hash come from
 
 - The parent's login name comes from `/etc/omarchy-kids/machine.conf` (a `key=value` file, key
-  `parent`), overridable with `--parent NAME` or the `OMARCHY_KIDS_PARENT` environment variable
-  (checked in that order: flag, then env, then the config file).
+  `parent`), or from the root-only `--parent NAME` option used by tests and socket activation.
 - The hash comes from `/etc/shadow` (path overridable with `--shadow PATH`, which is how the
   tests run without touching the real file), read again on every single request. A locked account
   (a hash starting with `!` or `*`) never matches.
@@ -130,9 +145,9 @@ bash test/shell.d/authd-test.sh
 or as part of the full suite with `test/all`.
 ## The GRANT request type (2026-09-03)
 
-The daemon now answers two request shapes, one per connection. The old one is unchanged: a
-single line of candidate password, `ok` or `no` back. The new one is
-`GRANT <json-request-line>\n<password>\n`, and it exists because an "Ask a grown-up" approval
+The daemon answers three request shapes, one per connection. Ordinary verification uses the
+explicit `VERIFY` frame. The wizard's `BOOTSTRAP` frame adds the caller-identity check. The third
+is `GRANT <json-request-line>\n<password>\n`, and it exists because an "Ask a grown-up" approval
 cannot be an exit code from a process the kid owns (review S1). Root does all of it here: it
 parses the request, runs it through `lib/ask.py`'s `validate_grant` (loaded by path from
 `--lib`), reads the connecting peer's real uid from `SO_PEERCRED` and refuses unless it matches

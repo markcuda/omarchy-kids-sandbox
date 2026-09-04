@@ -4,8 +4,8 @@
 # by the dispatcher; not meant to be executed directly. See docs/wizard.md
 # "Apply's five steps" for the exit-code/logging contract each step follows.
 
-# Step 1: the one sudo prompt for the whole run; writes machine.conf's
-# parent= first (issue #46 -- authd needs it before anything else runs).
+# Step 1: write machine.conf's parent= first. Step 2 already holds the
+# sudo ticket used by every command in this run.
 apply_step_getok() {
   if [[ "$DRY_RUN" == "1" ]]; then
     printf '  [dry-run] sudo -v\n'
@@ -16,12 +16,18 @@ apply_step_getok() {
     printf '  [dry-run] sudo install -d -m 0755 %q\n' "$(dirname "$SETUP_LOG")"
     return 0
   fi
-  if ! sudo -n true 2>/dev/null; then
-    printf '%s\n' "$PARENT_PASSWORD" | sudo -S -p '' -v 2>/dev/null || return 1
-  fi
-  sudo "$CONF_BIN" machine set parent "$INVOKING_USER" || return 1
-  sudo systemctl enable --now "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" || return 1
-  sudo install -d -m 0755 "$(dirname "$SETUP_LOG")"
+  sudo -n "$CONF_BIN" machine set parent "$INVOKING_USER" || return 1
+  sudo -n systemctl enable --now "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" || return 1
+  sudo -n install -d -m 0755 "$(dirname "$SETUP_LOG")"
+}
+
+# prepare_apply_log — establish the existing ticket and open the log
+# before any step output enters a pipeline.
+prepare_apply_log() {
+  [[ "$DRY_RUN" == "1" ]] && return 0
+  sudo -n -v >/dev/null 2>&1 || return 1
+  sudo -n install -d -m 0755 "$(dirname "$SETUP_LOG")" || return 1
+  sudo -n touch "$SETUP_LOG"
 }
 
 # Step 2: the account, plus every Appendix B override (R-BAND-2). A
@@ -94,8 +100,14 @@ run_apply_step() {
     "$func" 2>&1 | tee "$tmp"
     rc="${PIPESTATUS[0]}"
   else
-    "$func" 2>&1 | tee "$tmp" | sudo tee -a "$SETUP_LOG" >/dev/null
+    "$func" 2>&1 | tee "$tmp"
     rc="${PIPESTATUS[0]}"
+    if ! sudo -n tee -a "$SETUP_LOG" <"$tmp" >/dev/null; then
+      rc=1
+    fi
+    if ! sudo -n -v >/dev/null 2>&1; then
+      APPLY_AUTH_EXPIRED=1
+    fi
   fi
   if ((rc != 0)); then
     echo
@@ -127,9 +139,22 @@ screen_apply() {
   tui_progress steps 0 "You can watch this happen — nothing here needs another click."
 
   APPLY_OK=1
+  if ! prepare_apply_log; then
+    APPLY_OK=0
+    APPLY_AUTH_EXPIRED=1
+    FAILED_STEP="${steps[0]}"
+    echo
+    echo "Authorization expired or the setup log is unavailable. Return to Step 2 to verify again."
+    return 1
+  fi
   for ((i = 0; i < total; i++)); do
     run_apply_step "${steps[i]}" "${funcs[i]}"
     rc=$?
+    if ((APPLY_AUTH_EXPIRED)); then
+      echo
+      echo "Authorization expired. Return to Step 2 to verify again."
+      return 1
+    fi
     if [[ "$DRY_RUN" != "1" ]] && ((rc != 0)); then
       APPLY_OK=0
       for ((k = 0; k < total; k++)); do

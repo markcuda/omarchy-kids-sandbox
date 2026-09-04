@@ -32,6 +32,7 @@ wizard_for() {
     [[ -e "$f" ]] && cp "$f" "$tree/bin/"
   done
   kids_set_const "$tree/bin/omarchy-kids-wizard" AUTH_SOCK "$sock"
+  kids_set_const "$tree/bin/omarchy-kids-parent-auth" DEFAULT_SOCK "$sock"
   printf '%s\n' "$tree/bin/omarchy-kids-wizard"
 }
 
@@ -107,6 +108,12 @@ case "${1:-}" in
 esac
 EOF
 
+cat >"$STUBS/omarchy-kids-parent-auth" <<'EOF'
+#!/bin/bash
+read -r candidate || candidate=""
+[[ "$candidate" == "${CORRECT_PW:-parentpw123}" ]]
+EOF
+
 # Fakes for every command the Apply step (or prefetch) might shell out to:
 # each just logs its own argv, one line, to $ARGV_LOG, so a dry run can be
 # told apart from a run that actually reached one of these.
@@ -124,9 +131,18 @@ export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 BIN="$(wizard_for "$STUBS")"
-# Pinned rather than left to `id -un` (issue #46), so the machine-set-parent
-# checks below don't depend on whoever happens to run this suite.
-export OMARCHY_KIDS_INVOKING_USER="mark"
+# The EXIT cleanup must clear the in-memory parent candidate, not only stop
+# background work. Keep this as a source-level contract because the process
+# exits before a child test can inspect its shell variables.
+cleanup_body="$(sed -n '/^cleanup() {/,/^}/p' "$DIR/bin/omarchy-kids-wizard")"
+check_contains "$cleanup_body" 'PARENT_PASSWORD=""' \
+  "wizard EXIT cleanup clears the parent password"
+check_contains "$(grep '^trap ' "$DIR/bin/omarchy-kids-wizard")" 'cleanup' \
+  "wizard EXIT trap runs secret cleanup"
+# This hostile value must not affect Apply. The expected identity is the
+# process's real account, read the same way the wizard reads it.
+EXPECTED_INVOKING_USER="$(id -un)"
+export OMARCHY_KIDS_INVOKING_USER="forged-parent"
 export DRY_RUN=1
 
 answers_file() { # writes $@ (one per line) to a fresh file, prints its path
@@ -175,8 +191,10 @@ check_contains "$out" "Face          owl" "summary shows the chosen face"
 # parent for omarchy-kids-authd to check against and the boot-time
 # autologin back before the account step and the next wizard run need
 # them.
-check_contains "$out" "omarchy-kids-conf machine set parent mark" \
-  "Apply's first step writes machine.conf's parent=, to the invoking user"
+check_contains "$out" "omarchy-kids-conf machine set parent $EXPECTED_INVOKING_USER" \
+  "Apply's first step writes machine.conf's parent=, to id -un"
+check_not_contains "$out" "omarchy-kids-conf machine set parent forged-parent" \
+  "OMARCHY_KIDS_INVOKING_USER cannot change Apply's parent identity"
 check_contains "$out" "sudo systemctl enable --now omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-wifid.socket omarchy-kids-time.timer omarchy-kids-ask-collect.timer" \
   "Apply's first step enables and starts the package's units, before provisioning"
 check_contains "$out" "omarchy-kids-provision add Ada --band 6-8 --avatar owl --password-stdin --parent-password-stdin --apply" \
@@ -411,6 +429,7 @@ echo "FAKE-WEB: this must never print — Apply should have stopped already"
 exit 0
 EOF
 cp "$STUBS/gum" "$RM_STUBS/gum"
+cp "$STUBS/omarchy-kids-parent-auth" "$RM_STUBS/omarchy-kids-parent-auth"
 chmod +x "$RM_STUBS"/*
 
 rm_out="$(
@@ -434,57 +453,78 @@ RM_STUBS_SUDO="$(mktemp)" # reused by the default-mode section below
 cp "$RM_STUBS/sudo" "$RM_STUBS_SUDO"
 rm -rf "$RM_TMP"
 
-# --- real mode: A2's sudo fallback when omarchy-kids-authd's socket isn't
-# active (issue #46 -- a fresh install before the first kid, or right
-# after omarchy-kids-remove disables the package's units). OMARCHY_KIDS_AUTH_SOCK
-# points at a path that is never actually created here, so verify_parent_password
-# always takes the fallback branch: `sudo -k` then the candidate on stdin
-# to `sudo -S -p '' -v`. The fake sudo below is real enough to actually
-# check the candidate against CORRECT_PW, so a genuinely wrong guess is
-# genuinely rejected, not rubber-stamped like the harness's outer sudo
-# fake (which never inspects stdin at all).
+# --- real mode: authd decides whether a candidate is correct, even when
+# sudo is passwordless. The fake parent-auth is the authd client seam; the
+# fake sudo accepts every ticket so it cannot decide authentication.
 
 RM3_TMP="$(mktemp -d)"
 RM3_STUBS="$RM3_TMP/stubs"
 RM3_ETC="$RM3_TMP/etc/omarchy-kids"
+RM3_ARGV_LOG="$RM3_TMP/argv.log"
 mkdir -p "$RM3_STUBS" "$RM3_ETC/kids"
 
 cat >"$RM3_STUBS/sudo" <<'EOF'
 #!/bin/bash
-# -k (verify_parent_password_sudo's "clear any cached credential" call):
-# always a plain no-op success.
-if [[ "${1:-}" == "-k" ]]; then
-    exit 0
-fi
+printf '%s\n' "$*" >>"${SUDO_LOG:-/dev/null}"
 args=()
+noninteractive=0
+reads_stdin=0
+validates=0
 while (($#)); do
     case "$1" in
-        -n | -v | -S) shift ;;
+        -n) noninteractive=1; shift ;;
+        -v) validates=1; shift ;;
+        -S) reads_stdin=1; shift ;;
         -p) shift 2 ;;
         -u) shift 2 ;;
         *) args+=("$1"); shift ;;
     esac
 done
+if ((noninteractive && validates)) && [[ -n "${SUDO_FAIL_V_AT:-}" ]]; then
+    count_file="${SUDO_V_COUNT_FILE:?}"
+    count=0
+    [[ -f "$count_file" ]] && count="$(<"$count_file")"
+    count=$((count + 1))
+    printf '%s\n' "$count" >"$count_file"
+    ((count < SUDO_FAIL_V_AT)) || exit 1
+fi
+if ((noninteractive && validates)) && [[ -n "${KEEPER_RELEASE_FILE:-}" ]] &&
+    [[ -f "$KEEPER_RELEASE_FILE" ]]; then
+    touch "$KEEPER_REFRESH_FILE"
+fi
 if ((${#args[@]} == 0)); then
-    # A bare credential check/warm ("sudo -S -v" or "sudo -v"): the
-    # candidate (if any) is on stdin -- only a match for CORRECT_PW
-    # succeeds, so a real wrong-password rejection is exercised here,
-    # not just assumed.
-    read -r candidate || candidate=""
-    [[ "$candidate" == "${CORRECT_PW:-}" ]]
-    exit $?
+    ((reads_stdin)) && cat >/dev/null
+    exit 0
+fi
+if ((noninteractive == 0)); then
+    echo "[sudo] password for testparent:" >&2
+    exit 1
 fi
 exec "${args[@]}"
 EOF
+cat >"$RM3_STUBS/omarchy-kids-parent-auth" <<'EOF'
+#!/bin/bash
+read -r candidate || candidate=""
+[[ "$candidate" == "${CORRECT_PW:-}" ]]
+EOF
 cat >"$RM3_STUBS/systemctl" <<'EOF'
 #!/bin/bash
+if [[ -n "${KEEPER_RELEASE_FILE:-}" ]]; then
+    touch "$KEEPER_RELEASE_FILE"
+    for _ in $(seq 1 200); do
+        [[ -e "${KEEPER_REFRESH_FILE:-}" ]] && exit 0
+        /bin/sleep 0.01
+    done
+    echo "keeper did not refresh authorization" >&2
+    exit 1
+fi
 exit 0
 EOF
 for name in omarchy-kids-provision omarchy-kids-web omarchy-kids-apps omarchy-kids-assert omarchy-kids-session; do
   cat >"$RM3_STUBS/$name" <<EOF
 #!/bin/bash
+printf '%s %s\n' "$name" "\$*" >>"$RM3_ARGV_LOG"
 echo "FAKE-$name: ok"
-cat >/dev/null
 exit 0
 EOF
 done
@@ -502,16 +542,14 @@ rm3a_out="$(
     DRY_RUN=0 "$(wizard_for "$RM3_STUBS")" 2>&1
 )"
 rm3a_status=$?
-check_status "$rm3a_status" 0 "sudo fallback, correct password: the wizard completes"
-check_contains "$rm3a_out" "omarchy-kids-authd socket not active" \
-  "the socket-inactive reason is a technical line, not a parent-facing failure"
+check_status "$rm3a_status" 0 "authd accepts the correct password: the wizard completes"
 check_not_contains "$rm3a_out" "failed unexpectedly" \
-  "the fallback path never reports the screen as having failed unexpectedly"
+  "authd success never reports the screen as having failed unexpectedly"
 # Apply's own step output only shows up live on failure (tail-on-error);
 # the technical log always gets it, same as the existing failing-step
 # test above -- that's where "A2 actually let Apply start" is checkable.
 check_contains "$(cat "$RM3_TMP/setup.log" 2>/dev/null)" "FAKE-omarchy-kids-provision: ok" \
-  "sudo fallback, correct password: Apply actually runs (A2 accepted it)"
+  "authd success: Apply actually runs (A2 accepted it)"
 
 # Three wrong passwords in a row: "That wasn't it" each time, then leaves
 # with nothing changed -- the same exit Ctrl+C uses -- never a crash and
@@ -525,7 +563,7 @@ rm3b_out="$(
     DRY_RUN=0 "$(wizard_for "$RM3_STUBS")" 2>&1
 )"
 rm3b_status=$?
-check_status "$rm3b_status" 130 "sudo fallback, three wrong passwords: leaves (same exit as Ctrl+C)"
+check_status "$rm3b_status" 130 "authd rejects wrong passwords: leaves (same exit as Ctrl+C)"
 check_eq "$(grep -c "That wasn't it" <<<"$rm3b_out")" "3" \
   "each of the three wrong tries is told plainly \"That wasn't it\""
 check_contains "$rm3b_out" "Left setup. Nothing changed." \
@@ -535,22 +573,160 @@ check_not_contains "$rm3b_out" "failed unexpectedly" \
 check_not_contains "$rm3b_out" "FAKE-omarchy-kids-provision" \
   "Apply never starts -- A2 never let a wrong password through"
 
+# R-BOOTMODE-8: a real pseudo-terminal Apply has one stdin password
+# validation and no later interactive sudo prompt.
+# Make the new account visible to the safety check without changing the
+# wizard's invoking identity lookup.
+REAL_ID="$(command -v id)"
+cat >"$RM3_STUBS/id" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == kid-ada ]]; then
+  exit 0
+fi
+exec "$REAL_ID" "\$@"
+EOF
+chmod +x "$RM3_STUBS/id"
+
+SUDO_LOG="$RM3_TMP/sudo.log"
+pty_out="$(
+  PATH="$RM3_STUBS:$PATH" \
+    OMARCHY_KIDS_ETC="$RM3_ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_SETUP_LOG="$RM3_TMP/pty-setup.log" \
+    SUDO_LOG="$SUDO_LOG" \
+    CORRECT_PW="hunter2" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
+    DRY_RUN=0 python3 - "$(wizard_for "$RM3_STUBS")" <<'PYEOF'
+import os, pty, select, signal, sys, time
+
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv(sys.argv[1], [sys.argv[1]])
+
+output = bytearray()
+deadline = time.monotonic() + 30
+while True:
+    if time.monotonic() >= deadline:
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+        sys.exit(124)
+    ready, _, _ = select.select([fd], [], [], 0.5)
+    if ready:
+        try:
+            output.extend(os.read(fd, 4096))
+        except OSError:
+            break
+    waited, status = os.waitpid(pid, os.WNOHANG)
+    if waited:
+        break
+sys.stdout.buffer.write(output)
+sys.exit(os.waitstatus_to_exitcode(status))
+PYEOF
+)"
+check_not_contains "$pty_out" "[sudo] password" \
+  "R-BOOTMODE-8: pseudo-terminal Apply has no later sudo prompt"
+check_eq "$(grep -Ec '(^| )-S( |$)' "$SUDO_LOG")" "1" \
+  "R-BOOTMODE-8: the candidate warms sudo exactly once"
+sudo_calls="$(wc -l <"$SUDO_LOG" | tr -d ' ')"
+check_eq "$(grep -Ec '(^| )-n( |$)' "$SUDO_LOG")" "$((sudo_calls - 1))" \
+  "R-BOOTMODE-8: every later sudo call is noninteractive"
+
+check_contains "$pty_out" "Ada's desktop is ready." \
+  "R-BOOTMODE-8: the PTY transcript reaches the success headline"
+check_contains "$pty_out" "FAKE-omarchy-kids-session: ok" \
+  "R-BOOTMODE-8: the PTY transcript includes the kid session check"
+check_not_contains "$pty_out" "hunter2" \
+  "R-BOOTMODE-8: the candidate never appears in the terminal transcript"
+check_not_contains "$(cat "$RM3_TMP/pty-setup.log" 2>/dev/null)" "hunter2" \
+  "R-BOOTMODE-8: the candidate never appears in the technical log"
+check_not_contains "$(cat "$RM3_ARGV_LOG" 2>/dev/null)" "hunter2" \
+  "R-BOOTMODE-8: the candidate never appears in child argv logs"
+check_not_contains "$SUDO_LOG" "hunter2" \
+  "R-BOOTMODE-8: the candidate never appears in sudo argv logs"
+
+SLEEP_COUNT_FILE="$RM3_TMP/keeper-sleep-count"
+KEEPER_SLEEP_ARGS_FILE="$RM3_TMP/keeper-sleep-args"
+KEEPER_RELEASE_FILE="$RM3_TMP/keeper-release"
+KEEPER_REFRESH_FILE="$RM3_TMP/keeper-refresh"
+KEEPER_SUDO_LOG="$RM3_TMP/keeper-sudo.log"
+cat >"$RM3_STUBS/sleep" <<'EOF'
+#!/bin/bash
+printf '%s\n' "$*" >>"$KEEPER_SLEEP_ARGS_FILE"
+count=0
+[[ -f "$SLEEP_COUNT_FILE" ]] && count="$(<"$SLEEP_COUNT_FILE")"
+count=$((count + 1))
+printf '%s\n' "$count" >"$SLEEP_COUNT_FILE"
+if ((count == 1)); then
+  while [[ ! -e "$KEEPER_RELEASE_FILE" ]]; do /bin/sleep 0.01; done
+  exit 0
+fi
+exit 1
+EOF
+chmod +x "$RM3_STUBS/sleep"
+
+# The Apply step cannot pass its systemctl call until the background keeper
+# has refreshed sudo, so this proves the refresh came from the 60-second loop.
+keeper_out="$({
+  PATH="$RM3_STUBS:$PATH" \
+    OMARCHY_KIDS_ETC="$RM3_ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_SETUP_LOG="$RM3_TMP/keeper-setup.log" \
+    SUDO_LOG="$KEEPER_SUDO_LOG" \
+    SLEEP_COUNT_FILE="$SLEEP_COUNT_FILE" \
+    KEEPER_SLEEP_ARGS_FILE="$KEEPER_SLEEP_ARGS_FILE" \
+    KEEPER_RELEASE_FILE="$KEEPER_RELEASE_FILE" \
+    KEEPER_REFRESH_FILE="$KEEPER_REFRESH_FILE" \
+    CORRECT_PW="hunter2" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent)" \
+    DRY_RUN=0 "$(wizard_for "$RM3_STUBS")" 2>&1
+})"
+keeper_status=$?
+check_status "$keeper_status" 0 "the wizard completes after the keeper refreshes authorization"
+check_eq "$(head -n 1 "$KEEPER_SLEEP_ARGS_FILE")" "60" \
+  "the authorization keeper waits on its 60-second interval"
+if [[ -f "$KEEPER_REFRESH_FILE" ]]; then
+  pass "the 60-second keeper performs a noninteractive authorization refresh"
+else
+  fail "the 60-second keeper performs a noninteractive authorization refresh"
+fi
+check_contains "$keeper_out" "Ada's desktop is ready." \
+  "keeper-backed Apply reaches the success headline"
+check_contains "$(cat "$RM3_TMP/keeper-setup.log" 2>/dev/null)" "FAKE-omarchy-kids-session: ok" \
+  "keeper-backed Apply runs the kid session check"
+
+# If the cached authorization has expired before Apply, the wizard must
+# return to Step 2 rather than claiming Done. The fake fails the second
+# noninteractive validation, which is Apply's preflight after A2.
+EXPIRY_COUNT="$RM3_TMP/expiry-count"
+expiry_out="$(
+  PATH="$RM3_STUBS:$PATH" \
+    OMARCHY_KIDS_ETC="$RM3_ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_SETUP_LOG="$RM3_TMP/expiry-setup.log" \
+    SUDO_FAIL_V_AT=2 \
+    SUDO_V_COUNT_FILE="$EXPIRY_COUNT" \
+    CORRECT_PW="hunter2" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent @ctrlc yes)" \
+    DRY_RUN=0 "$(wizard_for "$RM3_STUBS")" 2>&1
+)"
+expiry_status=$?
+check_status "$expiry_status" 130 "expired Apply authorization leaves after returning to Step 2"
+expiry_prompts="$(grep -c "First, your password." <<<"$expiry_out")"
+if ((expiry_prompts >= 2)); then
+  pass "expired Apply authorization redraws the only password screen"
+else
+  fail "expired Apply authorization redraws the only password screen (got $expiry_prompts prompt renders)"
+fi
+check_not_contains "$expiry_out" "Ada's desktop is ready." \
+  "expired Apply authorization never advances to Done"
+
 rm -rf "$RM3_TMP"
 
-# --- real mode: A2's sudo fallback when omarchy-kids-authd's socket IS
-# active but machine.conf has no parent= line to check against (issue
-# #46 follow-up -- seen live: right after a real omarchy-kids-remove,
-# which deletes the whole $ETC tree (machine.conf included), the pacman
-# hook's own units_fix re-enables the socket in the very same
-# transaction -- active, but nobody home, so omarchy-kids-authd answers
-# "no" to every password). authd_verifiable gates on both the socket
-# *and* a configured parent, so this never even tries to speak to the
-# socket for a check it already knows can't answer -- a real (bound,
-# never-listened) Unix socket file is enough to exercise that gate,
-# since [[ -S ]] only cares about the file type.
+# --- real mode: an unavailable authd verifier fails closed at step 2
+# and never falls back to sudo, even when a socket-shaped path exists.
 
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "SKIP: no-parent A2 fallback needs python3 to create a stale Unix socket"
+  echo "SKIP: unavailable-authd test needs python3 to create a stale Unix socket"
 else
   RM4_TMP="$(mktemp -d)"
   RM4_STUBS="$RM4_TMP/stubs"
@@ -610,13 +786,13 @@ EOF
       DRY_RUN=0 "$(wizard_for "$RM4_STUBS" "$RM4_SOCK")" 2>&1
   )"
   rm4_status=$?
-  check_status "$rm4_status" 0 "socket active, no parent configured: the sudo fallback still lets the right password through"
-  check_contains "$rm4_out" "has no 'parent=' line" \
-    "the no-parent reason is a technical line, distinct from the socket-inactive one"
+  check_status "$rm4_status" 130 "unavailable authd: step 2 leaves without falling back to sudo"
+  check_contains "$rm4_out" "parent verifier is unavailable" \
+    "an unavailable verifier gives a repair instruction"
   check_not_contains "$rm4_out" "failed unexpectedly" \
-    "the no-parent case never reports the screen as having failed unexpectedly"
-  check_contains "$(cat "$RM4_TMP/setup.log" 2>/dev/null)" "FAKE-omarchy-kids-provision: ok" \
-    "socket active, no parent configured: Apply actually runs once A2 accepts the sudo fallback"
+    "an unavailable verifier never reports a failed unexpectedly"
+  check_not_contains "$rm4_out" "FAKE-omarchy-kids-provision" \
+    "an unavailable verifier never starts Apply"
 
   rm -rf "$RM4_TMP"
 fi
@@ -660,6 +836,7 @@ exit 0
 EOF
 done
 cp "$STUBS/gum" "$RM2_STUBS/gum"
+cp "$STUBS/omarchy-kids-parent-auth" "$RM2_STUBS/omarchy-kids-parent-auth"
 chmod +x "$RM2_STUBS"/*
 
 rm2_out="$(
@@ -702,8 +879,9 @@ cat >"$DEF_STUBS/omarchy-kids-provision" <<EOF
 printf '%s\n' "\$*" >> "$DEF_MARK"
 EOF
 cp "$RM_STUBS_SUDO" "$DEF_STUBS/sudo" # the real-mode sudo fake from above
+cp "$STUBS/omarchy-kids-parent-auth" "$DEF_STUBS/omarchy-kids-parent-auth"
 for n in omarchy-kids-web omarchy-kids-apps omarchy-kids-session omarchy-kids-assert \
-  pacman systemctl runuser id chpasswd usermod; do
+  pacman systemctl runuser chpasswd usermod; do
   printf '#!/bin/bash\nexit 0\n' >"$DEF_STUBS/$n"
 done
 chmod +x "$DEF_STUBS"/*

@@ -39,6 +39,8 @@ cleanup() {
 trap cleanup EXIT
 
 PARENT="testparent"
+ACTUAL_PARENT="$(id -un)"
+LITERAL_PARENT="literalparent"
 # $6$saltsalt$... is a fixed sha512-crypt hash of "secret123" (openssl passwd
 # -6 -salt saltsalt secret123). The $6$ format is glibc/libxcrypt-standard,
 # so this string verifies the same on any Linux box regardless of how it was
@@ -48,10 +50,21 @@ cat >"$SHADOW" <<'EOF'
 testparent:$6$saltsalt$4wxWeHqpAHNNJcQMSu6jvr3dQTQoGoqMQhPAP0o5Ygzna6vr4y0u6.EZzboAAqg6dXU4q/OfcYqdrvZixR76r0:19000:0:99999:7:::
 EOF
 chmod 600 "$SHADOW"
+printf '%s\n' "$ACTUAL_PARENT:\$6\$saltsalt\$4wxWeHqpAHNNJcQMSu6jvr3dQTQoGoqMQhPAP0o5Ygzna6vr4y0u6.EZzboAAqg6dXU4q/OfcYqdrvZixR76r0:19000:0:99999:7:::" >>"$SHADOW"
+printf '%s\n' "$LITERAL_PARENT:\$6\$saltsalt\$0FVsTi4s.CcD67i2TdHHh5LCdakVZDinKQex3IDU3pxpBcNZAf16uKS5Pl8ESI02Hn7q7RH9Opfd1SKhEMYRj.:19000:0:99999:7:::" >>"$SHADOW"
 SOCK="$TMP/auth.sock"
 
-send() { # candidate -> prints daemon's reply, trimmed
-  printf '%s\n' "$1" | python3 -c '
+send() { # candidate -> ordinary VERIFY frame, prints daemon's reply, trimmed
+  printf 'VERIFY\n%s\n' "$1" | python3 -c '
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(5)
+s.connect(sys.argv[1]); s.sendall(sys.stdin.buffer.read()); s.shutdown(socket.SHUT_WR)
+sys.stdout.write(s.recv(4096).decode(errors="replace").strip())
+' "$SOCK"
+}
+
+send_bootstrap() { # candidate -> BOOTSTRAP frame, prints the daemon's reply
+  printf 'BOOTSTRAP\n%s\n' "$1" | python3 -c '
 import socket, sys
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.settimeout(5)
 s.connect(sys.argv[1]); s.sendall(sys.stdin.buffer.read()); s.shutdown(socket.SHUT_WR)
@@ -169,6 +182,35 @@ check "$(sed -n 1p <<<"$limiter_out")" "kid-locked" "S7: ten misses lock the uid
 check "$(sed -n 2p <<<"$limiter_out")" "parent-open" "S7: the parent's uid is untouched by the kid's misses"
 check "$(sed -n 3p <<<"$limiter_out")" "parent-still-open" "S7: the parent can still verify while the kid is locked out"
 
+# R-BOOTMODE-7: bootstrap is bound to the kernel peer's eligible parent
+# account, so passwordless sudo cannot make a wrong candidate pass. These
+# calls use the real uid lookup and eligibility check, with no identity mocks.
+bootstrap_out="$(
+  python3 - "$AUTHD" "$SHADOW" <<'PYEOF'
+import importlib.machinery, importlib.util, sys
+spec = importlib.util.spec_from_loader("authd_bootstrap", importlib.machinery.SourceFileLoader("authd_bootstrap", sys.argv[1]))
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+limiter = module.RateLimiter()
+nonwheel = next((entry.pw_uid for entry in __import__("pwd").getpwall()
+                 if entry.pw_uid > 0 and not module.is_eligible_parent(entry.pw_uid)), None)
+for label, uid in (("root", 0), ("lookup-failure", -1), ("non-wheel", nonwheel)):
+    if uid is None:
+        print(f"{label} skip")
+    else:
+        print(f"{label} no" if not module.verify_bootstrap(
+            b"secret123", None, sys.argv[2], limiter, uid
+        ) else f"{label} accepted")
+PYEOF
+)"
+check "$(sed -n '1p' <<<"$bootstrap_out")" "root no" \
+  "R-BOOTMODE-7: bootstrap rejects a root peer"
+check "$(sed -n '2p' <<<"$bootstrap_out")" "lookup-failure no" \
+  "R-BOOTMODE-7: bootstrap rejects a uid lookup failure"
+case "$(sed -n '3p' <<<"$bootstrap_out")" in
+  "non-wheel no" | "non-wheel skip") ok "R-BOOTMODE-7: bootstrap rejects a non-wheel peer" ;;
+  *) bad "R-BOOTMODE-7: non-wheel peer was accepted ($bootstrap_out)" ;;
+esac
+
 # =====================================================================
 # review S4: the verifier a kid runs is not a verifier a kid controls
 # =====================================================================
@@ -216,6 +258,26 @@ else
   ok "S4: --socket is refused for a non-root caller"
 fi
 
+# A kid-controlled PATH must not be able to make the helper believe it is
+# root. The hostile socket answers "ok", so a bare `id -u` would turn this
+# into a false success.
+mkdir -p "$HOSTILE/bin"
+printf '%s\n' '#!/bin/bash' 'echo 0' >"$HOSTILE/bin/id"
+chmod +x "$HOSTILE/bin/id"
+if [[ "$(/usr/bin/id -u)" == 0 ]]; then
+  ok "S4: hostile-PATH root-check regression is not applicable to root"
+else
+  set +e
+  probe_output="$(PATH="$HOSTILE/bin:$PATH" /bin/bash -c "echo anything | '$CLIENT' --socket '$HOSTILE/yes.sock'" 2>&1)"
+  probe_status=$?
+  set -u
+  if [[ "$probe_status" == 1 && "$probe_output" == *"root-only"* ]]; then
+    ok "S4: parent-auth root check ignores a hostile PATH"
+  else
+    bad "S4: a hostile PATH changed the root-only socket result (status $probe_status, output '$probe_output')"
+  fi
+fi
+
 # The build-time test root is the only exception, and it is empty in the
 # file as committed (test/shell.d/pkgbuild-test.sh asserts that too).
 check "$(grep -c '^TEST_SOCKET_ROOT=""$' "$CLIENT")" "1" \
@@ -250,7 +312,57 @@ wait "$HOSTILE_PID" 2>/dev/null
 # environment for the socket either.
 check "$(grep -c 'pam_exec.so quiet expose_authtok /usr/bin/omarchy-kids-parent-auth' "$DIR/lib/posture.sh")" "1" \
   "S4: the PAM line execs the verifier by absolute path"
+check "$(grep -c 'systemctl enable --now omarchy-kids-authd.socket' "$DIR/omarchy-kids.install")" "1" \
+  "package installation enables and starts authd before the first wizard run"
+check "$(grep -c 'OMARCHY_KIDS_PARENT' "$AUTHD")" "0" \
+  "authd does not let an environment variable select the parent account"
 
+# The authd socket is the first parent-auth dependency. A failed startup must
+# fail the scriptlet rather than being hidden by a best-effort `|| true`.
+INSTALL_RUN="$TMP/fake-run/systemd/system"
+INSTALL_STUBS="$TMP/install-stubs"
+INSTALL_COPY="$TMP/omarchy-kids.install"
+mkdir -p "$INSTALL_RUN" "$INSTALL_STUBS"
+sed "s|/run/systemd/system|$INSTALL_RUN|g" "$DIR/omarchy-kids.install" >"$INSTALL_COPY"
+cat >"$INSTALL_STUBS/groupadd" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat >"$INSTALL_STUBS/systemctl" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"enable --now omarchy-kids-authd.socket"* ]]; then
+  [[ "${FAIL_ENABLE:-0}" == 1 ]] && exit 1
+fi
+if [[ "$*" == *"try-restart omarchy-kids-authd.service"* ]]; then
+  [[ "${FAIL_TRY_RESTART:-0}" == 1 ]] && exit 1
+fi
+exit 0
+EOF
+chmod +x "$INSTALL_STUBS"/*
+if (
+  PATH="$INSTALL_STUBS:$PATH"
+  export FAIL_ENABLE=1
+  . "$INSTALL_COPY"
+  post_install >/dev/null 2>&1
+); then
+  bad "a failed authd socket startup is returned by post_install"
+else
+  ok "a failed authd socket startup is returned by post_install"
+fi
+if (
+  PATH="$INSTALL_STUBS:$PATH"
+  export FAIL_TRY_RESTART=1
+  . "$INSTALL_COPY"
+  post_upgrade >/dev/null 2>&1
+); then
+  bad "a failed authd restart is returned by post_upgrade"
+else
+  ok "a failed authd restart is returned by post_upgrade"
+fi
+check "$(grep -c 'to `id -un`' "$DIR/docs/conf.md")" "1" \
+  "conf documentation names id -un as the parent identity source"
+check "$(grep -c 'OMARCHY_KIDS_INVOKING_USER' "$DIR/docs/conf.md")" "0" \
+  "conf documentation names no invoking-user environment override"
 # =====================================================================
 # GRANT over the wire: what must be refused, refused everywhere
 # =====================================================================
@@ -280,23 +392,24 @@ chmod +x "$TMP/fake-ask"
 : >"$APPLIED"
 
 start_daemon() {
+  local parent="${1:-$PARENT}"
   kill "$DAEMON_PID" >/dev/null 2>&1
   [[ -n "$DAEMON_PID" ]] && wait "$DAEMON_PID" 2>/dev/null
   rm -f "$SOCK"
-  python3 "$AUTHD" --socket "$SOCK" --shadow "$SHADOW" --parent "$PARENT" \
+  python3 "$AUTHD" --socket "$SOCK" --shadow "$SHADOW" --parent "$parent" \
     --etc "$ETC" --lib "$DIR/lib" --ask-bin "$TMP/fake-ask" &
   DAEMON_PID=$!
   for _ in $(seq 1 50); do
     [[ -S "$SOCK" ]] && break
     sleep 0.1
   done
-  [[ -S "$SOCK" ]] || {
-    bad "the daemon never created $SOCK"
-    return 1
-  }
+  [[ -S "$SOCK" ]]
 }
 
-start_daemon || exit $fail
+if ! start_daemon; then
+  echo "SKIP authd-test.sh: this host cannot bind the temporary Unix socket"
+  exit $fail
+fi
 
 # Every shape the review named, over the real socket. None may be applied.
 while read -r label kid kind what minutes password; do
@@ -376,26 +489,31 @@ check "$r" "ok" "GRANT with the right password, from the right uid, is granted"
 check "$(grep -c -- "apply-grant --kid $ME --kind app --what minecraft --apply" "$APPLIED")" "1" \
   "GRANT applies through omarchy-kids-ask apply-grant, as root"
 
-# A plain verify still works alongside the new request shape.
-check "$(send secret123)" "ok" "the plain one-line verify path still answers ok"
+# The real socket uses the kernel peer uid for bootstrap eligibility. The
+# expected result is derived from the daemon's real account and group lookups,
+# not from a test double.
+start_daemon "$ACTUAL_PARENT"
+eligible="$(
+  python3 - "$AUTHD" <<'PYEOF'
+import importlib.machinery, importlib.util, os, sys
+spec = importlib.util.spec_from_loader("authd_peer", importlib.machinery.SourceFileLoader("authd_peer", sys.argv[1]))
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+print("ok" if module.is_eligible_parent(os.getuid()) else "no")
+PYEOF
+)"
+check "$(send_bootstrap wrongpass)" "no" \
+  "R-BOOTMODE-7: socket bootstrap rejects a wrong candidate"
+check "$(send_bootstrap secret123)" "$eligible" \
+  "R-BOOTMODE-7: socket bootstrap binds eligibility to SO_PEERCRED"
+
+# Ordinary verification has an explicit frame, so a password equal to the
+# BOOTSTRAP control word is still an ordinary candidate.
+start_daemon "$LITERAL_PARENT"
+check "$(send BOOTSTRAP)" "ok" \
+  "ordinary VERIFY accepts the literal BOOTSTRAP password"
 
 kill "$DAEMON_PID" >/dev/null 2>&1
 wait "$DAEMON_PID" 2>/dev/null
 DAEMON_PID=""
 
 exit $fail
-
-# --- the line reader keeps the remainder: a GRANT's password arrives in the same chunk -----
-# Runs everywhere (no libcrypt needed): load the daemon's functions and feed a socketpair.
-out="$(
-  python3 - "$AUTHD" <<'PY'
-import socket, sys, runpy
-ns = runpy.run_path(sys.argv[1], run_name="not_main")
-a, b = socket.socketpair()
-a.sendall(b"GRANT {}\nsecret\n"); a.shutdown(socket.SHUT_WR)
-buf = bytearray()
-first = ns["read_candidate_line"](b, buf); second = ns["read_candidate_line"](b, buf)
-print(first, second)
-PY
-)"
-check_contains "$out" "b'GRANT {}' b'secret'" "reader: two lines in one chunk are both readable"

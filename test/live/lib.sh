@@ -123,14 +123,16 @@ boot_with() {
   return 1
 }
 
-# portal_conf_unquote VALUE — QSettings strips these quotes before QML sees
-# the value; shell readers of theme.conf.user must do the same.
+# portal_conf_unquote VALUE — decodes the quote and backslash escaping that
+# QSettings removes before QML sees theme.conf.user values.
 portal_conf_unquote() {
   local value="$1"
   case "$value" in
     \"*\")
       value="${value#\"}"
       value="${value%\"}"
+      value="${value//\\\"/\"}"
+      value="${value//\\\\/\\}"
       ;;
   esac
   printf '%s\n' "$value"

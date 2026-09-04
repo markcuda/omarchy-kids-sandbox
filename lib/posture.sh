@@ -366,6 +366,23 @@ posture_remove_sddm_theme_dropin() {
 # restart needed. Root-owned 0644, rewritten in full on every add/remove.
 # Full design, the design this replaced, and the live-VM finding: docs/portal.md.
 
+# posture_qsettings_value VALUE [always] — matches QSettings' INI encoder
+# for the values this file writes. Lists pass "always" to keep scalar type.
+posture_qsettings_value() {
+  local value="$1" quote="${2:-auto}"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  if [[ "$quote" == always || "$value" == *[,\;=]* || "$value" == [[:space:]]* || "$value" == *[[:space:]] ]]; then
+    printf '"%s"' "$value"
+  else
+    printf '%s' "$value"
+  fi
+}
+
+posture_qsettings_line() {
+  printf '%s=%s\n' "$1" "$(posture_qsettings_value "$2" "${3:-auto}")"
+}
+
 # posture_parent_home PARENT — thin name for lib/theme.sh's
 # account_home (AGENTS.md: no duplicated helpers).
 posture_parent_home() { account_home "$1"; }
@@ -378,15 +395,15 @@ posture_theme_conf_lines() {
   (
     THEME_KIDS_HOME="$(posture_parent_home "$parent")"
     export THEME_KIDS_HOME
-    printf 'backgroundColor=%s\n' "$(theme_color background)"
-    printf 'tileColor=%s\n' "$(theme_color surface)"
-    printf 'tileHighlightColor=%s\n' "$(theme_color highlight)"
-    printf 'parentTileColor=%s\n' "$(theme_color surface_muted)"
-    printf 'accentColor=%s\n' "$(theme_color accent)"
-    printf 'textColor=%s\n' "$(theme_color foreground)"
-    printf 'mutedTextColor=%s\n' "$(theme_color muted)"
-    printf 'errorColor=%s\n' "$(theme_color error)"
-    printf 'fontFamily=%s\n' "$(theme_font)"
+    posture_qsettings_line backgroundColor "$(theme_color background)"
+    posture_qsettings_line tileColor "$(theme_color surface)"
+    posture_qsettings_line tileHighlightColor "$(theme_color highlight)"
+    posture_qsettings_line parentTileColor "$(theme_color surface_muted)"
+    posture_qsettings_line accentColor "$(theme_color accent)"
+    posture_qsettings_line textColor "$(theme_color foreground)"
+    posture_qsettings_line mutedTextColor "$(theme_color muted)"
+    posture_qsettings_line errorColor "$(theme_color error)"
+    posture_qsettings_line fontFamily "$(theme_font)"
   )
 }
 
@@ -435,13 +452,10 @@ posture_portal_conf_text() {
     sep=","
   done
   parents_field="$(posture_portal_parent_accounts "$parent")"
-  # QSettings drops unquoted comma-separated values from SDDM's property map.
-  cat <<EOF
-[General]
-parent=$parent
-parents="$parents_field"
-kids="$kids_field"
-EOF
+  printf '[General]\n'
+  posture_qsettings_line parent "$parent"
+  posture_qsettings_line parents "$parents_field" always
+  posture_qsettings_line kids "$kids_field" always
   posture_theme_conf_lines "$parent"
 }
 

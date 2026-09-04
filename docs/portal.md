@@ -74,11 +74,13 @@ members of `omarchy-parents` and `wheel` — the same "never append, always rewr
 parent=mark
 parents="mark"
 kids="kid-ada:Ada Lovelace:fox"
-```text
+```
 
-The list-valued `parents` and `kids` keys stay quoted. QSettings treats an unquoted value with a
-comma as a list, which SDDM does not pass into the theme's property map. It strips these quotes
-before QML reads the value.
+The `parents` and `kids` keys stay quoted. QSettings treats an unquoted value with a comma as a
+list, which SDDM does not pass into the theme's property map. `lib/posture.sh` escapes `\` and `"`
+in every value before writing it, quotes values containing `,`, `;`, `=`, or edge whitespace, and
+quotes both account lists unconditionally. QSettings removes that encoding before QML reads the
+value. The shell acceptance-harness reader applies the same decoding when it reads this file.
 
 An **earlier version of this fix** wrote a separate `/etc/omarchy-kids/portal.json` and had
 `Main.qml` read it with a synchronous `XMLHttpRequest("file:///etc/omarchy-kids/portal.json")`.

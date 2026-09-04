@@ -336,6 +336,16 @@ else
   fail "posture_write_portal_conf did not write $PORTAL_CONF"
 fi
 
+check "$(posture_qsettings_value plain)" "plain" "QSettings: plain values stay unquoted"
+check "$(posture_qsettings_value 'comma,value')" '"comma,value"' "QSettings: comma-bearing values are quoted"
+check "$(posture_qsettings_value 'semicolon;value')" '"semicolon;value"' "QSettings: semicolon-bearing values are quoted"
+check "$(posture_qsettings_value 'equals=value')" '"equals=value"' "QSettings: equals-bearing values are quoted"
+check "$(posture_qsettings_value ' leading')" '" leading"' "QSettings: leading whitespace is quoted"
+check "$(posture_qsettings_value 'trailing ')" '"trailing "' "QSettings: trailing whitespace is quoted"
+check "$(posture_qsettings_value 'quote"slash\kid-ada')" 'quote\"slash\\kid-ada' \
+  "QSettings: quotes and backslashes are escaped"
+check "$(posture_qsettings_value plain always)" '"plain"' "QSettings: list values can be quoted unconditionally"
+
 # A removed profile may leave its Unix account and home on disk by design; the
 # producer must omit it so the consumer cannot render a stale tile.
 posture_write_portal_conf mark "$(printf 'kid-cy\tCy\towl')"
@@ -373,7 +383,15 @@ unset OMARCHY_KIDS_ROOT
 
 OMARCHY_KIDS_ROOT="$TMP/root2b"
 OMARCHY_KIDS_HOME_ROOT="$TMP/homeroot-empty"
-export OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
+FONT_STUBS="$TMP/font-stubs"
+mkdir -p "$FONT_STUBS"
+cat >"$FONT_STUBS/fc-match" <<'EOF'
+#!/bin/bash
+printf '%s' 'Mono, Serif'
+EOF
+chmod +x "$FONT_STUBS/fc-match"
+PATH="$FONT_STUBS:$BASE_PATH"
+export OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT PATH
 posture_write_portal_conf mark \
   "$(printf 'kid-ada\tAda Lovelace\tfox')"
 PORTAL_CONF2="$OMARCHY_KIDS_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
@@ -388,16 +406,14 @@ if [[ -f "$PORTAL_CONF2" ]]; then
   check "$(grep -c '^textColor=#ffffff$' "$PORTAL_CONF2")" "1" "theme.conf.user: textColor falls back"
   check "$(grep -c '^mutedTextColor=#9aa5ce$' "$PORTAL_CONF2")" "1" "theme.conf.user: mutedTextColor falls back"
   check "$(grep -c '^errorColor=#f7768e$' "$PORTAL_CONF2")" "1" "theme.conf.user: errorColor falls back"
-  # Not a specific value: theme_font resolves through the real fc-match
-  # if this machine happens to have one on PATH (test/shell.d/theme-
-  # test.sh already covers theme_font's own fallback in isolation) --
-  # this check is only that posture_theme_conf_lines actually emits the
-  # ninth key at all.
-  check "$(grep -c '^fontFamily=.' "$PORTAL_CONF2")" "1" "theme.conf.user: fontFamily key is present"
+  check "$(grep -c '^fontFamily="Mono, Serif"$' "$PORTAL_CONF2")" "1" \
+    "theme.conf.user: comma-bearing fontFamily is quoted"
 else
   fail "posture_write_portal_conf did not write $PORTAL_CONF2"
 fi
 unset OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
+PATH="$BASE_PATH"
+export PATH
 
 # --- lib/posture.sh: theme.conf.user's colors actually follow the
 # parent's real theme, not just the fallback (docs/theming.md) -- a

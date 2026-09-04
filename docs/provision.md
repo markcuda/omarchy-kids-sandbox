@@ -98,7 +98,7 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
 15. **theme.conf.user** (R-LOGIN, issue #39): `/usr/share/sddm/themes/omarchy-kids/theme.conf.user`
     (root-owned 0644) is rebuilt in full from every kid profile under `$OMARCHY_KIDS_ETC/kids/*.conf`
     plus `machine.conf`'s `parent=` and the `omarchy-parents`/`wheel` members — `[General]` keys
-    `parent=<owner>`, `parents=<parent>,...`, and `kids=<account>:<name>:<avatar>,...` — so
+    `parent=<owner>`, `parents="<parent>,..."`, and `kids="<account>:<name>:<avatar>,..."` — so
     `Main.qml` can allow only profiled kids and parent accounts from the profile registry, never from the `kid-` username prefix (`docs/portal.md`'s
     "Verified live" section: a VM whose owner account happened to be named `kid-vm` broke that
     heuristic). SDDM's own `ThemeConfig` loads this file automatically next to `theme.conf`
@@ -106,6 +106,10 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
     systemd drop-in for `Main.qml` to read it via XHR; dropped because that drop-in only took
     effect after a `systemctl restart sddm`, which re-fires the owner's stock autologin on an
     already-booted machine.
+
+    `lib/posture.sh` QSettings-encodes every value. It escapes backslashes and double quotes,
+    quotes values containing `,`, `;`, `=`, or edge whitespace, and always quotes the two account
+    lists so QSettings keeps each one scalar.
 16. **Omarchy's own per-user setup** (issue #10 finding b): if `omarchy-provision-user` exists on
     the target, it's run with the new account. If it doesn't, `mark_migrations_done` writes a
     best-effort stand-in — see "Known gap" below.

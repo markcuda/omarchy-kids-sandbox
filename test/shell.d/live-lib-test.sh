@@ -20,6 +20,10 @@ export LIVE_SSH_CFG="$TMP/does-not-exist"
 
 # shellcheck source=test/live/lib.sh
 source "$DIR/test/live/lib.sh"
+# shellcheck source=lib/conf.sh
+source "$DIR/lib/conf.sh"
+# shellcheck source=lib/posture.sh
+source "$DIR/lib/posture.sh"
 
 fail=0
 check() { # got want label
@@ -75,6 +79,8 @@ check "$(portal_conf_accounts "$QUOTED_CSV" "$QUOTED_PARENTS")" \
   "portal_conf_accounts: quoted lists preserve every account"
 check "$(portal_conf_tile_count "$QUOTED_CSV" "$QUOTED_PARENTS")" "4" \
   "portal_conf_tile_count: quoted lists keep all four tiles"
+check "$(portal_conf_unquote 'already\\decoded')" 'already\\decoded' \
+  "portal_conf_unquote: an already-decoded value is not unescaped twice"
 
 PORTAL_CONF="$TMP/theme.conf.user"
 cat >"$PORTAL_CONF" <<'EOF'
@@ -89,6 +95,25 @@ parents="$(portal_conf_field "$conf" parents)"
 check "$kids" "$CSV" "theme.conf.user: reads back the complete two-kid list"
 check "$(portal_conf_accounts "$kids" "$parents")" $'kid-ada\nkid-cy\nkid-vm' \
   "theme.conf.user: both written kids and the parent survive readback"
+
+ROUNDTRIP_NAME='kid-ada "kid-cy" \kid-ada'
+OMARCHY_KIDS_ROOT="$TMP/roundtrip-root"
+OMARCHY_KIDS_HOME_ROOT="$TMP/roundtrip-home"
+export OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
+posture_write_portal_conf kid-vm \
+  "$(printf 'kid-ada\t%s\tfox' "$ROUNDTRIP_NAME")" \
+  "$(printf 'kid-cy\tkid-cy\towl')"
+ROUNDTRIP_CONF="$OMARCHY_KIDS_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
+conf="$(cat "$ROUNDTRIP_CONF")"
+check "$(grep '^kids=' "$ROUNDTRIP_CONF")" \
+  'kids="kid-ada:kid-ada \"kid-cy\" \\kid-ada:fox,kid-cy:kid-cy:owl"' \
+  "theme.conf.user: writer uses QSettings escapes inside the quoted kid list"
+kids="$(portal_conf_field "$conf" kids)"
+check "$kids" "kid-ada:$ROUNDTRIP_NAME:fox,kid-cy:kid-cy:owl" \
+  "theme.conf.user: quote and backslash display name survives writer-reader round trip"
+check "$(portal_kid_count "$kids")" "2" \
+  "theme.conf.user: escaped display name preserves both kids after readback"
+unset OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
 check "$(portal_parse_tile_report 'qrc:/Main.qml: portal: 3 tiles (kids=2 parents=1)')" "3 2 1" \
   "portal_parse_tile_report: extracts the greeter's observed finalized counts"
 portal_parse_tile_report "portal: malformed" >/dev/null 2>&1

@@ -362,3 +362,25 @@ Main is green again on the Mac suite (35 files, no failures), the VM suite is ru
 and gpt-5.6-sol is redrafting #93 (assert and the pacman hook honour the boot mode) and #95
 (provisioning and removal honour it). `build_install`'s rationale, which the last commit before
 the crash had separated from its function, sits with `build_install` again.
+
+### 15:00, the portal had no kids on it
+
+Scenario 30 failed on main, and the failure was real. On a box with two kids the login portal
+renders a single tile: the parent. No child can log in. With one kid it works, which is why every
+live run so far has passed and why the bug reached main at all.
+
+The greeter's own QML, asked to say what it built, reported `kids=0 parents=1` while
+`theme.conf.user` held both kids. `config.kids` arrives in QML as *undefined* while the comma-free
+`config.parents` arrives intact: QSettings reads an unquoted comma-separated value as a list, and
+that value never reaches the map SDDM hands the theme. Quoting the value by hand and restarting
+the greeter turned one tile into three on the spot. Issue #104 has the evidence and the fix, and
+gpt-5.6-sol is on it — the producer quotes its list values, every reader learns the quotes, and
+the suite gains the two-kid regression it never had.
+
+A second defect was hiding the first: the harness read the greeter's tile report with
+`journalctl -u sddm`, but the greeter logs under the identifier `sddm-greeter-qt6`, so the check
+added with #100 had never once seen the line it asserts on. Fixed on main. Two checks that could
+not see each other's failure is how a portal with no children on it stayed green.
+
+#93 (assert and the pacman hook honour the boot mode) is drafted, pushed to `boot-2`, and with an
+independent sol reviewer; #95 is still drafting.

@@ -1,8 +1,9 @@
 # Settings: profiles, bands, and `omarchy-kids-conf` (R-BAND-1, R-BAND-2, R-BUILD-5)
 
-One way to read and write every kid setting: band defaults live as data in `bands.toml`, a kid's
-own choices live as overrides in their profile file, and `omarchy-kids-conf` is the only thing that
-knows how to combine the two. No other command should read or write a kid's `.conf` file directly.
+One way to read and write every kid setting: the schema declares the keys and their metadata, band
+defaults live as data in `bands.toml`, a kid's own choices live as overrides in their profile file,
+and `omarchy-kids-conf` is the only thing that knows how to combine the sources. No other command
+should read or write a kid's `.conf` file directly.
 
 ## Pieces
 
@@ -18,6 +19,8 @@ knows how to combine the two. No other command should read or write a kid's `.co
 - `lib/conf.py` — the one place this uses Python: reading TOML (stdlib `tomllib`) and the
   Appendix B.1 slug rule (NFKD transliteration). Never runs on its own; `omarchy-kids-conf` shells
   out to it.
+- `share/config/schema.toml` — the package-owned version-1 declaration for every profile and
+  `apps.*` key: type, required/default source, validator, group, label, editor, and reset policy.
 
 ## Precedence
 
@@ -27,8 +30,21 @@ stops at the first hit:
 1. **override** — the key is set in the kid's `.conf` file.
 2. **band** — the kid's band supplies it, from `bands.toml` (most keys) or from
    `share/packs/<band>.toml` (`allowlist`, `sites`).
-3. **default** — a global default that isn't band-specific (`dns`, `history_visible`, `password`,
-   `onboarded`).
+3. **default** — a global default that isn't band-specific (`password`, `onboarded`).
+
+## Schema
+
+`share/config/schema.toml` is installed at `/usr/share/omarchy-kids/config/schema.toml`. It has
+one `[[key]]` table per supported profile key, in the same order used by `show` and `reset`. A
+row's `default_source` names the existing source; it does not duplicate a band, pack, or global
+value. `required = true` with `default_source = "none"` or `"parent-theme"` preserves the current
+missing-value failures; the latter records the parent theme used when provisioning supplies the
+required override.
+
+The command validates the schema at startup through the fixed `lib/conf.py` helper. It then uses
+the resulting rows for key recognition, `show`/`reset` iteration, precedence, and value validation.
+Validator and editor names are fixed IDs selected by `case` statements; no schema value is
+executed as shell code. Wizard and panel maps remain in place until tickets 2–3.
 
 `name`, `avatar`, `band`, and `theme` have no default at all: they must already be an override, or
 `get` (and anything that resolves through them) exits 2. `theme` (issue #53, `docs/theming.md`)
@@ -50,21 +66,20 @@ password survive a reset; everything else falls back to their band.
 | `band` | `3-5` `6-8` `9-12` `13+` | none — required | — |
 | `level` | `1` `2` `3` | band | per band |
 | `web` | `garden` `filtered` `none` | band | per band |
-| `dns` | `cloudflare-family` `cleanbrowsing-family` `custom:<url>` | global | `cloudflare-family` |
+| `dns` | `cloudflare-family` `cleanbrowsing-family` `custom:<url>` | band | per band |
 | `budget_min`, `budget_min_weekend` | integer minutes | band | per band |
 | `lights_out`, `lights_out_weekend` | `HH:MM` | band | per band |
 | `wifi` | `parent` `helper` | band | per band |
-| `history_visible` | `yes` `no` | global | `yes` |
+| `history_visible` | `yes` `no` | band | per band |
 | `menu` | `trimmed` `full` | band | per band (trimmed for Levels 1-2, full for Level 3) |
-| `theme` | id from the system themes dir (`$OMARCHY_PATH/themes`) | none — required | — (`omarchy-kids-provision add` sets it to the parent's current theme; `docs/theming.md`) |
+| `theme` | id from the system themes dir (`$OMARCHY_PATH/themes`) | parent-theme — required | — (`omarchy-kids-provision add` sets it to the parent's current theme; `docs/theming.md`) |
 | `allowlist` | comma-separated launcher ids | band's pack | the full starter pack |
 | `sites` | comma-separated hosts | band's pack | the band's `[garden]` list |
 | `password` | `set` `none` | global | `set` |
 | `onboarded` | `yes` `no` | global | `no` |
 
-`dns` and `history_visible` are also carried in `bands.toml` for every band (so a parent or a
-future screen can see them alongside the rest of that band's defaults); the global default above
-is what a key falls back to if the band table ever didn't carry it.
+`dns` and `history_visible` are carried in `bands.toml` for every band and therefore resolve from
+the band table like the other band-derived profile keys.
 
 ### Band-only fields (not profile keys)
 
@@ -77,7 +92,7 @@ written to a kid's `.conf` file, and aren't part of Appendix B.
 
 Three more keys live in the same per-kid `.conf` file and go through the same `get`/`set`/`show`/
 `reset` as the table above, but aren't part of Appendix B, so they're kept out of that table and
-out of `omarchy-kids-conf`'s `APPENDIX_B_KEYS`: `bin/omarchy-kids-apps` is `apps.extra`/
+out of the schema's Appendix B rows: `bin/omarchy-kids-apps` is `apps.extra`/
 `apps.hidden`'s only real caller (docs/apps.md), through `hide`/`show`, never by writing the
 profile file directly; `bin/omarchy-kids-session-start` is `apps.show_missing`'s only reader
 (issue #42).
@@ -234,8 +249,7 @@ omarchy-kids-conf — one way to read and write every kid setting
 Precedence for every Appendix B key: the kid's override
 (/etc/omarchy-kids/kids/<account>.conf), else the kid's band default
 (share/bands/bands.toml, plus share/packs/<band>.toml for allowlist and
-sites), else the global default (dns, history_visible, password,
-onboarded). `band`, `name` and `avatar` have no default at all — they
+sites), else the global default (password, onboarded). `band`, `name` and `avatar` have no default at all — they
 must already be in the profile.
 
 Every path is overridable for tests, so test/shell.d/conf-test.sh runs
@@ -248,7 +262,7 @@ entirely against scratch trees:
 
 ```text
 Extension keys (issue #24, docs/apps.md): not in Appendix B, so kept out
-of APPENDIX_B_KEYS, cmd_show's main table, and "reset"'s identity-key
+of the schema key rows, `cmd_show`'s main table, and `reset`'s identity-key
 exemption -- but still one KEY=VALUE line in the same profile file,
 read and written through this same tool (docs/conf.md's "no other
 command touches a kid's .conf file directly" rule applies to these

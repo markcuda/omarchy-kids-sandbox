@@ -220,12 +220,24 @@ if grep -qx 'KIDS_PY=python3' "$ROOT/lib/kids.sh"; then
 else
   fail "lib/kids.sh's KIDS_PY is no longer the checkout constant"
 fi
+# shellcheck disable=SC2016 # $DIR is the literal checkout-relative constant under test.
+if grep -qx 'SCHEMA="$DIR/share/config/schema.toml"' "$ROOT/bin/omarchy-kids-conf"; then
+  pass "omarchy-kids-conf ships with a checkout-relative schema constant"
+else
+  fail "omarchy-kids-conf's schema path is not a build-time constant"
+fi
 # -F: the sed script is a literal, and GNU and BSD grep disagree about
 # what a backslash-escaped ^ or $ means mid-pattern.
 if grep -qF 's|^KIDS_PY=python3$|KIDS_PY=/usr/bin/python3|' "$PKGBUILD"; then
   pass "package() bakes the absolute interpreter path into the installed lib/kids.sh"
 else
   fail "PKGBUILD no longer substitutes KIDS_PY at package time"
+fi
+# shellcheck disable=SC2016 # $DIR is the literal source pattern under test.
+if grep -qF 's|^SCHEMA="$DIR/share/config/schema.toml"$|SCHEMA="/usr/share/omarchy-kids/config/schema.toml"|' "$PKGBUILD"; then
+  pass "package() bakes the fixed schema path into the installed command"
+else
+  fail "PKGBUILD no longer substitutes the schema path at package time"
 fi
 if grep -qx 'SYSROOT=""' "$ROOT/bin/omarchy-kids-web"; then
   pass "omarchy-kids-web ships with an empty build-time sysroot (R-WEB-4 reads the real /etc)"

@@ -38,8 +38,9 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
    kid can write (their outbox, their runtime log) is validated at read time — types, ranges,
    allowlists — and root opens a kid-owned path with `O_NOFOLLOW` plus a regular-file and owner
    check, never through the shell. The one relocation seam is a build-time constant the PKGBUILD
-   rewrites (`KIDS_PY`, `TEST_SOCKET_ROOT`, `omarchy-kids-web`'s `SYSROOT`); tests substitute it
-   into a copy, or run the checkout, and never export a new override. `test/shell.d/trust-boundary-test.sh`
+   rewrites (`KIDS_PY`, `TEST_SOCKET_ROOT`, `omarchy-kids-web`'s `SYSROOT`, and
+   `omarchy-kids-conf`'s `SCHEMA`); tests substitute it into a copy, or run the checkout, and
+   never export a new override. `test/shell.d/trust-boundary-test.sh`
    enforces all of this and carries the allowlist of the data settings that stay
    (`OMARCHY_KIDS_TUI_ANSWERS`, `DRY_RUN`, the scratch-tree prefixes), one line of why each.
 

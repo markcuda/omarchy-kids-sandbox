@@ -1,0 +1,251 @@
+# Omarchy Kids Mode profile schema v1 (R-CONFIG-1, Appendix B).
+# Values remain in bands.toml, packs/, or the global source in conf.sh.
+
+schema_version = 1
+
+[[key]]
+key = "name"
+type = "string"
+required = true
+default_source = "none"
+validator = "nonempty-single-line"
+group = "Identity"
+label = "Name"
+editor = "text"
+reset = "keep"
+
+[[key]]
+key = "avatar"
+type = "string"
+required = true
+default_source = "none"
+validator = "avatar-id"
+group = "Identity"
+label = "Face"
+editor = "avatar"
+reset = "keep"
+
+[[key]]
+key = "band"
+type = "enum"
+required = true
+default_source = "none"
+enum = ["3-5", "6-8", "9-12", "13+"]
+validator = "band"
+group = "Identity"
+label = "Age band"
+editor = "enum"
+reset = "keep"
+
+[[key]]
+key = "level"
+type = "enum"
+required = false
+default_source = "band"
+enum = ["1", "2", "3"]
+validator = "level"
+group = "Desktop"
+label = "Desktop level"
+editor = "enum"
+reset = "clear"
+
+[[key]]
+key = "web"
+type = "enum"
+required = false
+default_source = "band"
+enum = ["garden", "filtered", "none"]
+validator = "web"
+group = "Web"
+label = "Web access"
+editor = "enum"
+reset = "clear"
+
+[[key]]
+key = "dns"
+type = "string"
+required = false
+default_source = "band"
+enum = ["cloudflare-family", "cleanbrowsing-family"]
+validator = "dns"
+group = "Web"
+label = "Safe-search DNS"
+editor = "dns"
+reset = "clear"
+
+[[key]]
+key = "budget_min"
+type = "integer"
+required = false
+default_source = "band"
+min = 1
+max = 1440
+validator = "minutes"
+group = "Screen time"
+label = "Minutes a day (weekdays)"
+editor = "number"
+reset = "clear"
+
+[[key]]
+key = "budget_min_weekend"
+type = "integer"
+required = false
+default_source = "band"
+min = 1
+max = 1440
+validator = "minutes"
+group = "Screen time"
+label = "Minutes a day (weekends)"
+editor = "number"
+reset = "clear"
+
+[[key]]
+key = "lights_out"
+type = "string"
+required = false
+default_source = "band"
+pattern = "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+validator = "time"
+group = "Screen time"
+label = "Lights out (weekdays)"
+editor = "time"
+reset = "clear"
+
+[[key]]
+key = "lights_out_weekend"
+type = "string"
+required = false
+default_source = "band"
+pattern = "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+validator = "time"
+group = "Screen time"
+label = "Lights out (weekends)"
+editor = "time"
+reset = "clear"
+
+[[key]]
+key = "wifi"
+type = "enum"
+required = false
+default_source = "band"
+enum = ["parent", "helper"]
+validator = "wifi"
+group = "Wi-Fi"
+label = "New Wi-Fi networks"
+editor = "enum"
+reset = "clear"
+
+[[key]]
+key = "history_visible"
+type = "enum"
+required = false
+default_source = "band"
+enum = ["yes", "no"]
+validator = "yes-no"
+group = "Data"
+label = "Browsing history"
+editor = "toggle"
+reset = "clear"
+
+[[key]]
+key = "menu"
+type = "enum"
+required = false
+default_source = "band"
+enum = ["trimmed", "full"]
+validator = "menu"
+group = "Desktop"
+label = "App menu"
+editor = "enum"
+reset = "clear"
+
+[[key]]
+key = "theme"
+type = "string"
+required = true
+default_source = "parent-theme"
+validator = "theme-id"
+group = "Desktop"
+label = "Theme"
+editor = "theme"
+reset = "keep"
+
+[[key]]
+key = "allowlist"
+type = "csv"
+required = false
+default_source = "pack"
+validator = "launcher-ids"
+group = "Apps"
+label = "Starter apps"
+editor = "launcher-list"
+reset = "clear"
+
+[[key]]
+key = "sites"
+type = "csv"
+required = false
+default_source = "pack"
+validator = "hostnames"
+group = "Web"
+label = "Allowed sites"
+editor = "site-list"
+reset = "clear"
+
+[[key]]
+key = "password"
+type = "enum"
+required = false
+default_source = "global"
+enum = ["set", "none"]
+validator = "password-mode"
+group = "Identity"
+label = "Password"
+editor = "password"
+reset = "keep"
+
+[[key]]
+key = "onboarded"
+type = "enum"
+required = false
+default_source = "global"
+enum = ["yes", "no"]
+validator = "yes-no"
+group = "Identity"
+label = "Onboarded"
+editor = "toggle"
+reset = "keep"
+
+[[key]]
+key = "apps.extra"
+type = "csv"
+required = false
+default_source = "global"
+validator = "launcher-ids"
+group = "Apps"
+label = "Extra apps"
+editor = "launcher-list"
+reset = "clear"
+
+[[key]]
+key = "apps.hidden"
+type = "csv"
+required = false
+default_source = "global"
+validator = "launcher-ids"
+group = "Apps"
+label = "Hidden apps"
+editor = "launcher-list"
+reset = "clear"
+
+[[key]]
+key = "apps.show_missing"
+type = "enum"
+required = false
+default_source = "global"
+enum = ["yes", "no"]
+validator = "yes-no"
+group = "Apps"
+label = "Show missing apps"
+editor = "toggle"
+reset = "clear"

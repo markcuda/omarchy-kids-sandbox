@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests bin/omarchy-kids-conf, lib/conf.sh, and lib/conf.py (SPEC.md
-# R-BAND-1, R-BAND-2, R-BUILD-5, Appendix B, Appendix C).
+# R-BAND-1, R-BAND-2, R-BUILD-5, R-CONFIG-1/2/6, Appendix B, Appendix C).
 # Self-contained: runs entirely against scratch OMARCHY_KIDS_ETC and
 # OMARCHY_KIDS_SHARE trees, so it never touches the real /etc or
 # /usr/share. share/ is copied from the repo rather than faked, so this
@@ -24,9 +24,12 @@ trap cleanup EXIT
 
 ETC="$TMP/etc"
 SHARE="$TMP/share"
-mkdir -p "$SHARE/bands" "$SHARE/packs"
+mkdir -p "$SHARE/bands" "$SHARE/config" "$SHARE/packs"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
+cp "$DIR/share/config/schema.toml" "$SHARE/config/"
 cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
+mkdir -p "$SHARE/avatars"
+cp "$DIR/share/avatars/fox.svg" "$SHARE/avatars/"
 
 # issue #53: a scratch system themes dir ($OMARCHY_PATH/themes) for
 # `theme`'s validation and `theme_apply_for`'s own file copy, plus a
@@ -68,6 +71,108 @@ check_status() { # got_status want_status label
     fail=1
   fi
 }
+
+# --- schema parity --------------------------------------------------------
+
+expected_keys=(
+  name avatar band level web dns budget_min budget_min_weekend
+  lights_out lights_out_weekend wifi history_visible menu theme allowlist sites
+  password onboarded apps.extra apps.hidden apps.show_missing
+)
+schema_keys="$(
+  python3 - "$SHARE/config/schema.toml" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as schema_file:
+    schema = tomllib.load(schema_file)
+for entry in schema.get("key", []):
+    print(entry["key"])
+PY
+)"
+expected_key_text="$(printf '%s\n' "${expected_keys[@]}")"
+check "$schema_keys" "$expected_key_text" "schema: declares every profile and extension key once in CLI order"
+
+schema_metadata="$(
+  python3 - "$SHARE/config/schema.toml" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as schema_file:
+    schema = tomllib.load(schema_file)
+for entry in schema["key"]:
+    required = "yes" if entry["required"] else "no"
+    print("\t".join((
+        entry["key"], entry["type"], required, entry["default_source"],
+        entry["group"], entry["label"], entry["editor"], entry["validator"],
+    )))
+PY
+)"
+check_contains "$schema_metadata" $'name\tstring\tyes\tnone\tIdentity\tName\ttext\tnonempty-single-line' \
+  "schema: name declares its type, required state, source, label, group, editor, and validator"
+check_contains "$schema_metadata" $'level\tenum\tno\tband\tDesktop\tDesktop level\tenum\tlevel' \
+  "schema: level declares band precedence and its editor metadata"
+check_contains "$schema_metadata" $'dns\tstring\tno\tband\tWeb\tSafe-search DNS\tdns\tdns' \
+  "schema: dns retains band precedence"
+check_contains "$schema_metadata" $'history_visible\tenum\tno\tband\tData\tBrowsing history\ttoggle\tyes-no' \
+  "schema: history visibility retains band precedence"
+check_contains "$schema_metadata" $'theme\tstring\tyes\tparent-theme\tDesktop\tTheme\ttheme\ttheme-id' \
+  "schema: theme names the required parent-theme source"
+check_contains "$schema_metadata" $'allowlist\tcsv\tno\tpack\tApps\tStarter apps\tlauncher-list\tlauncher-ids' \
+  "schema: allowlist declares pack precedence and its editor metadata"
+
+for key in "${expected_keys[@]}"; do
+  count="$(printf '%s\n' "$schema_keys" | grep -cxF "$key")"
+  check "$count" "1" "schema: $key occurs exactly once"
+done
+
+schema_rejections=(
+  "schema-version-bool|schema_version = 1"
+  "unknown-top-level|unknown top-level fields"
+  "enum-non-list|invalid enum"
+  "min-non-integer|non-integer min"
+  "max-non-integer|non-integer max"
+  "pattern-non-string|invalid pattern"
+  "bounds-on-string|bounds for a non-integer type"
+  "duplicate-enum|duplicate enum value"
+)
+for rejection in "${schema_rejections[@]}"; do
+  kind="${rejection%%|*}"
+  expected="${rejection#*|}"
+  rejected="$TMP/$kind.toml"
+  cp "$DIR/share/config/schema.toml" "$rejected"
+  python3 - "$rejected" "$kind" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+kind = sys.argv[2]
+text = path.read_text()
+if kind == "schema-version-bool":
+    text = text.replace("schema_version = 1", "schema_version = true", 1)
+elif kind == "unknown-top-level":
+    text = 'unexpected = "nope"\n' + text
+elif kind == "enum-non-list":
+    text = text.replace('enum = ["3-5", "6-8", "9-12", "13+"]', 'enum = "3-5"', 1)
+elif kind == "min-non-integer":
+    text = text.replace("min = 1", 'min = "one"', 1)
+elif kind == "max-non-integer":
+    text = text.replace("max = 1440", 'max = "many"', 1)
+elif kind == "pattern-non-string":
+    text = text.replace('pattern = "^([01][0-9]|2[0-3]):[0-5][0-9]$"', "pattern = 24", 1)
+elif kind == "bounds-on-string":
+    text = text.replace('type = "string"\n', 'type = "string"\nmin = 1\nmax = 2\n', 1)
+elif kind == "duplicate-enum":
+    text = text.replace('enum = ["3-5", "6-8", "9-12", "13+"]', 'enum = ["3-5", "3-5"]', 1)
+path.write_text(text)
+PY
+  err="$(python3 "$DIR/lib/conf.py" schema-dump "$rejected" 2>&1 >/dev/null)"
+  check_status "$?" 2 "schema-dump rejects $kind"
+  check_contains "$err" "$expected" "schema-dump explains $kind"
+done
+
+out="$(SCHEMA="$TMP/not-the-package-schema.toml" "$CONF" bands)"
+check_contains "$out" "3-5" "schema path ignores a runtime environment override"
 
 # --- bands / band ---------------------------------------------------------
 
@@ -111,6 +216,44 @@ check "$slug_long" "kid-$(printf 'a%.0s' {1..24})" "slug: truncated slug is the 
 "$CONF" set kid-ada theme tokyo-night >/dev/null
 check_status "$?" 0 "set writes the identity keys"
 
+# Band and pack sources remain authoritative; the schema supplies only their source.
+band_keys=(level web dns budget_min budget_min_weekend lights_out lights_out_weekend wifi history_visible menu)
+for band in 3-5 6-8 9-12 13+; do
+  "$CONF" set kid-ada band "$band" >/dev/null
+  for key in "${band_keys[@]}"; do
+    expected="$("$CONF" band "$band" | awk -F= -v key="$key" '$1 == key { print substr($0, length(key) + 2) }')"
+    check "$("$CONF" get kid-ada "$key")" "$expected" "schema precedence: $band $key comes from bands.toml"
+  done
+  expected="$(python3 "$DIR/lib/conf.py" pack-ids "$SHARE/packs/$band.toml")"
+  check "$("$CONF" get kid-ada allowlist)" "$expected" "schema precedence: $band allowlist comes from its pack"
+  expected="$(python3 "$DIR/lib/conf.py" pack-sites "$SHARE/packs/$band.toml")"
+  check "$("$CONF" get kid-ada sites)" "$expected" "schema precedence: $band sites come from its pack"
+done
+"$CONF" set kid-ada band 6-8 >/dev/null
+
+# Distinct scratch values prove band-derived keys are not silently global.
+python3 - "$SHARE/bands/bands.toml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines()
+band = None
+for index, line in enumerate(lines):
+    if line.startswith("[band.\""):
+        band = line.split('"')[1]
+    elif band == "6-8" and line.startswith("dns = "):
+        lines[index] = 'dns = "cleanbrowsing-family"'
+    elif band == "6-8" and line.startswith("history_visible = "):
+        lines[index] = 'history_visible = "no"'
+path.write_text("\n".join(lines) + "\n")
+PY
+check "$("$CONF" get kid-ada dns)" "cleanbrowsing-family" "get: dns follows a distinct band value"
+check "$("$CONF" get kid-ada history_visible)" "no" "get: history visibility follows a distinct band value"
+out="$("$CONF" show kid-ada)"
+check "$(echo "$out" | awk '/^dns[ \t]/{print $NF}')" "band" "show: dns marks its band source"
+check "$(echo "$out" | awk '/^history_visible[ \t]/{print $NF}')" "band" "show: history visibility marks its band source"
+
 # --- get: override -> band -> default fallback ----------------------------
 
 check "$("$CONF" get kid-ada level)" "1" "get: level falls back to band 6-8's default (1)"
@@ -147,6 +290,45 @@ check_status "$status" 2 "get: an unknown key is also refused"
 "$CONF" set kid-ada budget_min 75 >/dev/null
 check "$("$CONF" get kid-ada budget_min)" "75" "set: a valid budget_min is written and read back"
 
+# Every schema validator accepts the current shape and rejects its old bad shape.
+valid_values=(
+  "name|Ada" "avatar|fox" "band|6-8" "level|1" "web|garden"
+  "dns|cloudflare-family" "dns|custom:https://example.test/dns" "budget_min|60" "budget_min_weekend|60"
+  "lights_out|19:30" "lights_out_weekend|20:00" "wifi|parent"
+  "history_visible|yes" "menu|trimmed" "theme|tokyo-night"
+  "allowlist|gcompris" "allowlist|" "sites|example.com" "sites|" "password|set" "onboarded|no"
+  "apps.extra|gcompris" "apps.extra|" "apps.hidden|gcompris" "apps.hidden|" "apps.show_missing|no"
+)
+for pair in "${valid_values[@]}"; do
+  key="${pair%%|*}"
+  value="${pair#*|}"
+  "$CONF" set kid-ada "$key" "$value" >/dev/null 2>&1
+  check "$?" "0" "schema validation: accepts $key's current valid shape"
+done
+
+invalid_values=(
+  "name|" "avatar|Bad Id" "avatar|not-an-avatar"
+  "band|7-9" "level|0" "web|open-everything" "dns|custom:" "dns|custom"
+  "budget_min|0" "budget_min_weekend|1441" "lights_out|9pm"
+  "lights_out_weekend|24:00" "wifi|child" "history_visible|maybe"
+  "menu|all" "theme|Not A Real Theme" "theme|no-such-theme"
+  "allowlist|not an id" "sites|not a host" "password|ask"
+  "onboarded|maybe" "apps.extra|not an id" "apps.hidden|not an id"
+  "apps.show_missing|maybe"
+)
+for pair in "${invalid_values[@]}"; do
+  key="${pair%%|*}"
+  value="${pair#*|}"
+  "$CONF" set kid-ada "$key" "$value" >/dev/null 2>&1
+  check "$?" "2" "schema validation: rejects $key's old invalid shape"
+done
+
+# Restore the source mix used by the existing show assertions.
+source "$DIR/lib/conf.sh"
+conf_del "$ETC/kids/kid-ada.conf" onboarded
+conf_del "$ETC/kids/kid-ada.conf" wifi
+"$CONF" set kid-ada level 2 >/dev/null
+
 # --- theme (issue #53): validation, get, and the real apply side effect ----
 
 check "$("$CONF" get kid-ada theme)" "tokyo-night" "get: theme reads back the fixture's override"
@@ -173,7 +355,7 @@ check "$(cat "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/
 "$CONF" set kid-ada theme tokyo-night >/dev/null
 
 # get-with-no-override still behaves like name/avatar/band (theme joined
-# REQUIRED_KEYS, docs/conf.md) -- a second, fresh kid that's never had
+# the schema's required metadata, docs/conf.md) -- a second fixture that's never had
 # `theme` set at all.
 "$CONF" set kid-notheme name Notheme >/dev/null
 "$CONF" set kid-notheme avatar fox >/dev/null

@@ -174,6 +174,22 @@ else
   bad "trust boundary: session accepted a hostile inherited path variable"
 fi
 
+# A kid-writable manifest under the inherited ETC path must not be the file
+# that --manifest reads; the command's compiled ETC path remains authoritative.
+manifest_hostile_dir="$(mktemp -d)"
+trap 'rm -rf "$manifest_hostile_dir"' EXIT
+mkdir -p "$manifest_hostile_dir/sessions"
+printf '%s\n' 'KID_WRITABLE_MANIFEST_MARKER' >"$manifest_hostile_dir/sessions/$(id -un).json"
+if manifest_out="$(OMARCHY_KIDS_ETC="$manifest_hostile_dir" \
+  "$DIR/bin/omarchy-kids-session" --manifest 2>"$manifest_hostile_dir/error")"; then
+  bad "trust boundary: --manifest accepted OMARCHY_KIDS_ETC"
+elif [[ -n "$manifest_out" || "$(cat "$manifest_hostile_dir/error")" == *KID_WRITABLE_MANIFEST_MARKER* ||
+"$(cat "$manifest_hostile_dir/error")" == *"$manifest_hostile_dir"* ]]; then
+  bad "trust boundary: --manifest read or disclosed the kid-writable hostile manifest"
+else
+  ok "trust boundary: --manifest ignores OMARCHY_KIDS_ETC and kid-writable manifests"
+fi
+
 # =====================================================================
 # 2. Shapes that are never allowed, whatever the allowlist says: a
 #    variable that could name a program, a library, a socket, or gate a

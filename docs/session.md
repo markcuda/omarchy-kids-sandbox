@@ -13,8 +13,14 @@ shell command.
 For example: `{"schema_version":1,"account":"kid-ada","name":"Display Name","avatar":"fox","band":"6-8","level":1,"theme":"tokyo-night","allowlist":["gcompris"],"web":"garden","policy_id":"omarchy-kids-6-8","budget_min":60,"budget_min_weekend":60,"lights_out":"19:30","lights_out_weekend":"20:00","tiles":[]}`.
 
 Only root-side provisioning and assert callers write manifests by calling `session_manifest build
-<kid>`. They may validate one with `session_manifest check <kid>`. Future session, launcher, and
-shell readers consume the same file; ticket 1 does not wire those readers or assert yet.
+<kid>`. They may validate one with `session_manifest check <kid>`.
+
+`omarchy-kids-session --manifest` is the caller-bound read verb. It derives the account from
+`id -un`, then opens only `/etc/omarchy-kids/sessions/<account>.json` through the command's fixed
+`ETC` constant. It refuses a missing, linked, non-regular, non-root-owned, or non-0644 document,
+malformed JSON, a schema other than 1, a stale document, or an account mismatch. A refusal emits
+one plain line on stderr and no stdout; success prints the validated JSON. It accepts no account or
+path argument. Session startup and assert do not consume this verb yet; those are later tickets.
 
 The kid session entry point. SDDM's `omarchy-kids` tile runs this through
 `/usr/share/sddm/scripts/wayland-session` the same way Omarchy's own session runs

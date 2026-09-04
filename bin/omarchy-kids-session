@@ -1,6 +1,6 @@
 #!/bin/bash
 # omarchy:summary=Launch a kid's Wayland session after every fail-closed check passes
-# omarchy:args=[--check | --install-configs]
+# omarchy:args=[--check | --install-configs | --manifest]
 # The kid session launcher: every fail-closed check (SPEC.md R-DESK-1, R-DESK-2, I-3, I-4, I-9), then exec Hyprland.
 # See docs/session.md for the check list and build-time path constants.
 set -euo pipefail
@@ -10,6 +10,12 @@ LIB="$DIR/lib"
 [[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
+# shellcheck source=lib/conf.sh
+source "$LIB/conf.sh"
+# shellcheck source=lib/launcher-map.sh
+source "$LIB/launcher-map.sh"
+# shellcheck source=lib/session-manifest.sh
+source "$LIB/session-manifest.sh"
 CONF_BIN="$(kids_bin conf "$DIR")"
 BLOCKED_BIN="$(kids_bin blocked "$DIR")"
 
@@ -27,7 +33,7 @@ KIDS_DIR="$ETC/kids"
 
 usage() {
   cat <<EOF
-Usage: omarchy-kids-session [--check | --install-configs | --help]
+Usage: omarchy-kids-session [--check | --install-configs | --manifest | --help]
 
 Started by /usr/share/wayland-sessions/omarchy-kids.desktop (R-DESK-1) as
 the kid session command. With no arguments: runs the R-DESK-2 preflight
@@ -47,6 +53,9 @@ exits 1 -- fail closed (I-4, I-9). \$HOME/.config/hypr is never read
                       dofile() at Hyprland config-parse time. Meant to be
                       called by the package's install hook and by
                       omarchy-kids-assert (R-TRUST-5).
+  --manifest          Print this account's validated, current session
+                      manifest and nothing else. The account comes from
+                      id -un; no account or path argument is accepted.
   -h, --help          Show this help and exit.
 
 EOF
@@ -57,11 +66,16 @@ for arg in "$@"; do
   case "$arg" in
     --check) MODE=check ;;
     --install-configs) MODE=install-configs ;;
+    --manifest) MODE=manifest ;;
     -h | --help)
       usage
       exit 0
       ;;
     *)
+      if [[ "$MODE" == manifest ]]; then
+        echo "omarchy-kids-session: --manifest accepts no arguments" >&2
+        exit 2
+      fi
       echo "omarchy-kids-session: unknown argument: '$arg'" >&2
       usage >&2
       exit 2
@@ -81,15 +95,64 @@ log() {
   printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/dev/null || true
 }
 
-# --- the account and its profile ------------------------------------------
+# --- the caller account ----------------------------------------------------
 
-ACCOUNT="$(id -un)"
-PROFILE="$KIDS_DIR/$ACCOUNT.conf"
-HOME_DIR="$(getent passwd "$ACCOUNT" 2>/dev/null | cut -d: -f6)"
+ACCOUNT="$(id -un 2>/dev/null)" || {
+  echo "omarchy-kids-session: cannot determine the caller account" >&2
+  exit 1
+}
 
 LEVEL=""
 BAND=""
 WEB=""
+
+manifest_fail() {
+  printf '%s\n' "omarchy-kids-session: validated manifest unavailable" >&2
+  return 1
+}
+
+do_manifest() {
+  local file document
+  session_manifest_valid_account "$ACCOUNT" || {
+    manifest_fail
+    return 1
+  }
+  file="$(session_manifest_path "$ACCOUNT")" || {
+    manifest_fail
+    return 1
+  }
+  [[ -f "$file" && ! -L "$file" ]] || {
+    manifest_fail
+    return 1
+  }
+  [[ "$(file_stat a "$file")" == 644 ]] || {
+    manifest_fail
+    return 1
+  }
+  [[ "$(file_stat u "$file")" == 0 ]] || {
+    manifest_fail
+    return 1
+  }
+
+  # Ticket 1 owns schema and freshness validation; this mode only exposes its result.
+  if ! OMARCHY_KIDS_ROOT="$SYSROOT" session_manifest_check "$ACCOUNT" >/dev/null 2>&1; then
+    manifest_fail
+    return 1
+  fi
+  document="$(cat "$file" 2>/dev/null)" || {
+    manifest_fail
+    return 1
+  }
+  printf '%s\n' "$document"
+}
+
+if [[ "$MODE" == manifest ]]; then
+  do_manifest
+  exit $?
+fi
+
+PROFILE="$KIDS_DIR/$ACCOUNT.conf"
+HOME_DIR="$(getent passwd "$ACCOUNT" 2>/dev/null | cut -d: -f6)"
 
 # --- R-DESK-2 checks, in order. Each sets RESULT (PASS/FAIL/WARN) and
 # DETAIL, and returns 0 (PASS or WARN -- start may continue) or 1 (FAIL

@@ -345,6 +345,166 @@ done
 [[ -e "$INSTALL_ETC/hyprland/README" ]] && fail "--install-configs: must only copy *.lua files" ||
   pass "--install-configs: non-.lua files left alone"
 
+# =====================================================================
+# 8. --manifest exposes only the caller's current, root-owned manifest
+#    (R-MANIFEST-4), with no kid/path argument.
+# =====================================================================
+
+MANIFEST_ETC="$TMP/manifest-etc"
+MANIFEST_SHARE="$TMP/manifest-share"
+MANIFEST_SYSROOT="$TMP/manifest-sysroot"
+MANIFEST_DIR="$MANIFEST_ETC/sessions"
+MANIFEST="$MANIFEST_DIR/$ACCOUNT.json"
+MANIFEST_PROFILE="$MANIFEST_ETC/kids/$ACCOUNT.conf"
+mkdir -p "$MANIFEST_DIR" "$MANIFEST_ETC/kids" "$MANIFEST_SHARE/avatars" \
+  "$MANIFEST_SYSROOT"
+cp "$ROOT_DIR/share/avatars/fox.svg" "$MANIFEST_SHARE/avatars/fox.svg"
+
+cat >"$MANIFEST_PROFILE" <<'EOF'
+name=Display Name
+avatar=fox
+band=6-8
+level=1
+web=none
+theme=tokyo-night
+EOF
+
+kids_stub "$TMP/tree" omarchy-kids-conf <<'EOF'
+#!/bin/bash
+[[ "${1:-}" == get && "${2:-}" == kid-ada ]] || exit 1
+case "${3:-}" in
+  name) echo "Display Name" ;;
+  avatar) echo fox ;;
+  band) echo 6-8 ;;
+  level) echo 1 ;;
+  web) echo none ;;
+  theme) echo tokyo-night ;;
+  budget_min | budget_min_weekend) echo 60 ;;
+  lights_out) echo 19:30 ;;
+  lights_out_weekend) echo 20:00 ;;
+  *) exit 1 ;;
+esac
+EOF
+kids_stub "$TMP/tree" omarchy-kids-apps <<'EOF'
+#!/bin/bash
+[[ "${1:-}" == allowlist && "${2:-}" == kid-ada ]] && exit 0
+exit 1
+EOF
+
+kids_set_const "$BIN" ETC "$MANIFEST_ETC"
+kids_set_const "$BIN" SHARE "$MANIFEST_SHARE"
+kids_set_const "$BIN" SYSROOT "$MANIFEST_SYSROOT"
+kids_set_const "$BIN" RUNTIME_DIR "$RUN"
+kids_set_const "$BIN" RUN_DIR "$RUN"
+
+# The Mac user is not root, so this test stub supplies root metadata only for
+# the manifest path; all other stat calls use the host's real stat.
+REAL_STAT="$(type -P stat)"
+cat >"$STUBS/stat" <<'EOF'
+#!/bin/bash
+# GNU stat is `-c %a/%u/%G`, BSD stat is `-f %Lp/%u/%Sg`; lib/kids.sh's file_stat tries GNU first.
+if [[ "${KIDS_TEST_MANIFEST_STAT:-}" == 1 && "${3:-}" == */sessions/* ]]; then
+  case "${2:-}" in
+    %Lp | %a) echo "${KIDS_TEST_MANIFEST_MODE:-644}"; exit 0 ;;
+    %u) [[ "${KIDS_TEST_MANIFEST_OWNER:-root}" == root ]] && echo 0 || echo 501; exit 0 ;;
+    %Sg | %G) echo root; exit 0 ;;
+  esac
+fi
+exec "$KIDS_TEST_REAL_STAT" "$@"
+EOF
+chmod +x "$STUBS/stat"
+export KIDS_TEST_REAL_STAT="$REAL_STAT"
+
+jq -n --arg account "$ACCOUNT" --arg band "$BAND" '{
+  schema_version: 1,
+  account: $account,
+  name: "Display Name",
+  avatar: "fox",
+  band: $band,
+  level: 1,
+  theme: "tokyo-night",
+  allowlist: [],
+  web: "none",
+  policy_id: "omarchy-kids-6-8",
+  budget_min: 60,
+  budget_min_weekend: 60,
+  lights_out: "19:30",
+  lights_out_weekend: "20:00",
+  tiles: [{
+    id: "more-apps",
+    label: "More apps",
+    icon: "",
+    installed: true,
+    argv: ["/usr/bin/env", ("OMARCHY_KIDS_BAND=" + $band), "/usr/bin/quickshell", "-p", "/usr/share/omarchy-kids/plugins/shell.qml"]
+  }]
+}' >"$MANIFEST"
+cp "$MANIFEST" "$TMP/valid-manifest.json"
+
+manifest_run() {
+  out="$(KIDS_TEST_MANIFEST_STAT=1 "$BIN" --manifest 2>"$TMP/manifest.err")"
+  st=$?
+}
+manifest_refused() {
+  local label="$1"
+  manifest_run
+  check_eq "$st" 1 "$label: exits 1"
+  check_eq "$out" "" "$label: prints no stdout"
+  check_eq "$(wc -l <"$TMP/manifest.err" | tr -d ' ')" "1" "$label: prints one stderr line"
+  check_contains "$(cat "$TMP/manifest.err")" "validated manifest unavailable" "$label: says manifest is unavailable"
+}
+manifest_restore() {
+  rm -rf "$MANIFEST"
+  cp "$TMP/valid-manifest.json" "$MANIFEST"
+}
+
+manifest_restore
+manifest_run
+check_eq "$st" 0 "--manifest: valid manifest exits 0"
+check_eq "$out" "$(cat "$MANIFEST")" "--manifest: prints the validated JSON"
+
+rm -f "$MANIFEST"
+manifest_refused "--manifest: missing manifest"
+manifest_restore
+
+rm -f "$MANIFEST"
+ln -s "$TMP/valid-manifest.json" "$MANIFEST"
+manifest_refused "--manifest: symlink manifest"
+manifest_restore
+
+rm -f "$MANIFEST"
+mkdir "$MANIFEST"
+manifest_refused "--manifest: non-regular manifest"
+rm -rf "$MANIFEST"
+manifest_restore
+
+KIDS_TEST_MANIFEST_MODE=600 manifest_refused "--manifest: wrong mode"
+unset KIDS_TEST_MANIFEST_MODE
+
+KIDS_TEST_MANIFEST_OWNER=other manifest_refused "--manifest: wrong owner"
+unset KIDS_TEST_MANIFEST_OWNER
+
+printf '{' >"$MANIFEST"
+manifest_refused "--manifest: malformed JSON"
+manifest_restore
+
+jq '.schema_version = 2' "$MANIFEST" >"$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+manifest_refused "--manifest: wrong schema"
+manifest_restore
+
+jq '.name = "Stale Display"' "$MANIFEST" >"$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+manifest_refused "--manifest: stale document"
+manifest_restore
+
+jq '.account = "kid-other"' "$MANIFEST" >"$MANIFEST.tmp" && mv "$MANIFEST.tmp" "$MANIFEST"
+manifest_refused "--manifest: account mismatch"
+manifest_restore
+
+out="$("$BIN" --manifest "$ACCOUNT" 2>"$TMP/manifest.err")"
+st=$?
+check_eq "$st" 2 "--manifest: rejects a kid argument"
+check_eq "$out" "" "--manifest: kid argument prints no stdout"
+check_eq "$(wc -l <"$TMP/manifest.err" | tr -d ' ')" "1" "--manifest: kid argument prints one stderr line"
+
 # --- --help / -h -------------------------------------------------------
 
 out="$("$BIN" --help 2>&1)"

@@ -13,17 +13,24 @@ job belongs to `omarchy-kids-provision` (`docs/provision.md`), which is also whe
 this command calls (`lib/posture.sh`) is documented in full; this file only covers what
 `omarchy-kids-assert` checks, when, and what it does when a check fails.
 
-Before any check or repair, assert reads `boot=disk|portal` through the trusted reader in
-`lib/boot-mode.sh`. Missing, unsafe, duplicate, or invalid state exits `1` before mutation. Disk
-mode keeps the UKI and Limine repairs below. With at least one kid, portal mode repairs every
-non-boot lock, prints `skip boot-locks:portal` in normal output, and never inspects a UKI or Limine
-file or command. With zero kids, assert checks `units`, prints the no-kids notice in normal output,
-and exits without a boot-lock status.
+Before any check or repair, assert validates `boot=disk|portal` through the trusted reader in
+`lib/boot-mode.sh`. Missing, unsafe, duplicate, or invalid state exits `1` before mutation. Assert
+then repairs mode-independent locks.
 
-Disk-mode boot checks re-read the trusted setting before they inspect boot evidence and again
-before a possible repair. If the setting changed or became invalid, assert exits `1` without
-starting that repair. The mode-transition command will add the shared serialization lock in
-ticket #98; these re-reads prevent a stale pre-transition value from authorizing later work.
+Before the boot section, assert waits up to five seconds for the root-owned
+`/run/omarchy-kids/boot-mode.lock`, reads the mode again while holding it, and keeps the lock through
+every UKI and Limine check and repair. A mode writer therefore cannot land between the read and a
+boot action. If the lock cannot be acquired, assert reports `skip boot-locks:unavailable`, performs
+no UKI or Limine access, and returns the result of its non-boot repairs. Portal mode reports
+`skip boot-locks:portal` and performs no boot access. With zero kids, assert checks `units`, prints
+the no-kids notice in normal output, and exits without a boot-lock status.
+
+Every supported mode writer must use the same lock. The current
+`omarchy-kids-conf machine set boot` writer does. Ticket #98's transition must acquire it before
+its first authoritative mode read or boot-artifact mutation and hold it through convergence, the
+final mode write, and readback. It must call the already-locked setter logic directly instead of
+starting a second `omarchy-kids-conf` process. A root process that edits `machine.conf` directly
+outside the supported command can bypass this contract, just as root can bypass the other locks.
 
 ## When it runs
 
@@ -88,20 +95,21 @@ One line per lock, `<status> <lock-id>`, status one of `ok` / `fixed` / `FAIL` /
 | `limine-editor` | **Disk mode only.** Limine's editor is disabled when Limine is present (V6, issue #38) | Atomically sets `editor_enabled: no` in `/boot/limine.conf` |
 | `limine-snapshots` | **Disk mode only.** If `/etc/default/limine` exists, `boot.snapshot_entries` (`machine.conf`, docs/conf.md) selects whether Kids Mode hides snapshot entries (V6, issue #38) | Atomically sets or removes `MAX_SNAPSHOT_ENTRIES=0`, preserving the prior value, then runs `limine-snapper-sync` when installed on a real root |
 | `boot-locks:portal` | **Portal mode only.** States that assert deliberately did not inspect or repair UKI or Limine state (R-BOOTMODE-6) | None; reported as `skip`, never `ok` |
+| `boot-locks:unavailable` | The boot-mode transition lock failed its safety checks or was not available within five seconds | None; boot checks and repairs are skipped for this run and the line remains visible under `--quiet` |
 
 ## Exit codes
 
 - **0** — every lock is (or now is) fine, or nothing is provisioned.
-- **1** — the trusted boot mode is invalid, changes during the run, or at least one selected lock
-  could not be fixed. Invalid or changed mode stops boot repair. One bad lock in a stable valid
-  mode does not stop later checks.
+- **1** — the trusted boot mode is invalid or at least one selected lock could not be fixed. A busy
+  transition lock does not add a failure; it skips only the boot section. One bad non-boot lock
+  does not stop later checks.
 
-`--quiet` prints only `fixed`/`FAIL` lines (no `ok` or `skip` lines, and no notice when nothing is
-provisioned — the pacman hook and the boot unit both use this). Without `--quiet`, an all-clear
-run still prints one `ok` line per lock, and a no-kids run prints one line explaining why it
-skipped everything else — after still asserting `units` (see above), which is machine-level, not
-per-kid, and runs either way. `--dry-run` reports what *would* change (`would-fix` instead of
-`fixed`) and writes nothing at all.
+`--quiet` prints `fixed`/`FAIL` lines and the exceptional `skip boot-locks:unavailable` line. It
+suppresses `ok`, the expected portal skip, and the no-kids notice; the pacman hook and boot unit
+both use it. Without `--quiet`, an all-clear run still prints one `ok` line per lock, and a no-kids
+run prints one line explaining why it skipped everything else — after still asserting `units`
+(see above), which is machine-level, not per-kid, and runs either way. `--dry-run` reports what
+*would* change (`would-fix` instead of `fixed`) and writes nothing at all.
 
 ## `file_stat` tries GNU `stat` first (issue #49 live fix)
 

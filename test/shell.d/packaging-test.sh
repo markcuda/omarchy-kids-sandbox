@@ -102,6 +102,7 @@ kids_set_const "$INSTALL" _omarchy_kids_legacy_dropin "$CASE_ROOT/etc/mkinitcpio
 kids_set_const "$INSTALL" _omarchy_kids_migration_copy "$CASE_ROOT/var/lib/omarchy-kids/legacy-boot.conf"
 kids_set_const "$INSTALL" _omarchy_kids_conf_bin "$BOOT_CONF"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_LOCK "$CASE_ROOT/run/omarchy-kids/boot-mode.lock"
 kids_id_stub "$STUBS" mark 0
 kids_stub "$STUBS" groupadd <<'EOF'
 #!/bin/bash
@@ -120,6 +121,10 @@ kids_stub "$STUBS" cryptsetup <<'EOF'
 [[ "${1:-}" == status ]]
 EOF
 kids_stub "$STUBS" chown <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+kids_stub "$STUBS" flock <<'EOF'
 #!/bin/bash
 exit 0
 EOF

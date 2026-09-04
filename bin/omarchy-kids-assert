@@ -59,13 +59,14 @@ Applies fixes for real by default -- this is the command the pacman hook
 and the boot unit call with no other flags, so it must self-heal without
 needing --apply.
 
-  --quiet     Print only "fixed"/"FAIL" lines (no "ok" lines, no notice
-              when nothing is provisioned).
+  --quiet     Print only "fixed"/"FAIL" lines and an unavailable boot-lock
+              skip (no "ok" lines, no no-kids notice).
   --dry-run   Report what would change; write nothing.
   -h, --help  Show this help and exit.
 
 Exit codes: 0 everything selected is (or now is) fine; 1 the trusted boot
-mode is invalid, changes during the run, or a selected lock cannot be fixed.
+mode is invalid or a selected lock cannot be fixed. A busy boot-mode lock
+skips boot work after a bounded wait and does not fail non-boot repair.
 EOF
 }
 
@@ -89,7 +90,7 @@ done
 report() {
   local status="$1" lock="$2"
   [[ "$status" == "FAIL" ]] && ANY_FAIL=1
-  [[ "$QUIET" -eq 1 && ("$status" == "ok" || "$status" == "skip") ]] && return 0
+  [[ "$QUIET" -eq 1 && ("$status" == "ok" || ("$status" == "skip" && "$lock" != "boot-locks:unavailable")) ]] && return 0
   printf '%-8s %s\n' "$status" "$lock"
   return 0
 }
@@ -100,43 +101,6 @@ assert_one() {
   local lock="$1" check="$2" fix="$3" rc
   shift 3
   "$check" "$@" && rc=0 || rc=$?
-  if [[ "$rc" -eq 0 ]]; then
-    report ok "$lock"
-    return 0
-  fi
-  if [[ "$rc" -eq 2 ]]; then
-    report warn "$lock"
-    ANY_WARN=1
-    return 0
-  fi
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    report would-fix "$lock"
-    return 0
-  fi
-  if "$fix" "$@"; then
-    report fixed "$lock"
-  else
-    report FAIL "$lock"
-  fi
-  return 0
-}
-
-boot_mode_still() {
-  local expected="$1" current
-  current="$(boot_mode_get 2>/dev/null || true)"
-  [[ "$current" == "$expected" ]] && return 0
-  echo "omarchy-kids-assert: trusted boot mode changed or became invalid during assert; aborting boot-lock work" >&2
-  return 1
-}
-
-# Boot checks re-read the authority before touching evidence and again before
-# a possible repair. Ticket #98 will close the remaining window with its lock.
-assert_boot_one() {
-  local expected="$1" lock="$2" check="$3" fix="$4" rc
-  shift 4
-  boot_mode_still "$expected" || return 1
-  "$check" "$@" && rc=0 || rc=$?
-  boot_mode_still "$expected" || return 1
   if [[ "$rc" -eq 0 ]]; then
     report ok "$lock"
     return 0
@@ -237,15 +201,23 @@ main() {
     done
   fi
 
-  if [[ "$boot_mode" == disk ]]; then
+  if ! boot_mode_lock_acquire 5; then
+    report skip "boot-locks:unavailable"
+  elif ! boot_mode="$(boot_mode_get)"; then
+    boot_mode_lock_release
+    echo "omarchy-kids-assert: cannot read trusted boot mode under the transition lock; boot locks not changed" >&2
+    exit 1
+  elif [[ "$boot_mode" == disk ]]; then
+    trap boot_mode_lock_release EXIT
     if [[ -f "$HOOK_FILE" ]]; then
-      assert_boot_one "$boot_mode" "boot-hook" boot_hook_ok boot_hook_fix || exit 1
+      assert_one "boot-hook" boot_hook_ok boot_hook_fix
     fi
 
     # Machine-level, never nested under the boot hook (review S5, docs/assert.md).
-    assert_boot_one "$boot_mode" "limine-editor" limine_editor_ok limine_editor_fix || exit 1
-    assert_boot_one "$boot_mode" "limine-snapshots" limine_snapshots_ok limine_snapshots_fix || exit 1
+    assert_one "limine-editor" limine_editor_ok limine_editor_fix
+    assert_one "limine-snapshots" limine_snapshots_ok limine_snapshots_fix
   else
+    trap boot_mode_lock_release EXIT
     report skip "boot-locks:portal"
   fi
 

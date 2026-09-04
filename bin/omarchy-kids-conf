@@ -345,6 +345,9 @@ cmd_machine() {
         boot)
           [[ $# -eq 1 ]] || die "usage: omarchy-kids-conf machine set boot <disk|portal>"
           boot_mode_valid "$value" || die "invalid value for 'boot': must be disk or portal"
+          is_root || die "setting machine boot mode requires root" 1
+          boot_mode_lock_acquire || die "could not acquire the boot-mode transition lock" 1
+          trap boot_mode_lock_release EXIT
           boot_mode_set "$value" || exit $?
           ;;
         parent)

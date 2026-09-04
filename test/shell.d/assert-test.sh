@@ -65,6 +65,7 @@ trap 'rm -rf "$TMP"' EXIT
 # --- scratch tree ------------------------------------------------------
 
 ETC="$TMP/etc/omarchy-kids"
+BOOT_MODE_LOCK="$ETC/boot-mode.lock"
 SHARE="$TMP/share/omarchy-kids"
 SCRATCH_ROOT="$TMP/root" # OMARCHY_KIDS_ROOT
 HOMEROOT="$TMP/homeroot" # OMARCHY_KIDS_HOME_ROOT
@@ -88,7 +89,9 @@ kids_tree "$TREE" "$ROOT_DIR"
 rm -f "$TREE/lib"
 cp -a "$ROOT_DIR/lib" "$TREE/lib"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$ETC/machine.conf"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_LOCK "$BOOT_MODE_LOCK"
 BIN="$TREE/bin/omarchy-kids-assert"
+CONF="$TREE/bin/omarchy-kids-conf"
 
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada Lovelace
@@ -136,7 +139,7 @@ REAL_STAT="$(command -v stat)"
 stub stat '
 if [[ "${1:-}" == "--version" ]]; then exec __REAL_STAT__ "$@"; fi
 format="${2:-}"; target="${3:-}"
-if [[ "$target" == "__ETC__" || "$target" == "__ETC__/machine.conf" ]]; then
+if [[ "$target" == "__ETC__" || "$target" == "__ETC__/machine.conf" || "$target" == "__ETC__/boot-mode.lock" ]]; then
     case "$format" in
         %u) echo 0; exit 0 ;;
         %G | %Sg) echo root; exit 0 ;;
@@ -171,6 +174,7 @@ esac
 # maintains in "$LOG/groups/<acct>"; empty (not "found") if never seeded.
 # shellcheck disable=SC2016
 stub id '
+if [[ "${1:-}" == "-u" && $# -eq 1 && "${BOOT_TEST_ROOT:-0}" == 1 ]]; then echo 0; exit 0; fi
 acct="${@: -1}"
 if [[ "${1:-}" == "-gn" ]]; then
     awk "{print \$1}" "__LOG__/groups/$acct" 2>/dev/null || true
@@ -178,6 +182,40 @@ else
     cat "__LOG__/groups/$acct" 2>/dev/null || true
 fi
 '
+# flock: an inter-process test lock that stays held until the owning command
+# calls -u. FORCE_LOCK_TIMEOUT makes a bounded acquisition fail immediately.
+LOCK_HELD="$TMP/boot-mode-held"
+LOCK_OWNER="$TMP/boot-mode-owner"
+FORCE_LOCK_TIMEOUT="$TMP/boot-mode-force-timeout"
+cat >"$STUBS/flock" <<EOF
+#!/bin/bash
+printf 'flock %s\n' "\$*" >> "$ARGV_LOG"
+if [[ "\${1:-}" == -u ]]; then
+  if [[ "\$(cat "$LOCK_OWNER" 2>/dev/null || true)" == "\$PPID" ]]; then
+    rm -rf "$LOCK_HELD" "$LOCK_OWNER"
+  fi
+  exit 0
+fi
+[[ ! -e "$FORCE_LOCK_TIMEOUT" ]] || exit 1
+wait_count=500
+if [[ "\${1:-}" == -w ]]; then
+  shift 2
+fi
+for ((i = 0; i < wait_count; i++)); do
+  if mkdir "$LOCK_HELD" 2>/dev/null; then
+    printf '%s\n' "\$PPID" > "$LOCK_OWNER"
+    exit 0
+  fi
+  owner="\$(cat "$LOCK_OWNER" 2>/dev/null || true)"
+  if [[ -n "\$owner" ]] && ! kill -0 "\$owner" 2>/dev/null; then
+    rm -rf "$LOCK_HELD" "$LOCK_OWNER"
+    continue
+  fi
+  sleep 0.01
+done
+exit 1
+EOF
+chmod +x "$STUBS/flock"
 # usermod -G g1,g2 <acct>: replaces supplementary groups, preserving primary.
 # usermod -c NAME <acct> (issue #39): writes NAME to
 # "$LOG/gecos/<acct>", read back by the "getent" stub below -- the same
@@ -955,67 +993,124 @@ mv "$SCRATCH_ROOT/hook.bak" "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-u
 
 # --- boot-mode gate and the exact pacman argv ---------------------------
 
-# A disk-to-portal transition writes boot=portal first. Flip the mode during
-# the last non-boot repair and leave a UKI that would trigger mkinitcpio if
-# assert trusts its initial disk-mode read.
+# A mode writer that arrives after assert reads disk but before the boot check
+# must wait. The old re-read guard allowed portal to land in this window.
 RACE_STUBS="$TMP/race-stubs"
-RACE_ARMED="$TMP/race-armed"
-RACE_REACHED="$TMP/race-reached"
-RACE_RELEASE="$TMP/race-release"
 mkdir -p "$RACE_STUBS"
-REAL_CHMOD="$(type -P chmod)"
-cat >"$RACE_STUBS/chmod" <<'EOF'
+cat >"$RACE_STUBS/chown" <<'EOF'
 #!/bin/bash
-if [[ -f "__RACE_ARMED__" && "${*: -1}" == "__CHROMIUM_FILE__" ]]; then
-  touch "__RACE_REACHED__"
+exit 0
+EOF
+chmod +x "$RACE_STUBS/chown"
+CHECK_REACHED="$TMP/check-reached"
+CHECK_RELEASE="$TMP/check-release"
+cat >"$RACE_STUBS/objcopy" <<'EOF'
+#!/bin/bash
+if [[ -f "__CHECK_ARMED__" ]]; then
+  touch "__CHECK_REACHED__"
   for _ in {1..500}; do
-    [[ -f "__RACE_RELEASE__" ]] && break
+    [[ -f "__CHECK_RELEASE__" ]] && break
     sleep 0.01
   done
-  [[ -f "__RACE_RELEASE__" ]] || exit 98
-  rm -f "__RACE_ARMED__"
+  [[ -f "__CHECK_RELEASE__" ]] || exit 98
 fi
-exec "__REAL_CHMOD__" "$@"
+exit 0
 EOF
-sed -i.bak -e "s#__RACE_ARMED__#$RACE_ARMED#g" -e "s#__CHROMIUM_FILE__#$CHROMIUM_FILE#g" \
-  -e "s#__RACE_REACHED__#$RACE_REACHED#g" -e "s#__RACE_RELEASE__#$RACE_RELEASE#g" \
-  -e "s#__REAL_CHMOD__#$REAL_CHMOD#g" "$RACE_STUBS/chmod"
-rm -f "$RACE_STUBS/chmod.bak"
-chmod +x "$RACE_STUBS/chmod"
+sed -i.bak -e "s#__CHECK_ARMED__#$TMP/check-armed#g" -e "s#__CHECK_REACHED__#$CHECK_REACHED#g" \
+  -e "s#__CHECK_RELEASE__#$CHECK_RELEASE#g" "$RACE_STUBS/objcopy"
+rm -f "$RACE_STUBS/objcopy.bak"
+chmod +x "$RACE_STUBS/objcopy"
 
 conf_set "$ETC/machine.conf" boot disk
-chmod 0644 "$CHROMIUM_FILE"
-printf 'usr/lib/initcpio/hooks/some-other-hook\n' >"$LOG/lsinitcpio-output"
-touch "$RACE_ARMED"
+printf 'usr/lib/initcpio/hooks/omarchy-kids-unlock\n' >"$LOG/lsinitcpio-output"
+touch "$TMP/check-armed"
 : >"$ARGV_LOG"
-(
-  for _ in {1..500}; do
-    [[ -f "$RACE_REACHED" ]] && break
-    sleep 0.01
-  done
-  if [[ ! -f "$RACE_REACHED" ]]; then
-    touch "$RACE_RELEASE"
-    exit 1
-  fi
-  printf 'parent=mark\nboot=portal\n' >"$ETC/.machine.conf.race"
-  chmod 0644 "$ETC/.machine.conf.race"
-  mv -f "$ETC/.machine.conf.race" "$ETC/machine.conf"
-  touch "$RACE_RELEASE"
-) &
-race_pid=$!
-out="$(PATH="$RACE_STUBS:$PATH" "$BIN" 2>&1)"
-st=$?
-wait "$race_pid"
-check_eq "$?" 0 "mode race: concurrent transition reached the synchronized write"
-check_eq "$st" 1 "mode race: assert aborts when disk changes to portal during non-boot repair"
-check_contains "$out" "boot mode changed" "mode race: assert names the changed authority"
-if grep -qF 'mkinitcpio -P' "$ARGV_LOG"; then
-  fail "mode race: stale disk mode rebuilt the UKI after portal became authoritative"
+PATH="$RACE_STUBS:$PATH" "$BIN" >"$TMP/check-race.out" 2>&1 &
+assert_pid=$!
+for _ in {1..500}; do [[ -f "$CHECK_REACHED" ]] && break; sleep 0.01; done
+check_eq "$(test -f "$CHECK_REACHED" && echo reached)" "reached" "mode race before check: assert reaches the protected boot action"
+PATH="$RACE_STUBS:$PATH" BOOT_TEST_ROOT=1 "$CONF" machine set boot portal >"$TMP/check-writer.out" 2>&1 &
+writer_pid=$!
+sleep 0.05
+check_eq "$(conf_get "$ETC/machine.conf" boot)" "disk" "mode race before check: writer cannot land after the guard"
+if kill -0 "$writer_pid" 2>/dev/null; then
+  pass "mode race before check: writer waits for assert's boot section"
 else
-  pass "mode race: portal authority prevents a stale UKI rebuild"
+  fail "mode race before check: writer escaped the shared lock"
 fi
-check_eq "$(conf_get "$ETC/machine.conf" boot)" "portal" "mode race: portal remains authoritative"
-chmod 0640 "$CHROMIUM_FILE"
+touch "$CHECK_RELEASE"
+wait "$assert_pid"
+check_eq "$?" 0 "mode race before check: assert completes under disk authority"
+wait "$writer_pid"
+check_eq "$?" 0 "mode race before check: waiting writer completes after assert"
+check_eq "$(conf_get "$ETC/machine.conf" boot)" "portal" "mode race before check: portal lands only after boot work ends"
+
+# A writer arriving after the failed check but before mkinitcpio mutation must
+# also wait. The old second re-read sat immediately before this open window.
+REPAIR_REACHED="$TMP/repair-reached"
+REPAIR_RELEASE="$TMP/repair-release"
+cat >"$RACE_STUBS/mkinitcpio" <<'EOF'
+#!/bin/bash
+touch "__REPAIR_REACHED__"
+for _ in {1..500}; do
+  [[ -f "__REPAIR_RELEASE__" ]] && break
+  sleep 0.01
+done
+[[ -f "__REPAIR_RELEASE__" ]] || exit 98
+printf 'usr/lib/initcpio/hooks/omarchy-kids-unlock\n' > "__LSINIT_OUTPUT__"
+EOF
+sed -i.bak -e "s#__REPAIR_REACHED__#$REPAIR_REACHED#g" -e "s#__REPAIR_RELEASE__#$REPAIR_RELEASE#g" \
+  -e "s#__LSINIT_OUTPUT__#$LOG/lsinitcpio-output#g" "$RACE_STUBS/mkinitcpio"
+rm -f "$RACE_STUBS/mkinitcpio.bak"
+chmod +x "$RACE_STUBS/mkinitcpio"
+rm -f "$TMP/check-armed" "$CHECK_REACHED" "$CHECK_RELEASE"
+conf_set "$ETC/machine.conf" boot disk
+printf 'usr/lib/initcpio/hooks/some-other-hook\n' >"$LOG/lsinitcpio-output"
+PATH="$RACE_STUBS:$PATH" "$BIN" >"$TMP/repair-race.out" 2>&1 &
+assert_pid=$!
+for _ in {1..500}; do [[ -f "$REPAIR_REACHED" ]] && break; sleep 0.01; done
+check_eq "$(test -f "$REPAIR_REACHED" && echo reached)" "reached" "mode race before repair: assert reaches mkinitcpio after the failed check"
+PATH="$RACE_STUBS:$PATH" BOOT_TEST_ROOT=1 "$CONF" machine set boot portal >"$TMP/repair-writer.out" 2>&1 &
+writer_pid=$!
+sleep 0.05
+check_eq "$(conf_get "$ETC/machine.conf" boot)" "disk" "mode race before repair: writer cannot land before mutation"
+if kill -0 "$writer_pid" 2>/dev/null; then
+  pass "mode race before repair: writer waits for the repair"
+else
+  fail "mode race before repair: writer escaped the shared lock"
+fi
+touch "$REPAIR_RELEASE"
+wait "$assert_pid"
+check_eq "$?" 0 "mode race before repair: assert completes its disk repair"
+wait "$writer_pid"
+check_eq "$?" 0 "mode race before repair: waiting writer completes after repair"
+check_eq "$(conf_get "$ETC/machine.conf" boot)" "portal" "mode race before repair: portal lands only after mutation ends"
+
+# Assert never waits forever behind a transition. It keeps non-boot repair,
+# reports the skipped boot section, and makes no boot probe after timeout.
+conf_set "$ETC/machine.conf" boot disk
+printf 'usr/lib/initcpio/hooks/some-other-hook\n' >"$LOG/lsinitcpio-output"
+rm -f "$DENY_RULE"
+touch "$FORCE_LOCK_TIMEOUT"
+: >"$ARGV_LOG"
+out="$("$BIN" 2>&1)"
+st=$?
+rm -f "$FORCE_LOCK_TIMEOUT"
+check_eq "$st" 0 "mode lock timeout: assert exits 0 after skipping boot work"
+check_status "$out" "polkit-deny" "fixed" "mode lock timeout: non-boot locks are still repaired"
+check_status "$out" "boot-locks:unavailable" "skip" "mode lock timeout: report names the skipped boot section"
+check_contains "$(grep '^flock ' "$ARGV_LOG" || true)" "-w 5" "mode lock timeout: assert uses a bounded five-second acquisition"
+if grep -qE 'objcopy|lsinitcpio|mkinitcpio|limine' "$ARGV_LOG"; then
+  fail "mode lock timeout: assert touched UKI or Limine after lock failure"
+else
+  pass "mode lock timeout: assert makes zero UKI or Limine calls"
+fi
+touch "$FORCE_LOCK_TIMEOUT"
+out="$("$BIN" --quiet 2>&1)"
+st=$?
+rm -f "$FORCE_LOCK_TIMEOUT"
+check_eq "$st" 0 "mode lock timeout: quiet assert still exits 0"
+check_status "$out" "boot-locks:unavailable" "skip" "mode lock timeout: quiet report still names the skipped boot section"
 
 TRACE_STUBS="$TMP/trace-stubs"
 BOOT_PROBE_LOG="$LOG/boot-probes.log"

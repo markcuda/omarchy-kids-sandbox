@@ -509,12 +509,14 @@ check "$?" "0" "set: no sessions dir (not provisioned) is not an error"
 # and build-time substitutions, never an environment path override.
 BOOT_TREE="$TMP/boot-tree"
 BOOT_ETC="$TMP/boot-etc"
+BOOT_LOCK="$BOOT_ETC/boot-mode.lock"
 BOOT_STUBS="$TMP/boot-stubs"
 mkdir -p "$BOOT_ETC" "$BOOT_STUBS"
 kids_tree "$BOOT_TREE" "$DIR"
 rm -f "$BOOT_TREE/lib"
 cp -a "$DIR/lib" "$BOOT_TREE/lib"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$BOOT_ETC/machine.conf"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_LOCK "$BOOT_LOCK"
 BOOT_CONF="$BOOT_TREE/bin/omarchy-kids-conf"
 kids_id_stub "$BOOT_STUBS" mark 0
 REAL_STAT="$(command -v stat)"
@@ -529,7 +531,7 @@ case "\${1:-}" in
     target="\${3:-}"
     ;;
 esac
-if [[ "\$target" == "$BOOT_ETC" || "\$target" == "$BOOT_ETC/machine.conf" ]]; then
+if [[ "\$target" == "$BOOT_ETC" || "\$target" == "$BOOT_ETC/machine.conf" || "\$target" == "$BOOT_LOCK" ]]; then
   case "\$format" in
     %u)
       if [[ "\$target" == "$BOOT_ETC" ]]; then
@@ -558,7 +560,12 @@ cat >"$BOOT_STUBS/chown" <<'EOF'
 #!/bin/bash
 exit 0
 EOF
-chmod +x "$BOOT_STUBS/stat" "$BOOT_STUBS/chown"
+cat >"$BOOT_STUBS/flock" <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >> "$TMP/conf-flock.log"
+exit 0
+EOF
+chmod +x "$BOOT_STUBS/stat" "$BOOT_STUBS/chown" "$BOOT_STUBS/flock"
 BOOT_BASE="$(kids_base_path "$TMP/boot-base")"
 BOOT_PATH="$BOOT_STUBS:$BOOT_BASE"
 
@@ -568,6 +575,9 @@ check "$out" "" "machine get boot: missing mode has no stdout"
 
 PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot portal >/dev/null
 check "$?" 0 "machine set boot portal: root write exits 0"
+check "$(test -f "$BOOT_LOCK" && echo present)" "present" "machine set boot: creates the shared lock file"
+check "$(kids_file_mode "$BOOT_LOCK")" "600" "machine set boot: lock file is root-only"
+check "$(head -1 "$TMP/conf-flock.log" | grep -E '^[0-9]+$' >/dev/null && echo locked)" "locked" "machine set boot: holds the shared lock while writing"
 check "$(cat "$BOOT_ETC/machine.conf")" "boot=portal" "machine set boot portal: writes the exact enum"
 check "$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot)" "portal" "machine get boot: prints exactly portal"
 check "$(kids_file_mode "$BOOT_ETC/machine.conf")" "644" "boot machine.conf is mode 0644"

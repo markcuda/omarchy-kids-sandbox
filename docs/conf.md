@@ -30,16 +30,16 @@ stops at the first hit:
 1. **override** — the key is set in the kid's `.conf` file.
 2. **band** — the kid's band supplies it, from `bands.toml` (most keys) or from
    `share/packs/<band>.toml` (`allowlist`, `sites`).
-3. **default** — a global default that isn't band-specific (`dns`, `history_visible`, `password`,
-  `onboarded`).
+3. **default** — a global default that isn't band-specific (`password`, `onboarded`).
 
 ## Schema
 
 `share/config/schema.toml` is installed at `/usr/share/omarchy-kids/config/schema.toml`. It has
 one `[[key]]` table per supported profile key, in the same order used by `show` and `reset`. A
 row's `default_source` names the existing source; it does not duplicate a band, pack, or global
-value. `required = true` with `default_source = "none"` preserves the current missing-value
-failures.
+value. `required = true` with `default_source = "none"` or `"parent-theme"` preserves the current
+missing-value failures; the latter records the parent theme used when provisioning supplies the
+required override.
 
 The command validates the schema at startup through the fixed `lib/conf.py` helper. It then uses
 the resulting rows for key recognition, `show`/`reset` iteration, precedence, and value validation.
@@ -66,21 +66,20 @@ password survive a reset; everything else falls back to their band.
 | `band` | `3-5` `6-8` `9-12` `13+` | none — required | — |
 | `level` | `1` `2` `3` | band | per band |
 | `web` | `garden` `filtered` `none` | band | per band |
-| `dns` | `cloudflare-family` `cleanbrowsing-family` `custom:<url>` | global | `cloudflare-family` |
+| `dns` | `cloudflare-family` `cleanbrowsing-family` `custom:<url>` | band | per band |
 | `budget_min`, `budget_min_weekend` | integer minutes | band | per band |
 | `lights_out`, `lights_out_weekend` | `HH:MM` | band | per band |
 | `wifi` | `parent` `helper` | band | per band |
-| `history_visible` | `yes` `no` | global | `yes` |
+| `history_visible` | `yes` `no` | band | per band |
 | `menu` | `trimmed` `full` | band | per band (trimmed for Levels 1-2, full for Level 3) |
-| `theme` | id from the system themes dir (`$OMARCHY_PATH/themes`) | none — required | — (`omarchy-kids-provision add` sets it to the parent's current theme; `docs/theming.md`) |
+| `theme` | id from the system themes dir (`$OMARCHY_PATH/themes`) | parent-theme — required | — (`omarchy-kids-provision add` sets it to the parent's current theme; `docs/theming.md`) |
 | `allowlist` | comma-separated launcher ids | band's pack | the full starter pack |
 | `sites` | comma-separated hosts | band's pack | the band's `[garden]` list |
 | `password` | `set` `none` | global | `set` |
 | `onboarded` | `yes` `no` | global | `no` |
 
-`dns` and `history_visible` are also carried in `bands.toml` for every band (so a parent or a
-future screen can see them alongside the rest of that band's defaults); the global default above
-is what a key falls back to if the band table ever didn't carry it.
+`dns` and `history_visible` are carried in `bands.toml` for every band and therefore resolve from
+the band table like the other band-derived profile keys.
 
 ### Band-only fields (not profile keys)
 
@@ -250,8 +249,7 @@ omarchy-kids-conf — one way to read and write every kid setting
 Precedence for every Appendix B key: the kid's override
 (/etc/omarchy-kids/kids/<account>.conf), else the kid's band default
 (share/bands/bands.toml, plus share/packs/<band>.toml for allowlist and
-sites), else the global default (dns, history_visible, password,
-onboarded). `band`, `name` and `avatar` have no default at all — they
+sites), else the global default (password, onboarded). `band`, `name` and `avatar` have no default at all — they
 must already be in the profile.
 
 Every path is overridable for tests, so test/shell.d/conf-test.sh runs

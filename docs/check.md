@@ -64,7 +64,8 @@ Every lock in `docs/assert.md`'s table, one line per lock, in the same order and
 lock ids (`fstab:<account>`, `polkit-admin`, `boot-hook`, `limine-snapshots`, ...) — a technical
 catalog for cross-referencing against that doc, not narrative. Each line calls the matching `*_ok`
 function only; a FAIL points at `docs/assert.md`'s own table for what the lock proves and what its
-fix does, rather than repeating that here.
+fix does, rather than repeating that here. The three boot-owned lock checks appear only in trusted
+`boot=disk` mode. Portal and invalid mode never inspect the UKI or Limine.
 
 **One exception, not a FAIL:** `face:<account>` (the SDDM avatar icon, issue #39) is a WARN even
 in this technical catalog. It is the one lock in the table that isn't a security fence at all —
@@ -73,22 +74,29 @@ tile. `lock_check_warn` is the same shape as `lock_check`, used for this one loc
 
 ### Boot
 
-- `unlock-hook` (R-BOOT-5): the current UKI's initramfs contains the hook. Wider tool chain than
+- `mode` always appears. It passes with the trusted `disk` or `portal` value. Missing, unsafe,
+  duplicate, or invalid state fails here and runs no mode-specific check.
+- Disk mode adds `unlock-hook` (R-BOOT-5): the current UKI's initramfs contains the hook.
+  It uses a wider tool chain than
   `omarchy-kids-assert`'s own `boot-hook` lock (which the Locks section above already reuses
   as-is): tries a `lsinitcpio` new enough to analyze a UKI directly, then `objcopy` + `lsinitcpio`
   (the reference method), then `objcopy` + `bsdtar` (libarchive, ships on macOS by default — this
   repo's own dev box has neither `objcopy` nor `lsinitcpio`, both Arch/Linux-specific), then
   `bsdtar` straight on the UKI/ESP path. WARN, not FAIL, if none of the tools exist at all —
   nothing was disproven.
-- `luks-slots` (R-SEC-4, issue #29's new check): every numeric slot named in `luks-slots` is an
+- Disk mode adds `luks-slots` (R-SEC-4, issue #29's new check): every numeric slot named in `luks-slots` is an
   *active* LUKS2 key slot on the device right now, via `cryptsetup luksDump`. LUKS2 reuses freed
   slot numbers (`docs/phase1/V4.md`), so a stale mapping pointing at a slot that was since freed
   and handed to someone else is exactly the failure this catches. WARN if there's no `luks-slots`
   file, no `cryptsetup`, or no LUKS device found (`OMARCHY_KIDS_LUKS_DEVICE` overrides detection,
   same var `omarchy-kids-provision remove` uses).
-- `editor-disabled` / `snapshot-entries` (V6, issue #38): reuse `limine_editor_ok` /
+- Disk mode adds `limine-editor` / `snapshot-entries` (V6, issue #38): reuse `limine_editor_ok` /
   `limine_snapshots_ok` — narrative restatements of the same two locks the Locks catalog already
   lists, kept here too because the issue's own Boot section names them explicitly.
+- Portal mode instead reports `no-kid-luks-slots`, `no-mkinitcpio-dropin`, and
+  `stock-autologin`. These prove the Kids Mode slot map, active mkinitcpio drop-in, and temporary
+  SDDM autologin override are absent. They do not claim that an unrecorded LUKS key belongs to a
+  kid or that a stock autologin file must exist.
 
 ### Login
 
@@ -351,11 +359,15 @@ Nothing here ever calls a *_fix function — a FAIL here means "run
 omarchy-kids-assert", never "let me fix that for you" (I-4's
 verify-at-login role is a *check*, not a second copy of assert).
 
+Boot mode and its mode-invariant files are exceptions: `lib/boot-mode.sh` reads the fixed
+root-owned `/etc/omarchy-kids/machine.conf`, and the slot map, active mkinitcpio drop-in, and
+temporary SDDM override also use fixed production paths. Tests substitute those build-time
+constants in a copied tree.
 Every path below is overridable for tests, same convention as
 bin/omarchy-kids-assert and bin/omarchy-kids-session (this script
 builds on both):
-  OMARCHY_KIDS_ETC          kid profiles, machine.conf (via the sourced
-                            omarchy-kids-assert; default /etc/omarchy-kids)
+  OMARCHY_KIDS_ETC          kid profiles and non-authoritative report fixtures
+                            (default /etc/omarchy-kids)
   OMARCHY_KIDS_SHARE        package data root (default /usr/share/omarchy-kids)
   OMARCHY_KIDS_ROOT         scratch prefix for every real machine path this
                             touches indirectly through the sourced

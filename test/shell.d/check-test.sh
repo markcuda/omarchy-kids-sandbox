@@ -26,9 +26,10 @@ set -uo pipefail
 
 # shellcheck source=test/shell.d/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=test/shell.d/tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$ROOT_DIR/bin/omarchy-kids-check"
 
 pass() { echo "PASS  $*"; }
 fail() {
@@ -63,6 +64,16 @@ HOMEROOT="$TMP/homeroot" # OMARCHY_KIDS_HOME_ROOT
 STUBS="$TMP/stubs"
 LOG="$TMP/log"
 ARGV_LOG="$LOG/argv.log"
+CHECK_TREE="$TMP/check-tree"
+
+kids_tree "$CHECK_TREE" "$ROOT_DIR"
+rm -f "$CHECK_TREE/lib"
+cp -a "$ROOT_DIR/lib" "$CHECK_TREE/lib"
+BIN="$CHECK_TREE/bin/omarchy-kids-check"
+kids_set_const "$CHECK_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$ETC/machine.conf"
+kids_set_const "$CHECK_TREE/lib/check-boot.sh" CHECK_BOOT_SLOTS_FILE "$ETC/luks-slots"
+kids_set_const "$CHECK_TREE/lib/check-boot.sh" CHECK_BOOT_MKINITCPIO_DROPIN "$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+kids_set_const "$CHECK_TREE/lib/check-boot.sh" CHECK_BOOT_SDDM_DROPIN "$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf"
 
 mkdir -p "$ETC/kids" "$SHARE/hyprland" "$SHARE/avatars" "$SCRATCH_ROOT/usr/lib/pam.d" "$HOMEROOT" "$STUBS" "$LOG/groups" "$LOG/gecos"
 printf 'account include system-login\nsession include system-login\n' >"$SCRATCH_ROOT/usr/lib/pam.d/systemd-user"
@@ -70,6 +81,7 @@ touch "$ARGV_LOG"
 
 cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
+boot=disk
 firmware.card_done=yes
 EOF
 
@@ -230,6 +242,32 @@ fi
 exit 1
 '
 
+# boot-mode.sh must see root ownership even though this Mac fixture is
+# created by the test user. Every other stat call reaches the real tool.
+REAL_STAT="$(command -v stat)"
+cat >"$STUBS/stat" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
+format=""
+target=""
+case "\${1:-}" in
+  -c | -f)
+    format="\${2:-}"
+    target="\${3:-}"
+    ;;
+esac
+case "\$target" in
+  "$ETC" | "$ETC/machine.conf")
+    case "\$format" in
+      %u) echo 0; exit 0 ;;
+      %G | %Sg) echo root; exit 0 ;;
+    esac
+    ;;
+esac
+exec "$REAL_STAT" "\$@"
+EOF
+chmod +x "$STUBS/stat"
+
 # Only the stubs and a base toolset: an Omarchy box has the real
 # omarchy-*/omarchy-kids-* commands on PATH, and a check that one is
 # missing must not depend on this box (AGENTS.md, testing rules).
@@ -332,7 +370,7 @@ echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" >"$LOG/lsinitcpio-output"
 # luks-slots + cryptsetup stub above: boot:luks-slots (issue #29's slot-
 #          count-consistency check) needs both to resolve past "cannot
 #          verify".
-# limine.conf / etc/default/limine: boot:editor-disabled and
+# limine.conf / etc/default/limine: boot:limine-editor and
 #          boot:snapshot-entries reuse omarchy-kids-assert's own
 #          limine_editor_ok/limine_snapshots_ok, which (like every lock
 #          here) report "ok" when the file is simply absent — these
@@ -370,7 +408,7 @@ check_not_contains "$out" "WARN" "clean tree: no WARN line anywhere either (ever
 for id in "account:kid-ada:exists" "account:kid-ada:no-wheel" "account:kid-ada:no-sudo" \
   "account:kid-ada:band-group" "account:kid-ada:home-noexec" "account:kid-ada:gecos" \
   "lock:fstab:kid-ada" "lock:groups:kid-ada" "lock:boot-hook" "lock:limine-editor" "lock:limine-snapshots" \
-  "boot:unlock-hook" "boot:luks-slots" "boot:editor-disabled" "boot:snapshot-entries" \
+  "boot:mode" "boot:unlock-hook" "boot:luks-slots" "boot:limine-editor" "boot:snapshot-entries" \
   "login:theme-dropin" "login:theme-conf-user" "login:face:kid-ada" "login:autologin-dropin" \
   "pam:parent-unlock:sddm" "pam:faillock-order:sddm" "web:mode:6-8" "web:doh:6-8" \
   "time:ledger:kid-ada" "firmware:password"; do
@@ -399,6 +437,86 @@ if command -v python3 >/dev/null 2>&1; then
 else
   pass "--json: skipped the python3 structural parse (no python3 on this box)"
 fi
+
+# --- Boot JSON is selected only by the trusted machine mode -----------
+
+if command -v python3 >/dev/null 2>&1; then
+  if printf '%s' "$json" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+boot = next(s for s in d["sections"] if s["name"] == "Boot")
+assert [c["id"] for c in boot["checks"]] == [
+    "boot:mode", "boot:unlock-hook", "boot:luks-slots",
+    "boot:limine-editor", "boot:snapshot-entries"
+]
+' 2>/dev/null; then
+    pass "disk JSON exposes only the disk-mode Boot checks"
+  else
+    fail "disk JSON exposed the wrong Boot checks"
+  fi
+fi
+
+conf_set "$ETC/machine.conf" boot portal
+rm -f "$ETC/luks-slots"
+rm -f "$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+rm -f "$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf"
+: >"$ARGV_LOG"
+portal_json="$("$BIN" --json)"
+portal_status=$?
+check_eq "$portal_status" 0 "portal mode with no owned boot artifacts exits 0"
+for id in "boot:mode" "boot:no-kid-luks-slots" "boot:no-mkinitcpio-dropin" "boot:stock-autologin"; do
+  check_contains "$portal_json" "\"id\": \"$id\"" "portal JSON includes '$id'"
+done
+for id in "boot:unlock-hook" "boot:luks-slots" "boot:limine-editor" "boot:snapshot-entries" \
+  "lock:boot-hook" "lock:limine-editor" "lock:limine-snapshots"; do
+  check_not_contains "$portal_json" "\"id\": \"$id\"" "portal JSON omits disk-only '$id'"
+done
+portal_argv="$(cat "$ARGV_LOG")"
+for tool in cryptsetup objcopy lsinitcpio limine-snapper-sync; do
+  check_not_contains "$portal_argv" "$tool " "portal check never invokes $tool"
+done
+
+if command -v python3 >/dev/null 2>&1; then
+  if printf '%s' "$portal_json" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+boot = next(s for s in d["sections"] if s["name"] == "Boot")
+assert [c["id"] for c in boot["checks"]] == [
+    "boot:mode", "boot:no-kid-luks-slots",
+    "boot:no-mkinitcpio-dropin", "boot:stock-autologin"
+]
+' 2>/dev/null; then
+    pass "portal JSON exposes only the portal-mode Boot checks"
+  else
+    fail "portal JSON exposed the wrong Boot checks"
+  fi
+fi
+
+printf '1=kid-ada\n' >"$ETC/luks-slots"
+mkdir -p "$SCRATCH_ROOT/etc/mkinitcpio.conf.d" "$SCRATCH_ROOT/etc/sddm.conf.d"
+touch "$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+printf '[Autologin]\nUser=kid-ada\n' >"$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf"
+portal_bad_json="$("$BIN" --json)"
+check_eq "$?" 2 "portal mode fails when disk-owned boot artifacts remain"
+for id in "boot:no-kid-luks-slots" "boot:no-mkinitcpio-dropin" "boot:stock-autologin"; do
+  check_contains "$portal_bad_json" "\"id\": \"$id\", \"status\": \"fail\"" "portal residue fails '$id'"
+done
+rm -f "$ETC/luks-slots"
+rm -f "$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+rm -f "$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf"
+
+printf 'parent=mark\nboot=broken\nfirmware.card_done=yes\n' >"$ETC/machine.conf"
+invalid_json="$("$BIN" --json)"
+invalid_status=$?
+check_eq "$invalid_status" 2 "an invalid trusted mode makes the safety report fail"
+check_contains "$invalid_json" '"id": "boot:mode", "status": "fail"' "invalid mode is reported without guessing"
+for id in "boot:unlock-hook" "boot:luks-slots" "boot:limine-editor" "boot:snapshot-entries" \
+  "boot:no-kid-luks-slots" "boot:no-mkinitcpio-dropin" "boot:stock-autologin"; do
+  check_not_contains "$invalid_json" "\"id\": \"$id\"" "invalid mode omits '$id'"
+done
+
+printf '0=mark\n1=kid-ada\n' >"$ETC/luks-slots"
+conf_set "$ETC/machine.conf" boot disk
 
 # --- a missing face icon: WARN, not FAIL — exit 1, not 2 ----------------
 

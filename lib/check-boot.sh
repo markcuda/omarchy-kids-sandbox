@@ -5,6 +5,12 @@
 
 # --- Boot ----------------------------------------------------------------
 
+# Fixed production paths for mode invariants. Tests substitute these in a
+# copied library tree; a caller cannot redirect the safety report.
+CHECK_BOOT_SLOTS_FILE=/etc/omarchy-kids/luks-slots
+CHECK_BOOT_MKINITCPIO_DROPIN=/etc/mkinitcpio.conf.d/omarchy_kids.conf
+CHECK_BOOT_SDDM_DROPIN=/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf
+
 # boot_check_unlock_hook — R-BOOT-5, wider tool chain than
 # omarchy-kids-assert's own boot-hook lock: this dev box has neither
 # objcopy nor lsinitcpio, so tries lsinitcpio-on-UKI, then objcopy+
@@ -70,7 +76,7 @@ boot_check_unlock_hook() {
 # than FAILs whenever it can't get a real answer (no luks-slots file, no
 # cryptsetup, no device, no dump output) — never guesses.
 boot_check_luks_slots() {
-  local slots_file="$ETC/luks-slots"
+  local slots_file="$CHECK_BOOT_SLOTS_FILE"
   if [[ ! -r "$slots_file" ]]; then
     add_result Boot "boot:luks-slots" warn "cannot verify: no $slots_file to read"
     return
@@ -121,13 +127,13 @@ boot_check_luks_slots() {
 
 boot_check_editor() {
   if [[ ! -f "$(limine_conf)" ]]; then
-    add_result Boot "boot:editor-disabled" warn "cannot verify: no $(limine_conf) on this box (no Limine, or a test tree)"
+    add_result Boot "boot:limine-editor" warn "cannot verify: no $(limine_conf) on this box (no Limine, or a test tree)"
     return
   fi
   if limine_editor_ok; then
-    add_result Boot "boot:editor-disabled" pass "$(limine_conf): editor_enabled: no (V6)"
+    add_result Boot "boot:limine-editor" pass "$(limine_conf): editor_enabled: no (V6)"
   else
-    add_result Boot "boot:editor-disabled" fail "$(limine_conf): the boot menu editor is not disabled — run 'omarchy-kids-assert' (V6)"
+    add_result Boot "boot:limine-editor" fail "$(limine_conf): the boot menu editor is not disabled — run 'omarchy-kids-assert' (V6)"
   fi
 }
 
@@ -145,9 +151,60 @@ boot_check_snapshots() {
   fi
 }
 
+boot_check_no_kid_luks_slots() {
+  local file="$CHECK_BOOT_SLOTS_FILE"
+  if [[ -e "$file" || -L "$file" ]]; then
+    add_result Boot "boot:no-kid-luks-slots" fail "$file exists; portal mode requires no Kids Mode slot map"
+  else
+    add_result Boot "boot:no-kid-luks-slots" pass "$file is absent; no kid slot is recorded"
+  fi
+}
+
+boot_check_no_mkinitcpio_dropin() {
+  local file="$CHECK_BOOT_MKINITCPIO_DROPIN"
+  if [[ -e "$file" || -L "$file" ]]; then
+    add_result Boot "boot:no-mkinitcpio-dropin" fail "$file exists; portal mode must leave the Kids Mode hook inactive"
+  else
+    add_result Boot "boot:no-mkinitcpio-dropin" pass "$file is absent"
+  fi
+}
+
+boot_check_stock_autologin() {
+  local file="$CHECK_BOOT_SDDM_DROPIN"
+  if [[ -e "$file" || -L "$file" ]]; then
+    add_result Boot "boot:stock-autologin" fail "$file exists and overrides the stock SDDM login path"
+  else
+    add_result Boot "boot:stock-autologin" pass "no Kids Mode autologin drop-in overrides the stock SDDM configuration"
+  fi
+}
+
+CHECK_BOOT_MODE=""
+CHECK_BOOT_MODE_VALID=0
+
+check_boot_mode_load() {
+  if CHECK_BOOT_MODE="$(boot_mode_get 2>/dev/null)"; then
+    CHECK_BOOT_MODE_VALID=1
+  else
+    CHECK_BOOT_MODE=""
+    CHECK_BOOT_MODE_VALID=0
+  fi
+}
+
 run_boot_section() {
-  boot_check_unlock_hook
-  boot_check_luks_slots
-  boot_check_editor
-  boot_check_snapshots
+  if [[ "$CHECK_BOOT_MODE_VALID" != 1 ]]; then
+    add_result Boot "boot:mode" fail "machine.conf has no trusted boot=disk|portal setting; no mode-specific check ran"
+    return
+  fi
+
+  add_result Boot "boot:mode" pass "boot=$CHECK_BOOT_MODE selected from trusted machine.conf"
+  if [[ "$CHECK_BOOT_MODE" == portal ]]; then
+    boot_check_no_kid_luks_slots
+    boot_check_no_mkinitcpio_dropin
+    boot_check_stock_autologin
+  else
+    boot_check_unlock_hook
+    boot_check_luks_slots
+    boot_check_editor
+    boot_check_snapshots
+  fi
 }

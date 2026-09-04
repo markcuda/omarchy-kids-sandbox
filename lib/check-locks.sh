@@ -7,7 +7,7 @@
 # --- Locks (every omarchy-kids-assert lock, via its *_ok function only) ----
 
 run_locks_section() {
-  local acct band avatar name n dir cf bt kids_count
+  local boot_mode="${1:-}" acct band avatar name n dir cf bt kids_count
   kids_count="$(kid_conf_count)"
   if [[ "$kids_count" == 0 ]]; then
     add_result Locks "locks:none" skip "no kids provisioned; nothing to check (same as 'omarchy-kids-assert' with none provisioned)"
@@ -58,10 +58,12 @@ run_locks_section() {
     done
   fi
 
-  if [[ -f "$HOOK_FILE" ]]; then
+  if [[ "$boot_mode" == disk && -f "$HOOK_FILE" ]]; then
     lock_check boot-hook boot_hook_ok
     lock_check limine-editor limine_editor_ok
   fi
 
-  lock_check limine-snapshots limine_snapshots_ok
+  if [[ "$boot_mode" == disk ]]; then
+    lock_check limine-snapshots limine_snapshots_ok
+  fi
 }

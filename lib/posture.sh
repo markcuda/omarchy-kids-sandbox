@@ -390,12 +390,35 @@ posture_theme_conf_lines() {
   )
 }
 
+# posture_portal_parent_accounts PARENT — the recorded parent plus members
+# of the two parent groups. Invalid NSS names are ignored before interpolation.
+posture_portal_parent_accounts() {
+  local parent="$1"
+  local group line members_csv member parents=",$parent,"
+  local -a members=()
+  for group in omarchy-parents wheel; do
+    command -v getent >/dev/null 2>&1 || break
+    line="$(getent group "$group" 2>/dev/null || true)"
+    members_csv="$(awk -F: 'NR == 1 { print $4 }' <<<"$line")"
+    [[ -n "$members_csv" ]] || continue
+    IFS=',' read -ra members <<<"$members_csv"
+    for member in "${members[@]}"; do
+      posture_valid_account "$member" || continue
+      case "$parents" in
+        *",$member,"*) ;;
+        *) parents+="$member," ;;
+      esac
+    done
+  done
+  printf '%s\n' "${parents#,}" | sed 's/,$//'
+}
+
 # posture_portal_conf_text PARENT [ENTRY...] — ENTRY is
 # "account<TAB>name<TAB>avatar" (tab, since ':'/',' are separators in the
-# "kids=" value below). Followed by the nine color/font keys, same
-# [General] section (docs/portal.md, docs/theming.md).
+# "kids=" value below). Followed by the parent allowlist and the nine
+# color/font keys, same [General] section (docs/portal.md, docs/theming.md).
 posture_portal_conf_text() {
-  local parent="$1" kids_field="" sep="" entry account name avatar
+  local parent="$1" kids_field="" sep="" entry account name avatar parents_field
   shift
   posture_valid_account "$parent" || {
     echo "lib/posture.sh: refusing to write theme.conf.user for an unusable parent name '$parent'" >&2
@@ -411,9 +434,11 @@ posture_portal_conf_text() {
     kids_field="${kids_field}${sep}${account}:${name}:${avatar}"
     sep=","
   done
+  parents_field="$(posture_portal_parent_accounts "$parent")"
   cat <<EOF
 [General]
 parent=$parent
+parents=$parents_field
 kids=$kids_field
 EOF
   posture_theme_conf_lines "$parent"

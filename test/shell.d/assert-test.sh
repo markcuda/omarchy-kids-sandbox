@@ -648,7 +648,7 @@ out="$("$BIN")"
 only_this_lock_changed "$out" "sddm-theme" "sddm-theme"
 check_contains "$(cat "$THEME_DROPIN" 2>/dev/null)" "Current=omarchy-kids" "sddm-theme: the drop-in is back"
 
-# portal-conf (issue #39): replaces the earlier portal.json + sddm.service
+# portal-conf (issues #39/#100): replaces the earlier portal.json + sddm.service
 # XHR drop-in design -- see lib/posture.sh's and Main.qml's own header
 # comments for why.
 PORTAL_CONF="$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
@@ -656,6 +656,7 @@ rm -f "$PORTAL_CONF"
 out="$("$BIN")"
 only_this_lock_changed "$out" "portal-conf" "portal-conf"
 check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "parent=mark" "portal-conf: the file is back, with the parent"
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "parents=mark" "portal-conf: the parent allowlist is back"
 check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kid-ada:Ada Lovelace:fox" "portal-conf: kid-ada's entry is back"
 
 # pam:sddm

@@ -1,10 +1,9 @@
 #!/bin/bash
-# Tests the pure helpers in test/live/lib.sh — the theme.conf.user index math (portal_kid_index,
-# portal_kid_count) and the report table generator (report_header, report_row). These are the
-# only parts of the VM acceptance harness (issue #31, SPEC.md R-BUILD-3) that don't need the test
-# laptop or the VM, so this is the only test/live coverage that runs in `test/all`/CI; the
-# scenarios themselves (test/live/NN-*.sh) are exercised by hand against the real VM per
-# docs/live-tests.md, never here.
+# Tests the pure helpers in test/live/lib.sh — portal tile index/count parsing, the finalized
+# journal-report parser, and the report table generator. These are the only parts of the VM
+# acceptance harness (issue #31, SPEC.md R-BUILD-3) that don't need the test laptop or the VM, so
+# this is the only test/live coverage that runs in `test/all`/CI; the scenarios themselves
+# (test/live/NN-*.sh) are exercised by hand against the real VM per docs/live-tests.md, never here.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -46,7 +45,7 @@ check "$(portal_kid_count "$CSV")" "2" "portal_kid_count: two entries"
 TILES=$'kid-ada\nkid-ben\nkid-cy\nkid-vm'
 check "$(portal_tile_index "$TILES" kid-cy)" "2" "portal_tile_index: sorted greeter order, third account is index 2"
 check "$(portal_tile_index "$TILES" kid-vm)" "3" "portal_tile_index: the parent sorts last here"
-portal_tile_index "$TILES" kid-zed >/dev/null && fail "portal_tile_index: unknown account should fail" || pass "portal_tile_index: unknown account fails"
+portal_tile_index "$TILES" kid-zed >/dev/null && fail "portal_tile_index: unknown account should fail" || echo "ok   portal_tile_index: unknown account fails"
 
 portal_kid_index "$CSV" kid-nope >/dev/null 2>&1
 check_status "$?" "1" "portal_kid_index: an account not in the list fails"
@@ -57,6 +56,20 @@ check "$(portal_kid_count "kid-ada:Ada:fox")" "1" "portal_kid_count: one entry"
 check "$(portal_kid_count "")" "0" "portal_kid_count: no kids= value yet is zero kids"
 portal_kid_index "" kid-ada >/dev/null 2>&1
 check_status "$?" "1" "portal_kid_index: no kids= value yet always fails"
+
+PARENTS="kid-vm,parent-helper"
+check "$(portal_conf_accounts "$CSV" "$PARENTS")" \
+  $'kid-ada\nkid-cy\nkid-vm\nparent-helper' \
+  "portal_conf_accounts: kids precede the explicit parent allowlist"
+check "$(portal_conf_accounts "kid-ada:Ada Lovelace:fox" "kid-ada,parent-helper")" \
+  $'kid-ada\nparent-helper' \
+  "portal_conf_accounts: duplicate kid/parent membership produces one tile"
+check "$(portal_conf_tile_count "$CSV" "$PARENTS")" "4" \
+  "portal_conf_tile_count: counts profiled kids plus parents"
+check "$(portal_parse_tile_report 'qrc:/Main.qml: portal: 3 tiles (kids=2 parents=1)')" "3 2 1" \
+  "portal_parse_tile_report: extracts the greeter's observed finalized counts"
+portal_parse_tile_report "portal: malformed" >/dev/null 2>&1
+check_status "$?" "1" "portal_parse_tile_report: malformed journal output fails"
 
 # --- report_header / report_row ---------------------------------------------------------------
 

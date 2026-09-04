@@ -1,4 +1,4 @@
-# The portal: `share/sddm-theme/` (SPEC.md R-LOGIN-1..5, R-BOOT-3, R-SEC-3, I-5, I-7; issue #14, issue #39)
+# The portal: `share/sddm-theme/` (SPEC.md R-LOGIN-1..5, R-BOOT-3, R-SEC-3, I-5, I-7; issue #14, issue #39, issue #100)
 
 An SDDM greeter theme: one big tile per kid, a smaller parent tile last, arrow keys to move,
 Enter to select, a password field that appears under the highlighted tile (or logs straight in
@@ -16,7 +16,7 @@ of Omarchy's own files (I-7).
 | `share/sddm-theme/Main.qml` | The greeter itself — see its own header comment for exactly which SDDM/Qt APIs each piece rests on and where that was confirmed |
 | `share/avatars/*.svg` | Twelve hand-written, flat, single-color 128×128 animal avatars (fox, owl, panda, frog, whale, cat, bear, bee, koala, otter, penguin, tiger), CC0 (`share/avatars/LICENSE`) |
 | `lib/posture.sh`: `posture_write_sddm_theme_dropin` / `posture_remove_sddm_theme_dropin` | Writes/removes `/etc/sddm.conf.d/zz-omarchy-kids-theme.conf` (`[Theme]` `Current=omarchy-kids`) |
-| `lib/posture.sh`: `posture_write_portal_conf` | Writes `/usr/share/sddm/themes/omarchy-kids/theme.conf.user` (root-owned 0644) — SDDM's own theme config override, read automatically, issue #39. Since issue #48 this also carries nine color/font keys resolved from the parent's own current Omarchy theme (`lib/theme.sh`) — see `docs/theming.md` |
+| `lib/posture.sh`: `posture_write_portal_conf` | Writes `/usr/share/sddm/themes/omarchy-kids/theme.conf.user` (root-owned 0644) — SDDM's own theme config override, read automatically, issue #39. It carries the profiled `kids=` list, the recorded parent plus `omarchy-parents`/`wheel` members in `parents=`, and nine color/font keys resolved from the parent's own current Omarchy theme (`lib/theme.sh`) — see `docs/theming.md` |
 | `lib/posture.sh`: `posture_write_face_icon` / `posture_remove_face_icon` | Copies the chosen avatar SVG to `/usr/share/sddm/faces/<account>.face.icon` (root-owned 0644) — the file SDDM's `UserModel` actually reads for the avatar, issue #39 |
 | `omarchy-kids-provision`: `usermod -c "<display name>"` | Sets the passwd GECOS field so the greeter's `realName` role shows the kid's name, issue #39 |
 
@@ -46,7 +46,7 @@ provisioned; only Remove Kids Mode (§5.2) takes it out, by removing the package
 even though nothing currently calls it (a `TODO` for whichever issue wires up Remove Kids Mode's
 full teardown).
 
-## Display names, parent detection, and avatars (issue #39)
+## Display names, parent detection, and avatars (issues #39, #100)
 
 V1's first live boot into the portal (docs/phase1/V1.md; this file's own "Verified live" section
 below) found three things that only show up once real tiles actually render: tiles showed the
@@ -64,13 +64,15 @@ Re-asserted as the `gecos:<account>` lock (`docs/assert.md`).
 
 **Parent detection.** `omarchy-kids-provision add`/`remove` write
 `/usr/share/sddm/themes/omarchy-kids/theme.conf.user` (root-owned 0644, rewritten in full every
-time from the current, known-correct set of kid profiles plus `machine.conf`'s `parent=` — the
-same "never append, always rewrite" shape `luks-slots` already uses, via `lib/posture.sh`'s
+time from the current, known-correct set of kid profiles plus `machine.conf`'s `parent=` and the
+members of `omarchy-parents` and `wheel` — the same "never append, always rewrite" shape
+`luks-slots` already uses, via `lib/posture.sh`'s
 `posture_write_portal_conf`):
 
 ```ini
 [General]
 parent=mark
+parents=mark
 kids=kid-ada:Ada Lovelace:fox
 ```text
 
@@ -92,14 +94,16 @@ first's. So `theme.conf.user`, sitting right next to the installed `theme.conf`,
 automatically by SDDM itself before the greeter's QML ever runs — no XHR, no `file://` URL, no
 extra process environment, and no `systemctl restart` needed beyond whatever a normal `add`/
 `remove` already causes SDDM to pick up on its own next read of the theme. `Main.qml` reads
-`config.parent` and `config.kids` through the exact same `config` `QQmlPropertyMap` its own colors
-already come through (`ThemeConfig::setTo()`/`GreeterApp.cpp`'s `setContextProperty("config",
-...)`, same citation the top of this file already rests on), parses `config.kids`'
-`<account>:<name>:<avatar>,...` value, and decides `isParentAccount(name)` by an exact match
-against `config.parent`, never by the `kid-` username prefix, when that data is present. A blank
-or missing `config.parent`/`config.kids` (a box with no kid provisioned yet) falls back to the old
-`kid-` prefix heuristic — the same fail-safe shape the dropped `portal.json` design used. Both are
-re-asserted together as the `portal-conf` lock (`docs/assert.md`).
+`config.parent`, `config.parents`, and `config.kids` through the exact same `config`
+`QQmlPropertyMap` its own colors already come through (`ThemeConfig::setTo()`/`GreeterApp.cpp`'s
+`setContextProperty("config", ...)`, same citation the top of this file already rests on), parses
+`config.kids`' `<account>:<name>:<avatar>,...` value and the comma-separated `config.parents`
+allowlist. Only those two allowlists may produce tiles; a stale Unix account is intentionally
+invisible. Both are re-asserted together as the `portal-conf` lock (`docs/assert.md`).
+
+After the user model is finalized, `Main.qml` writes one `console.error` line to stderr in the
+form `portal: N tiles (kids=K parents=P)`. Scenario 30 reads that finalized count from the SDDM
+journal and uses the config only for an independent expected-count check.
 
 **Avatars.** `posture_write_accountsservice` already points AccountsService's `Icon=` at
 `/usr/share/omarchy-kids/avatars/<avatar>.svg`, and `Main.qml`'s `avatarSourceFor()` still uses
@@ -246,14 +250,14 @@ least one kid is provisioned (`docs/provision.md`):
   `pacman -Si sddm` dependency tree.
 - Whether `JetBrainsMono Nerd Font` (theme.conf's default `fontFamily`) is available to the
   greeter's own fontconfig, separate from whatever's available inside a logged-in session.
-- Whether `config.parent`/`config.kids` (from `theme.conf.user`, `posture_write_portal_conf`)
+- Whether `config.parent`/`config.parents`/`config.kids` (from `theme.conf.user`, `posture_write_portal_conf`)
   actually arrive in `Main.qml`'s `config` property the way `ThemeConfig::setTo()`'s source says
   they should — confirmed by reading upstream source, not by a real engine loading this exact
-  theme's `theme.conf.user` and reporting back `config.parent`/`config.kids` values. Lower risk
-  than the dropped `XMLHttpRequest` approach (no extra process environment, no `daemon-reload`,
-  same code path theme.conf's own colors already exercise), but still unverified until a real VM
-  boot confirms it. If it doesn't work, parent detection and the name/avatar fallbacks silently
-  degrade to their pre-#39 behavior — see "Display names, parent detection, and avatars" above.
+  theme's `theme.conf.user` and reporting back the three values. Lower risk than the dropped
+  `XMLHttpRequest` approach (no extra process environment, no `daemon-reload`, same code path
+  theme.conf's own colors already exercise), but still unverified until a real VM boot confirms it.
+- Whether the `Qt5Compat.GraphicalEffects` `OpacityMask` import is present in the greeter runtime;
+  the package now declares `qt6-5compat`, but the circular avatar mask still needs a VM render check.
 - Whether `/usr/share/sddm/faces/<account>.face.icon` (`posture_write_face_icon`) is really the
   file this stack's `UserModel` reads — confirmed against `UserModel.cpp`'s source and against the
   live VM's own finding that AccountsService's `Icon=` line alone was insufficient, but not yet

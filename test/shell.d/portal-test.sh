@@ -130,10 +130,9 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
     fail "Main.qml does not look up both omarchy-kids.desktop and omarchy.desktop"
   fi
 
-  # issue #39: parent detection from theme.conf.user's config.parent/
-  # config.kids (SDDM's own ThemeConfig override, never XHR), never
-  # solely the "kid-" username prefix; display name and avatar fallbacks.
-  for needle in "config.parent" "config.kids" "parsePortalConfig" "isParentAccount" "portalParent" "portalKids" "avatarSourceFor"; do
+  # issue #39/#100: the portal consumes the root-written account allowlists,
+  # never every regular account from SDDM's userModel.
+  for needle in "config.parent" "config.kids" "config.parents" "parsePortalConfig" "isParentAccount" "portalParent" "portalKids" "portalParents" "isPortalUser" "avatarSourceFor"; do
     if grep -qF "$needle" "$MAIN_QML"; then
       pass "Main.qml references $needle"
     else
@@ -152,6 +151,48 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
     pass "Main.qml capitalizes the stripped-account-name display fallback"
   else
     fail "Main.qml does not capitalize the stripped-account-name display fallback"
+  fi
+  if grep -qF 'if (root.isPortalUser(name))' "$MAIN_QML"; then
+    pass "Main.qml hides SDDM accounts outside the profile/parent allowlists"
+  else
+    fail "Main.qml does not hide SDDM accounts outside the profile/parent allowlists"
+  fi
+  if grep -qF 'Object.prototype.hasOwnProperty.call(root.portalKids, String(name))' "$MAIN_QML"; then
+    pass "Main.qml uses an own-property check for profiled kids"
+  else
+    fail "Main.qml admits inherited portalKids properties"
+  fi
+  if grep -qF '!root.hasPortalKid(name)' "$MAIN_QML"; then
+    pass "Main.qml gives profiled-kid membership precedence over parent membership"
+  else
+    fail "Main.qml can classify an account in both allowlists as a parent"
+  fi
+  if command -v node >/dev/null 2>&1 && node -e '
+    const kids = {}
+    const hasKid = name => Object.prototype.hasOwnProperty.call(kids, String(name))
+    if (hasKid("constructor")) process.exit(1)
+  '; then
+    pass "portal allowlist adversarial case: inherited constructor is not a kid"
+  else
+    fail "portal allowlist adversarial case: inherited constructor was admitted"
+  fi
+  if grep -qF 'console.error("portal: " + root.users.length + " tiles (kids="' "$MAIN_QML"; then
+    pass "Main.qml logs the finalized portal tile count to stderr"
+  else
+    fail "Main.qml does not log the finalized portal tile count"
+  fi
+  if grep -qF 'function loginUser(user, password)' "$MAIN_QML" &&
+    grep -qF 'if (sessionIndex < 0) return' "$MAIN_QML" &&
+    [[ "$(grep -cF 'return -1' "$MAIN_QML")" -ge 1 ]] &&
+    ! grep -qF 'return sessionModel.lastIndex' "$MAIN_QML"; then
+    pass "Main.qml refuses login when a pinned session is missing"
+  else
+    fail "Main.qml can fall back to sessionModel.lastIndex for a missing pinned session"
+  fi
+  if grep -qF 'OpacityMask' "$MAIN_QML" && grep -qF 'radius: width / 2' "$MAIN_QML"; then
+    pass "Main.qml masks fallback avatar images to a circle"
+  else
+    fail "Main.qml does not apply a circular avatar mask"
   fi
 else
   fail "$MAIN_QML not found"
@@ -217,6 +258,11 @@ if [[ -f "$PKGBUILD" ]]; then
   else
     fail "PKGBUILD depends= is missing qt6-svg"
   fi
+  if grep -qF 'qt6-5compat' <<<"$depends_line"; then
+    pass "PKGBUILD depends= includes qt6-5compat for OpacityMask"
+  else
+    fail "PKGBUILD depends= is missing qt6-5compat for OpacityMask"
+  fi
 else
   fail "$PKGBUILD not found"
 fi
@@ -273,6 +319,7 @@ if [[ -f "$PORTAL_CONF" ]]; then
   }
   check "$(grep -c '^\[General\]$' "$PORTAL_CONF")" "1" "theme.conf.user: [General] section"
   check "$(grep -c '^parent=mark$' "$PORTAL_CONF")" "1" "theme.conf.user: parent=mark"
+  check "$(grep -c '^parents=mark$' "$PORTAL_CONF")" "1" "theme.conf.user: parents allowlist includes the recorded parent"
   check "$(grep -c '^kids=kid-ada:Ada Lovelace:fox,kid-cy:Cy:owl$' "$PORTAL_CONF")" "1" \
     "theme.conf.user: kids= line has both kids in order"
   mode="$(kids_file_mode "$PORTAL_CONF")"
@@ -288,6 +335,30 @@ if [[ -f "$PORTAL_CONF" ]]; then
 else
   fail "posture_write_portal_conf did not write $PORTAL_CONF"
 fi
+
+# A removed profile may leave its Unix account and home on disk by design; the
+# producer must omit it so the consumer cannot render a stale tile.
+posture_write_portal_conf mark "$(printf 'kid-cy\tCy\towl')"
+check_not_contains "$(cat "$PORTAL_CONF")" "kid-ada" \
+  "theme.conf.user: removed-but-present kid-ada is absent from the profile allowlist"
+
+# Parent membership is explicit data too: the recorded parent plus members of
+# omarchy-parents and wheel are the only non-kid accounts the portal may show.
+GETENT_STUB="$TMP/getent"
+cat >"$GETENT_STUB" <<'EOF'
+#!/bin/bash
+if [[ "$1" == group && "$2" == omarchy-parents ]]; then
+  printf '%s\n' 'omarchy-parents:x:990:mark,parent-helper'
+elif [[ "$1" == group && "$2" == wheel ]]; then
+  printf '%s\n' 'wheel:x:10:parent-helper,wheel-helper'
+fi
+EOF
+chmod +x "$GETENT_STUB"
+PATH="$TMP:$BASE_PATH"
+posture_write_portal_conf mark "$(printf 'kid-cy\tCy\towl')"
+check "$(grep -c '^parents=mark,parent-helper,wheel-helper$' "$PORTAL_CONF")" "1" \
+  "theme.conf.user: parents allowlist includes valid members of both parent groups"
+PATH="$BASE_PATH"
 unset OMARCHY_KIDS_ROOT
 
 # --- lib/posture.sh: theme.conf.user's color/font keys (docs/theming.md,

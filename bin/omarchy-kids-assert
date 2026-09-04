@@ -50,9 +50,10 @@ the SDDM portal theme selection and its theme.conf.user parent/avatar data
 (R-LOGIN, issue #39), pam_namespace on sddm and systemd-user, masked
 getty@tty2..6, the /etc/omarchy-kids/hyprland/*.lua copies, per-band
 Chromium policy file permissions, the session manifest for every kid and,
-in disk mode, the boot hook and Limine locks (R-BOOT-5). Portal mode
-reports those boot locks as skipped and never inspects their files or tools.
-See docs/assert.md for the full lock list and exit codes.
+in disk mode, the boot hook and Limine locks (R-BOOT-5). With provisioned
+kids, portal mode reports those boot locks as skipped and never inspects
+their files or tools. With no kids, only units runs; no boot-lock status is
+printed. See docs/assert.md for the full lock list and exit codes.
 
 Applies fixes for real by default -- this is the command the pacman hook
 and the boot unit call with no other flags, so it must self-heal without
@@ -64,7 +65,7 @@ needing --apply.
   -h, --help  Show this help and exit.
 
 Exit codes: 0 everything selected is (or now is) fine; 1 the trusted boot
-mode is invalid or at least one selected lock could not be fixed.
+mode is invalid, changes during the run, or a selected lock cannot be fixed.
 EOF
 }
 

@@ -15,8 +15,15 @@ this command calls (`lib/posture.sh`) is documented in full; this file only cove
 
 Before any check or repair, assert reads `boot=disk|portal` through the trusted reader in
 `lib/boot-mode.sh`. Missing, unsafe, duplicate, or invalid state exits `1` before mutation. Disk
-mode keeps the UKI and Limine repairs below. Portal mode repairs every non-boot lock, prints
-`skip boot-locks:portal` in normal output, and never inspects a UKI or Limine file or command.
+mode keeps the UKI and Limine repairs below. With at least one kid, portal mode repairs every
+non-boot lock, prints `skip boot-locks:portal` in normal output, and never inspects a UKI or Limine
+file or command. With zero kids, assert checks `units`, prints the no-kids notice in normal output,
+and exits without a boot-lock status.
+
+Disk-mode boot checks re-read the trusted setting before they inspect boot evidence and again
+before a possible repair. If the setting changed or became invalid, assert exits `1` without
+starting that repair. The mode-transition command will add the shared serialization lock in
+ticket #98; these re-reads prevent a stale pre-transition value from authorizing later work.
 
 ## When it runs
 
@@ -85,8 +92,9 @@ One line per lock, `<status> <lock-id>`, status one of `ok` / `fixed` / `FAIL` /
 ## Exit codes
 
 - **0** — every lock is (or now is) fine, or nothing is provisioned.
-- **1** — the trusted boot mode is invalid, or at least one selected lock could not be fixed.
-  Invalid mode stops before mutation. One bad lock in a valid mode does not stop later checks.
+- **1** — the trusted boot mode is invalid, changes during the run, or at least one selected lock
+  could not be fixed. Invalid or changed mode stops boot repair. One bad lock in a stable valid
+  mode does not stop later checks.
 
 `--quiet` prints only `fixed`/`FAIL` lines (no `ok` or `skip` lines, and no notice when nothing is
 provisioned — the pacman hook and the boot unit both use this). Without `--quiet`, an all-clear

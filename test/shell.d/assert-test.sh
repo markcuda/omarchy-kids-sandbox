@@ -465,8 +465,9 @@ echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" >"$LOG/lsinitcpio-output"
 
 # --- --help / bad args ------------------------------------------------
 
-"$BIN" --help >/dev/null 2>&1
+help="$("$BIN" --help)"
 check_eq "$?" 0 "--help exits 0"
+check_contains "$help" "With no kids, only units runs" "--help names portal output with zero kids"
 "$BIN" --nonsense >/dev/null 2>&1
 check_eq "$?" 2 "an unknown flag exits 2"
 
@@ -825,6 +826,16 @@ check_contains "$out3" "nothing else to assert" "no profiles, units broken: the 
 # idempotent: a second no-kids run with units already fixed is all ok again.
 out4="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"
 check_status "$out4" "units" "ok" "no profiles: units is idempotent after being fixed with zero kids"
+
+conf_set "$ETC/machine.conf" boot portal
+out5="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"
+check_contains "$out5" "nothing else to assert" "no profiles, portal: names why boot locks did not run"
+if grep -qF 'boot-locks:portal' <<<"$out5"; then
+  fail "no profiles, portal: reported a boot-lock status that never ran"
+else
+  pass "no profiles, portal: prints no boot-lock status"
+fi
+conf_set "$ETC/machine.conf" boot disk
 
 # --- Limine editor lock (V6) -------------------------------------------------
 mkdir -p "$SCRATCH_ROOT/boot" "$ETC/kids"

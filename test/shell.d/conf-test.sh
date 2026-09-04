@@ -1,6 +1,6 @@
 #!/bin/bash
 # Tests bin/omarchy-kids-conf, lib/conf.sh, and lib/conf.py (SPEC.md
-# R-BAND-1, R-BAND-2, R-BUILD-5, Appendix B, Appendix C).
+# R-BAND-1, R-BAND-2, R-BUILD-5, R-CONFIG-1/2/6, Appendix B, Appendix C).
 # Self-contained: runs entirely against scratch OMARCHY_KIDS_ETC and
 # OMARCHY_KIDS_SHARE trees, so it never touches the real /etc or
 # /usr/share. share/ is copied from the repo rather than faked, so this
@@ -24,8 +24,9 @@ trap cleanup EXIT
 
 ETC="$TMP/etc"
 SHARE="$TMP/share"
-mkdir -p "$SHARE/bands" "$SHARE/packs"
+mkdir -p "$SHARE/bands" "$SHARE/config" "$SHARE/packs"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
+cp "$DIR/share/config/schema.toml" "$SHARE/config/"
 cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
 
 # issue #53: a scratch system themes dir ($OMARCHY_PATH/themes) for
@@ -68,6 +69,52 @@ check_status() { # got_status want_status label
     fail=1
   fi
 }
+
+# --- schema parity --------------------------------------------------------
+
+expected_keys=(
+  name avatar band level web dns budget_min budget_min_weekend
+  lights_out lights_out_weekend wifi history_visible menu theme allowlist sites
+  password onboarded apps.extra apps.hidden apps.show_missing
+)
+schema_keys="$(python3 - "$SHARE/config/schema.toml" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as schema_file:
+    schema = tomllib.load(schema_file)
+for entry in schema.get("key", []):
+    print(entry["key"])
+PY
+)"
+expected_key_text="$(printf '%s\n' "${expected_keys[@]}")"
+check "$schema_keys" "$expected_key_text" "schema: declares every profile and extension key once in CLI order"
+
+schema_metadata="$(python3 - "$SHARE/config/schema.toml" <<'PY'
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as schema_file:
+    schema = tomllib.load(schema_file)
+for entry in schema["key"]:
+    required = "yes" if entry["required"] else "no"
+    print("\t".join((
+        entry["key"], entry["type"], required, entry["default_source"],
+        entry["group"], entry["label"], entry["editor"], entry["validator"],
+    )))
+PY
+)"
+check_contains "$schema_metadata" $'name\tstring\tyes\tnone\tIdentity\tName\ttext\tnonempty-single-line' \
+  "schema: name declares its type, required state, source, label, group, editor, and validator"
+check_contains "$schema_metadata" $'level\tenum\tno\tband\tDesktop\tDesktop level\tenum\tlevel' \
+  "schema: level declares band precedence and its editor metadata"
+check_contains "$schema_metadata" $'allowlist\tcsv\tno\tpack\tApps\tStarter apps\tlauncher-list\tlauncher-ids' \
+  "schema: allowlist declares pack precedence and its editor metadata"
+
+for key in "${expected_keys[@]}"; do
+  count="$(printf '%s\n' "$schema_keys" | grep -cxF "$key")"
+  check "$count" "1" "schema: $key occurs exactly once"
+done
 
 # --- bands / band ---------------------------------------------------------
 

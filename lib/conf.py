@@ -10,6 +10,7 @@ written, and that's lib/conf.sh's job.
 
 Usage:
     conf.py slug NAME
+    conf.py schema-dump SCHEMA_TOML
     conf.py band-list BANDS_TOML
     conf.py band-dump BANDS_TOML BAND
     conf.py band-get BANDS_TOML BAND KEY
@@ -42,6 +43,25 @@ else:  # pragma: no cover - Arch ships 3.11+; this is a courtesy for dev boxes
         sys.exit(2)
 
 BANDS_ORDER = ("3-5", "6-8", "9-12", "13+")
+SCHEMA_SOURCES = {"none", "band", "pack", "global"}
+SCHEMA_TYPES = {"string", "enum", "integer", "csv"}
+SCHEMA_VALIDATORS = {
+    "nonempty-single-line",
+    "avatar-id",
+    "band",
+    "level",
+    "web",
+    "dns",
+    "minutes",
+    "time",
+    "wifi",
+    "yes-no",
+    "menu",
+    "theme-id",
+    "launcher-ids",
+    "hostnames",
+    "password-mode",
+}
 
 
 def die(msg):
@@ -64,6 +84,108 @@ def toml_scalar(value):
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
+
+
+def load_schema(path):
+    data = load_toml(path)
+    if data.get("schema_version") != 1:
+        die(f"schema {path} must declare schema_version = 1")
+    entries = data.get("key")
+    if not isinstance(entries, list) or not entries:
+        die(f"schema {path} has no [[key]] entries")
+
+    allowed = {
+        "key",
+        "type",
+        "required",
+        "default_source",
+        "enum",
+        "min",
+        "max",
+        "pattern",
+        "validator",
+        "group",
+        "label",
+        "editor",
+        "reset",
+    }
+    seen = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            die(f"schema {path} has a non-table [[key]] entry")
+        unknown = set(entry) - allowed
+        if unknown:
+            die(f"schema {path} has unknown fields: {', '.join(sorted(unknown))}")
+        required_fields = {
+            "key",
+            "type",
+            "required",
+            "default_source",
+            "validator",
+            "group",
+            "label",
+            "editor",
+            "reset",
+        }
+        missing = required_fields - set(entry)
+        if missing:
+            die(f"schema {path} entry is missing: {', '.join(sorted(missing))}")
+        key = entry["key"]
+        if not isinstance(key, str) or not key or "\t" in key or "\n" in key:
+            die(f"schema {path} has an invalid key")
+        if key in seen:
+            die(f"schema {path} repeats key '{key}'")
+        seen.add(key)
+        if entry["type"] not in SCHEMA_TYPES:
+            die(f"schema {path} key '{key}' has an unknown type")
+        if not isinstance(entry["required"], bool):
+            die(f"schema {path} key '{key}' has a non-boolean required flag")
+        if entry["default_source"] not in SCHEMA_SOURCES:
+            die(f"schema {path} key '{key}' has an unknown default source")
+        if entry["validator"] not in SCHEMA_VALIDATORS:
+            die(f"schema {path} key '{key}' has an unknown validator")
+        for field in ("group", "label", "editor", "reset"):
+            if not isinstance(entry[field], str) or not entry[field]:
+                die(f"schema {path} key '{key}' has an invalid {field}")
+        if "enum" in entry:
+            if not isinstance(entry["enum"], list) or not entry["enum"] or not all(
+                isinstance(value, str) and value for value in entry["enum"]
+            ):
+                die(f"schema {path} key '{key}' has an invalid enum")
+        if entry["type"] == "enum" and "enum" not in entry:
+            die(f"schema {path} key '{key}' has no enum")
+        if entry["type"] == "integer":
+            if not isinstance(entry.get("min"), int) or not isinstance(entry.get("max"), int):
+                die(f"schema {path} key '{key}' has no integer bounds")
+            if entry["min"] > entry["max"]:
+                die(f"schema {path} key '{key}' has reversed integer bounds")
+        if entry["required"] and entry["default_source"] != "none":
+            die(f"schema {path} required key '{key}' has a default source")
+    return entries
+
+
+def cmd_schema_dump(argv):
+    if len(argv) != 1:
+        die("schema-dump: needs SCHEMA_TOML")
+    for entry in load_schema(argv[0]):
+        enum = ",".join(entry.get("enum", []))
+        minimum = str(entry["min"]) if "min" in entry else ""
+        maximum = str(entry["max"]) if "max" in entry else ""
+        fields = (
+            entry["key"],
+            entry["type"],
+            "yes" if entry["required"] else "no",
+            entry["default_source"],
+            entry["group"],
+            entry["label"],
+            entry["editor"],
+            entry["validator"],
+            enum,
+            minimum,
+            maximum,
+            entry["reset"],
+        )
+        print("|".join(fields))
 
 
 def cmd_slug(argv):
@@ -216,6 +338,7 @@ def cmd_desktop_argv(argv):
 
 COMMANDS = {
     "slug": cmd_slug,
+    "schema-dump": cmd_schema_dump,
     "band-list": cmd_band_list,
     "band-dump": cmd_band_dump,
     "band-get": cmd_band_get,

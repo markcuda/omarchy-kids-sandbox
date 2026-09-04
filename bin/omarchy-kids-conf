@@ -13,6 +13,8 @@ LIB="$DIR/lib"
 source "$LIB/conf.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
+# shellcheck source=lib/boot-mode.sh
+source "$LIB/boot-mode.sh"
 # theme_apply_for/theme_reload_if_live (issue #53, docs/theming.md).
 # shellcheck source=lib/theme.sh
 source "$LIB/theme.sh"
@@ -75,6 +77,8 @@ Usage: $(basename "$0") <command> [args]
   bands                      list bands with their label and blurb
   band <band>                print one band's defaults
   slug <display name>        the kid- account-name slug for a display name
+  machine get boot           print the trusted boot mode
+  machine set boot <mode>    write the trusted boot mode (disk or portal)
   machine set parent <name>  write machine.conf's parent= (issue #46: the
                               wizard's Apply step, so omarchy-kids-authd and
                               omarchy-kids-provision both have a parent to
@@ -316,31 +320,44 @@ cmd_slug() {
   "$KIDS_PY" "$PYHELPER" slug "$@"
 }
 
-# cmd_machine set parent <name> — machine.conf's parent= (issue #46), the
-# only machine-level write this command offers, on purpose. docs/conf.md.
+# cmd_machine — machine.conf's trusted boot setting and parent key. The boot
+# setting is deliberately separate from later artifact transitions.
 # Also makes sure the parent's own LUKS slot is recorded (docs/boot.md
 # step 5): without a "0=<parent>" line in luks-slots, a boot unlocked with
 # the parent's own disk password lands on the portal instead of their
 # desktop -- true on a fresh install and every time after "Remove Kids
 # Mode", since nothing else in this repo ever writes that line.
 cmd_machine() {
-  local sub="${1:?omarchy-kids-conf machine set parent <name>}"
-  [[ "$sub" == set ]] || die "unknown machine subcommand: '$sub' (see --help)"
+  [[ $# -ge 1 ]] || die "usage: omarchy-kids-conf machine get|set ..."
+  local sub="$1"
   shift
-  local key="${1:?omarchy-kids-conf machine set parent <name>}"
-  shift || true
-  local value="$*"
-  case "$key" in
-    parent)
-      [[ -n "$value" && "$value" != *$'\n'* ]] || die "invalid value for 'parent': must be non-empty, single-line text"
+  case "$sub" in
+    get)
+      [[ $# -eq 1 && "$1" == boot ]] || die "usage: omarchy-kids-conf machine get boot"
+      boot_mode_get || exit 1
       ;;
-    *) die "unknown machine key: '$key' (only 'parent' is supported)" ;;
+    set)
+      [[ $# -ge 1 ]] || die "usage: omarchy-kids-conf machine set <key> <value>"
+      local key="$1"
+      shift
+      local value="$*"
+      case "$key" in
+        boot)
+          [[ $# -eq 1 ]] || die "usage: omarchy-kids-conf machine set boot <disk|portal>"
+          boot_mode_valid "$value" || die "invalid value for 'boot': must be disk or portal"
+          boot_mode_set "$value" || exit $?
+          ;;
+        parent)
+          [[ -n "$value" && "$value" != *$'\n'* ]] || die "invalid value for 'parent': must be non-empty, single-line text"
+          conf_set "$MACHINE_CONF" "$key" "$value"
+          luks_slots_record_parent "$SLOTS_FILE" "$KIDS_DIR" "$value" || die "could not record the parent's LUKS slot (see stderr above)"
+          ;;
+        *) die "unknown machine key: '$key' (only 'boot' and 'parent' are supported)" ;;
+      esac
+      echo "machine: $key=$value"
+      ;;
+    *) die "unknown machine subcommand: '$sub' (see --help)" ;;
   esac
-  conf_set "$MACHINE_CONF" "$key" "$value"
-  if [[ "$key" == parent ]]; then
-    luks_slots_record_parent "$SLOTS_FILE" "$KIDS_DIR" "$value" || die "could not record the parent's LUKS slot (see stderr above)"
-  fi
-  echo "machine: $key=$value"
 }
 
 main() {

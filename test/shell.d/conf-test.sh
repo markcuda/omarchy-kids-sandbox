@@ -9,6 +9,7 @@ set -uo pipefail
 
 # shellcheck source=test/shell.d/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CONF="$DIR/bin/omarchy-kids-conf"
 
@@ -501,5 +502,126 @@ fi
 rm -rf "$ETC/sessions"
 "$CONF" set kid-ada budget_min 60 >/dev/null
 check "$?" "0" "set: no sessions dir (not provisioned) is not an error"
+
+# --- trusted machine boot mode (R-BOOTMODE-1, R-BOOTMODE-12) -----------
+# The boot reader has a fixed machine-conf path. Use a copied command tree
+# and build-time substitutions, never an environment path override.
+BOOT_TREE="$TMP/boot-tree"
+BOOT_ETC="$TMP/boot-etc"
+BOOT_STUBS="$TMP/boot-stubs"
+mkdir -p "$BOOT_ETC" "$BOOT_STUBS"
+kids_tree "$BOOT_TREE" "$DIR"
+rm -f "$BOOT_TREE/lib"
+cp -a "$DIR/lib" "$BOOT_TREE/lib"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_ETC "$BOOT_ETC"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$BOOT_ETC/machine.conf"
+BOOT_CONF="$BOOT_TREE/bin/omarchy-kids-conf"
+kids_id_stub "$BOOT_STUBS" mark 0
+REAL_STAT="$(command -v stat)"
+cat >"$BOOT_STUBS/stat" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == --version ]]; then exit 1; fi
+if [[ "\${3:-}" == "$BOOT_ETC/machine.conf" ]]; then
+  case "\${2:-}" in
+    %u) [[ -e "$TMP/unsafe-owner" ]] && echo 501 || echo 0 ;;
+    %Sg) [[ -e "$TMP/unsafe-owner" ]] && echo staff || echo root ;;
+    %Lp) exec "$REAL_STAT" -f '%Lp' "\$3" ;;
+    %i) exec "$REAL_STAT" -f '%i' "\$3" ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+exec "$REAL_STAT" "\$@"
+EOF
+cat >"$BOOT_STUBS/chown" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+chmod +x "$BOOT_STUBS/stat" "$BOOT_STUBS/chown"
+BOOT_BASE="$(kids_base_path "$TMP/boot-base")"
+BOOT_PATH="$BOOT_STUBS:$BOOT_BASE"
+
+out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
+check_status "$?" 1 "machine get boot: missing mode exits 1"
+check "$out" "" "machine get boot: missing mode has no stdout"
+
+PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot portal >/dev/null
+check "$?" 0 "machine set boot portal: root write exits 0"
+check "$(cat "$BOOT_ETC/machine.conf")" "boot=portal" "machine set boot portal: writes the exact enum"
+check "$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot)" "portal" "machine get boot: prints exactly portal"
+check "$(kids_file_mode "$BOOT_ETC/machine.conf")" "644" "boot machine.conf is mode 0644"
+
+printf 'parent=mark\nboot=portal\n' >"$BOOT_ETC/machine.conf"
+chmod 0644 "$BOOT_ETC/machine.conf"
+PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot disk >/dev/null
+check "$?" 0 "machine set boot disk: preserves existing machine keys"
+check "$(cat "$BOOT_ETC/machine.conf")" $'parent=mark\nboot=disk' "machine set boot disk: replaces one boot key"
+
+BOOT_ARTIFACT="$TMP/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+mkdir -p "$(dirname "$BOOT_ARTIFACT")"
+printf 'untouched\n' >"$BOOT_ARTIFACT"
+artifact_before="$(cat "$BOOT_ARTIFACT")"
+PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot portal >/dev/null
+check "$(cat "$BOOT_ARTIFACT")" "$artifact_before" "machine set boot: changes no boot artifact"
+
+PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot nope >/dev/null 2>&1
+check_status "$?" 2 "machine set boot: values outside disk|portal exit 2"
+check "$(cat "$BOOT_ETC/machine.conf")" $'parent=mark\nboot=portal' "machine set boot: bad value does not mutate state"
+
+PATH="$BOOT_PATH" "$BOOT_CONF" machine get >/dev/null 2>&1
+check_status "$?" 2 "machine get: missing key exits 2"
+PATH="$BOOT_PATH" "$BOOT_CONF" machine set >/dev/null 2>&1
+check_status "$?" 2 "machine set: missing key exits 2"
+PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot >/dev/null 2>&1
+check_status "$?" 2 "machine set boot: missing value exits 2"
+
+printf 'parent=mark\nboot=disk\n' >"$BOOT_ETC/machine.conf"
+chmod 0664 "$BOOT_ETC/machine.conf"
+out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
+check_status "$?" 1 "machine get boot: group/world-writable state exits 1"
+check "$out" "" "machine get boot: unsafe mode has no stdout"
+chmod 0644 "$BOOT_ETC/machine.conf"
+touch "$TMP/unsafe-owner"
+out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
+check_status "$?" 1 "machine get boot: wrong owner exits 1"
+rm -f "$TMP/unsafe-owner"
+
+ln -sf "$BOOT_ETC/machine.conf" "$TMP/machine-link"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$TMP/machine-link"
+out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
+check_status "$?" 1 "machine get boot: symlink state exits 1"
+check "$out" "" "machine get boot: symlink state has no stdout"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$BOOT_ETC/machine.conf"
+
+printf 'parent=mark\nboot=disk\nboot=portal\n' >"$BOOT_ETC/machine.conf"
+out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
+check_status "$?" 1 "machine get boot: duplicate keys exit 1"
+printf 'parent=mark\nboot=unknown\n' >"$BOOT_ETC/machine.conf"
+out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
+check_status "$?" 1 "machine get boot: invalid value exits 1"
+
+printf 'parent=mark\nboot=portal\n' >"$BOOT_ETC/machine.conf"
+before="$(cat "$BOOT_ETC/machine.conf")"
+export KIDS_TEST_UID=501
+PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot disk >/dev/null 2>&1
+check_status "$?" 1 "machine set boot: non-root write exits 1"
+check "$(cat "$BOOT_ETC/machine.conf")" "$before" "machine set boot: non-root write does not mutate state"
+unset KIDS_TEST_UID
+
+cat >"$BOOT_STUBS/mv" <<'EOF'
+#!/bin/bash
+exit 1
+EOF
+chmod +x "$BOOT_STUBS/mv"
+before="$(cat "$BOOT_ETC/machine.conf")"
+PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot disk >/dev/null 2>&1
+check_status "$?" 1 "machine set boot: failed atomic replace exits 1"
+check "$(cat "$BOOT_ETC/machine.conf")" "$before" "machine set boot: failed replace preserves old state"
+rm -f "$BOOT_STUBS/mv"
+
+printf 'parent=mark\n' >"$BOOT_ETC/machine.conf"
+PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot disk >/dev/null
+check "$?" 0 "machine set boot: explicit repair adds a missing boot key"
+check "$(cat "$BOOT_ETC/machine.conf")" $'parent=mark\nboot=disk' "machine set boot: repaired state has one boot key"
 
 exit $fail

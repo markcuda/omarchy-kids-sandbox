@@ -44,20 +44,6 @@ PanelWindow {
         return name + (name.charAt(name.length - 1).toLowerCase() === "s" ? "'" : "'s")
     }
 
-    // --- Pause availability (I-6: never offer a control that isn't
-    //     enforced -- docs/phase1/V1.md, DECISIONS-NEEDED.md: Pause has
-    //     no working mechanism yet on stock Omarchy 4.0.2). Hardcoded
-    //     false, not read from the environment (review §6): a kid's own
-    //     session env is theirs to set, so an env-var gate here would be
-    //     a control a kid could enable themselves.
-    property bool pauseAvailable: false
-
-    // 0 = Pause, 1 = Finish. Finish is preselected while Pause is
-    // unavailable: preselecting a control that refuses is exactly the
-    // "honest UI" rule read backwards (I-6, review §6/§3.13). R-EXIT-1's
-    // "Pause is the default" applies once Pause has a mechanism.
-    property int selectedAction: root.pauseAvailable ? 0 : 1
-
     // --- Password / verification state -----------------------------------
     property bool locked: false
     property int wrongCount: 0
@@ -104,21 +90,13 @@ PanelWindow {
         }
     }
 
-    // The action itself, run only after authProcess confirms a parent
-    // typed their password. Never runs with the actual command chosen
-    // by anything other than root.selectedAction at the moment Enter
-    // was pressed (captured into pendingAction before verification
-    // starts, so a race with the highlight changing mid-check can't
-    // run the wrong one).
-    property string pendingAction: ""
+    // Finish runs only after authProcess confirms a parent typed their password.
     function onVerified() {
         root.wrongCount = 0
         // Detached, not a child Process: Qt.quit() right after starting a child
         // killed it before it ran (seen live 2026-09-02: the modal closed, the
         // session stayed). --finish ends this compositor anyway.
-        Quickshell.execDetached(root.pendingAction === "finish"
-            ? ["/usr/bin/omarchy-kids-exit", "--finish"]
-            : ["/usr/bin/omarchy-kids-exit", "--pause"])
+        Quickshell.execDetached(["/usr/bin/omarchy-kids-exit", "--finish"])
         Qt.quit()
     }
 
@@ -135,18 +113,8 @@ PanelWindow {
         }
     }
 
-    function toggleSelection() {
-        root.selectedAction = root.selectedAction === 0 ? 1 : 0
-        root.hint = ""
-    }
-
     function submit() {
         if (root.locked || root.verifying) return
-        if (root.selectedAction === 0 && !root.pauseAvailable) {
-            root.hint = "Pause isn't available yet -- press Tab, then Enter, for Finish."
-            return
-        }
-        root.pendingAction = root.selectedAction === 0 ? "pause" : "finish"
         root.verifying = true
         authProcess.candidate = passwordInput.text
         authProcess.running = true
@@ -185,8 +153,6 @@ PanelWindow {
                 focus: true
 
                 Keys.onEscapePressed: (event) => { root.closeModal(); event.accepted = true }
-                Keys.onTabPressed: (event) => { root.toggleSelection(); event.accepted = true }
-                Keys.onBacktabPressed: (event) => { root.toggleSelection(); event.accepted = true }
                 Keys.onReturnPressed: (event) => { root.submit(); event.accepted = true }
                 Keys.onEnterPressed: (event) => { root.submit(); event.accepted = true }
 
@@ -245,93 +211,44 @@ PanelWindow {
                         horizontalAlignment: Text.AlignHCenter
                     }
 
-                    // --- Pause / Finish (R-EXIT-1) --------------------------
-                    Row {
+                    // --- Finish (R-EXIT-1) ----------------------------------
+                    Rectangle {
+                        id: finishButton
                         anchors.horizontalCenter: parent.horizontalCenter
-                        spacing: 16
+                        width: (cardColumn.width - 16) / 2
+                        height: 84
+                        radius: 12
+                        color: theme.tileFill
+                        border.width: 3
+                        border.color: theme.accent
 
-                        Rectangle {
-                            id: pauseButton
-                            width: (cardColumn.width - 16) / 2
-                            height: 84
-                            radius: 12
-                            color: root.selectedAction === 0 ? theme.tileFill : theme.cardFill
-                            opacity: root.pauseAvailable ? 1.0 : 0.55
-                            border.width: root.selectedAction === 0 ? 3 : 0
-                            border.color: theme.accent
-
-                            Column {
-                                anchors.centerIn: parent
-                                width: parent.width - 16
-                                spacing: 4
-                                Text {
-                                    width: parent.width
-                                    text: "Pause " + root.displayName
-                                    color: theme.foreground
-                                    font.pixelSize: 16
-                                    font.bold: true
-                                    horizontalAlignment: Text.AlignHCenter
-                                    wrapMode: Text.WordWrap
-                                }
-                                Text {
-                                    width: parent.width
-                                    text: root.pauseAvailable
-                                        ? (root.possessive(root.displayName) + " apps stay open. You switch to your desktop.")
-                                        : "Coming soon"
-                                    color: theme.caption
-                                    font.pixelSize: 11
-                                    horizontalAlignment: Text.AlignHCenter
-                                    wrapMode: Text.WordWrap
-                                }
+                        Column {
+                            anchors.centerIn: parent
+                            width: parent.width - 16
+                            spacing: 4
+                            Text {
+                                width: parent.width
+                                text: "Finish for " + root.displayName
+                                color: theme.foreground
+                                font.pixelSize: 16
+                                font.bold: true
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
                             }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: {
-                                    root.selectedAction = 0
-                                    root.submit()
-                                }
+                            Text {
+                                width: parent.width
+                                text: "Closes " + root.possessive(root.displayName) + " apps. You switch to your desktop."
+                                color: theme.caption
+                                font.pixelSize: 11
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
                             }
                         }
 
-                        Rectangle {
-                            id: finishButton
-                            width: (cardColumn.width - 16) / 2
-                            height: 84
-                            radius: 12
-                            color: root.selectedAction === 1 ? theme.tileFill : theme.cardFill
-                            border.width: root.selectedAction === 1 ? 3 : 0
-                            border.color: theme.accent
-
-                            Column {
-                                anchors.centerIn: parent
-                                width: parent.width - 16
-                                spacing: 4
-                                Text {
-                                    width: parent.width
-                                    text: "Finish for " + root.displayName
-                                    color: theme.foreground
-                                    font.pixelSize: 16
-                                    font.bold: true
-                                    horizontalAlignment: Text.AlignHCenter
-                                    wrapMode: Text.WordWrap
-                                }
-                                Text {
-                                    width: parent.width
-                                    text: "Closes " + root.possessive(root.displayName) + " apps. You switch to your desktop."
-                                    color: theme.caption
-                                    font.pixelSize: 11
-                                    horizontalAlignment: Text.AlignHCenter
-                                    wrapMode: Text.WordWrap
-                                }
-                            }
-
-                            MouseArea {
-                                anchors.fill: parent
-                                onClicked: {
-                                    root.selectedAction = 1
-                                    root.submit()
-                                }
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: {
+                                root.submit()
                             }
                         }
                     }

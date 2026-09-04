@@ -108,7 +108,7 @@ pre_upgrade() {
 }
 
 _omarchy_kids_enable_authd_socket() {
-# The wizard's first screen needs the verifier before machine.conf exists.
+  # The wizard's first screen needs the verifier before machine.conf exists.
   if [ -d /run/systemd/system ]; then
     systemctl enable --now omarchy-kids-authd.socket >/dev/null 2>&1 || return 1
   fi

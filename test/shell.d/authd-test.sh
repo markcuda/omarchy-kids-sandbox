@@ -297,6 +297,30 @@ check "$(grep -c 'systemctl enable --now omarchy-kids-authd.socket' "$DIR/omarch
 check "$(grep -c 'OMARCHY_KIDS_PARENT' "$AUTHD")" "0" \
   "authd does not let an environment variable select the parent account"
 
+# The authd socket is the first parent-auth dependency. A failed startup must
+# fail the scriptlet rather than being hidden by a best-effort `|| true`.
+INSTALL_RUN="$TMP/fake-run/systemd/system"
+INSTALL_STUBS="$TMP/install-stubs"
+INSTALL_COPY="$TMP/omarchy-kids.install"
+mkdir -p "$INSTALL_RUN" "$INSTALL_STUBS"
+sed "s|/run/systemd/system|$INSTALL_RUN|g" "$DIR/omarchy-kids.install" >"$INSTALL_COPY"
+cat >"$INSTALL_STUBS/groupadd" <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+cat >"$INSTALL_STUBS/systemctl" <<'EOF'
+#!/bin/bash
+if [[ "$*" == *"enable --now omarchy-kids-authd.socket"* ]]; then
+  exit 1
+fi
+exit 0
+EOF
+chmod +x "$INSTALL_STUBS"/*
+if (PATH="$INSTALL_STUBS:$PATH"; . "$INSTALL_COPY"; post_install >/dev/null 2>&1); then
+  bad "a failed authd socket startup is returned by post_install"
+else
+  ok "a failed authd socket startup is returned by post_install"
+fi
 # =====================================================================
 # GRANT over the wire: what must be refused, refused everywhere
 # =====================================================================

@@ -21,19 +21,21 @@ fi
 
 # Its own check, not lib/kids.sh's: a PAM helper wants the smallest
 # possible surface, so it sources only sock.sh.
-is_root() { [[ "${EUID:-$(id -u)}" == "0" ]]; }
+is_root() { [[ "$(id -u)" == "0" ]]; }
 
 # socket_allowed PATH -- root may point anywhere; else only under the
 # (normally-empty) test root. docs/authd.md.
 socket_allowed() {
   is_root && return 0
-  [[ -n "$TEST_SOCKET_ROOT" && "$1" == "$TEST_SOCKET_ROOT"/* ]]
+  [[ "$1" == "$DEFAULT_SOCK" || -n "$TEST_SOCKET_ROOT" && "$1" == "$TEST_SOCKET_ROOT"/* ]]
 }
 
 SOCK="$DEFAULT_SOCK"
+BOOTSTRAP=0
 
 while (($#)); do
   case "$1" in
+    --bootstrap) BOOTSTRAP=1 ;;
     --socket)
       shift
       [[ $# -gt 0 ]] || {
@@ -48,10 +50,11 @@ while (($#)); do
       ;;
     -h | --help)
       cat <<EOF
-Usage: omarchy-kids-parent-auth [--socket PATH]
+Usage: omarchy-kids-parent-auth [--bootstrap] [--socket PATH]
 
 Reads one candidate password from stdin and asks omarchy-kids-authd
-whether it is the parent's. Exit 0 means yes.
+whether it is the parent's. Exit 0 means yes. --bootstrap asks authd to
+verify the caller's own eligible parent account for the wizard's first run.
 
 --socket is honoured for root only, and no environment variable is read
 at all: this command runs inside a session whose environment and PATH
@@ -71,8 +74,14 @@ done
 # otherwise (seen live). docs/authd.md.
 IFS= read -r candidate || true
 
-reply="$(kids_sock_request "$SOCK" "$candidate"$'\n')" || exit 1
+if ((BOOTSTRAP)); then
+  payload=$'BOOTSTRAP\n'"$candidate"$'\n'
+else
+  payload="$candidate"$'\n'
+fi
+reply="$(kids_sock_request "$SOCK" "$payload")" || exit 2
 candidate=""
 
+[[ -n "$reply" ]] || exit 2
 [[ "$reply" == ok* ]] && exit 0
 exit 1

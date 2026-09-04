@@ -4,7 +4,7 @@
 # its own environment -- runs inside the kid's session (review S4). docs/authd.md.
 set -euo pipefail
 
-DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+DIR="$(cd "$(/usr/bin/dirname "$(/usr/bin/readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 LIB="$DIR/lib"
 [[ -f "$LIB/sock.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/sock.sh
@@ -21,7 +21,7 @@ fi
 
 # Its own check, not lib/kids.sh's: a PAM helper wants the smallest
 # possible surface, so it sources only sock.sh.
-is_root() { [[ "$(id -u)" == "0" ]]; }
+is_root() { [[ "$(/usr/bin/id -u)" == "0" ]]; }
 
 # socket_allowed PATH -- root may point anywhere; else only under the
 # (normally-empty) test root. docs/authd.md.
@@ -49,7 +49,7 @@ while (($#)); do
       SOCK="$1"
       ;;
     -h | --help)
-      cat <<EOF
+      /bin/cat <<EOF
 Usage: omarchy-kids-parent-auth [--bootstrap] [--socket PATH]
 
 Reads one candidate password from stdin and asks omarchy-kids-authd

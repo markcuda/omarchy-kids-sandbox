@@ -258,6 +258,26 @@ else
   ok "S4: --socket is refused for a non-root caller"
 fi
 
+# A kid-controlled PATH must not be able to make the helper believe it is
+# root. The hostile socket answers "ok", so a bare `id -u` would turn this
+# into a false success.
+mkdir -p "$HOSTILE/bin"
+printf '%s\n' '#!/bin/bash' 'echo 0' >"$HOSTILE/bin/id"
+chmod +x "$HOSTILE/bin/id"
+if [[ "$(/usr/bin/id -u)" == 0 ]]; then
+  ok "S4: hostile-PATH root-check regression is not applicable to root"
+else
+  set +e
+  probe_output="$(PATH="$HOSTILE/bin:$PATH" /bin/bash -c "echo anything | '$CLIENT' --socket '$HOSTILE/yes.sock'" 2>&1)"
+  probe_status=$?
+  set -u
+  if [[ "$probe_status" == 1 && "$probe_output" == *"root-only"* ]]; then
+    ok "S4: parent-auth root check ignores a hostile PATH"
+  else
+    bad "S4: a hostile PATH changed the root-only socket result (status $probe_status, output '$probe_output')"
+  fi
+fi
+
 # The build-time test root is the only exception, and it is empty in the
 # file as committed (test/shell.d/pkgbuild-test.sh asserts that too).
 check "$(grep -c '^TEST_SOCKET_ROOT=""$' "$CLIENT")" "1" \

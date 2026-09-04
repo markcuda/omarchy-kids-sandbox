@@ -34,4 +34,13 @@ else
   fail "root launcher map has only ${tiles:-0} tiles for $LIVE_KID1_ACCOUNT"
 fi
 
+# A live session is not a working desktop: the launcher must actually be running (2026-09-03,
+# a session that failed closed on a missing manifest still counted as "live").
+if vmroot "pgrep -u '$LIVE_KID1_ACCOUNT' -f 'omarchy-kids/launcher/shell.qml' >/dev/null" 2>/dev/null; then
+  ok "the Level 1 launcher is running for $LIVE_KID1_ACCOUNT"
+else
+  fail "no launcher process for $LIVE_KID1_ACCOUNT (session-start failed closed?)"
+  vmroot "uid=\$(id -u '$LIVE_KID1_ACCOUNT'); tail -3 /run/user/\$uid/omarchy-kids/session-\$uid.log" 2>/dev/null | cut -c1-160
+fi
+
 scenario_result 10-cold-boot-kid

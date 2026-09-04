@@ -708,7 +708,7 @@ expiry_out="$(
     CORRECT_PW="hunter2" \
     OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent @ctrlc yes)" \
     DRY_RUN=0 "$(wizard_for "$RM3_STUBS")" 2>&1
-  )"
+)"
 expiry_status=$?
 check_status "$expiry_status" 130 "expired Apply authorization leaves after returning to Step 2"
 expiry_prompts="$(grep -c "First, your password." <<<"$expiry_out")"

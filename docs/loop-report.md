@@ -342,3 +342,23 @@ laptop, and two runbooks are ready in the scratchpad: one installs in portal mod
 laptop to stock. The install waits on #93 (assert and the pacman hook), #94 (boot-login) and
 #95 (provision and removal) so that portal mode is honoured by every root path, not just the
 setting.
+
+### 14:20, back up after the Mac died
+
+The laptop driving the loop lost power around noon and took `/tmp` with it: every Codex draft
+clone (unpushed, so #93, #94 and #95 are gone), the live harness's `test/live/config.env`, the
+gate and chain runners, the screenshot drivers, and the two Air runbooks. The Air, the VM and
+everything pushed to `origin` were untouched — the VM was still sitting at its greeter with no
+orphan runs, and the Air still holds the pre-install rollback state at
+`/root/omarchy-kids-preflight`.
+
+Rebuilt: the `air`/`vm` ssh stanza from `docs/vm.md`, `config.env` from its own example file, and
+the gate runner. Everything the loop cannot cheaply rebuild now lives in `~/.omarchy-kids-loop/`
+on the Mac instead of the scratchpad, with a README saying why. New standing rule: a draft branch
+is pushed to `origin` as soon as it has one working commit, because an unpushed branch is one
+power cut away from gone.
+
+Main is green again on the Mac suite (35 files, no failures), the VM suite is running against it,
+and gpt-5.6-sol is redrafting #93 (assert and the pacman hook honour the boot mode) and #95
+(provisioning and removal honour it). `build_install`'s rationale, which the last commit before
+the crash had separated from its function, sits with `build_install` again.

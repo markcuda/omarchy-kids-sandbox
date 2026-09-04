@@ -195,9 +195,12 @@ portal_parse_tile_report() {
 
 # portal_live_tile_counts — reads the finalized QML count from the current
 # boot's greeter journal. It does not reconstruct the rendered tile list.
+# The greeter's own stdout carries the syslog identifier `sddm-greeter-qt6`, not the `sddm` unit
+# the daemon logs under, so this reads by identifier: `-u sddm` never matched the line and the
+# check silently passed nothing to parse (found live 2026-09-04, issue #104).
 portal_live_tile_counts() {
   local line parsed
-  line="$(vmroot "journalctl -b --no-pager -o cat -u sddm -u sddm-greeter 2>/dev/null | grep -E 'portal: [0-9]+ tiles \\(kids=[0-9]+ parents=[0-9]+\\)' | tail -1")" || return 1
+  line="$(vmroot "journalctl -b --no-pager -o cat -t sddm-greeter-qt6 2>/dev/null | grep -E 'portal: [0-9]+ tiles \\(kids=[0-9]+ parents=[0-9]+\\)' | tail -1")" || return 1
   [[ -n "$line" ]] || return 1
   parsed="$(portal_parse_tile_report "$line")" || return 1
   printf '%s\n' "$parsed"

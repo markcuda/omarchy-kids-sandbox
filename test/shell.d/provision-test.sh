@@ -330,7 +330,7 @@ fi
 
 PORTAL_CONF="$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
 check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "parent=mark" "theme.conf.user: parent is the machine owner"
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kids=$SLUG:Ada Lovelace:fox" "theme.conf.user: $SLUG's name and avatar"
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kids=\"$SLUG:Ada Lovelace:fox\"" "theme.conf.user: $SLUG's name and avatar"
 
 check_contains "$argv" "mount --bind $OMARCHY_KIDS_HOME_ROOT/home/$SLUG $OMARCHY_KIDS_HOME_ROOT/home/$SLUG" "add: bind mount created before the noexec remount"
 check_contains "$argv" "runuser -l $SLUG -c omarchy-provision-user --first-install" "add: omarchy-provision-user --first-install runs as the kid via runuser"
@@ -386,10 +386,9 @@ check_eq "$(grep -c "$SLUG-2\$" "$NSCONF")" "2" "namespace.conf gained exactly 2
 check_eq "$(grep -c "^0=mark:omarchy.desktop\$" "$ETC/luks-slots")" "1" \
   "luks-slots still has exactly one slot-0 line after a second add"
 
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG:Ada Lovelace:fox" \
-  "theme.conf.user: gained the second kid too ($SLUG's entry still present)"
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG-2:Ada Lovelace:bear" \
-  "theme.conf.user: $SLUG-2's name and avatar"
+check_eq "$(grep '^kids=' "$PORTAL_CONF" 2>/dev/null)" \
+  "kids=\"$SLUG:Ada Lovelace:fox,$SLUG-2:Ada Lovelace:bear\"" \
+  "theme.conf.user: the quoted list holds both kids in order"
 
 # --- add: --no-password only for band 3-5 --------------------------------
 
@@ -476,8 +475,8 @@ check_contains "$argv6" "userdel $SLUG" "remove: userdel called"
 
 check_not_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG:Ada Lovelace" \
   "theme.conf.user: $SLUG's entry is gone after remove"
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG-2:Ada Lovelace:bear" \
-  "theme.conf.user: $SLUG-2's entry survives $SLUG's removal"
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kids=\"$SLUG-2:Ada Lovelace:bear," \
+  "theme.conf.user: $SLUG-2's quoted entry survives $SLUG's removal"
 
 [[ -e "$FACE_ICON" ]] && fail "SDDM face icon for $SLUG should be removed" ||
   pass "SDDM face icon for $SLUG removed"

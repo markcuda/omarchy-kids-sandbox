@@ -319,8 +319,8 @@ if [[ -f "$PORTAL_CONF" ]]; then
   }
   check "$(grep -c '^\[General\]$' "$PORTAL_CONF")" "1" "theme.conf.user: [General] section"
   check "$(grep -c '^parent=mark$' "$PORTAL_CONF")" "1" "theme.conf.user: parent=mark"
-  check "$(grep -c '^parents=mark$' "$PORTAL_CONF")" "1" "theme.conf.user: parents allowlist includes the recorded parent"
-  check "$(grep -c '^kids=kid-ada:Ada Lovelace:fox,kid-cy:Cy:owl$' "$PORTAL_CONF")" "1" \
+  check "$(grep -c '^parents="mark"$' "$PORTAL_CONF")" "1" "theme.conf.user: parents allowlist includes the recorded parent"
+  check "$(grep -c '^kids="kid-ada:Ada Lovelace:fox,kid-cy:Cy:owl"$' "$PORTAL_CONF")" "1" \
     "theme.conf.user: kids= line has both kids in order"
   mode="$(kids_file_mode "$PORTAL_CONF")"
   check "$mode" "644" "theme.conf.user: mode 0644"
@@ -356,7 +356,7 @@ EOF
 chmod +x "$GETENT_STUB"
 PATH="$TMP:$BASE_PATH"
 posture_write_portal_conf mark "$(printf 'kid-cy\tCy\towl')"
-check "$(grep -c '^parents=mark,parent-helper,wheel-helper$' "$PORTAL_CONF")" "1" \
+check "$(grep -c '^parents="mark,parent-helper,wheel-helper"$' "$PORTAL_CONF")" "1" \
   "theme.conf.user: parents allowlist includes valid members of both parent groups"
 PATH="$BASE_PATH"
 unset OMARCHY_KIDS_ROOT
@@ -540,7 +540,7 @@ conf="$(posture_portal_conf_text mark \
   "$(printf 'kid-ada\tAda\tfox')" \
   "$(printf 'kid-bo\tBo:Evil,kid-cy\towl')" \
   "$(printf 'kid-cy\tCy\tbear')" 2>/dev/null)"
-check_contains "$conf" "kids=kid-ada:Ada:fox,kid-cy:Cy:bear" \
+check_contains "$conf" 'kids="kid-ada:Ada:fox,kid-cy:Cy:bear"' \
   "S10: a name containing ':' or ',' is dropped, and the other tiles keep their own avatars"
 check_not_contains "$conf" "Evil" "S10: the separator-carrying name never reaches theme.conf.user"
 

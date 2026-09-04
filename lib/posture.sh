@@ -435,11 +435,12 @@ posture_portal_conf_text() {
     sep=","
   done
   parents_field="$(posture_portal_parent_accounts "$parent")"
+  # QSettings drops unquoted comma-separated values from SDDM's property map.
   cat <<EOF
 [General]
 parent=$parent
-parents=$parents_field
-kids=$kids_field
+parents="$parents_field"
+kids="$kids_field"
 EOF
   posture_theme_conf_lines "$parent"
 }

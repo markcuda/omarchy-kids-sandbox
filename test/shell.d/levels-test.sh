@@ -89,6 +89,14 @@ L1_WANT=$(sorted \
 L1_GOT=$(sorted_combos "$HYPR/L1.lua")
 check "$L1_GOT" "$L1_WANT" "L1.lua binds exactly the Appendix E Level 1 set"
 
+# Band overlays run after the level config and may set presentation gaps.
+# Level 1 must restore its zero-gap kiosk geometry after that overlay so a
+# launcher that leaves fullscreen cannot expose a band-sized black frame.
+l1_band_end="$(grep -n '^end$' "$HYPR/L1.lua" | tail -1 | cut -d: -f1)"
+l1_after_band="$(tail -n +$((l1_band_end + 1)) "$HYPR/L1.lua")"
+check_contains "$l1_after_band" 'general = { gaps_in = 0, gaps_out = 0, border_size = 0 }' \
+  "L1.lua restores zero-gap kiosk geometry after the band overlay"
+
 # --- L2: the L1 set plus Appendix E's Level 2 additions ------------------
 
 L2_WANT=$(sorted \

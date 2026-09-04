@@ -15,7 +15,8 @@ things, run first).
 Before reading a password, printing a plan, or changing state, the command reads `boot=` through
 `lib/boot-mode.sh`'s fixed-path trusted reader. Missing or unsafe mode state exits 1 without a
 mutation. Portal mode rejects `--luks-device` and `--parent-password-stdin` and never enters a
-LUKS, Limine, or mkinitcpio path.
+cryptsetup, Limine, or mkinitcpio path. It still reads the slot map and refuses to remove any
+account with a recorded kid slot because portal mode cannot prove that key is gone.
 
 ## What it does, in order
 
@@ -24,14 +25,16 @@ LUKS, Limine, or mkinitcpio path.
    snapshot: #<n>`, issue #45) so a parent has it to hand if they ever need `snapper undochange` or
    the GUI. Skippable with `--no-snapshot`; silently does nothing if `snapper` isn't installed.
 2. **For every kid** (every `$OMARCHY_KIDS_ETC/kids/<account>.conf`), in this order:
-   1. In disk mode, kills the account's exact LUKS key slot (looked up by *number* in
-      `/etc/omarchy-kids/luks-slots`) and only then rewrites `luks-slots` without that entry.
+   1. In disk mode, writes and fsyncs `/etc/omarchy-kids/luks-slots.removing-<account>` with the
+      exact slot and account, then kills that slot, atomically rewrites `luks-slots` without the
+      entry, and removes the intent. The map and each per-kid transaction share a root-owned lock.
       `--luks-device` supplies the device when auto-detection is unavailable. Before killing, the
       command checks `cryptsetup luksDump`. A failed kill leaves the mapping and profile in place,
-      stops that kid's removal, and prevents machine cleanup. If the kill succeeded but the atomic
-      map replacement failed, a retry sees that the recorded slot is already empty, removes the
-      stale map entry, and finishes without trying to kill the slot again. Portal mode skips this
-      step without reading the slot map.
+      stops that kid's removal, and prevents machine cleanup. A different kid whose own slot
+      removal succeeds can still finish. If power stops the run after the kill, the next run reads
+      the intent, confirms the slot is empty, finishes the map rewrite, and clears the intent.
+      Portal mode reports `FAILED` and preserves the account, profile, and home whenever the map or
+      an intent still records that kid.
    2. Unmounts the home's noexec bind mount (`umount`), and best-effort stops whatever transient
       systemd mount unit fstab's own generator may have made for it (`systemd-escape --path
       --suffix=mount` then `systemctl stop`, both skipped quietly if `systemd-escape` isn't
@@ -44,10 +47,11 @@ LUKS, Limine, or mkinitcpio path.
       AccountsService `Icon=` line above; see that lock's own comment for why both exist).
    7. Removes the account: `userdel` (never `-r`) — or `userdel -r` under `--delete-homes`, which
       also takes the home with it in the same step (see "Homes" below).
-   8. Removes the profile (`$OMARCHY_KIDS_ETC/kids/<account>.conf`).
-   9. Keeps the home: moves it to `<parent home>/Kids Mode/<display name>/` (R-FND-6, the exact
+   8. Keeps the home: moves it to `<parent home>/Kids Mode/<display name>/` (R-FND-6, the exact
       convention `omarchy-kids-provision remove` already uses for a single kid — see "Homes"
       below), unless `--delete-homes` already took it away in step 7.
+   9. Removes the profile only after the account and home steps finish. A retry therefore still has
+      the account roster and display name after any earlier failure or power loss.
 3. **Machine level**, once per run regardless of how many kids there were:
    - Removes the polkit admin rule (`40-omarchy-kids.rules`) and the deny rule
      (`41-omarchy-kids-deny.rules`).
@@ -108,9 +112,10 @@ Every run prints **the plan first**: every step above, either `skipped` (nothing
   (including EOF) cancels with exit 1 and changes nothing.
 - **With `--yes`**, or after typing `yes`, a second pass runs for real, reporting `removed` /
   `skipped` / `FAILED` per step, printed under a `Removing:` header. Ordinary independent failures
-  are collected for the summary. Each disk-slot result has its own failure guard, so an earlier
-  failure cannot hide a later kid's failed slot removal. A disk-slot failure stops that account and
-  machine removal. Every failure before the final `/etc/omarchy-kids` deletion preserves
+  are collected for the summary. Each kid has its own result and removal intent. A failed slot or
+  account-level prerequisite preserves that kid's account, profile, and home without deciding what
+  happens to another kid. Any kid failure stops machine removal. Every failure before the final
+  `/etc/omarchy-kids` deletion preserves
   `machine.conf` for a retry; the pre-delete tarball covers a failure during that last deletion.
   Exit is 1 if anything failed, 0 otherwise.
 
@@ -224,8 +229,9 @@ reports `skipped`, with no separate `rm -rf` or move needed.
 `test/shell.d/remove-test.sh` builds a fully-provisioned scratch tree the same way
 `test/shell.d/assert-test.sh` does (seeding every lock directly through `lib/posture.sh`'s own
 writers, plus the same verbatim real `/etc/pam.d/sddm` and `/etc/pam.d/omarchy-lock-password`
-fixtures), with a stub `PATH` (fake `userdel`, `cryptsetup`, `systemctl`, `mkinitcpio`, `snapper`,
-`findmnt`, `umount`, `id`, and a `tar` *spy* that logs argv but still runs the real archiver, so the
+fixtures), with a private base `PATH` and explicit fakes for `userdel`, `cryptsetup`, `systemctl`,
+`mkinitcpio`, `limine`, `limine-snapper-sync`, `flock`, `snapper`, `findmnt`, `umount`, `id`, and a
+`tar` *spy* that logs argv but still runs the real archiver, so the
 test can confirm what actually landed in the pre-delete backup) — never touches the real `/etc`,
 `/var`, or `/home` (`AGENTS.md` rule 8).
 

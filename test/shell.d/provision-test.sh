@@ -185,6 +185,12 @@ case "$1" in
         ;;
     luksKillSlot)
         [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1
+        slot="${@: -1}"
+        [[ ! -e "__LOG__/require-luks-intent" ]] ||
+            grep -q "^$slot=" "$OMARCHY_KIDS_ETC"/luks-slots.removing-* || {
+                : > "__LOG__/luks-intent-missing-at-kill"
+                exit 1
+            }
         [[ -e "__LOG__/luks-added" ]] || exit 1
         rm -f "__LOG__/luks-added"
         ;;
@@ -192,6 +198,7 @@ case "$1" in
 esac
 '
 stub lsblk 'echo "fake0 crypto_LUKS"'
+stub flock
 stub omarchy-provision-user
 stub groupadd
 stub runuser
@@ -218,7 +225,8 @@ EOF
 chmod +x "$STUBS/stat"
 cat >"$STUBS/chmod" <<EOF
 #!/bin/bash
-if [[ -e "$LOG/luks-map-write-fail" && "\${@: -1}" == */.luks-slots.* ]]; then exit 1; fi
+target="\${@: -1}"
+if [[ -e "$LOG/luks-map-write-fail" && "\$target" == */.luks-slots.* && "\$target" != */.luks-slots.removing-*.* ]]; then exit 1; fi
 exec "$REAL_CHMOD" "\$@"
 EOF
 chmod +x "$STUBS/chmod"
@@ -312,9 +320,20 @@ check_contains "$out_portal_remove_reject" "not available in portal mode" "porta
 check_eq "$(cat "$ARGV_LOG")" "" "portal per-kid rejection invokes no system command"
 
 : >"$ARGV_LOG"
+printf '0=mark:omarchy.desktop\n7=kid-cy\n' >"$ETC/luks-slots"
+out_portal_mapped="$("$BIN" remove kid-cy 2>&1)"
+st=$?
+check_eq "$st" 1 "portal per-kid remove refuses a recorded LUKS slot"
+check_contains "$out_portal_mapped" "cannot verify recorded LUKS slot 7" "portal per-kid remove names the active-slot risk"
+[[ -e "$ETC/kids/kid-cy.conf" ]] && pass "portal mapped-slot refusal leaves the profile" ||
+  fail "portal mapped-slot refusal removed the profile"
+check_not_contains "$(cat "$ARGV_LOG")" "userdel" "portal mapped-slot refusal stops before account deletion"
+
+: >"$ARGV_LOG"
+printf '0=mark:omarchy.desktop\n' >"$ETC/luks-slots"
 "$BIN" remove kid-cy >/dev/null 2>&1
 st=$?
-check_eq "$st" 0 "portal per-kid remove succeeds"
+check_eq "$st" 0 "portal per-kid remove succeeds once no kid slot is recorded"
 check_not_contains "$(cat "$ARGV_LOG")" "cryptsetup" "portal per-kid remove makes no LUKS call"
 
 printf 'parent=mark\nboot=invalid\n' >"$ETC/machine.conf"
@@ -624,12 +643,16 @@ check_not_contains "$(cat "$ARGV_LOG")" "umount" "failed disk slot removal stops
 
 : >"$ARGV_LOG"
 touch "$LOG/luks-map-write-fail"
+touch "$LOG/require-luks-intent"
 out_map_fail="$("$BIN" remove "$SLUG" --luks-device /dev/fake0 2>&1)"
 st=$?
 rm -f "$LOG/luks-map-write-fail"
 check_eq "$st" 1 "slot-map write failure fails per-kid removal"
 check_contains "$out_map_fail" "could not update" "slot-map write failure names the preserved map"
 check_eq "$(cat "$ETC/luks-slots")" "$slots_before" "slot-map write failure preserves the trusted map"
+check_eq "$(cat "$ETC/luks-slots.removing-$SLUG")" "3=$SLUG" "slot-map write failure leaves a durable removal intent"
+[[ -e "$LOG/luks-intent-missing-at-kill" ]] && fail "per-kid remove killed the slot before recording intent" ||
+  pass "per-kid remove records intent before killing the slot"
 [[ -e "$ETC/kids/$SLUG.conf" ]] && pass "slot-map write failure preserves the profile" ||
   fail "slot-map write failure removed the profile"
 
@@ -642,6 +665,8 @@ check_eq "$st" 0 "remove retry after a map-write failure exits 0"
 check_not_contains "$argv6" "luksKillSlot" "remove retry does not kill the already-empty slot again"
 check_contains "$argv6" "cryptsetup luksDump /dev/fake0" "remove retry verifies the recorded slot is empty"
 check_eq "$(grep -c "^3=$SLUG\$" "$ETC/luks-slots")" "0" "luks-slots: $SLUG's slot is gone"
+[[ -e "$ETC/luks-slots.removing-$SLUG" ]] && fail "remove retry should clear the durable intent" ||
+  pass "remove retry clears the durable intent"
 check_eq "$(grep -c '^0=mark:omarchy.desktop$' "$ETC/luks-slots")" "1" "luks-slots: the parent's slot 0 survives remove's rewrite"
 check_eq "$(grep -c "$SLUG-2\$" "$ETC/luks-slots")" "0" "luks-slots: never had an entry for $SLUG-2 (no LUKS device was given for it)"
 
@@ -659,6 +684,7 @@ check_not_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG:Ada Lovelace" \
   "theme.conf.user: $SLUG's entry is gone after remove"
 check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG-2:Ada Lovelace:bear" \
   "theme.conf.user: $SLUG-2's entry survives $SLUG's removal"
+rm -f "$LOG/require-luks-intent"
 
 [[ -e "$FACE_ICON" ]] && fail "SDDM face icon for $SLUG should be removed" ||
   pass "SDDM face icon for $SLUG removed"

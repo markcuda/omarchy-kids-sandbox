@@ -220,6 +220,7 @@ if grep -qx 'KIDS_PY=python3' "$ROOT/lib/kids.sh"; then
 else
   fail "lib/kids.sh's KIDS_PY is no longer the checkout constant"
 fi
+# shellcheck disable=SC2016 # $DIR is the literal checkout-relative constant under test.
 if grep -qx 'SCHEMA="$DIR/share/config/schema.toml"' "$ROOT/bin/omarchy-kids-conf"; then
   pass "omarchy-kids-conf ships with a checkout-relative schema constant"
 else
@@ -232,6 +233,7 @@ if grep -qF 's|^KIDS_PY=python3$|KIDS_PY=/usr/bin/python3|' "$PKGBUILD"; then
 else
   fail "PKGBUILD no longer substitutes KIDS_PY at package time"
 fi
+# shellcheck disable=SC2016 # $DIR is the literal source pattern under test.
 if grep -qF 's|^SCHEMA="$DIR/share/config/schema.toml"$|SCHEMA="/usr/share/omarchy-kids/config/schema.toml"|' "$PKGBUILD"; then
   pass "package() bakes the fixed schema path into the installed command"
 else

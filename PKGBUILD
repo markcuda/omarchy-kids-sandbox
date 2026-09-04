@@ -45,6 +45,7 @@ package() {
 	install -m755 bin/omarchy-kids bin/omarchy-kids-* "$pkgdir/usr/bin/"
 	# Keep the schema package-owned: source copies use the checkout-relative path,
 	# while the installed command uses the fixed data path below.
+	# shellcheck disable=SC2016 # $DIR is a literal build-time source constant.
 	sed -i 's|^SCHEMA="$DIR/share/config/schema.toml"$|SCHEMA="/usr/share/omarchy-kids/config/schema.toml"|' \
 		"$pkgdir/usr/bin/omarchy-kids-conf"
 	grep -q '^SCHEMA="/usr/share/omarchy-kids/config/schema.toml"$' "$pkgdir/usr/bin/omarchy-kids-conf" \

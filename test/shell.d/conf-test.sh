@@ -327,7 +327,6 @@ conf_del "$ETC/kids/kid-ada.conf" onboarded
 conf_del "$ETC/kids/kid-ada.conf" wifi
 "$CONF" set kid-ada level 2 >/dev/null
 
-
 # --- theme (issue #53): validation, get, and the real apply side effect ----
 
 check "$("$CONF" get kid-ada theme)" "tokyo-night" "get: theme reads back the fixture's override"

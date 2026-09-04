@@ -102,8 +102,10 @@ profile_file() { echo "$KIDS_DIR/$1.conf"; }
 # validate_value KEY VALUE — the schema selects a fixed validator id.
 validate_value() {
   local key="$1" value="$2" row type required source group label editor validator enum min max reset
+  local enum_values=()
   row="$(schema_row "$key")" || die "no schema entry for '$key' (this is a bug)"
   IFS='|' read -r key type required source group label editor validator enum min max reset <<<"$row"
+  IFS=',' read -r -a enum_values <<<"$enum"
   case "$validator" in
     nonempty-single-line)
       [[ -n "$value" && "$value" != *$'\n'* ]] || die "invalid value for 'name': must be non-empty, single-line text"
@@ -115,13 +117,13 @@ validate_value() {
       fi
       ;;
     band)
-      is_in "$value" ${enum//,/ } || die "invalid value for 'band': must be one of ${enum//,/ }"
+      is_in "$value" "${enum_values[@]}" || die "invalid value for 'band': must be one of ${enum//,/ }"
       ;;
     level)
-      is_in "$value" ${enum//,/ } || die "invalid value for 'level': must be 1, 2, or 3"
+      is_in "$value" "${enum_values[@]}" || die "invalid value for 'level': must be 1, 2, or 3"
       ;;
     web)
-      is_in "$value" ${enum//,/ } || die "invalid value for 'web': must be garden, filtered, or none"
+      is_in "$value" "${enum_values[@]}" || die "invalid value for 'web': must be garden, filtered, or none"
       ;;
     dns)
       case "$value" in
@@ -137,13 +139,13 @@ validate_value() {
       [[ "$value" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "invalid value for '$key': HH:MM, 24-hour"
       ;;
     wifi)
-      is_in "$value" ${enum//,/ } || die "invalid value for 'wifi': must be parent or helper"
+      is_in "$value" "${enum_values[@]}" || die "invalid value for 'wifi': must be parent or helper"
       ;;
     yes-no)
-      is_in "$value" ${enum//,/ } || die "invalid value for '$key': must be yes or no"
+      is_in "$value" "${enum_values[@]}" || die "invalid value for '$key': must be yes or no"
       ;;
     menu)
-      is_in "$value" ${enum//,/ } || die "invalid value for 'menu': must be trimmed or full"
+      is_in "$value" "${enum_values[@]}" || die "invalid value for 'menu': must be trimmed or full"
       ;;
     theme-id)
       [[ "$value" =~ ^[a-z0-9][a-z0-9-]*$ ]] || die "invalid value for 'theme': lowercase id, e.g. 'tokyo-night'"
@@ -159,7 +161,7 @@ validate_value() {
       [[ "$value" =~ ^[a-z0-9.-]+(,[a-z0-9.-]+)*$ || -z "$value" ]] || die "invalid value for 'sites': comma-separated hostnames"
       ;;
     password-mode)
-      is_in "$value" ${enum//,/ } || die "invalid value for 'password': must be set or none"
+      is_in "$value" "${enum_values[@]}" || die "invalid value for 'password': must be set or none"
       ;;
     *)
       die "no validator for '$key' (this is a bug)"

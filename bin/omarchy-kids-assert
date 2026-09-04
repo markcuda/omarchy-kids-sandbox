@@ -125,7 +125,7 @@ boot_mode_still() {
   local expected="$1" current
   current="$(boot_mode_get 2>/dev/null || true)"
   [[ "$current" == "$expected" ]] && return 0
-  echo "omarchy-kids-assert: trusted boot mode changed or became invalid during assert; no boot locks changed" >&2
+  echo "omarchy-kids-assert: trusted boot mode changed or became invalid during assert; aborting boot-lock work" >&2
   return 1
 }
 

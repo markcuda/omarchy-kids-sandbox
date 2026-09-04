@@ -27,10 +27,52 @@ else
   fail "portal login for $LIVE_KID1_ACCOUNT failed"
 fi
 
-shot 40-times-up || fail "screenshot failed"
+wait_kid_ready "$LIVE_KID1_ACCOUNT" && ok "launcher is up before root enforcement" ||
+  fail "launcher never came up before root enforcement"
+
+waited=0
+while ((waited < 90)); do
+  if vmroot "jq -e '.state == \"grace\"' /run/omarchy-kids/time/$LIVE_KID1_ACCOUNT.json >/dev/null 2>&1"; then
+    break
+  fi
+  sleep 5
+  waited=$((waited + 5))
+done
+if ((waited < 90)); then
+  ok "root state entered grace for lights-out"
+else
+  fail "root state never entered grace for lights-out"
+fi
+
+shot 40-root-time-warning || fail "screenshot failed"
+
+if vmroot "pids=\$(pgrep -u '$LIVE_KID1_ACCOUNT' -x omarchy-kids-time || true); [ -n \"\$pids\" ] && kill \$pids"; then
+  ok "kid display adapter was killed"
+else
+  fail "could not kill the kid display adapter"
+fi
+
+locked=0
+waited=0
+while ((waited < 60)); do
+  session_id="$(vmroot "loginctl list-sessions --no-legend | awk '\$3==\"$LIVE_KID1_ACCOUNT\" && \$4==\"seat0\" {print \$1}' | head -1" 2>/dev/null)"
+  if [[ -n "$session_id" ]] && vmroot "loginctl show-session '$session_id' -p LockedHint" 2>/dev/null | grep -qx 'LockedHint=yes'; then
+    locked=1
+    break
+  fi
+  sleep 5
+  waited=$((waited + 5))
+done
+if ((locked)); then
+  ok "root locked the kid session after lights-out"
+else
+  fail "root did not lock the kid session after lights-out"
+fi
+
+shot 40-root-time-locked || fail "screenshot failed"
 
 if assert_no_session "$LIVE_KID1_ACCOUNT" 90; then
-  ok "session auto-finished after lights-out"
+  ok "root auto-finished the session after lights-out"
 else
   fail "$LIVE_KID1_ACCOUNT's session is still up past the auto-finish deadline"
   state

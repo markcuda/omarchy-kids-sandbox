@@ -16,11 +16,17 @@ boot_with "$LIVE_OWNER_PASSWORD" "$LIVE_OWNER_ACCOUNT" &&
 
 portal_reset 30 && ok "greeter is up" || fail "greeter never appeared"
 
+kid_budget_headroom "$LIVE_KID1_ACCOUNT" &&
+  ok "budget headroom set for the grant recovery run" || fail "could not set budget headroom"
+
 if portal_login "$LIVE_KID1_ACCOUNT" "$LIVE_KID1_PASSWORD"; then
   ok "logged in as $LIVE_KID1_ACCOUNT"
 else
   fail "portal login for $LIVE_KID1_ACCOUNT failed"
 fi
+
+wait_kid_ready "$LIVE_KID1_ACCOUNT" && ok "launcher is up for the grant recovery run" ||
+  fail "launcher never came up for the grant recovery run"
 
 before="$(vmroot "omarchy-kids-time status $LIVE_KID1_ACCOUNT | head -1")"
 
@@ -60,8 +66,16 @@ done
 
 if ((granted)); then
   ok "ledger shows the grant ('$before' -> '$status')"
+  if assert_session "$LIVE_KID1_ACCOUNT" 15; then
+    ok "kid session remains available after the root grant"
+  else
+    fail "kid session did not resume after the root grant"
+  fi
 else
   fail "ledger never reflected the +15 grant (still: '$before')"
 fi
+
+shot 50-root-time-granted || fail "screenshot failed"
+kid_budget_restore "$LIVE_KID1_ACCOUNT" && ok "budget headroom restored" || fail "could not restore budget headroom"
 
 scenario_result 50-ask-grant

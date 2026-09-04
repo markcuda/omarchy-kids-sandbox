@@ -40,11 +40,12 @@ change it.
 | `share/time/toast.qml` | The small "N minutes left" warning (R-TIME-3) |
 | `share/time/timesup.qml` | The full-screen "Time's up" overlay (R-TIME-4) |
 
-The root runtime document contains `kid`, `logical_day`, `state`, `reason`, `remaining_seconds`,
-`grace_deadline`, `last_tick`, `active_seconds_remainder`, and `warnings_fired`. `last_tick` and
-`grace_deadline` use monotonic seconds. `warnings_fired` stores the threshold values `10`, `5`, and
-`1` in minutes. Writes use a temporary file and rename, so the display reader sees one complete
-decision.
+The root runtime document contains `kid`, `logical_day`, `last_wall`, `state`, `reason`,
+`remaining_seconds`, `grace_deadline`, `last_tick`, `active_seconds_remainder`, and
+`warnings_fired`. `last_tick` and `grace_deadline` use monotonic seconds; `last_wall` lets a
+logical-day rollover split the active interval at 04:00. `warnings_fired` stores the threshold values
+`10`, `5`, and `1` in minutes. Writes use a temporary file and rename, so the display reader sees one
+complete decision.
 
 ## Budget, lights-out, and the day (R-TIME-2, Appendix F)
 

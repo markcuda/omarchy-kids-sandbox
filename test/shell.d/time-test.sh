@@ -55,11 +55,15 @@ STUBS="$TMP/stubs"
 SESSIONS="$TMP/sessions" # loginctl stub's state file
 CLOCK_FILE="$ROOT/run/omarchy-kids/time/monotonic"
 NOW_FILE="$ROOT/run/omarchy-kids/time/now"
+LOCK_LOG="$TMP/lock.log"
+FINISH_LOG="$TMP/finish.log"
 
 mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$STUBS" "$(dirname "$CLOCK_FILE")"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
 : >"$SESSIONS"
+: >"$LOCK_LOG"
+: >"$FINISH_LOG"
 
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada Lovelace
@@ -104,6 +108,10 @@ if [[ "\$1" == "show-session" ]]; then
   done
   exit 0
 fi
+if [[ "\$1" == "lock-session" ]]; then
+  printf '%s %s\n' "\$1" "\$2" >>"$LOCK_LOG"
+  exit 0
+fi
 exit 1
 EOF
 chmod +x "$STUBS/loginctl"
@@ -127,6 +135,11 @@ kids_set_const "$TIME" SHARE "$SHARE"
 kids_set_const "$TIME" SYSROOT "$ROOT"
 kids_set_const "$TIME" TIME_NOW_FILE "$NOW_FILE"
 kids_set_const "$TIME" RUN "$TMP/run"
+kids_stub "$TMP/tree" omarchy-kids-exit <<EOF
+#!/bin/bash
+printf '%s\n' "\$*" >>"$FINISH_LOG"
+exit "\${FINISH_RC:-0}"
+EOF
 
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
@@ -141,6 +154,10 @@ set_clock() { printf '%s\n' "$1" >"$CLOCK_FILE"; }
 set_now() { printf '%s\n' "$1" >"$NOW_FILE"; }
 state_value() {
   jq -r --arg key "$1" '.[$key] | if type == "array" then tojson else tostring end' \
+    "$ROOT/run/omarchy-kids/time/kid-ada.json"
+}
+enforcement_value() {
+  jq -r --arg key "$1" '.enforcement[$key] // ""' \
     "$ROOT/run/omarchy-kids/time/kid-ada.json"
 }
 
@@ -308,10 +325,18 @@ set_clock 1600
 set_sessions
 echo 60 >"$USAGE_DIR/2026-09-03"
 "$LEDGER" tick >/dev/null
+set_sessions "1 1000 kid-ada yes no"
+"$LEDGER" tick >/dev/null
 check "$(state_value state)" "grace" "tick: zero budget enters grace"
 check "$(state_value reason)" "budget" "tick: grace records the budget reason"
 check "$(state_value grace_deadline)" "1660" "tick: grace deadline is sixty monotonic seconds later"
 check "$(used_today 2026-09-03)" "60" "tick: enforcement does not rewrite the usage ledger"
+check "$(cat "$LOCK_LOG")" "lock-session 1" "tick: root locks the active session at the budget boundary"
+check "$(enforcement_value action)" "lock" "tick: state records the root lock action"
+check "$(enforcement_value reason)" "budget" "tick: state records why root locked"
+check "$(enforcement_value result)" "success" "tick: state records a successful lock"
+"$LEDGER" tick >/dev/null
+check "$(wc -l <"$LOCK_LOG" | tr -d ' ')" "1" "tick: a locked grace state does not repeat the lock request"
 
 echo 15 >"$ROOT/var/lib/omarchy-kids/kid-ada/usage/2026-09-03.grant"
 set_clock 1630
@@ -333,10 +358,24 @@ set_clock 1720
 check "$(state_value state)" "grace" "tick: lights-out enters grace independently of budget"
 check "$(state_value reason)" "lights-out" "tick: lights-out records its own reason"
 check "$(state_value grace_deadline)" "1780" "tick: lights-out grace gets a sixty-second deadline"
+check "$(enforcement_value action)" "lock" "tick: lights-out records the root lock action"
+check "$(enforcement_value reason)" "lights-out" "tick: state records why root locked at lights-out"
+check "$(enforcement_value result)" "success" "tick: lights-out lock succeeds"
+check "$(enforcement_value at)" "2026-09-03 20:00:00" "tick: enforcement record uses the fixed wall-clock reading"
+check "$(wc -l <"$LOCK_LOG" | tr -d ' ')" "2" "tick: lights-out requests one additional root lock"
 set_clock 1780
-"$LEDGER" tick >/dev/null
-check "$(state_value state)" "finishing" "tick: expired grace advances to finishing"
-check "$(state_value reason)" "lights-out" "tick: finishing preserves the enforcement reason"
+FINISH_RC=1 "$LEDGER" tick >/dev/null
+check "$(state_value state)" "finishing" "tick: expired grace enters finishing"
+check "$(enforcement_value action)" "finish" "tick: state records the root finish action"
+check "$(enforcement_value reason)" "lights-out" "tick: finish record preserves the enforcement reason"
+check "$(enforcement_value result)" "failed" "tick: failed finish is recorded as failed"
+check "$(cat "$FINISH_LOG")" "--finish --kid kid-ada" "tick: root calls the sibling finish path"
+FINISH_RC=0 "$LEDGER" tick >/dev/null
+check "$(state_value state)" "finishing" "tick: successful finish remains an enforcing state"
+check "$(enforcement_value result)" "success" "tick: successful finish is recorded"
+check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "2" "tick: finish failure is retried on the next tick"
+FINISH_RC=0 "$LEDGER" tick >/dev/null
+check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "2" "tick: successful finish is idempotent"
 
 echo
 

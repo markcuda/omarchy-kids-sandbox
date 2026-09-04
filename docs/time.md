@@ -1,8 +1,8 @@
 # The screen-time engine (SPEC.md R-TIME-1..5, R-TIMEAUTH-1..4, Appendix F)
 
 Budget and lights-out per kid, accounted while their session is active and unlocked. The root tick
-now owns the elapsed-time calculation and the `allowed`/`warning`/`grace`/`finishing` decision.
-This is issue #23 plus issue #68, ticket 1.
+owns elapsed-time calculation, the `allowed`/`warning`/`grace`/`finishing` decision, session
+locking, and session finish. This is issue #23 plus issue #68, ticket 1, and issue #69, ticket 2.
 
 **Nothing here has run against a real Hyprland, Quickshell, or `loginctl`/systemd-logind** — see
 "What's unverified" below before trusting any of it in front of a kid.
@@ -14,7 +14,7 @@ that *runs as the kid* in this feature only ever **reads**:
 
 | Piece | Runs as | Can write? |
 | --- | --- | --- |
-| `bin/omarchy-kids-time-ledger tick` | root, via `systemd/omarchy-kids-time.timer` | yes — the only writer of usage, grants remain separate, and runtime state |
+| `bin/omarchy-kids-time-ledger tick` | root, via `systemd/omarchy-kids-time.timer` | yes — the only writer of usage, grants remain separate, runtime state, and enforcement records |
 | `bin/omarchy-kids-time grant` | must be root (checked; refuses otherwise) | yes — the only writer of `usage/<day>.grant` |
 | `bin/omarchy-kids-time daemon` / `status` | the kid | no — read-only |
 
@@ -41,11 +41,12 @@ change it.
 | `share/time/timesup.qml` | The full-screen "Time's up" overlay (R-TIME-4) |
 
 The root runtime document contains `kid`, `logical_day`, `last_wall`, `state`, `reason`,
-`remaining_seconds`, `grace_deadline`, `last_tick`, `active_seconds_remainder`, and
-`warnings_fired`. `last_tick` and `grace_deadline` use monotonic seconds; `last_wall` lets a
-logical-day rollover split the active interval at 04:00. `warnings_fired` stores the threshold values
-`10`, `5`, and `1` in minutes. Writes use a temporary file and rename, so the display reader sees one
-complete decision.
+`remaining_seconds`, `grace_deadline`, `last_tick`, `active_seconds_remainder`,
+`warnings_fired`, and an `enforcement` record. That record has `action` (`none`, `lock`, or
+`finish`), `reason`, `result` (`none`, `success`, `failed`, or `not-needed`), and wall-clock `at`.
+`last_tick` and `grace_deadline` use monotonic seconds; `last_wall` lets a logical-day rollover
+split the active interval at 04:00. `warnings_fired` stores the threshold values `10`, `5`, and `1`
+in minutes. Writes use a temporary file and rename, so the display reader sees one complete decision.
 
 ## Budget, lights-out, and the day (R-TIME-2, Appendix F)
 
@@ -73,12 +74,18 @@ build-time seam for deterministic tests. No inherited value selects the root clo
    `usage/<day>` and retain the sub-minute remainder in runtime state. Inactive intervals add zero.
 4. Recomputes `allowed`, `warning`, `grace`, or `finishing` from the current budget, grant, logical
    day, and lights-out schedule. Warning thresholds are retained in the state document.
-5. Refreshes `/run/omarchy-kids/status.json` and folds launch logs. Those auxiliary writes remain
+5. On entry to `grace`, asks `loginctl` to lock each active, unlocked session for that kid. The
+   request is recorded with its reason and result, and a failed lock never changes the state to
+   `allowed`.
+6. At the monotonic grace deadline, calls the resolved sibling `omarchy-kids-exit --finish --kid
+   <account>`. A failed call remains `finishing` and is retried on the next tick. A successful call
+   is recorded and is not repeated for the same enforcing state.
+7. Refreshes `/run/omarchy-kids/status.json` and folds launch logs. Those auxiliary writes remain
    best-effort; a runtime-state or ledger write failure does not become `allowed`.
 
-Ticket 1 records the enforcement decision but does not yet lock or terminate a session. Ticket 2
-moves those side effects into this root tick. Until then, the existing kid-side display path stays
-in place for compatibility.
+Ticket 2 moves the lock and finish side effects into this root tick. The existing kid-side display
+path stays in place for compatibility until ticket 3, but killing it no longer prevents the root
+tick from enforcing the boundary.
 
 Requires root, through `lib/kids.sh`'s `is_root`. There is no environment escape: nothing a kid
 can set may decide whether a root check happens (`AGENTS.md` rule 9). A test that has to be root
@@ -114,6 +121,11 @@ R-BAR-2) to run directly.
 `daemon` polls every 30 s (`OMARCHY_KIDS_TIME_POLL_INTERVAL`) while *this session*
 (`$XDG_SESSION_ID`) is `Active=yes`/`LockedHint=no` and not paused:
 
+The daemon remains for compatibility with existing logged-in sessions. It can display warnings and
+the Time's Up screen, but those kid-side surfaces are no longer the enforcement authority. Root
+locks the session and finishes it even when this daemon or its overlay is absent. Ticket 3 removes
+the remaining kid-side finish capability.
+
 - remaining minutes crossing 10/5/1 **downward** (`lib/time.sh`'s `time_toast_thresholds` —
   R-TIME-3, issue #40; SPEC.md's three thresholds, not the two a draft of this ticket floated —
   the spec wins, per `AGENTS.md`) → `share/time/toast.qml`. A threshold fires only when the
@@ -125,6 +137,7 @@ R-BAR-2) to run directly.
   the session log) so a live run can be audited the same way this was found.
 - remaining ≤ 0, or the clock has reached lights-out → `share/time/timesup.qml` (R-TIME-4),
   unless one is already up (pidfile-tracked -- see "The overlays are tracked by pidfile" below).
+  This overlay is now a compatibility display; the root tick locks and finishes independently.
 - if a grant (or a fresh day, or lights-out being pushed — see "Not built yet") clears the
   deficit while Time's Up is showing, the daemon dismisses it (by pid, not `pkill -f`) and
   resets the warning thresholds so they can fire again if things get low a second time.
@@ -175,10 +188,8 @@ alone.
 
 ## Not built in this issue
 
-- **Ticket 2 is not included here.** The root state reaches `grace` and then `finishing`, but this
-  ticket does not call `loginctl lock-session` or `omarchy-kids-exit --finish`.
 - **Ticket 3 is not included here.** The kid daemon and Time's Up QML still contain today's display
-  and finish behavior; they remain compatibility code until the root side owns those actions.
+  and finish behavior; they remain compatibility code until the kid path is reduced to display only.
 - **Ticket 4 is not included here.** The systemd interval remains unchanged, and assert/live proof
   for the new runtime directory and root enforcement remain future work.
 
@@ -426,9 +437,8 @@ pair `omarchy-kids-exit` and `omarchy-kids-ask` already used: `$OMARCHY_KIDS_RUN
 `/proc/<pid>/comm`, and killed by pid rather than by argv match.
 
 Note what this does *not* fix: the overlay still runs in the kid's own session, so a kid who kills
-it (or never lets the daemon start) sees no Time's Up screen. Nothing root-side ends a session at
-lights-out yet — `README.md` says so under "What works today", and it stays advisory for bands
-with a terminal until the ledger does the terminating.
+it (or never lets the daemon start) sees no Time's Up screen. That only removes the display. The
+root tick still locks at the boundary and calls the root-side finish path after the grace deadline.
 
 ## The trust boundary (issue #58)
 

@@ -289,15 +289,25 @@ time_state_read() {
     (.active_seconds_remainder | type == "number" and . >= 0 and . < 60 and floor == .) and
     (.warnings_fired | type == "array" and all(.[]; . == 1 or . == 5 or . == 10)) and
     (.logical_day | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) and
-    (.last_wall | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$"))
+    (.last_wall | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$")) and
+    ((.enforcement // {}) | (.action // "none") |
+      IN("none", "lock", "finish")) and
+    ((.enforcement // {}) | (.reason // "none") | type == "string") and
+    ((.enforcement // {}) | (.result // "none") |
+      IN("none", "success", "failed", "not-needed")) and
+    ((.enforcement // {}) | (.at // "") |
+      (type == "string" and (length == 0 or
+        test("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$"))))
   ' "$file" >/dev/null 2>&1
 }
 
-# time_state_write KID DAY STATE REASON REMAINING GRACE LAST REMAINDER FIRED.
+# time_state_write KID DAY STATE REASON REMAINING GRACE LAST REMAINDER FIRED LAST_WALL ACTION ACTION_REASON ACTION_RESULT ACTION_AT.
 # Atomic replacement keeps a reader from seeing half a decision.
 time_state_write() {
   local kid="$1" day="$2" state="$3" reason="$4" remaining="$5"
-  local grace="$6" last="$7" remainder="$8" fired="$9" last_wall="${10}" dir tmp fired_json='[]'
+  local grace="$6" last="$7" remainder="$8" fired="$9" last_wall="${10}"
+  local action="${11:-none}" action_reason="${12:-none}" action_result="${13:-none}"
+  local action_at="${14:-}" dir tmp fired_json='[]'
   dir="$(time_state_dir)"
   install -d -m 0750 "$dir"
   chmod 0750 "$dir"
@@ -310,10 +320,13 @@ time_state_write() {
     --arg reason "$reason" --argjson remaining "$remaining" \
     --argjson grace "$grace" --argjson last "$last" \
     --argjson remainder "$remainder" --argjson fired "$fired_json" \
-    --arg last_wall "$last_wall" \
+    --arg last_wall "$last_wall" --arg action "$action" \
+    --arg action_reason "$action_reason" --arg action_result "$action_result" \
+    --arg action_at "$action_at" \
     '{kid: $kid, logical_day: $day, last_wall: $last_wall, state: $state, reason: $reason,
       remaining_seconds: $remaining, grace_deadline: $grace, last_tick: $last,
-      active_seconds_remainder: $remainder, warnings_fired: $fired}' >"$tmp"
+      active_seconds_remainder: $remainder, warnings_fired: $fired,
+      enforcement: {action: $action, reason: $action_reason, result: $action_result, at: $action_at}}' >"$tmp"
   chmod 0640 "$tmp"
   chown root:omarchy-kids "$tmp" 2>/dev/null || true
   mv -f "$tmp" "$(time_state_file "$kid")"

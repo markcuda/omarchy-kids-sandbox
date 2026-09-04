@@ -310,12 +310,6 @@ portal_clean_exit() {
 
 # --- build / install ---------------------------------------------------------------------
 
-# build_install — pulls the latest commit on air, rebuilds the package with makepkg, copies the
-# built package down to this machine's scratch out dir and back up to the VM, installs it with
-# `pacman -U`, `sync`s the VM's disks (docs/vm.md: a `vm-run.sh stop` right after a write that
-# hasn't hit disk yet has, once, left zero-length files), then gates on `pacman -Qkk omarchy-kids`'s
-# own exit code — pacman -Qk exits non-zero if any installed file fails its content/mtime/
-# permission check, a cheaper and more reliable "did this land intact" signal than parsing text.
 # vm_ready DEADLINE — waits until the VM answers ssh, retyping the disk password every 30 s in
 # case it is still at the LUKS prompt. A scenario that starts while the VM is mid-boot (the
 # previous gate just rebooted it) used to fail its build step on "banner exchange" and then
@@ -335,6 +329,12 @@ vm_ready() {
   return 1
 }
 
+# build_install — pulls the latest commit on air, rebuilds the package with makepkg, copies the
+# built package down to this machine's scratch out dir and back up to the VM, installs it with
+# `pacman -U`, `sync`s the VM's disks (docs/vm.md: a `vm-run.sh stop` right after a write that
+# hasn't hit disk yet has, once, left zero-length files), then gates on `pacman -Qkk omarchy-kids`'s
+# own exit code — pacman -Qk exits non-zero if any installed file fails its content/mtime/
+# permission check, a cheaper and more reliable "did this land intact" signal than parsing text.
 build_install() {
   vm_ready 180 || return 1
   air "cd ~/$LIVE_REMOTE_REPO && git pull -q && rm -rf pkg src omarchy-kids-*.pkg.tar.zst && makepkg -sf --noconfirm >/dev/null 2>&1" ||

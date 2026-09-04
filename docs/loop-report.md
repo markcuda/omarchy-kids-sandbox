@@ -270,3 +270,20 @@ Super+Q, then the screen-time surfaces. Findings, in order of weight:
 - Driver lessons: QEMU key names (`esc`), chords are one `key` call with several names, gum
   renders late under CPU load (the unit gate on the VM), a kid tile that is "not installed
   yet" swallows Enter (the first kid-day video opened nothing; re-recorded next).
+
+### 04:30, spec 02 closes its tickets; the live proof says "almost"
+
+#71 merged after its VM gate. Scenario 40 on main: root enters grace at lights-out and
+auto-finishes the session, the greeter returns; but root's lock step reports not-needed while
+the kid is live, and the scenario's own kill uses `pgrep -x` on a name Linux truncates. A sol
+post-merge review added a rule-9 violation in assert-locks (an inherited environment root
+selects time paths), swallowed chown failures, root:root 0755 usage directories where the spec
+says kid group 0750, and a timer check that never repairs the installed unit. All six plus the
+lock investigation went back to luna on `roottime-5`, fixing forward on main.
+
+Spec 07 moved: #92 (the boot setting, package no longer owns the /etc drop-in) and #96 (PAM-only
+parent auth, Apply never prompts twice) are drafted and Mac-green; VM gates run in sequence
+with sol reviews. #72 (config schema) passed sol's third round on the Mac. Decisions made under
+the standing order: snapshot entries hidden in disk mode (§3), AUR out of scope (§4), the exit
+modal ships Finish only (#102). New UX tickets from the screenshots: #100 stray portal tiles,
+#101 launcher frame after an app closes.

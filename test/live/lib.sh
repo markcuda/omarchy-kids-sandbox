@@ -137,8 +137,8 @@ portal_kid_index() {
   return 1
 }
 
-# portal_kid_count KIDS_CSV — pure, no ssh: how many kid tiles KIDS_CSV lists (the parent tile is
-# always one more than this — share/sddm-theme/Main.qml's finishLoadingUsers() appends it last).
+# portal_kid_count KIDS_CSV — pure, no ssh: how many comma-separated entries
+# a portal config field lists.
 portal_kid_count() {
   local csv="$1" old_ifs=$IFS
   IFS=','
@@ -146,6 +146,54 @@ portal_kid_count() {
   set -- $csv
   IFS=$old_ifs
   echo "$#"
+}
+
+# portal_conf_accounts KIDS_CSV PARENTS_CSV — the portal's configured order:
+# profiled kids first, then the explicit parent allowlist.
+portal_conf_accounts() {
+  local csv old_ifs=$IFS entry
+  local -a entries
+  for csv in "$@"; do
+    IFS=',' read -ra entries <<<"$csv"
+    IFS=$old_ifs
+    for entry in "${entries[@]}"; do
+      [[ -n "$entry" ]] && printf '%s\n' "${entry%%:*}"
+    done
+  done
+}
+
+# portal_conf_tile_count KIDS_CSV PARENTS_CSV — count the tiles the producer
+# asks the consumer to render.
+portal_conf_tile_count() {
+  local count=0 account
+  while IFS= read -r account; do
+    [[ -n "$account" ]] && count=$((count + 1))
+  done < <(portal_conf_accounts "$1" "$2")
+  echo "$count"
+}
+
+# portal_visible_tile_count USER_ACCOUNTS KIDS_CSV PARENTS_CSV — count only
+# configured accounts present in SDDM's regular-account model.
+portal_visible_tile_count() {
+  local accounts="$1" count=0 account
+  while IFS= read -r account; do
+    [[ -n "$account" ]] || continue
+    portal_tile_index "$accounts" "$account" >/dev/null && count=$((count + 1))
+  done < <(portal_conf_accounts "$2" "$3")
+  echo "$count"
+}
+
+# portal_live_tile_counts — prints "actual expected" for scenario 30's
+# rendered-source count assertion.
+portal_live_tile_counts() {
+  local conf kids parents accounts expected actual
+  conf="$(vmroot "cat /usr/share/sddm/themes/omarchy-kids/theme.conf.user")" || return 1
+  kids="$(awk -F= '$1 == "kids" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
+  parents="$(awk -F= '$1 == "parents" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
+  accounts="$(vmroot "getent passwd | awk -F: '\$3>=1000 && \$3<65534 {print \$1}' | sort")" || return 1
+  expected="$(portal_conf_tile_count "$kids" "$parents")"
+  actual="$(portal_visible_tile_count "$accounts" "$kids" "$parents")"
+  printf '%s %s\n' "$actual" "$expected"
 }
 
 # portal_login KID PASSWORD [DEADLINE] — at the portal (the greeter showing the kid tiles),
@@ -163,16 +211,18 @@ portal_kid_count() {
 # source, not yet confirmed live against more than two kid tiles — see docs/live-tests.md.
 portal_login() {
   local kid="$1" password="$2" deadline="${3:-90}"
-  local tiles index total waited=0 i
-  # SDDM's UserModel lists every account with uid in [MinimumUid, MaximumUid], sorted by name,
-  # so the tile order is the sorted account list, not theme.conf.user's kids= order (seen live:
-  # a non-kid test account sorts first and the parent last).
-  tiles="$(vmroot "getent passwd | awk -F: '\$3>=1000 && \$3<65534 {print \$1}' | sort")"
+  local tiles index total waited=0 i conf kids parents
+  # Main.qml filters SDDM's regular-account model through these producer-owned
+  # fields, preserving kids first and parents last.
+  conf="$(vmroot "cat /usr/share/sddm/themes/omarchy-kids/theme.conf.user")" || return 1
+  kids="$(awk -F= '$1 == "kids" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
+  parents="$(awk -F= '$1 == "parents" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
+  tiles="$(portal_conf_accounts "$kids" "$parents")"
   index="$(portal_tile_index "$tiles" "$kid")" || {
     echo "portal_login: $kid is not among the greeter's accounts ($(echo "$tiles" | tr '\n' ' '))" >&2
     return 1
   }
-  total="$(echo "$tiles" | grep -c .)"
+  total="$(portal_conf_tile_count "$kids" "$parents")"
 
   qmp key esc >/dev/null # close a password field left open by an earlier attempt
   sleep 0.5

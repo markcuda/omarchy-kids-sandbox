@@ -16,6 +16,14 @@ boot_with "$LIVE_OWNER_PASSWORD" "$LIVE_OWNER_ACCOUNT" &&
 
 portal_reset 30 && ok "greeter is up" || fail "greeter never appeared"
 
+tile_counts="$(portal_live_tile_counts 2>/dev/null || true)"
+read -r actual_tiles expected_tiles <<<"$tile_counts"
+if [[ -n "${actual_tiles:-}" && "$actual_tiles" == "$expected_tiles" ]]; then
+  ok "portal tile count is kids= count plus parent count ($actual_tiles)"
+else
+  fail "portal tile count is $actual_tiles, expected $expected_tiles from theme.conf.user"
+fi
+
 # Time's Up must not fire at login: earlier scenarios may have used today's budget up, and the
 # overlay would swallow the Super taps below. Give the kid headroom for this run, restore after.
 kid_budget_headroom "$LIVE_KID1_ACCOUNT" &&

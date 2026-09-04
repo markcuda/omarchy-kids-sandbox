@@ -46,7 +46,7 @@ check "$(portal_kid_count "$CSV")" "2" "portal_kid_count: two entries"
 TILES=$'kid-ada\nkid-ben\nkid-cy\nkid-vm'
 check "$(portal_tile_index "$TILES" kid-cy)" "2" "portal_tile_index: sorted greeter order, third account is index 2"
 check "$(portal_tile_index "$TILES" kid-vm)" "3" "portal_tile_index: the parent sorts last here"
-portal_tile_index "$TILES" kid-zed >/dev/null && fail "portal_tile_index: unknown account should fail" || pass "portal_tile_index: unknown account fails"
+portal_tile_index "$TILES" kid-zed >/dev/null && fail "portal_tile_index: unknown account should fail" || echo "ok   portal_tile_index: unknown account fails"
 
 portal_kid_index "$CSV" kid-nope >/dev/null 2>&1
 check_status "$?" "1" "portal_kid_index: an account not in the list fails"
@@ -57,6 +57,17 @@ check "$(portal_kid_count "kid-ada:Ada:fox")" "1" "portal_kid_count: one entry"
 check "$(portal_kid_count "")" "0" "portal_kid_count: no kids= value yet is zero kids"
 portal_kid_index "" kid-ada >/dev/null 2>&1
 check_status "$?" "1" "portal_kid_index: no kids= value yet always fails"
+
+PARENTS="kid-vm,parent-helper"
+check "$(portal_conf_accounts "$CSV" "$PARENTS")" \
+  $'kid-ada\nkid-cy\nkid-vm\nparent-helper' \
+  "portal_conf_accounts: kids precede the explicit parent allowlist"
+check "$(portal_conf_tile_count "$CSV" "$PARENTS")" "4" \
+  "portal_conf_tile_count: counts profiled kids plus parents"
+check "$(portal_visible_tile_count $'kid-cy\nkid-vm\nparent-helper\nkid-ada' "$CSV" "$PARENTS")" "4" \
+  "portal_visible_tile_count: configured accounts are the only tile sources"
+check "$(portal_visible_tile_count $'kid-cy\nkid-vm\nparent-helper' "kid-cy:Cy:owl" "kid-vm,parent-helper")" "3" \
+  "portal_visible_tile_count: absent stale accounts do not become tiles"
 
 # --- report_header / report_row ---------------------------------------------------------------
 

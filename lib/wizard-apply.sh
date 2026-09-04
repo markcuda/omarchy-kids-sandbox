@@ -105,6 +105,9 @@ run_apply_step() {
     if ! sudo -n tee -a "$SETUP_LOG" <"$tmp" >/dev/null; then
       rc=1
     fi
+    if ! sudo -n -v >/dev/null 2>&1; then
+      APPLY_AUTH_EXPIRED=1
+    fi
   fi
   if ((rc != 0)); then
     echo
@@ -138,14 +141,20 @@ screen_apply() {
   APPLY_OK=1
   if ! prepare_apply_log; then
     APPLY_OK=0
+    APPLY_AUTH_EXPIRED=1
     FAILED_STEP="${steps[0]}"
     echo
-    echo "\"${steps[0]}\" failed. Sudo authorization expired or the setup log is unavailable."
-    return 0
+    echo "Authorization expired or the setup log is unavailable. Return to Step 2 to verify again."
+    return 1
   fi
   for ((i = 0; i < total; i++)); do
     run_apply_step "${steps[i]}" "${funcs[i]}"
     rc=$?
+    if ((APPLY_AUTH_EXPIRED)); then
+      echo
+      echo "Authorization expired. Return to Step 2 to verify again."
+      return 1
+    fi
     if [[ "$DRY_RUN" != "1" ]] && ((rc != 0)); then
       APPLY_OK=0
       for ((k = 0; k < total; k++)); do

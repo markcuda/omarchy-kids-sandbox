@@ -78,7 +78,6 @@ ALLOWED=(
   OMARCHY_KIDS_ASK_MINUTES
   OMARCHY_KIDS_ASK_BIN       # exported to the ask modal (never read by bin/)
   OMARCHY_KIDS_PARENT        # root-only argument to omarchy-kids-authd
-  OMARCHY_KIDS_INVOKING_USER # who ran the wizard; written to machine.conf as a *claim*
   # (c) documented settings and test inputs that change no decision.
   OMARCHY_KIDS_NOW                   # a fixed clock, so tests need not wait
   OMARCHY_KIDS_TUI_ANSWERS           # scripted keystrokes for lib/tui.sh

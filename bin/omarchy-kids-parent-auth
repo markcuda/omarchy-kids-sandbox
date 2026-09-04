@@ -77,7 +77,7 @@ IFS= read -r candidate || true
 if ((BOOTSTRAP)); then
   payload=$'BOOTSTRAP\n'"$candidate"$'\n'
 else
-  payload="$candidate"$'\n'
+  payload=$'VERIFY\n'"$candidate"$'\n'
 fi
 reply="$(kids_sock_request "$SOCK" "$payload")" || exit 2
 candidate=""

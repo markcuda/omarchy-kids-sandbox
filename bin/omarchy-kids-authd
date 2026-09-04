@@ -2,9 +2,10 @@
 # omarchy:summary=Verify a parent password and apply an approved "ask" request, over a root-only socket
 """omarchy-kids-authd -- the parent-password verifier (R-SEC-1, R-SEC-2).
 
-A root, socket-activated oracle. Two request shapes, one per connection:
+A root, socket-activated oracle. Three request shapes, one per connection:
 
-    <password>\n                     -> "ok" / "no"   (verify, R-SEC-2)
+    VERIFY\n<password>\n               -> "ok" / "no"   (verify, R-SEC-2)
+    BOOTSTRAP\n<password>\n           -> "ok" / "no"   (wizard bootstrap)
     GRANT <json-request>\n<password>\n -> "ok" / "no <reason>"
 
 The second is the *only* way an "Ask a grown-up" request is ever granted
@@ -53,6 +54,7 @@ DEFAULT_ASK_BIN = "/usr/bin/omarchy-kids-ask"
 
 GRANT_PREFIX = "GRANT "
 BOOTSTRAP_PREFIX = "BOOTSTRAP"
+VERIFY_PREFIX = "VERIFY"
 
 _LIBCRYPT = None
 
@@ -334,6 +336,12 @@ def handle_bootstrap(password: bytes, conn: socket.socket, cfg, limiter: RateLim
     return b"no\n"
 
 
+def handle_verify(password: bytes, conn: socket.socket, cfg, limiter: RateLimiter) -> bytes:
+    if verify(password, cfg.parent, cfg.shadow, limiter, peer_uid(conn)):
+        return b"ok\n"
+    return b"no\n"
+
+
 def read_candidate_line(conn: socket.socket, buf: bytearray) -> "bytes | None":
     """One newline-terminated line of at most MAX_LINE bytes; bytes after it stay in buf for
     the next call (a GRANT's password usually arrives in the same chunk). None on anything
@@ -373,15 +381,16 @@ def handle_client(conn: socket.socket, cfg, limiter: RateLimiter, slot=None):
                     reply = b"no missing password\n"
                 else:
                     reply = handle_grant(header, password, conn, cfg, limiter)
-            elif header == BOOTSTRAP_PREFIX:
+            elif header in (BOOTSTRAP_PREFIX, VERIFY_PREFIX):
                 password = read_candidate_line(conn, buf)
                 if password is None:
                     reply = b"no missing password\n"
-                else:
+                elif header == BOOTSTRAP_PREFIX:
                     reply = handle_bootstrap(password, conn, cfg, limiter)
+                else:
+                    reply = handle_verify(password, conn, cfg, limiter)
             else:
-                ok = verify(first, cfg.parent, cfg.shadow, limiter, peer_uid(conn))
-                reply = b"ok\n" if ok else b"no\n"
+                reply = b"no\n"
         try:
             conn.sendall(reply)
         except OSError:

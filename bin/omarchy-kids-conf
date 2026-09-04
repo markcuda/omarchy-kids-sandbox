@@ -194,15 +194,15 @@ pack_value() { # BAND KEY(allowlist|sites) -> comma list, or exit 2
 resolve() {
   local kid="$1" key="$2" profile band value row type required source group label editor validator enum min max reset
   profile="$(profile_file "$kid")"
- row="$(schema_row "$key")" || die "no schema entry for '$key' (this is a bug)"
- IFS='|' read -r key type required source group label editor validator enum min max reset <<<"$row"
+  row="$(schema_row "$key")" || die "no schema entry for '$key' (this is a bug)"
+  IFS='|' read -r key type required source group label editor validator enum min max reset <<<"$row"
 
   if value="$(conf_get "$profile" "$key")"; then
     printf '%s\toverride\n' "$value"
     return 0
   fi
 
- if [[ "$required" == yes ]]; then
+  if [[ "$required" == yes ]]; then
     die "kid '$kid' has no '$key' set and it has no default (see docs/conf.md)"
   fi
 
@@ -210,23 +210,23 @@ resolve() {
     die "kid '$kid' has no band set; cannot resolve '$key'"
   fi
 
- case "$source" in
-   band)
-     value="$(band_get "$band" "$key")"
-     printf '%s\tband\n' "$value"
-     ;;
-   pack)
-     value="$(pack_value "$band" "$key")"
-     printf '%s\tband\n' "$value"
-     ;;
-   global)
-     value="$(global_default "$key")" || die "no default for '$key' (this is a bug)"
-     printf '%s\tdefault\n' "$value"
-     ;;
-   *)
-     die "no default for '$key' (this is a bug)"
-     ;;
- esac
+  case "$source" in
+    band)
+      value="$(band_get "$band" "$key")"
+      printf '%s\tband\n' "$value"
+      ;;
+    pack)
+      value="$(pack_value "$band" "$key")"
+      printf '%s\tband\n' "$value"
+      ;;
+    global)
+      value="$(global_default "$key")" || die "no default for '$key' (this is a bug)"
+      printf '%s\tdefault\n' "$value"
+      ;;
+    *)
+      die "no default for '$key' (this is a bug)"
+      ;;
+  esac
 }
 
 cmd_get() {
@@ -270,7 +270,7 @@ manifest_follow_profile() {
 cmd_show() {
   local kid="${1:?omarchy-kids-conf show <kid>}" key out value source
   printf '%-20s %-30s %s\n' KEY VALUE SOURCE
- for key in "${SCHEMA_KEYS[@]}"; do
+  for key in "${SCHEMA_KEYS[@]}"; do
     out="$(resolve "$kid" "$key")"
     value="${out%%$'\t'*}"
     source="${out##*$'\t'}"
@@ -282,12 +282,12 @@ cmd_reset() {
   local kid="${1:?omarchy-kids-conf reset <kid>}" profile key
   profile="$(profile_file "$kid")"
   [[ -e "$profile" ]] || die "kid '$kid' has no profile ($profile)"
- for key in "${SCHEMA_KEYS[@]}"; do
-   local row type required source group label editor validator enum min max reset
-   row="$(schema_row "$key")"
+  for key in "${SCHEMA_KEYS[@]}"; do
+    local row type required source group label editor validator enum min max reset
+    row="$(schema_row "$key")"
     # shellcheck disable=SC2034 # positional fields keep the schema row aligned
-   IFS='|' read -r key type required source group label editor validator enum min max reset <<<"$row"
-   [[ "$reset" == keep ]] && continue
+    IFS='|' read -r key type required source group label editor validator enum min max reset <<<"$row"
+    [[ "$reset" == keep ]] && continue
     conf_del "$profile" "$key"
   done
   manifest_follow_profile "$kid"

@@ -97,9 +97,9 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
     `remove` until Remove Kids Mode takes the package out.
 15. **theme.conf.user** (R-LOGIN, issue #39): `/usr/share/sddm/themes/omarchy-kids/theme.conf.user`
     (root-owned 0644) is rebuilt in full from every kid profile under `$OMARCHY_KIDS_ETC/kids/*.conf`
-    plus `machine.conf`'s `parent=` — `[General]` keys `parent=<owner>` and
-    `kids=<account>:<name>:<avatar>,...` — so `Main.qml` can decide the parent tile and each kid's
-    name/avatar from the profile registry, never from the `kid-` username prefix (`docs/portal.md`'s
+    plus `machine.conf`'s `parent=` and the `omarchy-parents`/`wheel` members — `[General]` keys
+    `parent=<owner>`, `parents=<parent>,...`, and `kids=<account>:<name>:<avatar>,...` — so
+    `Main.qml` can allow only profiled kids and parent accounts from the profile registry, never from the `kid-` username prefix (`docs/portal.md`'s
     "Verified live" section: a VM whose owner account happened to be named `kid-vm` broke that
     heuristic). SDDM's own `ThemeConfig` loads this file automatically next to `theme.conf`
     (`docs/portal.md` has the citation) — an earlier design wrote a separate `portal.json` and a

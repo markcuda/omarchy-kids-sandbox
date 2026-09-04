@@ -23,7 +23,7 @@ license=('MIT')
 # quickshell: the modals and the Level 1 launcher exec it (#32). hyprland, sddm: the kid session
 # and the portal. Omarchy itself comes from its own installer, so it cannot be listed;
 # omarchy-kids-check reports when its files are missing. docs/packaging.md has the reasoning.
-depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg' 'networkmanager' 'quickshell' 'hyprland' 'sddm')
+depends=('bash' 'gum' 'jq' 'python' 'cryptsetup' 'polkit' 'sudo' 'systemd' 'qt6-svg' 'qt6-5compat' 'networkmanager' 'quickshell' 'hyprland' 'sddm')
 # snapper and limine-snapper-sync are guarded with command -v: skipped, never failed (#38).
 optdepends=(
 	'socat: faster transport between omarchy-kids-parent-auth and omarchy-kids-authd'

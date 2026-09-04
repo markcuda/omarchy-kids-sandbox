@@ -3,6 +3,7 @@
 // See docs/portal.md for the upstream source citations and unverified list.
 
 import QtQuick 2.0
+import Qt5Compat.GraphicalEffects
 
 Rectangle {
     id: root
@@ -21,7 +22,7 @@ Rectangle {
     readonly property color colError: config.errorColor || "#f7768e"
     readonly property string fontFam: config.fontFamily || "JetBrainsMono Nerd Font"
 
-    // --- theme.conf.user (issue #39): parent + per-kid name/avatar data,
+    // --- theme.conf.user (issues #39/#100): parent + per-kid name/avatar data,
     // parsed once at startup out of the SAME "config" QQmlPropertyMap
     // theme.conf's own colors already come through (ThemeConfig::setTo(),
     // docs/portal.md) -- no XHR, no file:// URL. A property, not an
@@ -30,12 +31,20 @@ Rectangle {
     // (lib/posture.sh's posture_portal_conf_text) is
     // "<account>:<name>:<avatar>,<account>:<name>:<avatar>,...".
     function parsePortalConfig() {
-        var result = { parent: "", kids: {}, loaded: false }
+        var result = { parent: "", parents: {}, kids: {}, loaded: false }
         try {
             var parentVal = config.parent ? String(config.parent) : ""
+            var parentsVal = config.parents ? String(config.parents) : ""
             var kidsVal = config.kids ? String(config.kids) : ""
-            if (parentVal.length > 0 || kidsVal.length > 0) {
+            if (parentVal.length > 0 || parentsVal.length > 0 || kidsVal.length > 0) {
                 result.parent = parentVal
+                if (parentVal.length > 0) result.parents[parentVal] = true
+                if (parentsVal.length > 0) {
+                    var parentEntries = parentsVal.split(",")
+                    for (var p = 0; p < parentEntries.length; p++) {
+                        if (parentEntries[p].length > 0) result.parents[parentEntries[p]] = true
+                    }
+                }
                 if (kidsVal.length > 0) {
                     var entries = kidsVal.split(",")
                     for (var i = 0; i < entries.length; i++) {
@@ -48,33 +57,26 @@ Rectangle {
                 result.loaded = true
             }
         } catch (e) {
-            // config.parent/config.kids missing or malformed (a box with
-            // no kid provisioned yet, or a stray theme.conf.user).
-            // "loaded: false" below is what every fallback here checks for.
+            // Missing or malformed config leaves both allowlists empty, so
+            // no regular-account model row is admitted to the portal.
         }
         return result
     }
     readonly property var portalData: root.parsePortalConfig()
     readonly property string portalParent: portalData.parent
+    readonly property var portalParents: portalData.parents
     readonly property var portalKids: portalData.kids
     readonly property bool portalLoaded: portalData.loaded === true
 
     // --- kid-vs-parent (R-LOGIN-1: parent tile last and smaller) --------
-    // Before issue #39: AccountsService pins every kid account's name to
-    // "kid-<slug>" (docs/provision.md, Appendix B.1) and the parent was
-    // simply whoever was NOT that. That heuristic broke on a real VM
-    // whose *owner* account happened to be named "kid-vm" (docs/portal.md's
-    // "Verified live" section) -- so isParentAccount() below only uses it
-    // as a fallback for when theme.conf.user hasn't set config.parent at
-    // all; the primary answer is an exact match against config.parent,
-    // which omarchy-kids-provision derives from machine.conf's parent=
-    // line, never from account naming.
+    // The producer writes both the profile and parent allowlists; account
+    // naming is only retained for display fallback text.
     function isKidName(name) { return String(name).indexOf("kid-") === 0 }
     function isParentAccount(name) {
-        if (root.portalLoaded && root.portalParent.length > 0) {
-            return String(name) === root.portalParent
-        }
-        return !isKidName(name)
+        return root.portalParents && root.portalParents[String(name)] === true
+    }
+    function isPortalUser(name) {
+        return (root.portalKids && root.portalKids[String(name)] !== undefined) || root.isParentAccount(name)
     }
     // displayNameFor: realName (the passwd GECOS field, set once by
     // `omarchy-kids-provision`'s `usermod -c`, docs/provision.md) wins if
@@ -110,9 +112,8 @@ Rectangle {
     // behavior and needs no verification. Reordering the *view* itself
     // (kids first, parent last, R-LOGIN-1) is not possible on the model
     // directly with no C++ proxy model available here, so this hidden
-    // Repeater's only job is to read every row back into root.users once;
-    // the real, ordered, on-screen tiles are the second Repeater further
-    // down, bound to that plain array instead of to userModel directly.
+    // Repeater's only job is to read allowlisted rows back into root.users
+    // once; the ordered tiles use that plain array, not userModel directly.
     property var users: []
 
     Repeater {
@@ -120,14 +121,16 @@ Rectangle {
         delegate: Item {
             Component.onCompleted: {
                 var u = root.users
-                u.push({
-                    name: name,
-                    realName: realName,
-                    icon: icon,
-                    needsPassword: needsPassword,
-                    isParent: root.isParentAccount(name)
-                })
-                root.users = u
+                if (root.isPortalUser(name)) {
+                    u.push({
+                        name: name,
+                        realName: realName,
+                        icon: icon,
+                        needsPassword: needsPassword,
+                        isParent: root.isParentAccount(name)
+                    })
+                    root.users = u
+                }
                 if (index === userModel.count - 1) root.finishLoadingUsers()
             }
         }
@@ -151,7 +154,6 @@ Rectangle {
     // --- same harvest trick for sessionModel, so a kid's Enter always
     // lands on the omarchy-kids session and the parent's on omarchy --
     // exactly what the boot-time autologin path already assumes
-    // (docs/boot.md's luks-slots "guessed from the account name" rule)
     // -- and never a session picker (R-LOGIN-3). --------------------------
     property var sessionFiles: []  // [{index, base}], base = the .desktop file's basename
 
@@ -249,6 +251,7 @@ Rectangle {
                         width: tileItem.tileSize
                         height: tileItem.tileSize
                         radius: tileItem.tileSize / 2
+                        clip: true
                         color: tileItem.isCurrent ? root.colTileHighlight : (modelData.isParent ? root.colParentTile : root.colTile)
                         border.width: tileItem.isCurrent ? 4 : 0
                         border.color: root.colAccent
@@ -256,25 +259,37 @@ Rectangle {
                         // Avatar from the AccountsService Icon= path, or
                         // config.kids' own avatar id if that role comes
                         // back empty (avatarSourceFor(), issue #39;
-                        // docs/provision.md, R-LOGIN-1). Falls back to a
-                        // plain letter circle -- see the UNTESTED note at
-                        // the top of this file -- if the path is empty or
-                        // fails to load (status !== Ready covers both a
-                        // missing file and an SVG the image plugin can't
-                        // decode).
+                        // docs/provision.md, R-LOGIN-1).
+                        // Mask the fallback silhouette to the avatar circle.
                         Image {
                             id: avatarImage
                             anchors.fill: parent
                             anchors.margins: 8
                             source: root.avatarSourceFor(modelData)
                             fillMode: Image.PreserveAspectCrop
-                            visible: status === Image.Ready
+                            visible: false
                             asynchronous: true
+                        }
+
+                        Rectangle {
+                            id: avatarMask
+                            anchors.fill: avatarImage
+                            radius: width / 2
+                            color: root.colText
+                            visible: false
+                        }
+
+                        OpacityMask {
+                            id: avatarMaskedImage
+                            anchors.fill: avatarImage
+                            source: avatarImage
+                            maskSource: avatarMask
+                            visible: avatarImage.status === Image.Ready
                         }
 
                         Text {
                             anchors.centerIn: parent
-                            visible: !avatarImage.visible
+                            visible: avatarImage.status !== Image.Ready
                             text: root.displayNameFor(modelData.name, modelData.realName).charAt(0).toUpperCase()
                             color: root.colText
                             font.family: root.fontFam

@@ -2,7 +2,8 @@
 
 Budget and lights-out per kid, accounted while their session is active and unlocked. The root tick
 owns elapsed-time calculation, the `allowed`/`warning`/`grace`/`finishing` decision, session
-locking, and session finish. This is issue #23 plus issue #68, ticket 1, and issue #69, ticket 2.
+locking, and session finish. This is issue #23 plus issue #68, ticket 1, issue #69, ticket 2,
+and issue #70, ticket 3.
 
 **Nothing here has run against a real Hyprland, Quickshell, or `loginctl`/systemd-logind** — see
 "What's unverified" below before trusting any of it in front of a kid.
@@ -83,9 +84,9 @@ build-time seam for deterministic tests. No inherited value selects the root clo
 7. Refreshes `/run/omarchy-kids/status.json` and folds launch logs. Those auxiliary writes remain
    best-effort; a runtime-state or ledger write failure does not become `allowed`.
 
-Ticket 2 moves the lock and finish side effects into this root tick. The existing kid-side display
-path stays in place for compatibility until ticket 3, but killing it no longer prevents the root
-tick from enforcing the boundary.
+Tickets 1 and 2 moved accounting, decisions, locking, and finishing into the root tick. Ticket 3
+leaves the kid-side path as a compatibility display adapter; killing it no longer prevents root
+enforcement or changes the authority state.
 
 Requires root, through `lib/kids.sh`'s `is_root`. There is no environment escape: nothing a kid
 can set may decide whether a root check happens (`AGENTS.md` rule 9). A test that has to be root
@@ -103,44 +104,24 @@ omarchy-kids-time status [<kid>]   # minutes used, left, and when they run out
 omarchy-kids-time grant <kid> <n>  # root only: +n minutes to <kid>'s budget, today only
 ```text
 
-`status` (default `<kid>`: this account) prints two lines:
+`status` (default `<kid>`: this account) reads and validates that kid's root runtime document:
 
 ```text
 $ omarchy-kids-time status kid-ada
-kid-ada: 23 min used, 37 min left today (budget 60)
-lights-out at 19:30
+kid-ada: state=warning, reason=budget, remaining=300 seconds
 ```text
 
-`grant` adds to a *separate* `usage/<day>.grant` file, never subtracted from `usage/<day>` itself
-— "used" always means "used", and "budget" for the day is `budget_min(_weekend) + grant`
-(R-TIME-4: "'More time' extends today's budget only", i.e. just today's file, never tomorrow's).
-It refuses to run as anyone but root, through `lib/kids.sh`'s `is_root` — nothing in
-this issue calls it from a kid session; it exists for a parent (or a future panel/bar widget,
-R-BAR-2) to run directly.
+`grant` adds to a *separate* `usage/<day>.grant` file and remains root-only. The root tick is the
+only code that recomputes budget, lights-out, and enforcement state.
 
 `daemon` polls every 30 s (`OMARCHY_KIDS_TIME_POLL_INTERVAL`) while *this session*
-(`$XDG_SESSION_ID`) is `Active=yes`/`LockedHint=no` and not paused:
+The daemon remains for compatibility with existing logged-in sessions. It reads only the current
+account's validated root document. It compares the root-published `warnings_fired` list with the
+list it has already displayed, then sends the newest published threshold to `toast.qml`. It never
+derives a threshold from remaining time. For root state `grace` or `finishing`, it asks
+`timesup.qml` to display; for `allowed` or `warning`, it hides that display. A missing or malformed
+state produces no display action.
 
-The daemon remains for compatibility with existing logged-in sessions. It can display warnings and
-the Time's Up screen, but those kid-side surfaces are no longer the enforcement authority. Root
-locks the session and finishes it even when this daemon or its overlay is absent. Ticket 3 removes
-the remaining kid-side finish capability.
-
-- remaining minutes crossing 10/5/1 **downward** (`lib/time.sh`'s `time_toast_thresholds` —
-  R-TIME-3, issue #40; SPEC.md's three thresholds, not the two a draft of this ticket floated —
-  the spec wins, per `AGENTS.md`) → `share/time/toast.qml`. A threshold fires only when the
-  remaining minutes last seen was above it and the current reading is at or below it (`previous >
-  threshold ≥ current`); a grant that raises remaining minutes back above a threshold un-fires it,
-  so it fires again the next time it's actually crossed, instead of the stale re-fire issue #40
-  reported live (a grant to 16 minutes re-triggered the already-shown "10 minutes left" toast).
-  Every check — fired or not — is logged with its previous/current values (`toast-check:` lines in
-  the session log) so a live run can be audited the same way this was found.
-- remaining ≤ 0, or the clock has reached lights-out → `share/time/timesup.qml` (R-TIME-4),
-  unless one is already up (pidfile-tracked -- see "The overlays are tracked by pidfile" below).
-  This overlay is now a compatibility display; the root tick locks and finishes independently.
-- if a grant (or a fresh day, or lights-out being pushed — see "Not built yet") clears the
-  deficit while Time's Up is showing, the daemon dismisses it (by pid, not `pkill -f`) and
-  resets the warning thresholds so they can fire again if things get low a second time.
 
 ## Warnings and Time's Up (R-TIME-3, R-TIME-4)
 
@@ -150,18 +131,12 @@ roughly 40px height (issue #40; UNVERIFIED, see "What's unverified" below) — a
 from 8 s), **no keyboard grab** — deliberately not layer-shell-exclusive, so a kid mid-task never
 loses focus to it.
 
-`share/time/timesup.qml`: full-screen, keyboard-exclusive (same `PanelWindow` +
-`WlrLayershell.layer: WlrLayer.Overlay` + `WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive`
-pattern verified live for `share/exit-modal/shell.qml`), a visible 60 s countdown, and two
-choices:
-
-- **Ask a grown-up for more time** — runs `omarchy-kids-ask time 15`, detached: R-ASK-1's own
-  modal opens over this screen (see below). Does *not* close the overlay or grant anything by
-  itself.
-- **Finish** — runs `omarchy-kids-exit --finish`, same as the exit modal's own Finish.
-
-After 60 s with no answer, it runs Finish itself (R-TIME-4: "terminate after 60 s unless a parent
-grants more").
+`share/time/timesup.qml` is full-screen and keyboard-exclusive (the same `PanelWindow` +
+`WlrLayershell` pattern as `share/exit-modal/shell.qml`). It reads the fixed root-state path,
+validates `grace`/`finishing`, and displays the countdown represented by root's
+`grace_deadline - last_tick`. Its one action is **Ask a grown-up for more time**. The local timer
+only animates that already-published deadline; it never finishes, grants, unlocks, or changes
+authority state. Root performs the 60-second finish transition independently.
 
 ### "Ask a grown-up" is R-ASK-1's own modal
 
@@ -188,8 +163,6 @@ alone.
 
 ## Not built in this issue
 
-- **Ticket 3 is not included here.** The kid daemon and Time's Up QML still contain today's display
-  and finish behavior; they remain compatibility code until the kid path is reduced to display only.
 - **Ticket 4 is not included here.** The systemd interval remains unchanged, and assert/live proof
   for the new runtime directory and root enforcement remain future work.
 
@@ -221,12 +194,9 @@ check.
 
 ## What's unverified (check in the VM before this ships)
 
-- Every Quickshell-specific name in `share/time/toast.qml` and `share/time/timesup.qml`.
-  `timesup.qml` reuses exactly the `PanelWindow`/`WlrLayershell`/`Quickshell.execDetached` pattern
-  already verified live for the exit modal (`docs/exit.md`'s "Verified live" section, 2026-09-02)
-  and needs no `Process`/stdin handling (neither button asks for a password — see "Ask a grown-up"
-  above for why that's a placeholder rather than a real grant today), so it's lower-risk than
-  `toast.qml`'s non-exclusive layer-shell window, which is new territory for this repo.
+- Every Quickshell-specific name in `share/time/toast.qml` and `share/time/timesup.qml`, including
+  the `FileView` status reader and the fixed root-state path. The card's keyboard-only ask action
+  reuses the detached-command shape verified in `share/ask/shell.qml`.
 - `loginctl show-session <id> -p Active -p LockedHint`'s exact output shape on the real target
   (this repo has never run against a real `systemd-logind`) — `test/shell.d/time-test.sh` stubs
   it, so the *parsing* is tested, not the real command's actual output.
@@ -237,12 +207,15 @@ check.
 - `share/time/toast.qml`'s 96px top margin actually clearing `share/launcher/shell.qml`'s clock,
   and the 6 s auto-dismiss (issue #40) — arithmetic from both files' own anchors/font sizes, never
   checked against a real rendered frame of either.
-- The 1-minute toast and Time's Up firing by budget alone, not just lights-out (issue #40's other
-  open question from the "Verified live" note below) — `test/shell.d/time-test.sh`'s daemon
-  `--oneshot` checks prove the decision and the `toast-check:` log line's shape; a kid actually
-  seeing either on a real session is still unconfirmed.
+- The kid adapter reflecting a live root warning/grace document and hiding the card after a root
+  grant; the shell test covers the fixed state fixtures, but a kid seeing those surfaces in a real
+  session is still unconfirmed.
 
-## Verified live (2026-09-02, QEMU test VM)
+## Verified live (2026-09-02, QEMU test VM; ticket 2)
+
+The evidence below predates ticket 3 and records the former kid-side display/finish behavior. The
+root enforcement proof remains valid; the new display-only adapter and root-state-reading card
+still need a fresh VM run.
 
 The kid-side daemon starts with the session (`omarchy-kids-session-start` line in the session
 log). The lights-out rule fired the full-screen Time's Up overlay at login for a 6-8 kid at

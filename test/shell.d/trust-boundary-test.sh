@@ -257,5 +257,21 @@ else
   ok "trust boundary: no shell read of the kid's runtime log"
 fi
 
+# The kid time path may display root's decision, but it must not make one.
+if hits="$(grep -nE 'time_remaining_minutes|time_is_lights_out|time_toast_thresholds|loginctl|omarchy-kids-exit|--finish' \
+  bin/omarchy-kids-time share/time/timesup.qml 2>/dev/null)"; then
+  bad "trust boundary: kid time display still contains policy or finish capability:"
+  printf '     %s\n' "$hits"
+else
+  ok "trust boundary: kid time display has no policy transition or finish capability"
+fi
+if grep -q 'time_state_read' bin/omarchy-kids-time &&
+  grep -q 'grace_deadline' share/time/timesup.qml &&
+  grep -q 'omarchy-kids-ask' share/time/timesup.qml; then
+  ok "trust boundary: kid time display reads root state and keeps the ask action"
+else
+  bad "trust boundary: kid time display lost root state or ask wiring"
+fi
+
 echo "trust-boundary-test RESULT: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"
 exit $fail

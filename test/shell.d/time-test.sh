@@ -135,10 +135,17 @@ kids_set_const "$TIME" SHARE "$SHARE"
 kids_set_const "$TIME" SYSROOT "$ROOT"
 kids_set_const "$TIME" TIME_NOW_FILE "$NOW_FILE"
 kids_set_const "$TIME" RUN "$TMP/run"
+kids_set_const "$TIME" QUICKSHELL_BIN "$TMP/tree/bin/quickshell"
 kids_stub "$TMP/tree" omarchy-kids-exit <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >>"$FINISH_LOG"
 exit "\${FINISH_RC:-0}"
+EOF
+kids_stub "$TMP/tree" quickshell <<EOF
+#!/bin/bash
+printf 'argv=%s toast=%s account=%s name=%s avatar=%s\n' \\
+  "\$*" "\${OMARCHY_KIDS_TOAST_TEXT:-}" "\${OMARCHY_KIDS_ACCOUNT:-}" \\
+  "\${OMARCHY_KIDS_NAME:-}" "\${OMARCHY_KIDS_AVATAR:-}" >>"$TMP/quickshell.log"
 EOF
 
 export PATH="$STUBS:$PATH"
@@ -188,47 +195,6 @@ out="$(python3 "$DIR/lib/time.py" logical-day "2026-09-05 10:00:00")"
 check "$(sed -n 2p <<<"$out")" "yes" "logical-day: 2026-09-05 (Saturday) is a weekend"
 
 # =========================================================================
-# lib/time.sh time_toast_thresholds: the pure decision behind R-TIME-3's
-# toasts (issue #40) -- fire only on a real downward crossing of 10/5/1,
-# and let a grant that raises remaining minutes back above a threshold
-# un-fire it so it can fire again the next time it's crossed. No files,
-# no clock -- sourced straight from lib/time.sh, table-tested here.
-# Row format: "previous|current|thresholds|fired-in|expect-fire|expect-fired-out"
-# (previous "" means "no previous value", the daemon's first-ever check).
-# =========================================================================
-
-# shellcheck source=lib/time.sh
-source "$DIR/lib/time.sh"
-
-toast_cases=(
-  # first-ever check ("" previous == +infinity, everything is a "drop")
-  "|15|10 5 1|||"        # above every threshold: nothing fires
-  "|8|10 5 1||10|10"     # starts already below 10
-  "|3|10 5 1||10 5|10 5" # starts already below 5: 10 marked too
-  # ordinary descent, one threshold crossed per step
-  "15|8|10 5 1||10|10"
-  "8|3|10 5 1|10|5|10 5"
-  "3|2|10 5 1|10 5||10 5"     # 2 > 1: the 1-minute mark not reached yet
-  "2|1|10 5 1|10 5|1|10 5 1"  # the exact 1-minute crossing (issue #40's 3rd ask)
-  "1|1|10 5 1|10 5 1||10 5 1" # a flat repeat poll on the same minute: no refire
-  # a grant mid-countdown -- the live bug this issue reported
-  "3|16|10 5 1|10 5||" # grant clears every threshold: no immediate refire
-  "16|9|10 5 1||10|10" # descending again afterward re-fires 10
-  "9|20|10 5 1|10||"   # a smaller grant only un-fires 10 (was already past it)
-  "9|7|10 5 1|10||10"  # a grant that doesn't reach back above 10: stays fired
-)
-for c in "${toast_cases[@]}"; do
-  IFS='|' read -r tprev tcurr tthresh tfired texpect_fire texpect_fired <<<"$c"
-  tout="$(time_toast_thresholds "$tprev" "$tcurr" "$tthresh" "$tfired")"
-  tgot_fire="$(sed -n 1p <<<"$tout")"
-  tgot_fired="$(sed -n 2p <<<"$tout")"
-  label="time_toast_thresholds(prev=${tprev:-none} curr=$tcurr fired={${tfired:-none}})"
-  check "$tgot_fire" "$texpect_fire" "$label fires {${texpect_fire:-none}}"
-  check "$tgot_fired" "$texpect_fired" "$label leaves fired-set {${texpect_fired:-none}}"
-done
-
-echo
-
 # =========================================================================
 # omarchy-kids-time-ledger tick
 # =========================================================================
@@ -351,6 +317,9 @@ set_clock 1660
 "$LEDGER" tick >/dev/null
 check "$(state_value state)" "warning" "tick: missing runtime state rebuilds from root ledgers"
 check "$(used_today 2026-09-03)" "55" "tick: state recovery leaves usage history unchanged"
+out="$("$TIME" status kid-ada)"
+check_contains "$out" "state=warning" "status: reflects the root-published state"
+check_contains "$out" "remaining=300 seconds" "status: reflects root-published remaining seconds"
 
 set_now "2026-09-03 20:00:00"
 set_clock 1720
@@ -380,45 +349,8 @@ check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "2" "tick: successful finish is idem
 echo
 
 # =========================================================================
-# budget/lights-out math: band defaults, overrides, weekday vs weekend
+# root status is the only kid-side status source; policy math remains root-only
 # =========================================================================
-
-set_now "2026-09-02 10:00:00" # a Wednesday
-CONF="$DIR/bin/omarchy-kids-conf"
-
-out="$("$TIME" status kid-ada)"
-check_contains "$out" "budget 60" "status: band 6-8's weekday default budget (60) with no override"
-check_contains "$out" "5 min used" "status: reflects today's ledger total (5, from the tick tests above)"
-check_contains "$out" "55 min left today" "status: 60 - 5 = 55 remaining"
-check_contains "$out" "budget runs out at 10:55" "status: budget (55 min from 10:00) runs out well before lights-out (19:30)"
-
-"$CONF" set kid-ada budget_min 90 >/dev/null
-out="$("$TIME" status kid-ada)"
-check_contains "$out" "budget 90" "status: a budget_min override wins over the band default"
-check_contains "$out" "85 min left today" "status: 90 - 5 = 85 remaining with the override"
-
-# A Saturday: budget_min_weekend/lights_out_weekend apply instead, and
-# the override above (weekday-only) does not carry over.
-set_now "2026-09-05 10:00:00"
-out="$("$TIME" status kid-ada)"
-check_contains "$out" "budget 60" "status: weekend uses budget_min_weekend (band default, no override set)"
-
-"$CONF" set kid-ada budget_min_weekend 30 >/dev/null
-set_now "2026-09-05 09:50:00"
-out="$("$TIME" status kid-ada)"
-check_contains "$out" "budget 30" "status: budget_min_weekend override applies on a Saturday"
-check_contains "$out" "budget runs out at 10:20" "status: next boundary picks the sooner of budget-out vs lights-out (budget wins here)"
-
-"$CONF" reset kid-ada >/dev/null
-
-# next boundary: lights-out wins when it comes before the budget would
-# run out (grant kid-ada a huge budget for today so lights-out is the
-# binding constraint).
-"$LEDGER" tick >/dev/null # bump used by one so remaining isn't a round number, just to be sure both paths compute independently
-"$TIME" grant kid-ada 500 >/dev/null
-set_now "2026-09-02 19:00:00"
-out="$("$TIME" status kid-ada)"
-check_contains "$out" "lights-out at 19:30" "status: lights-out wins when the budget would outlast it"
 
 echo
 
@@ -442,9 +374,8 @@ out="$("$TIME" grant kid-ada 15 2>&1)"
 st=$?
 check "$st" 0 "grant: exits 0 with the root bypass"
 check_contains "$out" "granted 15" "grant: says how many minutes it granted"
-
-out2="$("$TIME" status kid-ada)"
-check_contains "$out2" "+ 15 granted" "status: shows today's grant total"
+check "$(cat "$ROOT/var/lib/omarchy-kids/kid-ada/usage/2026-09-10.grant")" "15" \
+  "grant: writes today's separate grant ledger"
 
 "$TIME" grant kid-ada 0 >/dev/null 2>&1
 check "$?" 2 "grant: refuses a zero amount"
@@ -456,17 +387,13 @@ check "$?" 2 "grant: refuses a non-numeric amount"
 echo
 
 # =========================================================================
-# daemon: fires toasts on the way down, hits Time's Up at 0 by budget
-# (not just lights-out), and logs every check with previous/current so
-# a live run can be audited (issue #40's 3rd ask). --oneshot runs one
-# poll and returns, so each call below starts with no previous value --
-# the time_toast_thresholds table above is what proves the across-poll
-# reset/refire behavior; this proves the daemon actually wires that
-# function up and logs what it decided, using the real command, not a
-# stub.
+# daemon: reflects root's status only. A missing state does nothing; a
+# root-published warning fires the matching display; grace opens Time's
+# Up. The display path never computes a budget or invokes finish.
 # =========================================================================
 
 DAEMON_DAY="2026-09-16" # a fresh day, untouched by the tests above
+CONF="$DIR/bin/omarchy-kids-conf"
 set_now "$DAEMON_DAY 10:00:00"
 "$CONF" set kid-ada budget_min 12 >/dev/null
 "$CONF" set kid-ada budget_min_weekend 12 >/dev/null
@@ -479,30 +406,52 @@ kids_set_const "$TIME" RUN "$DAEMON_RUN"
 export XDG_SESSION_ID=1
 set_sessions "1 1000 kid-ada yes no"
 
-# run_daemon_oneshot USED_MINUTES — writes USED_MINUTES to $DAEMON_DAY's
-# ledger file, runs one daemon poll against it, and prints the fresh
-# session log.
+# run_daemon_oneshot STATE_WRITER — writes a root-owned status fixture,
+# runs one display poll, and prints the adapter log.
+STATE_FILE="$ROOT/run/omarchy-kids/time/kid-ada.json"
+write_state() {
+  local state="$1" warnings="$2" remaining="$3" grace="$4" last="$5"
+  install -d -m 0750 "$(dirname "$STATE_FILE")"
+  jq -n --arg state "$state" --argjson warnings "$warnings" \
+    --argjson remaining "$remaining" --argjson grace "$grace" \
+    --argjson last "$last" \
+    '{kid: "kid-ada", logical_day: "2026-09-16", last_wall: "2026-09-16 10:00:00",
+      state: $state, reason: "budget", remaining_seconds: $remaining,
+      grace_deadline: $grace, last_tick: $last, active_seconds_remainder: 0,
+      warnings_fired: $warnings,
+      enforcement: {action: "none", reason: "none", result: "none", at: ""}}' \
+    >"$STATE_FILE"
+  chmod 0640 "$STATE_FILE"
+}
+
 run_daemon_oneshot() {
   rm -rf "$DAEMON_RUN"
   mkdir -p "$DAEMON_RUN"
-  echo "$1" >"$DAEMON_USAGE_DIR/$DAEMON_DAY"
+  rm -f "$TMP/quickshell.log"
+  "$@"
   OMARCHY_KIDS_TIME_DAEMON_ONESHOT=1 "$TIME" daemon >/dev/null 2>&1
-  cat "$DAEMON_LOG" 2>/dev/null
+  sleep 1
+  cat "$DAEMON_LOG" "$TMP/quickshell.log" 2>/dev/null
 }
 
-log_out="$(run_daemon_oneshot 8)" # budget 12, used 8: 4 min remaining
-check_contains "$log_out" "toast-check: kid='kid-ada' previous=none current=4 fired={10 5} firing={10 5}" \
-  "daemon: logs previous/current and picks up both thresholds a lagging tick jumped past at once"
-check_contains "$log_out" "toast: 5 minutes left" "daemon: shows only the most urgent of the thresholds crossed (5, not a stale 10)"
+rm -f "$STATE_FILE"
+log_out="$(run_daemon_oneshot true)"
+check "$log_out" "" "daemon: missing root status does nothing"
 
-log_out="$(run_daemon_oneshot 11)" # budget 12, used 11: exactly 1 min remaining
-check_contains "$log_out" "current=1 fired={10 5 1} firing={10 5 1}" \
-  "daemon: the 1-minute mark is caught exactly (issue #40's 3rd ask), never skipped between polls"
-check_contains "$log_out" "toast: 1 minute left" "daemon: shows the 1-minute toast, singular"
+write_warning_state() { write_state warning '[10,5]' 240 0 1000; }
+log_out="$(run_daemon_oneshot write_warning_state)"
+check_contains "$log_out" "argv=-p $SHARE/time/toast.qml toast=5 minutes left" \
+  "daemon: root warning state drives the most urgent published warning"
+check_not_contains "$log_out" "timesup.qml" "daemon: warning state does not open Time's Up"
 
-log_out="$(run_daemon_oneshot 12)" # budget 12, used 12: 0 remaining -> Time's Up by budget, not lights-out
-check_contains "$log_out" "time's up shown for 'kid-ada'" "daemon: Time's Up fires at 0 remaining by budget (issue #40's other open question)"
-check_not_contains "$log_out" "toast-check" "daemon: no toast-check logged once Time's Up has taken over"
+write_grace_state() { write_state grace '[]' 0 1060 1000; }
+log_out="$(run_daemon_oneshot write_grace_state)"
+check_contains "$log_out" "argv=-p $SHARE/time/timesup.qml" \
+  "daemon: root grace state opens the display-only Time's Up card"
+check_not_contains "$log_out" "omarchy-kids-exit" \
+  "daemon: root grace state does not invoke the finish command"
+check_not_contains "$(cat "$DIR/share/time/timesup.qml")" "omarchy-kids-exit" \
+  "timesup: overlay contains no finish command"
 
 "$CONF" reset kid-ada >/dev/null
 unset XDG_SESSION_ID

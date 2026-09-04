@@ -531,8 +531,20 @@ case "\${1:-}" in
 esac
 if [[ "\$target" == "$BOOT_ETC" || "\$target" == "$BOOT_ETC/machine.conf" ]]; then
   case "\$format" in
-    %u) [[ -e "$TMP/unsafe-owner" || -e "$TMP/unsafe-dir-owner" ]] && echo 501 || echo 0 ;;
-    %G | %Sg) [[ -e "$TMP/unsafe-owner" || -e "$TMP/unsafe-dir-owner" ]] && echo staff || echo root ;;
+    %u)
+      if [[ "\$target" == "$BOOT_ETC" ]]; then
+        [[ -e "$TMP/unsafe-dir-owner" ]] && echo 501 || echo 0
+      else
+        [[ -e "$TMP/unsafe-file-owner" ]] && echo 501 || echo 0
+      fi
+      ;;
+    %G | %Sg)
+      if [[ "\$target" == "$BOOT_ETC" ]]; then
+        [[ -e "$TMP/unsafe-dir-owner" ]] && echo staff || echo root
+      else
+        [[ -e "$TMP/unsafe-file-owner" ]] && echo staff || echo root
+      fi
+      ;;
     %a) exec "$REAL_STAT" -c '%a' "\$target" ;;
     %Lp) exec "$REAL_STAT" -f '%Lp' "\$target" ;;
     %i) if [[ "\${1:-}" == -c ]]; then exec "$REAL_STAT" -c '%i' "\$target"; else exec "$REAL_STAT" -f '%i' "\$target"; fi ;;
@@ -590,16 +602,23 @@ out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
 check_status "$?" 1 "machine get boot: group/world-writable state exits 1"
 check "$out" "" "machine get boot: unsafe mode has no stdout"
 chmod 0644 "$BOOT_ETC/machine.conf"
-touch "$TMP/unsafe-owner"
+touch "$TMP/unsafe-file-owner"
 out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
 check_status "$?" 1 "machine get boot: wrong owner exits 1"
-rm -f "$TMP/unsafe-owner"
+check "$out" "" "machine get boot: wrong file owner has no stdout"
+rm -f "$TMP/unsafe-file-owner"
 
 chmod 0775 "$BOOT_ETC"
 out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
 check_status "$?" 1 "machine get boot: user-writable parent exits 1"
 check "$out" "" "machine get boot: user-writable parent has no stdout"
 chmod 0755 "$BOOT_ETC"
+
+touch "$TMP/unsafe-dir-owner"
+out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
+check_status "$?" 1 "machine get boot: wrong directory owner exits 1"
+check "$out" "" "machine get boot: wrong directory owner has no stdout"
+rm -f "$TMP/unsafe-dir-owner"
 
 SYMLINK_ETC="$TMP/boot-etc-link"
 mkdir -p "$TMP/real-boot-etc"

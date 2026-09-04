@@ -460,12 +460,6 @@ with a stub PATH for gum/pacman/sudo and stub omarchy-kids-provision/
   OMARCHY_KIDS_SHARE            default /usr/share/omarchy-kids
                                  KIDS_TIMERS list Apply shares with
                                  omarchy-kids-assert, issue #46)
-  OMARCHY_KIDS_INVOKING_USER     who Apply's first step writes into
-                                 machine.conf's parent= (default: `id -un`,
-                                 since the wizard itself always runs
-                                 unprivileged, as the parent; tests pin
-                                 this instead of depending on whoever runs
-                                 the suite -- issue #46)
   OMARCHY_KIDS_SETUP_LOG         the technical log Apply writes to (R-WIZ-5;
                                  default /var/log/omarchy-kids/setup.log). A
                                  real run creates it (`sudo install -d` then

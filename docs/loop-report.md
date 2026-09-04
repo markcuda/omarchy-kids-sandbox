@@ -220,3 +220,31 @@ repo clone. After the real Remove run the wizard re-provisioned Cy for real and 
 password landed on the launcher again, which closes the cycle; the older kids' files are under
 the owner's "Kids Mode" folder; the owner `kid-vm` is in `omarchy-parents` and has the bar widget enabled. The
 scratchpad on the Mac holds only the driving scripts; every screenshot was deleted after viewing.
+
+## 2026-09-04, small hours: the Air itself becomes the target
+
+Mark's order at 03:30: no AUR upload, no hub PR; install on the Air itself, dogfood on real
+hardware, spawn gpt-5.6-sol agents, best work. GOAL.md's definition of done changed to match.
+
+- #70 (spec 02 ticket 3, the kid path is display only) merged after the VM gate passed twice;
+  the first failure was a host-coupled conf test (it scanned the VM's real desktop entries), now
+  isolated with `OMARCHY_KIDS_ROOT`. #71 is being drafted; #72 (config schema) is in a
+  review loop: a sol maintainer review said FIX FIRST (package-owned schema path, band-derived
+  dns/history sources, parent-theme source, strict schema validation, missing reject tests) and
+  luna is fixing.
+- First two walkthrough videos recorded on the VM from QMP frames: the kid's day (delivered)
+  and the parent's setup (not delivered yet: the take ran while the VM was busy with the unit
+  gate, so gum screens rendered late and one keystroke landed on the wrong screen; the apply
+  step then showed a sudo prompt in the terminal). Re-recording on an idle VM before judging.
+- sol wrote the Air install plan and its verdict is the important finding of the night: the
+  package's disk path (LUKS slot per kid, initramfs hook, UKI rebuild, Limine entry, run from
+  assert on every pacman transaction once a kid exists) is a boot risk on an encrypted laptop
+  whose passphrase nobody will type for us, and the boot-login unit forces the portal by
+  writing an empty `User=` when no slot is recorded, contrary to its own comment. There is no
+  supported way to run Kids Mode without the disk path.
+- Decision (mine, under Mark's "I trust you fully"): make a portal-only boot mode first class
+  instead of hand-quarantining units on the Air. sol is writing docs/specs/07-boot-mode.md: a
+  root-owned `boot=disk|portal` machine setting, read by provision, assert, boot-login, remove and
+  the pacman hook, chosen by the wizard from detection and overridable; it also fixes the
+  boot-login bug, the wizard's passwordless-sudo password check (accepts anything), and the
+  apply step's second prompt. The Air install follows spec 07's first tickets, in portal mode.

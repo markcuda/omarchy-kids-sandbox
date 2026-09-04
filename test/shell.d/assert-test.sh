@@ -36,6 +36,15 @@ check_contains() { # haystack needle label
 check_eq() { # got want label
   if [[ "$1" == "$2" ]]; then pass "$3"; else fail "$3 (want '$2', got '$1')"; fi
 }
+wait_for_file() { # FILE PID: wait up to 30 seconds while PID is alive
+  local file="$1" pid="$2"
+  for _ in {1..3000}; do
+    [[ -f "$file" ]] && return 0
+    kill -0 "$pid" 2>/dev/null || return 1
+    sleep 0.01
+  done
+  return 1
+}
 # line_status OUTPUT LOCK — the status word ("ok"/"fixed"/"FAIL"/"" if
 # absent) that OUTPUT's line for LOCK starts with.
 line_status() {
@@ -182,21 +191,25 @@ else
     cat "__LOG__/groups/$acct" 2>/dev/null || true
 fi
 '
-# flock: an inter-process test lock that stays held until the owning command
-# calls -u. FORCE_LOCK_TIMEOUT makes a bounded acquisition fail immediately.
+# flock: use the host implementation where available, so the Omarchy gate
+# exercises the real fd lock. The Mac fallback has the same held/unlock shape.
+REAL_FLOCK="$(command -v flock || true)"
 LOCK_HELD="$TMP/boot-mode-held"
 LOCK_OWNER="$TMP/boot-mode-owner"
 FORCE_LOCK_TIMEOUT="$TMP/boot-mode-force-timeout"
 cat >"$STUBS/flock" <<EOF
 #!/bin/bash
 printf 'flock %s\n' "\$*" >> "$ARGV_LOG"
+[[ ! -e "$FORCE_LOCK_TIMEOUT" ]] || exit 1
+if [[ -n "$REAL_FLOCK" ]]; then
+  exec "$REAL_FLOCK" "\$@"
+fi
 if [[ "\${1:-}" == -u ]]; then
   if [[ "\$(cat "$LOCK_OWNER" 2>/dev/null || true)" == "\$PPID" ]]; then
     rm -rf "$LOCK_HELD" "$LOCK_OWNER"
   fi
   exit 0
 fi
-[[ ! -e "$FORCE_LOCK_TIMEOUT" ]] || exit 1
 wait_count=500
 if [[ "\${1:-}" == -w ]]; then
   shift 2
@@ -498,7 +511,9 @@ touch "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock"
 mkdir -p "$SCRATCH_ROOT/boot" "$SCRATCH_ROOT/etc/default"
 printf 'editor_enabled: no\ndefault_entry: 2\n' >"$SCRATCH_ROOT/boot/limine.conf"
 printf 'MAX_SNAPSHOT_ENTRIES=0\n' >"$SCRATCH_ROOT/etc/default/limine"
-touch "$SCRATCH_ROOT/boot/EFI/Linux/arch-linux.efi"
+UKI_FIXTURE="$SCRATCH_ROOT/boot/EFI/Linux/arch-linux.efi"
+touch "$UKI_FIXTURE"
+export OMARCHY_KIDS_UKI="$UKI_FIXTURE"
 echo "usr/lib/initcpio/hooks/omarchy-kids-unlock" >"$LOG/lsinitcpio-output"
 
 # --- --help / bad args ------------------------------------------------
@@ -990,6 +1005,7 @@ check_status "$out" "limine-editor" "warn" \
 rm -rf "$LIMINE_STUB"
 
 mv "$SCRATCH_ROOT/hook.bak" "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock"
+printf 'editor_enabled: no\ndefault_entry: 2\n' >"$SCRATCH_ROOT/boot/limine.conf"
 
 # --- boot-mode gate and the exact pacman argv ---------------------------
 
@@ -1027,7 +1043,7 @@ touch "$TMP/check-armed"
 : >"$ARGV_LOG"
 PATH="$RACE_STUBS:$PATH" "$BIN" >"$TMP/check-race.out" 2>&1 &
 assert_pid=$!
-for _ in {1..500}; do [[ -f "$CHECK_REACHED" ]] && break; sleep 0.01; done
+wait_for_file "$CHECK_REACHED" "$assert_pid" || true
 check_eq "$(test -f "$CHECK_REACHED" && echo reached)" "reached" "mode race before check: assert reaches the protected boot action"
 PATH="$RACE_STUBS:$PATH" BOOT_TEST_ROOT=1 "$CONF" machine set boot portal >"$TMP/check-writer.out" 2>&1 &
 writer_pid=$!
@@ -1068,7 +1084,7 @@ conf_set "$ETC/machine.conf" boot disk
 printf 'usr/lib/initcpio/hooks/some-other-hook\n' >"$LOG/lsinitcpio-output"
 PATH="$RACE_STUBS:$PATH" "$BIN" >"$TMP/repair-race.out" 2>&1 &
 assert_pid=$!
-for _ in {1..500}; do [[ -f "$REPAIR_REACHED" ]] && break; sleep 0.01; done
+wait_for_file "$REPAIR_REACHED" "$assert_pid" || true
 check_eq "$(test -f "$REPAIR_REACHED" && echo reached)" "reached" "mode race before repair: assert reaches mkinitcpio after the failed check"
 PATH="$RACE_STUBS:$PATH" BOOT_TEST_ROOT=1 "$CONF" machine set boot portal >"$TMP/repair-writer.out" 2>&1 &
 writer_pid=$!

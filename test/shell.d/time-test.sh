@@ -361,6 +361,7 @@ check "$(state_value grace_deadline)" "1780" "tick: lights-out grace gets a sixt
 check "$(enforcement_value action)" "lock" "tick: lights-out records the root lock action"
 check "$(enforcement_value reason)" "lights-out" "tick: state records why root locked at lights-out"
 check "$(enforcement_value result)" "success" "tick: lights-out lock succeeds"
+check "$(enforcement_value at)" "2026-09-03 20:00:00" "tick: enforcement record uses the fixed wall-clock reading"
 check "$(wc -l <"$LOCK_LOG" | tr -d ' ')" "2" "tick: lights-out requests one additional root lock"
 set_clock 1780
 FINISH_RC=1 "$LEDGER" tick >/dev/null

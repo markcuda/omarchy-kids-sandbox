@@ -1,6 +1,7 @@
 #!/bin/bash
 # Tests bin/omarchy-kids-assert (SPEC.md I-4, R-TRUST-5, R-BOOT-5, R-WEB-1,
-# R-TIMEAUTH-5, R-TIMEAUTH-7, R-FND-2..6, §5.1): every lock it re-asserts,
+# R-BOOTMODE-6, R-BOOTMODE-11, R-BOOTMODE-12, R-TIMEAUTH-5,
+# R-TIMEAUTH-7, R-FND-2..6, §5.1): every lock it re-asserts,
 # one at a time, plus the no-profiles no-op and the "second run is all ok"
 # idempotence claim.
 #
@@ -17,9 +18,10 @@ set -uo pipefail
 
 # shellcheck source=test/shell.d/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=test/shell.d/tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-BIN="$ROOT_DIR/bin/omarchy-kids-assert"
 
 pass() { echo "PASS  $*"; }
 fail() {
@@ -76,7 +78,17 @@ touch "$ARGV_LOG"
 
 cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
+boot=disk
 EOF
+
+# The mode reader is a build-time constant. Test the command from a copied
+# package tree with that constant pointed at this root-owned fixture.
+TREE="$TMP/tree"
+kids_tree "$TREE" "$ROOT_DIR"
+rm -f "$TREE/lib"
+cp -a "$ROOT_DIR/lib" "$TREE/lib"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$ETC/machine.conf"
+BIN="$TREE/bin/omarchy-kids-assert"
 
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada Lovelace
@@ -116,6 +128,24 @@ EOF
   rm -f "$f.bak"
   chmod +x "$f"
 }
+
+# machine.conf is owned by this test user on disk; present the root ownership
+# the installed reader requires while leaving every other stat call real.
+REAL_STAT="$(command -v stat)"
+# shellcheck disable=SC2016
+stub stat '
+if [[ "${1:-}" == "--version" ]]; then exec __REAL_STAT__ "$@"; fi
+format="${2:-}"; target="${3:-}"
+if [[ "$target" == "__ETC__" || "$target" == "__ETC__/machine.conf" ]]; then
+    case "$format" in
+        %u) echo 0; exit 0 ;;
+        %G | %Sg) echo root; exit 0 ;;
+    esac
+fi
+exec __REAL_STAT__ "$@"
+'
+sed -i.bak -e "s#__REAL_STAT__#$REAL_STAT#g" -e "s#__ETC__#$ETC#g" "$STUBS/stat"
+rm -f "$STUBS/stat.bak"
 
 # findmnt: reports noexec,nosuid,nodev when "$LOG/mounted-<acct>" exists
 # (the marker `mount`'s remount branch below writes), else "not found".
@@ -911,6 +941,100 @@ check_status "$out" "limine-editor" "warn" \
 rm -rf "$LIMINE_STUB"
 
 mv "$SCRATCH_ROOT/hook.bak" "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-unlock"
+
+# --- boot-mode gate and the exact pacman argv ---------------------------
+
+TRACE_STUBS="$TMP/trace-stubs"
+mkdir -p "$TRACE_STUBS"
+trace_limine_paths() {
+  local tool="$1" real
+  real="$(type -P "$tool")"
+  cat >"$TRACE_STUBS/$tool" <<EOF
+#!/bin/bash
+for arg in "\$@"; do
+  case "\$arg" in
+    "$SCRATCH_ROOT/boot/limine.conf" | "$LIMINE_DEFAULT")
+      printf '%s %s\n' "$tool" "\$arg" >>"$ARGV_LOG"
+      ;;
+  esac
+done
+exec "$real" "\$@"
+EOF
+  chmod +x "$TRACE_STUBS/$tool"
+}
+for tool in cat chmod grep head mktemp mv; do trace_limine_paths "$tool"; done
+
+run_assert_clean() {
+  env -i PATH="$TRACE_STUBS:$PATH" OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_ROOT="$SCRATCH_ROOT" OMARCHY_KIDS_HOME_ROOT="$HOMEROOT" \
+    OMARCHY_PATH="$OMARCHY_PATH" "$BIN" "$@"
+}
+
+conf_set "$ETC/machine.conf" boot portal
+printf 'usr/lib/initcpio/hooks/some-other-hook\n' >"$LOG/lsinitcpio-output"
+printf 'editor_enabled: yes\ndefault_entry: 2\n' >"$SCRATCH_ROOT/boot/limine.conf"
+printf 'MAX_SNAPSHOT_ENTRIES=10\n' >"$LIMINE_DEFAULT"
+stub limine ''
+rm -f "$DENY_RULE"
+: >"$ARGV_LOG"
+limine_conf_before="$(cat "$SCRATCH_ROOT/boot/limine.conf")"
+limine_default_before="$(cat "$LIMINE_DEFAULT")"
+
+out="$(run_assert_clean)"
+st=$?
+check_eq "$st" 0 "portal mode: assert exits 0 after repairing a non-boot lock with env -i and no HOME"
+check_status "$out" "polkit-deny" "fixed" "portal mode: non-boot locks are still repaired"
+check_status "$out" "boot-locks:portal" "skip" "portal mode: boot locks are honestly reported as skipped"
+if grep -qE '^(ok|fixed|warn|FAIL|would-fix) +(boot-hook|limine-editor|limine-snapshots)$' <<<"$out"; then
+  fail "portal mode: a UKI or Limine lock was reported"
+else
+  pass "portal mode: no UKI or Limine lock is reported green"
+fi
+check_eq "$(cat "$SCRATCH_ROOT/boot/limine.conf")" "$limine_conf_before" \
+  "portal mode: limine.conf is unchanged"
+check_eq "$(cat "$LIMINE_DEFAULT")" "$limine_default_before" \
+  "portal mode: /etc/default/limine is unchanged"
+if grep -qE "(objcopy|lsinitcpio|mkinitcpio|limine|$SCRATCH_ROOT/boot/limine.conf|$LIMINE_DEFAULT)" "$ARGV_LOG"; then
+  fail "portal mode: assert invoked a UKI/Limine tool or passed a Limine path"
+else
+  pass "portal mode: assert records zero UKI/Limine calls and zero Limine paths"
+fi
+
+hook_exec="$(sed -n 's/^Exec = //p' "$ROOT_DIR/pacman/omarchy-kids.hook")"
+check_eq "$hook_exec" "/usr/bin/omarchy-kids-assert --quiet" "pacman hook: exact assert invocation is unchanged"
+read -r hook_bin hook_arg hook_extra <<<"$hook_exec"
+check_eq "$hook_bin" "/usr/bin/omarchy-kids-assert" "pacman hook: invokes the installed assert command"
+check_eq "$hook_arg" "--quiet" "pacman hook: passes only --quiet"
+check_eq "$hook_extra" "" "pacman hook: has no hidden extra argv"
+rm -f "$DENY_RULE"
+: >"$ARGV_LOG"
+out="$(run_assert_clean "$hook_arg")"
+st=$?
+check_eq "$st" 0 "pacman hook path: portal-mode repair exits 0"
+check_status "$out" "polkit-deny" "fixed" "pacman hook path: repairs the same non-boot lock"
+if grep -qE "(objcopy|lsinitcpio|mkinitcpio|limine|$SCRATCH_ROOT/boot/limine.conf|$LIMINE_DEFAULT)" "$ARGV_LOG"; then
+  fail "pacman hook path: portal mode touched UKI or Limine"
+else
+  pass "pacman hook path: portal mode records zero UKI/Limine access"
+fi
+
+conf_set "$ETC/machine.conf" boot invalid
+rm -f "$DENY_RULE"
+: >"$ARGV_LOG"
+out="$(run_assert_clean 2>&1)"
+st=$?
+check_eq "$st" 1 "invalid mode: assert exits 1"
+check_contains "$out" "trusted boot mode" "invalid mode: assert names the configuration failure"
+if [[ ! -e "$DENY_RULE" ]]; then
+  pass "invalid mode: assert mutates no non-boot lock"
+else
+  fail "invalid mode: assert changed state before rejecting the mode"
+fi
+if grep -qE "(objcopy|lsinitcpio|mkinitcpio|limine|$SCRATCH_ROOT/boot/limine.conf|$LIMINE_DEFAULT)" "$ARGV_LOG"; then
+  fail "invalid mode: assert touched UKI or Limine"
+else
+  pass "invalid mode: assert stops before UKI or Limine access"
+fi
 
 echo "assert-test RESULT: $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 exit $rc

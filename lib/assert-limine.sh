@@ -1,7 +1,7 @@
 # shellcheck shell=bash
-# lib/assert-limine.sh — omarchy-kids-assert's two Limine locks (V6,
-# issue #38). Sourced by the dispatcher; not meant to be executed
-# directly. docs/assert.md's "Two fixes from the 2026-09-03 review".
+# lib/assert-limine.sh — omarchy-kids-assert's disk-only Limine locks
+# (V6, issue #38). The dispatcher gates them before any path access.
+# Not meant to be executed directly. See docs/assert.md.
 
 limine_conf() { printf '%s/boot/limine.conf' "$(posture_root)"; }
 # Three-way: "no Limine at all" is ok, not warn (review S11, docs/assert.md).

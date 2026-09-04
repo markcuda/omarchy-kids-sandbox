@@ -3,6 +3,7 @@
 # package. Runs on install/upgrade/remove of *any* package, not just this
 # one, because an unrelated update (a kernel bump, a config-file overwrite)
 # is exactly the kind of thing that can silently drop a lock.
+# Assert's trusted reader owns the mode decision; this hook stays mode-blind.
 
 [Trigger]
 Operation = Install

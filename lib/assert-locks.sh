@@ -406,7 +406,7 @@ chromium_fix() {
   chown "root:$group" "$file"
 }
 
-# Boot hook (R-BOOT-5): checked only if the package's hook file is present.
+# Boot hook (R-BOOT-5): disk-only; the dispatcher gates before any UKI access.
 # shellcheck disable=SC2034 # read by the sourcing command (bin/omarchy-kids-assert) and lib/check-locks.sh
 HOOK_FILE="$(posture_root)/usr/lib/initcpio/hooks/omarchy-kids-unlock"
 find_uki() {

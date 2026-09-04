@@ -2,7 +2,7 @@
 # 30-portal-login-and-finish: from the portal, log in as the test kid, open the exit modal
 # (three Super taps within 1.5s), Finish with the parent password, and confirm the portal comes
 # back (SPEC.md §8 item 3; docs/exit.md's "Verified live" sequence, which this mirrors exactly:
-# Left/Enter/password to the launcher, triple Super, parent password, Enter on the preselected Finish).
+# Left/Enter/password to the launcher, triple Super, parent password, Enter on the only action).
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=test/live/lib.sh
@@ -39,7 +39,7 @@ for _ in 1 2 3; do
 done
 sleep 3
 qmp type "$LIVE_OWNER_PASSWORD" >/dev/null
-qmp enter >/dev/null # Finish is preselected while Pause has no mechanism (share/exit-modal/shell.qml)
+qmp enter >/dev/null # Finish is the modal's only action (share/exit-modal/shell.qml)
 
 if assert_no_session "$LIVE_KID1_ACCOUNT" 30; then
   ok "$LIVE_KID1_ACCOUNT's session ended after Finish"

@@ -1,9 +1,9 @@
-# The exit modal: Super+Shift+K, the triple-tap, and Pause/Finish (SPEC.md R-EXIT-1..6, I-5, I-6)
+# The exit modal: Super+Shift+K, the triple-tap, and Finish (SPEC.md R-EXIT-1..6, I-5, I-6)
 
 Every Kids Mode Hyprland level (`share/hyprland/L1.lua`, `L2.lua`, `L3.lua`) binds
 **Super+Shift+K** to `omarchy-kids-exit`, and R-EXIT-1 additionally asks for **Super pressed
-three times within 1.5 seconds**. Both gestures are meant to open the same thing: a modal asking
-for the parent's password, then either **Pause** or **Finish** the kid's session. This issue
+three times within 1.5 seconds**. Both gestures open the same thing: a modal asking for the
+parent's password, then **Finish** the kid's session. This issue
 builds the modal itself (`share/exit-modal/shell.qml`), the command it and the Hyprland binds
 actually run (`bin/omarchy-kids-exit`, replacing its earlier stub), and the triple-tap counter
 (`bin/omarchy-kids-super-tap`).
@@ -15,31 +15,19 @@ before trusting any of it in front of a kid.
 
 | File | What it is |
 | --- | --- |
-| `share/exit-modal/shell.qml` | The modal itself: avatar, name, password field, Pause/Finish buttons |
-| `bin/omarchy-kids-exit` | `--open` shows the modal; `--finish` and `--pause` are what the modal runs after the parent's password verifies; `--finish --kid <account>` (root) is the same idea from outside the session, added for issue #37's bar widget |
+| `share/exit-modal/shell.qml` | The modal itself: avatar, name, password field, and Finish action |
+| `bin/omarchy-kids-exit` | `--open` shows the modal; `--finish` is what the modal runs after the parent's password verifies; `--pause` remains an unimplemented command; `--finish --kid <account>` (root) is the same idea from outside the session, added for issue #37's bar widget |
 | `bin/omarchy-kids-super-tap` | Counts Super-key releases; three within the window calls `omarchy-kids-exit` |
 | `bin/omarchy-kids-parent-auth` / `omarchy-kids-authd` | The verifier the modal calls (R-SEC-2; already built, `docs/authd.md`) — this issue is a *caller* of it, not a reimplementation |
 
 ## The modal (R-EXIT-1)
 
-A centered card: the kid's avatar and name, a password field (focused the instant the modal
-appears, masked), and two buttons:
-
-- **Pause `<name>`** — "`<Possessive>` apps stay open. You switch to your desktop."
-- **Finish for `<name>`** — "Closes `<possessive>` apps. You switch to your desktop."
-
-Pause is preselected (highlighted) per R-EXIT-1, but rendered **disabled**, its subline replaced
-with "Coming soon", unless `OMARCHY_KIDS_PAUSE_AVAILABLE=1` is set in its environment — which
-`bin/omarchy-kids-exit` never sets today (see "Why Pause is disabled" below). This is I-6, not an
-oversight: the button exists so the layout and the parent's mental model ("there will be two
-choices here eventually") are right, but nothing about it claims to work until it actually does.
+A centered card contains the kid's avatar and name, a focused masked password field, and one
+action: **Finish for `<name>`**, which closes the kid's apps and returns to the portal.
 
 Keyboard (I-5, keyboard-complete):
 
-- **Tab** / **Shift+Tab** toggles which button is highlighted (Pause is still selectable, just
-  not activatable, while it's disabled — pressing Enter on it explains why instead of doing
-  nothing silently).
-- **Enter** submits: verifies the typed password, then runs whichever action is highlighted.
+- **Enter** submits: verifies the typed password, then runs Finish.
 - **Esc** closes the modal with no side effects.
 - Three wrong passwords in a row disable the password field for 30 seconds (a client-side pacing
   layer on top of `omarchy-kids-authd`'s own, stricter lockout — `docs/authd.md`'s "the modal is
@@ -117,7 +105,7 @@ Meant to run once per **Super key release** — bound via `o.bind("SUPER + SUPER
 release once three have ever landed close together. `OMARCHY_KIDS_SUPER_TAP_NOW_MS` overrides
 "now" for tests, so `test/shell.d/exit-test.sh` never needs to sleep for real time to pass.
 
-## Why Pause is disabled (R-EXIT-3, `docs/phase1/V1.md`, `docs/phase1/DECISIONS-NEEDED.md`)
+## Why Pause is absent (R-EXIT-3, `docs/phase1/V1.md`, `docs/phase1/DECISIONS-NEEDED.md`)
 
 R-EXIT-3 assumed Pause = lock the kid's session (hyprlock) and switch to the greeter via SDDM's
 `Seat.SwitchToGreeter()`. Phase 1's V1 check found that call **fails outright** on Omarchy 4.0.2's
@@ -127,9 +115,9 @@ attempt also revoked the parent's keyboard/trackpad until a manual `udevadm` re-
 call `SwitchToGreeter` for Pause.** `docs/phase1/DECISIONS-NEEDED.md` leaves the real fix — most
 likely a root helper that starts the parent's own session on a spare VT directly through PAM,
 without SDDM — as its own future ticket with its own Phase 1 check. Until that exists,
-`omarchy-kids-exit --pause` refuses (exit 2, a message pointing at `V1.md`), and the modal never
-sets `OMARCHY_KIDS_PAUSE_AVAILABLE=1`, so the button stays visibly, honestly disabled (I-6) rather
-than doing something broken or silently doing nothing.
+`omarchy-kids-exit --pause` refuses (exit 2, a message pointing at `V1.md`). The modal does not
+offer Pause until that mechanism exists, so it cannot imply that an unenforced action works.
+The design note and the failed Phase 1 check remain in `docs/phase1/V1.md`.
 
 ## The triple-tap bind
 
@@ -208,8 +196,8 @@ are on the box (`docs/vm.md` has the SSH/VNC details):
    immediately with no click needed).
 3. Type the kid's own password, press Enter: should shake, clear, and show a hint — never
    succeed. Three wrong in a row: the field should visibly disable for 30 seconds.
-4. Type the parent's real login password, with **Finish** highlighted (Tab once from the
-   preselected Pause), press Enter: the kid's session should end and SDDM's greeter should
+4. Type the parent's real login password, with **Finish** highlighted as the only action, press
+   Enter: the kid's session should end and SDDM's greeter should
    reappear (R-EXIT-3).
 5. Re-login as the kid, `omarchy-kids-exit --open` again, this time press Esc: confirm the modal
    closes with no other effect (still logged in, nothing changed).
@@ -225,11 +213,11 @@ are on the box (`docs/vm.md` has the SSH/VNC details):
 
 ## Verified live (2026-09-02, QEMU test VM)
 
-From the portal: Left to Cy's tile, Enter, kid password, the Level 1 launcher. Three taps of
+From the portal: Left to the kid tile, Enter, kid password, the Level 1 launcher. Three taps of
 Super within 1.5 s (the `{ release = true }` bind in every level config) opened the modal as a
-Quickshell overlay: fox avatar, the kid's name, a focused password field, Pause greyed as
-"coming soon", Finish. Parent password, Tab to Finish, Enter: the verifier said yes, Hyprland
-exited cleanly, and SDDM started a new greeter with the Kids theme.
+Quickshell overlay: fox avatar, the kid's name, a focused password field, and Finish as the only
+action. Parent password, Enter: the verifier said yes, Hyprland exited cleanly, and SDDM started
+a new greeter with the Kids theme.
 
 Four things had to change to get there, all found live and now in the code:
 
@@ -237,18 +225,17 @@ Four things had to change to get there, all found live and now in the code:
   keys went to the launcher underneath.
 - `omarchy-kids-parent-auth` reads one line instead of waiting for EOF; the modal's Process
   kept stdin open and the helper hung.
-- The chosen action runs through `Quickshell.execDetached`; a child `Process` started right
-  before `Qt.quit()` died with the modal.
+- Finish runs through `Quickshell.execDetached`; a child `Process` started right before
+  `Qt.quit()` died with the modal.
 - `--finish` asks Hyprland to exit with `hyprctl dispatch 'hl.dsp.exit()'` (Hyprland 0.56 in
   Lua-config mode rejects `dispatch exit`) and waits for it. A hard
   `loginctl terminate-session` makes sddm-helper exit 1, SDDM logs "Process crashed" and starts
   no greeter at all: a black screen until `systemctl restart sddm`. It stays as the last resort
   only.
 
-Not yet exercised live: the wrong-password shake and the 30 s lockout, Esc to close, Pause
-(needs the decision in docs/phase1/DECISIONS-NEEDED.md), and the parent password on a kid's
-tile at the portal (#15's PAM line is installed; a portal login with the parent password is
-the next check).
+Not yet exercised live: the wrong-password shake and the 30 s lockout, Esc to close, and the
+parent password on a kid's tile at the portal (#15's PAM line is installed; a portal login with
+the parent password is the next check).
 
 Root-side finish, 2026-09-03: `omarchy-kids-exit --finish --kid kid-cy` run as root ended Cy's
 session through the compositor's Lua exit and SDDM started a fresh greeter, which is the path
@@ -317,9 +304,9 @@ Seat.SwitchToGreeter() fails outright on Omarchy 4.0.2 while a session
 holds the seat (HELPER_TTY_ERROR) and even revoked input devices on
 real hardware until a manual udev re-trigger -- so this deliberately
 refuses rather than guessing at a mechanism that was found unsafe to
-even try. share/exit-modal/shell.qml only calls this when
-OMARCHY_KIDS_PAUSE_AVAILABLE=1 is set (I-6: never offer a control that
-isn't enforced), which omarchy-kids-exit itself never sets today.
+even try. share/exit-modal/shell.qml no longer renders this unavailable
+action (I-6: never offer a control that isn't enforced). The future
+mechanism must land before Pause returns to the modal.
 ```
 
 ## Source header (moved from `bin/omarchy-kids-super-tap`, issue #49)

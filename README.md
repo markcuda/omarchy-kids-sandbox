@@ -38,7 +38,7 @@ drawn from; nothing here is drawn from the spec alone.
 - Super×3 and Super+Shift+K both open the exit modal; the parent password on **Finish** ends the
   kid's session cleanly and SDDM returns to the portal (`docs/exit.md`). The password gate there
   is a courtesy, not a lock: a kid can end their own session anyway (`loginctl terminate-session`,
-  or closing every window). **Pause** is rendered but refused — it is not implemented.
+  or closing every window). **Pause** is not offered because it is not implemented.
 - Screen time counts real minutes while a kid's session is active, in a root-owned ledger, and
   warns before it runs out (`docs/time.md`). The lights-out "Time's Up" overlay fires and finishes
   on its own after 60 seconds — but it runs *in the kid's own session*, so for a band with a
@@ -71,7 +71,7 @@ verified live, what is open, and which decisions are still waiting.
 | Parent wizard | Easy path (A-or-B chunks, preselected by age band) or Advanced (a table of toggles). Bash + gum in Omarchy's floating terminal, looks like the installer, Omy where the logo sits |
 | Per-kid provisioning | Real account, no sudo, locked home, polkit denies, the installer path's privilege posture, a LUKS slot for the kid's password, a root-owned Hyprland config for the chosen level |
 | Login portal | Face tiles then password, as an SDDM theme. Parent tile last |
-| Exit modal | Super ×3: parent password, then **Finish** (closes the kid's apps and returns to the portal). **Pause** is drawn but refused until a design decision lands (`docs/phase1/DECISIONS-NEEDED.md`) |
+| Exit modal | Super ×3: parent password, then **Finish** (closes the kid's apps and returns to the portal). **Pause** returns after its implementation lands (`docs/phase1/V1.md`) |
 | `omarchy-kids-*` | Feature commands: web policy, screen time, apps, Wi-Fi helper, ask-a-parent queue |
 | Safety check | Green/red, at the end of setup and at every kid login, failing closed |
 

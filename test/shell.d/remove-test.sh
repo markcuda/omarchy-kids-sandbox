@@ -196,6 +196,12 @@ case "$1" in
         done
         [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1
         slot="${@: -1}"
+        [[ ! -e "__LOG__/require-luks-intent" ]] ||
+            grep -q "^$slot=" "$OMARCHY_KIDS_ETC"/luks-slots.removing-* || {
+                : > "__LOG__/luks-intent-missing-at-kill"
+                exit 1
+            }
+        [[ ! -e "__LOG__/luks-kill-fail-slot-$slot" ]] || exit 1
         grep -qx "$slot" "__LOG__/luks-empty-slots" 2>/dev/null && exit 1
         echo "$slot" >> "__LOG__/luks-empty-slots"
         ;;
@@ -236,6 +242,7 @@ esac
 stub mkinitcpio ''
 stub limine ''
 stub limine-snapper-sync ''
+stub flock ''
 stub lsblk 'echo "fake0 crypto_LUKS"'
 # snapper -c root create --print-number -d "...": prints a fake snapshot
 # number on stdout when --print-number is given, same as a real snapper --
@@ -263,6 +270,7 @@ fi
 REAL_STAT="$(command -v stat)"
 REAL_CHMOD="$(command -v chmod)"
 REAL_RM="$(command -v rm)"
+REAL_PY="$(command -v python3)"
 cat >"$STUBS/stat" <<EOF
 #!/bin/bash
 if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
@@ -270,6 +278,7 @@ format="\${2:-}"
 target="\${3:-}"
 if [[ "\$target" == "$ETC" || "\$target" == "$ETC/machine.conf" ||
   "\$target" == "$TMP/fail/etc/omarchy-kids" || "\$target" == "$TMP/fail/etc/omarchy-kids/machine.conf" ||
+  "\$target" == "$TMP/intent/etc/omarchy-kids" || "\$target" == "$TMP/intent/etc/omarchy-kids/machine.conf" ||
   "\$target" == "$TMP/recover/etc/omarchy-kids" || "\$target" == "$TMP/recover/etc/omarchy-kids/machine.conf" ||
   "\$target" == "$TMP/purge/etc/omarchy-kids" || "\$target" == "$TMP/purge/etc/omarchy-kids/machine.conf" ||
   "\$target" == "$TMP/portal/etc/omarchy-kids" || "\$target" == "$TMP/portal/etc/omarchy-kids/machine.conf" ||
@@ -286,7 +295,9 @@ EOF
 chmod +x "$STUBS/stat"
 cat >"$STUBS/chmod" <<EOF
 #!/bin/bash
-if [[ -e "$LOG/luks-map-write-fail" && "\${@: -1}" == */.luks-slots.* ]]; then exit 1; fi
+target="\${@: -1}"
+if [[ -e "$LOG/luks-intent-write-fail" && "\$target" == */.luks-slots.removing-*.* ]]; then exit 1; fi
+if [[ -e "$LOG/luks-map-write-fail" && "\$target" == */.luks-slots.* && "\$target" != */.luks-slots.removing-*.* ]]; then exit 1; fi
 exec "$REAL_CHMOD" "\$@"
 EOF
 chmod +x "$STUBS/chmod"
@@ -296,6 +307,13 @@ if [[ -e "$LOG/varlib-purge-fail" && "\${@: -1}" == */var/lib/omarchy-kids ]]; t
 exec "$REAL_RM" "\$@"
 EOF
 chmod +x "$STUBS/rm"
+cat >"$STUBS/python3" <<EOF
+#!/bin/bash
+target="\${@: -1}"
+if [[ -e "$LOG/luks-map-fsync-fail" && "\$target" == */luks-slots ]]; then exit 1; fi
+exec "$REAL_PY" "\$@"
+EOF
+chmod +x "$STUBS/python3"
 # tar: a spy, not a stub -- argv is logged like every other fake here, but
 # the archive itself is real (delegates to the real /usr/bin/tar), so this
 # file can inspect luks-slots' content as it stood the moment it was
@@ -309,7 +327,8 @@ sed -i.bak -e "s#__ARGVLOG__#$ARGV_LOG#g" "$STUBS/tar"
 rm -f "$STUBS/tar.bak"
 chmod +x "$STUBS/tar"
 
-export PATH="$STUBS:$PATH"
+BASE_PATH="$(kids_base_path "$TMP/base")"
+export PATH="$STUBS:$BASE_PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_ROOT="$SCRATCH_ROOT"
 export OMARCHY_KIDS_HOME_ROOT="$HOMEROOT"
@@ -738,23 +757,48 @@ printf 'name=Dot\nband=6-8\npassword=set\n' >"$FAIL_ETC/kids/kid-dot.conf"
 printf 'name=Test\nband=6-8\npassword=set\n' >"$FAIL_ETC/kids/kid-test.conf"
 printf '0=mark:omarchy.desktop\n9=kid-dot\n10=kid-test\n' >"$FAIL_ETC/luks-slots"
 mkdir -p "$FAIL_HOME/home/kid-test"
-touch "$LOG/account-kid-dot" "$LOG/account-kid-test" "$LOG/luks-kill-fail"
+touch "$LOG/account-kid-dot" "$LOG/account-kid-test" "$LOG/luks-kill-fail-slot-9"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$FAIL_ETC/machine.conf"
 
 : >"$ARGV_LOG"
 out_luks_fail="$(OMARCHY_KIDS_ETC="$FAIL_ETC" OMARCHY_KIDS_ROOT="$FAIL_ROOT" \
   OMARCHY_KIDS_HOME_ROOT="$FAIL_HOME" "$BIN" --yes --no-snapshot --luks-device /dev/fake0 2>&1)"
 st=$?
-rm -f "$LOG/luks-kill-fail"
+rm -f "$LOG/luks-kill-fail-slot-9"
 luks_fail_argv="$(cat "$ARGV_LOG")"
 check_eq "$st" 1 "failed disk slot removal fails the full run"
 check_status "$out_luks_fail" "luks:kid-dot" "FAILED" "failed disk slot removal is reported"
 check_contains "$luks_fail_argv" "/dev/fake0 9" "failed disk removal targeted the exact recorded slot"
-check_eq "$(cat "$FAIL_ETC/luks-slots")" $'0=mark:omarchy.desktop\n9=kid-dot\n10=kid-test' "failed disk removals preserve the slot map"
+check_eq "$(cat "$FAIL_ETC/luks-slots")" $'0=mark:omarchy.desktop\n9=kid-dot' "each kid result controls only that kid's slot map entry"
 [[ -e "$FAIL_ETC/kids/kid-dot.conf" ]] && pass "failed disk removal preserves the profile" || fail "failed disk removal removed the profile"
-[[ -e "$FAIL_ETC/kids/kid-test.conf" ]] && pass "a second failed slot removal preserves that profile too" || fail "the second failed slot removal removed its profile"
-check_not_contains "$luks_fail_argv" "userdel" "failed disk removal stops before account deletion"
+[[ -e "$FAIL_ETC/kids/kid-test.conf" ]] && fail "a successful second slot removal must remove only that kid" || pass "a second kid's successful slot removal completes independently"
+check_not_contains "$luks_fail_argv" "userdel kid-dot" "failed disk removal stops before that account deletion"
+check_contains "$luks_fail_argv" "userdel kid-test" "the later kid's own successful slot removal authorises its deletion"
 check_not_contains "$luks_fail_argv" "mkinitcpio" "failed disk removal stops before the final rebuild"
+
+# --- intent-write failure happens before the irreversible slot kill --------
+
+INTENT_ETC="$TMP/intent/etc/omarchy-kids"
+INTENT_ROOT="$TMP/intent/root"
+INTENT_HOME="$TMP/intent/home"
+mkdir -p "$INTENT_ETC/kids" "$INTENT_ROOT" "$INTENT_HOME/home/kid-dot"
+printf 'parent=mark\nboot=disk\n' >"$INTENT_ETC/machine.conf"
+printf 'name=Dot\nband=6-8\npassword=set\n' >"$INTENT_ETC/kids/kid-dot.conf"
+printf '0=mark:omarchy.desktop\n12=kid-dot\n' >"$INTENT_ETC/luks-slots"
+touch "$LOG/account-kid-dot" "$LOG/luks-intent-write-fail" "$LOG/require-luks-intent"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$INTENT_ETC/machine.conf"
+
+: >"$ARGV_LOG"
+out_intent_fail="$(OMARCHY_KIDS_ETC="$INTENT_ETC" OMARCHY_KIDS_ROOT="$INTENT_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$INTENT_HOME" "$BIN" --yes --no-snapshot --luks-device /dev/fake0 2>&1)"
+st=$?
+rm -f "$LOG/luks-intent-write-fail"
+check_eq "$st" 1 "a removal-intent write failure fails the full run"
+check_status "$out_intent_fail" "luks:kid-dot" "FAILED" "intent-write failure is reported on that kid"
+check_not_contains "$(cat "$ARGV_LOG")" "luksKillSlot" "an unrecorded removal never kills a slot"
+[[ -e "$INTENT_ETC/kids/kid-dot.conf" ]] && pass "intent-write failure preserves the profile" || fail "intent-write failure removed the profile"
+check_eq "$(cat "$INTENT_ETC/luks-slots")" $'0=mark:omarchy.desktop\n12=kid-dot' "intent-write failure preserves the slot map"
+rm -f "$LOG/require-luks-intent"
 
 # --- a map-write failure after slot kill is retryable ---------------------
 
@@ -766,6 +810,7 @@ printf 'parent=mark\nboot=disk\n' >"$RECOVER_ETC/machine.conf"
 printf 'name=Ben\nband=6-8\npassword=set\n' >"$RECOVER_ETC/kids/kid-ben.conf"
 printf '0=mark:omarchy.desktop\n11=kid-ben\n' >"$RECOVER_ETC/luks-slots"
 touch "$LOG/account-kid-ben" "$LOG/luks-map-write-fail"
+touch "$LOG/require-luks-intent"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$RECOVER_ETC/machine.conf"
 
 : >"$ARGV_LOG"
@@ -776,17 +821,36 @@ rm -f "$LOG/luks-map-write-fail"
 check_eq "$st" 1 "a slot-map write failure fails the full run"
 check_status "$out_map_fail" "luks:kid-ben" "FAILED" "slot-map write failure is not masked"
 check_eq "$(cat "$RECOVER_ETC/luks-slots")" $'0=mark:omarchy.desktop\n11=kid-ben' "slot-map write failure preserves the trusted map"
+check_eq "$(cat "$RECOVER_ETC/luks-slots.removing-kid-ben")" '11=kid-ben' "slot-map write failure leaves the durable removal intent"
+[[ -e "$LOG/luks-intent-missing-at-kill" ]] && fail "slot kill ran before its intent existed" || pass "slot kill ran only after its intent was durable"
 [[ -e "$RECOVER_ETC/kids/kid-ben.conf" ]] && pass "slot-map write failure preserves the profile" || fail "slot-map write failure removed the profile"
+
+: >"$ARGV_LOG"
+touch "$LOG/luks-map-fsync-fail"
+out_fsync_fail="$(OMARCHY_KIDS_ETC="$RECOVER_ETC" OMARCHY_KIDS_ROOT="$RECOVER_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$RECOVER_HOME" "$BIN" --yes --no-snapshot --luks-device /dev/fake0 2>&1)"
+st=$?
+rm -f "$LOG/luks-map-fsync-fail"
+fsync_fail_argv="$(cat "$ARGV_LOG")"
+check_eq "$st" 1 "a non-durable map rewrite fails the retry"
+check_status "$out_fsync_fail" "luks:kid-ben" "FAILED" "map fsync failure is not masked"
+check_not_contains "$fsync_fail_argv" "luksKillSlot" "map fsync retry does not kill the already-empty slot again"
+check_contains "$fsync_fail_argv" "cryptsetup luksDump /dev/fake0" "map fsync retry verifies the recorded slot is already empty"
+check_eq "$(grep -c '^11=kid-ben$' "$RECOVER_ETC/luks-slots")" "0" "map is rewritten before its durability check"
+[[ -e "$RECOVER_ETC/luks-slots.removing-kid-ben" ]] && pass "map fsync failure preserves the removal intent" || fail "map fsync failure cleared the removal intent"
+[[ -e "$RECOVER_ETC/kids/kid-ben.conf" ]] && pass "map fsync failure preserves the profile" || fail "map fsync failure removed the profile"
 
 : >"$ARGV_LOG"
 OMARCHY_KIDS_ETC="$RECOVER_ETC" OMARCHY_KIDS_ROOT="$RECOVER_ROOT" \
   OMARCHY_KIDS_HOME_ROOT="$RECOVER_HOME" "$BIN" --yes --no-snapshot --luks-device /dev/fake0 >/dev/null 2>&1
 st=$?
 retry_argv="$(cat "$ARGV_LOG")"
-check_eq "$st" 0 "retry finishes after the slot was already killed"
-check_not_contains "$retry_argv" "luksKillSlot" "retry does not kill the already-empty slot again"
-check_contains "$retry_argv" "cryptsetup luksDump /dev/fake0" "retry verifies the recorded slot is already empty"
+check_eq "$st" 0 "retry finishes after the slot and map were already updated"
+check_not_contains "$retry_argv" "luksKillSlot" "final retry does not kill the already-empty slot again"
+check_contains "$retry_argv" "cryptsetup luksDump /dev/fake0" "final retry verifies the recorded slot is already empty"
+[[ -e "$RECOVER_ETC/luks-slots.removing-kid-ben" ]] && fail "retry should clear the completed removal intent" || pass "retry clears the completed removal intent"
 [[ -e "$RECOVER_ETC" ]] && fail "successful retry should finish the full purge" || pass "successful retry finishes the full purge"
+rm -f "$LOG/require-luks-intent"
 
 # --- purge failure keeps machine.conf so the next run can retry -----------
 
@@ -825,6 +889,7 @@ password=set
 onboarded=no
 EOF
 printf '0=mark:omarchy.desktop\n7=kid-test\n' >"$PORTAL_ETC/luks-slots"
+touch "$LOG/account-kid-test"
 printf 'portal drop-in must stay\n' >"$PORTAL_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 printf '# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=8\nMAX_SNAPSHOT_ENTRIES=0\n' >"$PORTAL_ROOT/etc/default/limine"
 portal_dropin_before="$(cat "$PORTAL_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf")"
@@ -862,13 +927,23 @@ out_portal="$(OMARCHY_KIDS_ETC="$PORTAL_ETC" OMARCHY_KIDS_ROOT="$PORTAL_ROOT" \
   OMARCHY_KIDS_HOME_ROOT="$PORTAL_HOME" "$BIN" --yes --no-snapshot 2>&1)"
 st=$?
 portal_argv="$(cat "$ARGV_LOG")"
-check_eq "$st" 0 "portal full removal succeeds"
-check_contains "$out_portal" "Summary: every step removed or skipped" "portal full removal reports completion"
+check_eq "$st" 1 "portal full removal refuses a kid with a recorded disk slot"
+check_status "$out_portal" "luks:kid-test" "FAILED" "portal removal reports the unverifiable kid slot"
+check_contains "$out_portal" "cannot verify recorded LUKS slot 7" "portal removal says why it stopped"
+[[ -e "$PORTAL_ETC/kids/kid-test.conf" ]] && pass "portal slot refusal preserves the kid profile" || fail "portal slot refusal removed the kid profile"
+check_not_contains "$portal_argv" "userdel kid-test" "portal slot refusal preserves the kid account"
 for command in cryptsetup mkinitcpio limine limine-snapper-sync; do
   check_not_contains "$portal_argv" "$command" "portal full removal makes no $command call"
 done
 check_eq "$(cat "$PORTAL_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf")" "$portal_dropin_before" "portal full removal leaves the boot drop-in untouched"
 check_eq "$(cat "$PORTAL_ROOT/etc/default/limine")" "$portal_limine_before" "portal full removal leaves Limine untouched"
+
+printf '0=mark:omarchy.desktop\n' >"$PORTAL_ETC/luks-slots"
+: >"$ARGV_LOG"
+out_portal="$(OMARCHY_KIDS_ETC="$PORTAL_ETC" OMARCHY_KIDS_ROOT="$PORTAL_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$PORTAL_HOME" "$BIN" --yes --no-snapshot 2>&1)"
+check_eq "$?" 0 "portal full removal succeeds once no kid slot is recorded"
+check_contains "$out_portal" "Summary: every step removed or skipped" "safe portal full removal reports completion"
 
 INVALID_ETC="$TMP/invalid/etc/omarchy-kids"
 INVALID_ROOT="$TMP/invalid/root"

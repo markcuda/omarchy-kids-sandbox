@@ -117,6 +117,36 @@ detect_luks_device() {
 # bin/omarchy-kids-remove ("Remove Kids Mode"); the writer moved here too
 # (from lib/posture.sh) so nothing needs a second source line for it.
 
+luks_fsync_path() {
+  "$KIDS_PY" -c 'import os, sys
+p = sys.argv[1]
+for target in (p, os.path.dirname(p)):
+    fd = os.open(target, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)' "$1"
+}
+
+luks_lock_acquire() {
+  local slots_file="$1"
+  install -d -m 0755 "$(dirname "$slots_file")" || return 1
+  exec 8>"$slots_file.lock" || return 1
+  chmod 0600 "$slots_file.lock" || {
+    exec 8>&-
+    return 1
+  }
+  flock -x 8 || {
+    exec 8>&-
+    return 1
+  }
+}
+
+luks_lock_release() {
+  flock -u 8 || true
+  exec 8>&-
+}
+
 # luks_slots_parent_line FILE -- the "0=account[:session]" line, if any.
 luks_slots_parent_line() {
   local file="$1" line
@@ -211,6 +241,139 @@ posture_write_luks_slots() {
     return 1
   }
   return 0
+}
+
+# One intent file per kid is the durable boundary around a slot deletion. A
+# failed child never blocks another child's independently safe removal.
+luks_removal_intent_file() { printf '%s.removing-%s\n' "$1" "$2"; }
+
+luks_write_removal_intent() {
+  local slots_file="$1" slot="$2" account="$3" file tmp
+  [[ "$slot" =~ ^[1-9][0-9]*$ && "$account" =~ ^kid-[a-z0-9-]+$ ]] || return 1
+  file="$(luks_removal_intent_file "$slots_file" "$account")"
+  install -d -m 0755 "$(dirname "$file")" || return 1
+  tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")" || return 1
+  if ! printf '%s=%s\n' "$slot" "$account" >"$tmp"; then
+    rm -f "$tmp" || true
+    return 1
+  fi
+  if ! chmod 0600 "$tmp"; then
+    rm -f "$tmp" || true
+    return 1
+  fi
+  if ! mv -f "$tmp" "$file"; then
+    rm -f "$tmp" || true
+    return 1
+  fi
+  luks_fsync_path "$file" || return 1
+  return 0
+}
+
+# luks_read_removal_intent FILE ACCOUNT — print "slot account"; 1 absent, 2 invalid.
+luks_read_removal_intent() {
+  local file line account="$2"
+  file="$(luks_removal_intent_file "$1" "$account")"
+  [[ -e "$file" ]] || return 1
+  line="$(cat "$file")" || return 2
+  [[ "$line" =~ ^([1-9][0-9]*)=(kid-[a-z0-9-]+)$ ]] || return 2
+  [[ "${BASH_REMATCH[2]}" == "$account" ]] || return 2
+  printf '%s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+}
+
+luks_removal_intent_for_account() {
+  local intent slot account
+  intent="$(luks_read_removal_intent "$1" "$2")" || return $?
+  read -r slot account <<<"$intent"
+  printf '%s\n' "$slot"
+}
+
+luks_removal_intents() {
+  local slots_file="$1" file account intent
+  for file in "$slots_file".removing-*; do
+    [[ -e "$file" ]] || continue
+    account="${file#"$slots_file.removing-"}"
+    intent="$(luks_read_removal_intent "$slots_file" "$account")" || return 1
+    printf '%s\n' "$intent"
+  done
+}
+
+luks_remove_account_slot_locked() {
+  local slots_file="$1" account="$2" device="$3" key_fd="${4:-}"
+  local intent="" intent_slot="" mapped_slot slot_state
+  local parent_line entries=() line acct
+
+  mapped_slot="$(luks_slot_for_account "$slots_file" "$account" || true)"
+  if [[ -e "$(luks_removal_intent_file "$slots_file" "$account")" ]]; then
+    intent="$(luks_read_removal_intent "$slots_file" "$account")" || {
+      echo "invalid LUKS removal intent beside $slots_file; repair it before retrying" >&2
+      return 1
+    }
+    intent_slot="${intent%% *}"
+    if [[ -n "$mapped_slot" && "$mapped_slot" != "$intent_slot" ]]; then
+      echo "LUKS removal intent for $account disagrees with $slots_file" >&2
+      return 1
+    fi
+  else
+    [[ -n "$mapped_slot" ]] || return 0
+    intent_slot="$mapped_slot"
+    if ! luks_write_removal_intent "$slots_file" "$intent_slot" "$account"; then
+      echo "could not record removal intent for LUKS slot $intent_slot for $account" >&2
+      return 1
+    fi
+  fi
+
+  if luks_slot_occupied "$device" "$intent_slot"; then
+    if [[ -n "$key_fd" ]]; then
+      cryptsetup luksKillSlot --batch-mode --key-file="/dev/fd/$key_fd" "$device" "$intent_slot" || {
+        echo "cryptsetup could not remove slot $intent_slot for $account" >&2
+        return 1
+      }
+    else
+      cryptsetup luksKillSlot --batch-mode "$device" "$intent_slot" || {
+        echo "cryptsetup could not remove slot $intent_slot for $account" >&2
+        return 1
+      }
+    fi
+  else
+    slot_state=$?
+    if ((slot_state != 1)); then
+      echo "could not inspect LUKS slots on $device" >&2
+      return 1
+    fi
+  fi
+
+  parent_line="$(luks_slots_parent_line "$slots_file")"
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    acct="${line#*=}"
+    acct="${acct%%:*}"
+    [[ "$acct" == "$account" ]] && continue
+    entries+=("$line")
+  done < <(luks_slots_kid_entries "$slots_file")
+  if ! posture_write_luks_slots "$slots_file" "$parent_line" "${entries[@]+"${entries[@]}"}"; then
+    echo "slot $intent_slot is gone, but could not update $slots_file; retry removal" >&2
+    return 1
+  fi
+  if ! luks_fsync_path "$slots_file"; then
+    echo "slot $intent_slot is gone and its map was rewritten, but that rewrite is not durable; retry removal" >&2
+    return 1
+  fi
+  if ! rm -f "$(luks_removal_intent_file "$slots_file" "$account")"; then
+    echo "slot $intent_slot and its map entry are gone, but the removal intent remains; retry removal" >&2
+    return 1
+  fi
+  return 0
+}
+
+luks_remove_account_slot() {
+  local rc=0
+  if ! luks_lock_acquire "$1"; then
+    echo "could not lock $1 for LUKS slot removal" >&2
+    return 1
+  fi
+  luks_remove_account_slot_locked "$@" || rc=$?
+  luks_lock_release
+  return "$rc"
 }
 
 # luks_slots_record_parent FILE KIDS_DIR PARENT -- makes sure slot 0 maps

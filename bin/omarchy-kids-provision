@@ -73,10 +73,12 @@ add     Creates the Unix account, the profile, the polkit/pam/fstab
 
 remove  Reverses everything "add" did for that account: LUKS slot,
         luks-slots rewrite, pam_namespace lines, AccountsService file,
-        fstab line and mount, profile, then the account itself. The home
-        moves to "<parent home>/Kids Mode/<name>/" unless --keep-home.
+        fstab line and mount, then the account itself. The home moves to
+        "<parent home>/Kids Mode/<name>/" unless --keep-home; the profile
+        stays until those steps finish so a retry can resume.
         Machine-level pieces (groups, console masks, the polkit rules)
-        are left for Remove Kids Mode. --luks-device is disk-mode only.
+        are left for Remove Kids Mode. --luks-device is disk-mode only;
+        portal mode refuses an account that still has a recorded slot.
 
 list    One line per provisioned kid: account, name, band.
 

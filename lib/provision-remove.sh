@@ -43,37 +43,27 @@ cmd_remove() {
 
   echo "Removing kid $account"
 
-  # R-SEC-4: retain the mapping until the slot is gone, then rewrite it.
-  local slot="" device=""
-  if [[ "$boot_mode" == disk ]]; then
-    slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+  # R-SEC-4: portal mode cannot prove a recorded key is gone. Disk mode
+  # journals the slot before killing it, then completes or resumes the map.
+  local slot="" device="" intent="" intent_file
+  slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+  intent_file="$(luks_removal_intent_file "$SLOTS_FILE" "$account")"
+  if [[ -e "$intent_file" ]]; then
+    intent="$(luks_read_removal_intent "$SLOTS_FILE" "$account")" ||
+      die "remove: invalid LUKS removal intent at $intent_file; repair it before retrying" 1
+    slot="${intent%% *}"
   fi
-  if [[ -n "$slot" ]]; then
+  if [[ "$boot_mode" == portal && -n "$slot" ]]; then
+    die "remove: portal mode cannot verify recorded LUKS slot $slot for $account; remove the slot in disk mode first" 1
+  fi
+  if [[ "$boot_mode" == disk && -n "$slot" ]]; then
     device="$(detect_luks_device "$luks_device")" ||
       die "remove: disk mode cannot find the LUKS root for slot $slot" 1
-    local parent_line entries=() line acct
-    parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
-    while IFS= read -r line; do
-      [[ -z "$line" ]] && continue
-      acct="${line#*=}"
-      acct="${acct%%:*}"
-      [[ "$acct" == "$account" ]] && continue
-      entries+=("$line")
-    done < <(luks_slots_kid_entries "$SLOTS_FILE")
     if [[ "$DRY_RUN" == "0" ]]; then
-      local slot_state
-      if luks_slot_occupied "$device" "$slot"; then
-        cryptsetup luksKillSlot --batch-mode "$device" "$slot" ||
-          die "remove: cryptsetup could not remove slot $slot for $account" 1
-      else
-        slot_state=$?
-        ((slot_state == 1)) || die "remove: could not inspect LUKS slots on $device" 1
-      fi
-      posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}" ||
-        die "remove: slot $slot is gone, but could not update $SLOTS_FILE; retry removal" 1
+      luks_remove_account_slot "$SLOTS_FILE" "$account" "$device" ||
+        die "remove: LUKS slot removal did not finish for $account" 1
     else
-      run cryptsetup luksKillSlot --batch-mode "$device" "$slot"
-      run posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}"
+      run luks_remove_account_slot "$SLOTS_FILE" "$account" "$device"
     fi
   fi
 
@@ -99,7 +89,6 @@ cmd_remove() {
   run posture_remove_fstab_line "$account"
 
   # Appendix B
-  run rm -f "$profile"
   run launcher_map_remove "$account"
   run session_manifest_remove "$account"
 
@@ -112,6 +101,8 @@ cmd_remove() {
     run install -d -m 0755 "$parent_home/Kids Mode"
     run mv "$(home_dir_for "$account")" "$dest"
   fi
+  # Keep the profile as the retry record until the account and home are done.
+  run rm -f "$profile"
 
   echo "Done: $account removed"
   echo "(groups, console masks, and the polkit rules stay until Remove Kids Mode -- SPEC.md R-FND-6)"

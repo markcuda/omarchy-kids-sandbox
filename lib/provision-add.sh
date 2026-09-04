@@ -238,6 +238,7 @@ add_luks_slot() {
   IFS= read -r kid_password <&3 || true
   IFS= read -r parent_password <&4 || true
   [[ -n "$kid_password" && -n "$parent_password" ]] || die "add: add_luks_slot needs both passphrases on fds 3 and 4"
+  luks_lock_acquire "$SLOTS_FILE" || die "add: could not lock $SLOTS_FILE for LUKS slot addition" 1
 
   if cryptsetup open --test-passphrase --key-file=<(printf '%s' "$kid_password") "$device" >/dev/null 2>&1; then
     die "add: that password already unlocks $device; pick a different one for $account"
@@ -268,4 +269,5 @@ add_luks_slot() {
     die "add: could not record or roll back LUKS slot $slot for $account; remove that slot by hand" 1
   fi
   echo "  LUKS slot $slot added for $account"
+  luks_lock_release
 }

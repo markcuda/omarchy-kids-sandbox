@@ -35,7 +35,6 @@ LUKS_DEVICE=""
 BOOT_MODE=""
 DRY_RUN=0
 ANY_FAIL=0
-STEP_FAILED=0
 FAILED_STEPS=()
 
 die() {
@@ -72,7 +71,8 @@ the package itself -- this command never runs it.
                             same as omarchy-kids-provision remove -- see
                             docs/remove.md).
   --luks-device DEV         LUKS root when disk-mode auto-detection is
-                            unavailable. Rejected in portal mode.
+                            unavailable. Rejected in portal mode, which also
+                            refuses any kid that still has a recorded slot.
   --no-snapshot             Skip the Snapper snapshot offer outright.
   --keep-parent-group       Leave the parent in omarchy-parents instead of
                             removing them at the end of the run.
@@ -121,7 +121,6 @@ report() { printf '%-12s %s\n' "$1" "$2"; }
 plan_one() {
   local desc="$1" check="$2" fix="$3"
   shift 3
-  STEP_FAILED=0
   if ! "$check" "$@"; then
     report skipped "$desc"
     return 0
@@ -135,10 +134,32 @@ plan_one() {
   else
     report FAILED "$desc"
     ANY_FAIL=1
-    STEP_FAILED=1
     FAILED_STEPS+=("$desc")
   fi
   return 0
+}
+
+# kid_step returns its own result so only this kid's safe-to-delete decision
+# depends on it. The full-run summary remains global.
+kid_step() {
+  local desc="$1" check="$2" fix="$3"
+  shift 3
+  if ! "$check" "$@"; then
+    report skipped "$desc"
+    return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    report would-remove "$desc"
+    return 0
+  fi
+  if "$fix" "$@"; then
+    report removed "$desc"
+    return 0
+  fi
+  report FAILED "$desc"
+  ANY_FAIL=1
+  FAILED_STEPS+=("$desc")
+  return 1
 }
 
 file_present() { [[ -e "$1" ]]; }
@@ -169,34 +190,24 @@ mount_remove() {
 fstab_present() { grep -qxF "$(posture_fstab_line "$1")" "$(posture_fstab)" 2>/dev/null; }
 fstab_remove() { posture_remove_fstab_line "$1"; }
 
-luks_present() { [[ -n "$(luks_slot_for_account "$SLOTS_FILE" "$1" || true)" ]]; }
+luks_present() {
+  [[ -n "$(luks_slot_for_account "$SLOTS_FILE" "$1" || true)" ]] ||
+    [[ -n "$(luks_removal_intent_for_account "$SLOTS_FILE" "$1" 2>/dev/null || true)" ]]
+}
 luks_remove() {
-  local account="$1" slot device slot_state
+  local account="$1" slot device
   slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+  [[ -n "$slot" ]] || slot="$(luks_removal_intent_for_account "$SLOTS_FILE" "$account" 2>/dev/null || true)"
   if ! device="$(detect_luks_device "$LUKS_DEVICE")"; then
     echo "omarchy-kids-remove: disk mode cannot find the LUKS root for slot $slot" >&2
     return 1
   fi
-  if luks_slot_occupied "$device" "$slot"; then
-    if [[ -n "$PARENT_PASSWORD" ]]; then
-      cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$PARENT_PASSWORD") "$device" "$slot" || return 1
-    else
-      cryptsetup luksKillSlot --batch-mode "$device" "$slot" || return 1
-    fi
+  if [[ -n "$PARENT_PASSWORD" ]]; then
+    luks_remove_account_slot "$SLOTS_FILE" "$account" "$device" 3 \
+      3< <(printf '%s' "$PARENT_PASSWORD")
   else
-    slot_state=$?
-    ((slot_state == 1)) || return 1
+    luks_remove_account_slot "$SLOTS_FILE" "$account" "$device"
   fi
-  local parent_line entries=() line acct
-  parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    acct="${line#*=}"
-    acct="${acct%%:*}"
-    [[ "$acct" == "$account" ]] && continue
-    entries+=("$line")
-  done < <(luks_slots_kid_entries "$SLOTS_FILE")
-  posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}" || return 1
 }
 
 namespace_present() {
@@ -243,21 +254,36 @@ home_remove() {
 }
 
 remove_kid() {
-  local account="$1" display_name
+  local account="$1" display_name kid_failed=0 slot
   display_name="$(conf_get "$KIDS_DIR/$account.conf" name 2>/dev/null || true)"
   [[ -n "$display_name" ]] || display_name="$account"
   if [[ "$BOOT_MODE" == disk ]]; then
-    plan_one "luks:$account" luks_present luks_remove "$account"
-    ((STEP_FAILED == 0)) || return 0
+    kid_step "luks:$account" luks_present luks_remove "$account" || return 0
+  else
+    slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+    [[ -n "$slot" ]] || slot="$(luks_removal_intent_for_account "$SLOTS_FILE" "$account" 2>/dev/null || true)"
+    if [[ -n "$slot" ]]; then
+      if [[ "$DRY_RUN" -eq 1 ]]; then
+        report blocked "luks:$account"
+      else
+        echo "omarchy-kids-remove: portal mode cannot verify recorded LUKS slot $slot for $account; remove the slot in disk mode first" >&2
+        report FAILED "luks:$account"
+        ANY_FAIL=1
+        FAILED_STEPS+=("luks:$account")
+      fi
+      ANY_FAIL=1
+      return 0
+    fi
   fi
-  plan_one "mount:$account" mount_present mount_remove "$account"
-  plan_one "fstab:$account" fstab_present fstab_remove "$account"
-  plan_one "namespace:$account" namespace_present namespace_remove "$account"
-  plan_one "accountsservice:$account" accountsservice_present accountsservice_remove "$account"
-  plan_one "face:$account" face_present face_remove "$account"
-  plan_one "account:$account" account_present account_remove "$account"
-  plan_one "profile:$account" profile_present profile_remove "$account"
-  plan_one "home:$account" home_present home_remove "$account" "$display_name"
+  kid_step "mount:$account" mount_present mount_remove "$account" || kid_failed=1
+  kid_step "fstab:$account" fstab_present fstab_remove "$account" || kid_failed=1
+  kid_step "namespace:$account" namespace_present namespace_remove "$account" || kid_failed=1
+  kid_step "accountsservice:$account" accountsservice_present accountsservice_remove "$account" || kid_failed=1
+  kid_step "face:$account" face_present face_remove "$account" || kid_failed=1
+  ((kid_failed == 0)) || return 0
+  kid_step "account:$account" account_present account_remove "$account" || return 0
+  kid_step "home:$account" home_present home_remove "$account" "$display_name" || return 0
+  kid_step "profile:$account" profile_present profile_remove "$account" || return 0
 }
 
 # --- machine-level steps -------------------------------------------------
@@ -508,14 +534,38 @@ snapshot_take() {
 # --- one full pass, at whichever $DRY_RUN is currently set to -----------
 
 run_body() {
-  local kids=() k
+  local kids=() k line account intents="" slot=""
   while IFS= read -r k; do
     [[ -n "$k" ]] && kids+=("$k")
   done < <(kids_list "$KIDS_DIR")
 
+  # The map and journal are also retry records. A missing profile must not
+  # make a live key disappear from the removal roster.
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    account="${line#*=}"
+    account="${account%%:*}"
+    if [[ ! "$account" =~ ^kid-[a-z0-9-]+$ ]]; then
+      report FAILED "luks-state"
+      ANY_FAIL=1
+      FAILED_STEPS+=("luks-state")
+      return 0
+    fi
+    is_in "$account" "${kids[@]+"${kids[@]}"}" || kids+=("$account")
+  done < <(luks_slots_kid_entries "$SLOTS_FILE")
+  if ! intents="$(luks_removal_intents "$SLOTS_FILE")"; then
+    report FAILED "luks-state"
+    ANY_FAIL=1
+    FAILED_STEPS+=("luks-state")
+    return 0
+  fi
+  while read -r slot account; do
+    [[ -n "$account" ]] || continue
+    is_in "$account" "${kids[@]+"${kids[@]}"}" || kids+=("$account")
+  done <<<"$intents"
+
   plan_one "snapshot" snapshot_present snapshot_take
 
-  local account
   for account in "${kids[@]+"${kids[@]}"}"; do
     remove_kid "$account"
   done

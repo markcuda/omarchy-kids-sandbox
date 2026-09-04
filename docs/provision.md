@@ -28,8 +28,9 @@ trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the com
    account creation. Disk mode requires an encrypted device (`--luks-device`, or the first
    `crypto_LUKS` device from `lsblk`) and the parent's passphrase. The command rejects a kid
    password that already unlocks the device, captures the occupied slots from `luksDump`, runs
-   `luksAddKey`, then diffs a second `luksDump` to find the new slot number. Only then does it
-   atomically add the mapping. If the map write fails, it tries to kill the new slot and exits
+   `luksAddKey`, then diffs a second `luksDump` to find the new slot number. This happens under the
+   same root-owned slot-map lock removal uses. Only then does it atomically add the mapping. If the
+   map write fails, it tries to kill the new slot and exits
    without creating the account. If that rollback also fails, the error names the exact slot for
    manual removal. Portal mode makes no LUKS call and rejects `--luks-device`,
    `--parent-password-stdin`, and `--parent-password-fd`.
@@ -128,11 +129,13 @@ Reverses every account-level step `add` took, in reverse-ish order, then removes
 1. **LUKS slot** (R-SEC-4), disk mode only: looked up by *slot number* in `luks-slots` (a kid's own password
    isn't available to `remove`, so `--test-passphrase` isn't an option here — this is the one
    place slot number, not password, is the key), killed with
-   `cryptsetup luksKillSlot --batch-mode DEVICE SLOT` (`--luks-device`, or auto-detection), then
-   `luks-slots` is rewritten without that entry. A failed kill leaves the mapping and profile in
+   the command writes and fsyncs `luks-slots.removing-<account>`, then calls
+   `cryptsetup luksKillSlot --batch-mode DEVICE SLOT` (`--luks-device`, or auto-detection), rewrites
+   `luks-slots`, and clears the intent. A failed kill leaves the mapping, intent, and profile in
    place. If the kill succeeded but the map write failed, a retry confirms the slot is empty and
-   finishes the rewrite without killing it again. Portal mode skips the map and cryptsetup
-   entirely, and rejects `--luks-device`.
+   finishes the rewrite without killing it again. Portal mode makes no cryptsetup call and rejects
+   `--luks-device`; if the map or an intent records this account, it refuses removal and preserves
+   the account, profile, and home.
 2. `pam_namespace` lines for the account removed from `namespace.conf` (the `pam.d/sddm` and
    `pam.d/systemd-user` marker lines stay — they're not per-account).
 3. The AccountsService file removed.
@@ -142,15 +145,16 @@ Reverses every account-level step `add` took, in reverse-ish order, then removes
    `posture_write_portal_conf` `add` uses, excluding the account being removed — never an
    in-place edit, for the same reason `luks-slots` is a full rewrite (see below).
 6. The home unmounted (`umount /home/<account>`) and its `fstab` line dropped.
-7. The profile file (`$OMARCHY_KIDS_ETC/kids/<account>.conf`) removed.
-8. **The launcher map and session manifest** removed from
+7. **The launcher map and session manifest** removed from
    `/etc/omarchy-kids/launchers/<account>.json` and
    `/etc/omarchy-kids/sessions/<account>.json`.
-9. `userdel <account>` (no `-r`: the home is left on disk on purpose, for the next step).
-10. Unless `--keep-home`, the home moves to `<parent home>/Kids Mode/<display name>/` — the
+8. `userdel <account>` (no `-r`: the home is left on disk on purpose, for the next step).
+9. Unless `--keep-home`, the home moves to `<parent home>/Kids Mode/<display name>/` — the
    parent's login name comes from `machine.conf`'s `parent=`, and their home directory from
    `getent passwd` (falling back to `/home/<parent>` where `getent` isn't available, e.g. this
    repo's macOS dev environment).
+10. The profile is removed last. Until the account and home steps succeed, it remains the retry
+    record for the account and display name.
 
 **Left alone, on purpose** (R-FND-6: machine-level, only removed by Remove Kids Mode): the
 `omarchy-kids*` groups, the console masks, both polkit rule files, the SDDM theme selection

@@ -23,7 +23,10 @@ autonomous loop works from; `docs/loop-report.md` is the running account.
    the gate for new code.
 5. **A parent can install it in ten minutes from `docs/install.md`** on a stock Omarchy 4.0.2
    box, never restricted themselves, with one password (their own), and remove it cleanly.
-6. **The AUR package builds and `docs/packaging.md`'s readiness list is empty** (#32 needs Mark).
+6. **It is installed on the Air itself and dogfooded on real hardware**: the portal path (greeter
+   tile, password, launcher, exit modal, Finish, Pause, screen time) under the owner's theme, with
+   the owner never restricted and a clean removal proven. The AUR upload and the hub PR are not
+   part of done (Mark, 2026-09-04); the cold-boot-kid path stays VM-proven.
 7. **The community findings are folded in or decided**: #88 (signed ask requests), #89
    (hardened root helpers), #90 (the ADR on per-kid accounts), #91 (show_missing).
 8. **The docs tell the truth**: README, parent card, install, every `docs/<command>.md` checked
@@ -38,7 +41,8 @@ autonomous loop works from; `docs/loop-report.md` is the running account.
   asserts behaviour (a running launcher), not that a session exists.
 - Root-side builders never replace state on failure; root paths are exercised with an empty
   environment; anything root-only is verified on the VM, not the Mac.
-- The VM is the truth. The Air is never rebooted. Test users only. Only the public repo goes to
+- The VM is the truth for boot paths; the Air host is the truth for real hardware. The Air is
+  never rebooted and never left without a way in. Test users only. Only the public repo goes to
   Codex; Discord text stays on the Mac.
 
 ## Order of work

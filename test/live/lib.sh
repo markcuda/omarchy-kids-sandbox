@@ -112,6 +112,12 @@ boot_with() {
     }
     sleep 5
     waited=$((waited + 5))
+    # Under load the disk prompt can appear after the first try, and sshd comes up long before
+    # any greeter would, so an unreachable VM at 30 s intervals is still at the prompt: retype.
+    if ((waited % 30 == 0)); then
+      qmp type "$password" >/dev/null
+      qmp enter >/dev/null
+    fi
   done
   echo "vm never came up booting with $label's password" >&2
   return 1

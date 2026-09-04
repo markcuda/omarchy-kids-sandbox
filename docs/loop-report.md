@@ -166,6 +166,14 @@ from screenshots. Done since:
   allowlist, root checks at the entry of ask's root verbs). Each was gated on both suites and
   the live login scenario; #59 needed two rebases and one Linux-only test fix on the way.
   Spec 01's first ticket (#64, the session manifest builder) is the first spec-driven merge.
+- Spec-driven merges so far, each drafted by Codex and gated on both suites: #64 and #65 (the
+  session manifest builder and the kid's own validated read of it), #68 and #69 (the root ledger
+  tick now decides budget and lights-out from root-owned data and ends the session itself; the
+  kid-side overlay only warns). #66 (session startup reads one manifest, no scans, no runtime
+  exec strings: session-start went from 253 lines to 108) is at its gates.
+- A side track is scanning the Omacom Discord's #omarchy-kids channel through your browser for
+  everyone else's Kids Mode work: repos get read by Codex, Discord text stays on the Mac, and a
+  report with three recommended tickets lands in the scratchpad.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

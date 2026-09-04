@@ -10,8 +10,10 @@ source "$DIR/lib.sh"
 build_install && ok "package installed and pacman -Qkk clean" ||
   fail "package build/install/Qkk gate failed"
 
-if kid_budget_headroom "$LIVE_KID1_ACCOUNT" && ok "budget headroom for $LIVE_KID1_ACCOUNT (root ends a spent session now)" || fail "could not raise budget_min"
-boot_with "$LIVE_KID1_PASSWORD" "$LIVE_KID1_ACCOUNT"; then
+if
+  kid_budget_headroom "$LIVE_KID1_ACCOUNT" && ok "budget headroom for $LIVE_KID1_ACCOUNT (root ends a spent session now)" || fail "could not raise budget_min"
+  boot_with "$LIVE_KID1_PASSWORD" "$LIVE_KID1_ACCOUNT"
+then
   ok "vm booted with ${LIVE_KID1_ACCOUNT}'s disk password"
 else
   fail "vm never came up on ${LIVE_KID1_ACCOUNT}'s disk password"

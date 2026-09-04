@@ -45,6 +45,7 @@ else:  # pragma: no cover - Arch ships 3.11+; this is a courtesy for dev boxes
 BANDS_ORDER = ("3-5", "6-8", "9-12", "13+")
 SCHEMA_SOURCES = {"none", "band", "pack", "global"}
 SCHEMA_TYPES = {"string", "enum", "integer", "csv"}
+SCHEMA_EDITORS = {"text", "avatar", "enum", "number", "time", "dns", "launcher-list", "site-list", "password", "toggle", "theme"}
 SCHEMA_VALIDATORS = {
     "nonempty-single-line",
     "avatar-id",
@@ -131,31 +132,35 @@ def load_schema(path):
         if missing:
             die(f"schema {path} entry is missing: {', '.join(sorted(missing))}")
         key = entry["key"]
-        if not isinstance(key, str) or not key or "\t" in key or "\n" in key:
+        if not isinstance(key, str) or not key or any(char in key for char in "\t\n|"):
             die(f"schema {path} has an invalid key")
         if key in seen:
             die(f"schema {path} repeats key '{key}'")
         seen.add(key)
-        if entry["type"] not in SCHEMA_TYPES:
+        if not isinstance(entry["type"], str) or entry["type"] not in SCHEMA_TYPES:
             die(f"schema {path} key '{key}' has an unknown type")
         if not isinstance(entry["required"], bool):
             die(f"schema {path} key '{key}' has a non-boolean required flag")
-        if entry["default_source"] not in SCHEMA_SOURCES:
+        if not isinstance(entry["default_source"], str) or entry["default_source"] not in SCHEMA_SOURCES:
             die(f"schema {path} key '{key}' has an unknown default source")
-        if entry["validator"] not in SCHEMA_VALIDATORS:
+        if not isinstance(entry["validator"], str) or entry["validator"] not in SCHEMA_VALIDATORS:
             die(f"schema {path} key '{key}' has an unknown validator")
         for field in ("group", "label", "editor", "reset"):
-            if not isinstance(entry[field], str) or not entry[field]:
+            if not isinstance(entry[field], str) or not entry[field] or any(char in entry[field] for char in "\t\n|"):
                 die(f"schema {path} key '{key}' has an invalid {field}")
+        if entry["editor"] not in SCHEMA_EDITORS:
+            die(f"schema {path} key '{key}' has an unknown editor")
+        if entry["reset"] not in {"keep", "clear"}:
+            die(f"schema {path} key '{key}' has an unknown reset mode")
         if "enum" in entry:
             if not isinstance(entry["enum"], list) or not entry["enum"] or not all(
-                isinstance(value, str) and value for value in entry["enum"]
+                isinstance(value, str) and value and not any(char in value for char in "\t\n|") for value in entry["enum"]
             ):
                 die(f"schema {path} key '{key}' has an invalid enum")
         if entry["type"] == "enum" and "enum" not in entry:
             die(f"schema {path} key '{key}' has no enum")
         if entry["type"] == "integer":
-            if not isinstance(entry.get("min"), int) or not isinstance(entry.get("max"), int):
+            if type(entry.get("min")) is not int or type(entry.get("max")) is not int:
                 die(f"schema {path} key '{key}' has no integer bounds")
             if entry["min"] > entry["max"]:
                 die(f"schema {path} key '{key}' has reversed integer bounds")

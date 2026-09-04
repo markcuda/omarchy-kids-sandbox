@@ -1,8 +1,9 @@
 # Settings: profiles, bands, and `omarchy-kids-conf` (R-BAND-1, R-BAND-2, R-BUILD-5)
 
-One way to read and write every kid setting: band defaults live as data in `bands.toml`, a kid's
-own choices live as overrides in their profile file, and `omarchy-kids-conf` is the only thing that
-knows how to combine the two. No other command should read or write a kid's `.conf` file directly.
+One way to read and write every kid setting: the schema declares the keys and their metadata, band
+defaults live as data in `bands.toml`, a kid's own choices live as overrides in their profile file,
+and `omarchy-kids-conf` is the only thing that knows how to combine the sources. No other command
+should read or write a kid's `.conf` file directly.
 
 ## Pieces
 
@@ -18,6 +19,8 @@ knows how to combine the two. No other command should read or write a kid's `.co
 - `lib/conf.py` — the one place this uses Python: reading TOML (stdlib `tomllib`) and the
   Appendix B.1 slug rule (NFKD transliteration). Never runs on its own; `omarchy-kids-conf` shells
   out to it.
+- `share/config/schema.toml` — the package-owned version-1 declaration for every profile and
+  `apps.*` key: type, required/default source, validator, group, label, editor, and reset policy.
 
 ## Precedence
 
@@ -28,7 +31,20 @@ stops at the first hit:
 2. **band** — the kid's band supplies it, from `bands.toml` (most keys) or from
    `share/packs/<band>.toml` (`allowlist`, `sites`).
 3. **default** — a global default that isn't band-specific (`dns`, `history_visible`, `password`,
-   `onboarded`).
+  `onboarded`).
+
+## Schema
+
+`share/config/schema.toml` is installed at `/usr/share/omarchy-kids/config/schema.toml`. It has
+one `[[key]]` table per supported profile key, in the same order used by `show` and `reset`. A
+row's `default_source` names the existing source; it does not duplicate a band, pack, or global
+value. `required = true` with `default_source = "none"` preserves the current missing-value
+failures.
+
+The command validates the schema at startup through the fixed `lib/conf.py` helper. It then uses
+the resulting rows for key recognition, `show`/`reset` iteration, precedence, and value validation.
+Validator and editor names are fixed IDs selected by `case` statements; no schema value is
+executed as shell code. Wizard and panel maps remain in place until tickets 2–3.
 
 `name`, `avatar`, `band`, and `theme` have no default at all: they must already be an override, or
 `get` (and anything that resolves through them) exits 2. `theme` (issue #53, `docs/theming.md`)

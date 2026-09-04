@@ -28,6 +28,8 @@ mkdir -p "$SHARE/bands" "$SHARE/config" "$SHARE/packs"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$DIR/share/config/schema.toml" "$SHARE/config/"
 cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
+mkdir -p "$SHARE/avatars"
+cp "$DIR/share/avatars/fox.svg" "$SHARE/avatars/"
 
 # issue #53: a scratch system themes dir ($OMARCHY_PATH/themes) for
 # `theme`'s validation and `theme_apply_for`'s own file copy, plus a
@@ -158,6 +160,21 @@ check "$slug_long" "kid-$(printf 'a%.0s' {1..24})" "slug: truncated slug is the 
 "$CONF" set kid-ada theme tokyo-night >/dev/null
 check_status "$?" 0 "set writes the identity keys"
 
+# Band and pack sources remain authoritative; the schema supplies only their source.
+band_keys=(level web dns budget_min budget_min_weekend lights_out lights_out_weekend wifi history_visible menu)
+for band in 3-5 6-8 9-12 13+; do
+  "$CONF" set kid-ada band "$band" >/dev/null
+  for key in "${band_keys[@]}"; do
+    expected="$("$CONF" band "$band" | awk -F= -v key="$key" '$1 == key { print substr($0, length(key) + 2) }')"
+    check "$("$CONF" get kid-ada "$key")" "$expected" "schema precedence: $band $key comes from bands.toml"
+  done
+  expected="$(python3 "$DIR/lib/conf.py" pack-ids "$SHARE/packs/$band.toml")"
+  check "$("$CONF" get kid-ada allowlist)" "$expected" "schema precedence: $band allowlist comes from its pack"
+  expected="$(python3 "$DIR/lib/conf.py" pack-sites "$SHARE/packs/$band.toml")"
+  check "$("$CONF" get kid-ada sites)" "$expected" "schema precedence: $band sites come from its pack"
+done
+"$CONF" set kid-ada band 6-8 >/dev/null
+
 # --- get: override -> band -> default fallback ----------------------------
 
 check "$("$CONF" get kid-ada level)" "1" "get: level falls back to band 6-8's default (1)"
@@ -193,6 +210,46 @@ check_status "$status" 2 "get: an unknown key is also refused"
 
 "$CONF" set kid-ada budget_min 75 >/dev/null
 check "$("$CONF" get kid-ada budget_min)" "75" "set: a valid budget_min is written and read back"
+
+# Every schema validator accepts the current shape and rejects its old bad shape.
+valid_values=(
+  "name|Ada" "avatar|fox" "band|6-8" "level|1" "web|garden"
+  "dns|cloudflare-family" "budget_min|60" "budget_min_weekend|60"
+  "lights_out|19:30" "lights_out_weekend|20:00" "wifi|parent"
+  "history_visible|yes" "menu|trimmed" "theme|tokyo-night"
+  "allowlist|gcompris" "sites|example.com" "password|set" "onboarded|no"
+  "apps.extra|gcompris" "apps.hidden|gcompris" "apps.show_missing|no"
+)
+for pair in "${valid_values[@]}"; do
+  key="${pair%%|*}"
+  value="${pair#*|}"
+  "$CONF" set kid-ada "$key" "$value" >/dev/null 2>&1
+  check "$?" "0" "schema validation: accepts $key's current valid shape"
+done
+
+invalid_values=(
+  "name|" "avatar|Bad Id" "avatar|not-an-avatar"
+  "band|7-9" "level|0" "web|open-everything" "dns|custom:"
+  "budget_min|0" "budget_min_weekend|1441" "lights_out|9pm"
+  "lights_out_weekend|24:00" "wifi|child" "history_visible|maybe"
+  "menu|all" "theme|Not A Real Theme" "theme|no-such-theme"
+  "allowlist|not an id" "sites|not a host" "password|ask"
+  "onboarded|maybe" "apps.extra|not an id" "apps.hidden|not an id"
+  "apps.show_missing|maybe"
+)
+for pair in "${invalid_values[@]}"; do
+  key="${pair%%|*}"
+  value="${pair#*|}"
+  "$CONF" set kid-ada "$key" "$value" >/dev/null 2>&1
+  check "$?" "2" "schema validation: rejects $key's old invalid shape"
+done
+
+# Restore the source mix used by the existing show assertions.
+source "$DIR/lib/conf.sh"
+conf_del "$ETC/kids/kid-ada.conf" onboarded
+conf_del "$ETC/kids/kid-ada.conf" wifi
+"$CONF" set kid-ada level 2 >/dev/null
+
 
 # --- theme (issue #53): validation, get, and the real apply side effect ----
 

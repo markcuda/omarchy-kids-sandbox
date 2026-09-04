@@ -285,6 +285,7 @@ cmd_reset() {
  for key in "${SCHEMA_KEYS[@]}"; do
    local row type required source group label editor validator enum min max reset
    row="$(schema_row "$key")"
+    # shellcheck disable=SC2034 # positional fields keep the schema row aligned
    IFS='|' read -r key type required source group label editor validator enum min max reset <<<"$row"
    [[ "$reset" == keep ]] && continue
     conf_del "$profile" "$key"

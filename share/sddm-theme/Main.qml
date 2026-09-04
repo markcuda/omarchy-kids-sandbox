@@ -176,11 +176,17 @@ Rectangle {
         for (var i = 0; i < root.sessionFiles.length; i++) {
             if (root.sessionFiles[i].base === baseName) return root.sessionFiles[i].index
         }
-        return sessionModel.lastIndex
+        return -1
     }
 
     function sessionIndexForUser(user) {
         return root.sessionIndexForFile(user.isParent ? "omarchy.desktop" : "omarchy-kids.desktop")
+    }
+
+    function loginUser(user, password) {
+        var sessionIndex = root.sessionIndexForUser(user)
+        if (sessionIndex < 0) return
+        sddm.login(user.name, password, sessionIndex)
     }
 
     // --- selection state --------------------------------------------------
@@ -207,7 +213,7 @@ Rectangle {
         var u = root.currentUser()
         if (!u) return
         if (!u.needsPassword) {
-            sddm.login(u.name, "", root.sessionIndexForUser(u))
+            root.loginUser(u, "")
             return
         }
         root.passwordMode = true
@@ -342,7 +348,7 @@ Rectangle {
 
                             Keys.onPressed: (event) => {
                                 if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                    sddm.login(modelData.name, passwordField.text, root.sessionIndexForUser(modelData))
+                                    root.loginUser(modelData, passwordField.text)
                                     event.accepted = true
                                 } else if (event.key === Qt.Key_Escape) {
                                     passwordField.text = ""

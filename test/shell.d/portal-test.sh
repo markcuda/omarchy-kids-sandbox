@@ -176,6 +176,14 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
   else
     fail "portal allowlist adversarial case: inherited constructor was admitted"
   fi
+  if grep -qF 'function loginUser(user, password)' "$MAIN_QML" &&
+    grep -qF 'if (sessionIndex < 0) return' "$MAIN_QML" &&
+    [[ "$(grep -cF 'return -1' "$MAIN_QML")" -ge 1 ]] &&
+    ! grep -qF 'return sessionModel.lastIndex' "$MAIN_QML"; then
+    pass "Main.qml refuses login when a pinned session is missing"
+  else
+    fail "Main.qml can fall back to sessionModel.lastIndex for a missing pinned session"
+  fi
   if grep -qF 'OpacityMask' "$MAIN_QML" && grep -qF 'radius: width / 2' "$MAIN_QML"; then
     pass "Main.qml masks fallback avatar images to a circle"
   else

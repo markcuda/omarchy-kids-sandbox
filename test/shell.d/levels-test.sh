@@ -22,7 +22,6 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 HYPR="$DIR/share/hyprland"
 
 fail=0
-pass() { echo "ok   $*"; }
 check() { # got want label
   if [[ "$1" == "$2" ]]; then echo "ok   $3"; else
     echo "FAIL $3 (want '$2', got '$1')"
@@ -139,12 +138,12 @@ check_contains "$l3_content" 'o.bind("SUPER + SHIFT + W", "Kids Mode: Wi-Fi", "o
 check_contains "$l3_content" 'o.bind("SUPER + SUPER_L", "Kids Mode: exit (tap Super three times)", "omarchy-kids-super-tap", { release = true })' \
   "L3.lua adds the triple-tap release bind"
 
-# --- session-start consumes the expected session manifest ----------------
+# --- session-start writes the expected launcher JSON ---------------------
 
 if ! command -v jq >/dev/null 2>&1; then
-  echo "SKIP session-start manifest checks: jq not found"
+  echo "SKIP session-start JSON checks: jq not found"
 elif ! command -v python3 >/dev/null 2>&1; then
-  echo "SKIP session-start manifest checks: python3 not found"
+  echo "SKIP session-start JSON checks: python3 not found"
 else
   TMP="$(mktemp -d)"
   # shellcheck disable=SC2329 # invoked via `trap ... EXIT`, not called directly
@@ -155,26 +154,25 @@ else
   ETC="$TMP/etc"
   RUN="$TMP/run"
   STUBS="$TMP/stubs"
-  mkdir -p "$SHARE/bands" "$SHARE/packs" "$SHARE/avatars" "$ETC/kids" "$TMP/apps" "$STUBS" \
+  mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$TMP/apps" "$STUBS" \
     "$TMP/root/usr/share/applications"
   cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
   cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
-  cp "$DIR"/share/avatars/*.svg "$SHARE/avatars/"
 
   cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada
 avatar=fox
 band=6-8
-theme=tokyo-night
 EOF
 
-  # The manifests below provide distinct level/band cases without env-selected paths.
+  # Level and band are read from the profile now, never from the
+  # environment (review §3.4), so the two cases below are two profiles
+  # and an `id` that answers as each in turn -- not two env vars.
   cat >"$ETC/kids/kid-two.conf" <<'EOF'
 name=Two
 avatar=fox
 band=6-8
 level=2
-theme=tokyo-night
 EOF
 
   cat >"$ETC/kids/kid-tot.conf" <<'EOF'
@@ -182,7 +180,6 @@ name=Tot
 avatar=fox
 band=3-5
 level=1
-theme=tokyo-night
 EOF
 
   cat >"$TMP/apps/tuxpaint.desktop" <<'EOF'
@@ -215,8 +212,10 @@ EOF
   kids_id_stub "$STUBS" kid-ada "$(id -u)"
   kids_tree "$TMP/tree" "$DIR"
   SESSION_START="$TMP/tree/bin/omarchy-kids-session-start"
+  kids_set_const "$SESSION_START" ETC "$ETC"
   kids_set_const "$SESSION_START" SHARE "$SHARE"
   kids_set_const "$SESSION_START" RUN "$RUN"
+  kids_set_const "$SESSION_START" APPLICATIONS_DIRS "$TMP/apps"
 
   # Stubs plus a base toolset only: a real Omarchy box has half this pack
   # actually installed, and `command -v <app>` would call those tiles
@@ -234,30 +233,19 @@ EOF
   source "$DIR/lib/conf.sh"
   source "$DIR/lib/kids.sh"
   source "$DIR/lib/launcher-map.sh"
-  # shellcheck source=lib/session-manifest.sh
-  source "$DIR/lib/session-manifest.sh"
   launcher_map_fix kid-ada
   launcher_map_fix kid-two
   launcher_map_fix kid-tot
-  session_manifest build kid-ada >/dev/null
-  session_manifest build kid-two >/dev/null
-  session_manifest build kid-tot >/dev/null
 
   SESSION_ROOT="$TMP/installed"
   mkdir -p "$SESSION_ROOT/bin"
   cp -R "$DIR/lib" "$SESSION_ROOT/"
   cp "$DIR/bin/omarchy-kids-session-start" "$SESSION_ROOT/bin/"
-  cat >"$SESSION_ROOT/bin/omarchy-kids-session" <<EOF
-#!/bin/bash
-set -euo pipefail
-account="\$(id -un)"
-cat "$ETC/sessions/\$account.json"
-EOF
-  chmod +x "$SESSION_ROOT/bin/omarchy-kids-session"
   cp "$DIR/bin/omarchy-kids-conf" "$SESSION_ROOT/bin/"
   cp "$DIR/bin/omarchy-kids-apps" "$SESSION_ROOT/bin/"
   cp "$DIR/bin/omarchy-kids-time" "$SESSION_ROOT/bin/"
   SESSION_COPY="$SESSION_ROOT/bin/omarchy-kids-session-start"
+  kids_set_const "$SESSION_COPY" ETC "$ETC"
   kids_set_const "$SESSION_COPY" SHARE "$SHARE"
   kids_set_const "$SESSION_COPY" SYSROOT "$TMP/root"
   kids_set_const "$SESSION_COPY" RUN "$RUN"
@@ -269,19 +257,47 @@ EOF
   )"
   check "$out" "/usr/bin/quickshell -p $SHARE/launcher/shell.qml" "session-start prints the Level 1 exec line"
 
-  manifest_path="$ETC/sessions/kid-ada.json"
-  check "$(jq -r '.account' "$manifest_path")" "kid-ada" "manifest account"
-  check "$(jq -r '.band' "$manifest_path")" "6-8" "manifest band"
-  check "$(jq -r '.level' "$manifest_path")" "1" "manifest level (band 6-8's default)"
-  check "$(jq -r '.tiles[0].id' "$manifest_path")" "gcompris" "manifest keeps pack order"
-  check "$(jq -r '.tiles | map(select(.id == "more-apps")) | length' "$manifest_path")" "1" \
-    "issue #28: band 6-8 manifest gets a 'More apps' tile"
-  check "$(jq -r '.tiles[] | select(.id == "tuxpaint") | .argv[0]' "$manifest_path")" "$STUBS/tuxpaint" \
-    "manifest carries tuxpaint's absolute executable"
-  [[ ! -e "$RUN/launcher-$(id -u).json" ]] && pass "session-start creates no runtime launcher JSON" ||
-    fail_ "session-start creates no runtime launcher JSON"
-  [[ ! -e "$RUN/allowlist.json" ]] && pass "session-start creates no runtime allowlist JSON" ||
-    fail_ "session-start creates no runtime allowlist JSON"
+  json_path="$RUN/launcher-$(id -u).json"
+  if [[ -f "$json_path" ]]; then
+    echo "ok   session-start wrote $json_path"
+  else
+    echo "FAIL session-start did not write a launcher JSON at $json_path"
+    fail=1
+  fi
+
+  if command -v jq >/dev/null 2>&1 && [[ -f "$json_path" ]]; then
+    check "$(jq -r '.account' "$json_path")" "kid-ada" "launcher JSON account"
+    check "$(jq -r '.band' "$json_path")" "6-8" "launcher JSON band"
+    check "$(jq -r '.level' "$json_path")" "1" "launcher JSON level (band 6-8's default)"
+    # Only gcompris (PATH stub) and tuxpaint (.desktop fixture) are
+    # "installed" here; the other six 6-8 pack apps default to omitted.
+    check "$(jq -r '.tiles | map(select(.id != "more-apps")) | length' "$json_path")" "2" \
+      "launcher JSON has only the installed apps from the 6-8 pack (gcompris, tuxpaint)"
+    check "$(jq -r '.tiles[0].id' "$json_path")" "gcompris" "launcher JSON keeps pack order (first tile is gcompris)"
+    check "$(jq -r '.tiles | map(select(.id != "more-apps")) | all(.installed == true)' "$json_path")" "true" \
+      "issue #42: every tile shown by default is installed:true"
+
+    more_apps_tile="$(jq -c '.tiles[] | select(.id == "more-apps")' "$json_path")"
+    check_contains "$more_apps_tile" '"label":"More apps"' \
+      "issue #28: band 6-8 gets a 'More apps' tile at Level 1"
+    check "$(jq -r '.tiles[] | select(.id == "more-apps") | .installed' "$TMP/etc/launchers/kid-ada.json")" "true" \
+      "issue #28: the 'More apps' tile is installed in the root map"
+    check "$(jq -r '.tiles[] | select(.id == "more-apps") | .argv[1]' "$TMP/etc/launchers/kid-ada.json")" "OMARCHY_KIDS_BAND=6-8" \
+      "issue #28: the 'More apps' argv carries the band"
+    check "$(jq -r '.tiles[] | select(.id == "more-apps") | .argv[4]' "$TMP/etc/launchers/kid-ada.json")" "/usr/share/omarchy-kids/plugins/shell.qml" \
+      "issue #28: the 'More apps' argv points at the packaged plugins shell"
+
+    tuxpaint_tile="$(jq -c '.tiles[] | select(.id == "tuxpaint")' "$json_path")"
+    check_contains "$tuxpaint_tile" '"icon":"tuxpaint"' "tuxpaint tile picks up the matched .desktop file's Icon="
+    check "$(jq -r '.tiles[] | select(.id == "tuxpaint") | .argv[0]' "$TMP/etc/launchers/kid-ada.json")" "$STUBS/tuxpaint" \
+      "tuxpaint map uses an absolute executable"
+
+    check "$(jq -r '.tiles[] | select(.id == "gcompris") | .argv[0]' "$TMP/etc/launchers/kid-ada.json")" "$STUBS/gcompris" \
+      "gcompris map uses an absolute executable fallback"
+
+    check "$(jq -r '.tiles | map(select(.id == "chromium")) | length' "$json_path")" "0" \
+      "R-WEB-4: no chromium tile when the band's Chromium policy file doesn't exist"
+  fi
 
   # Level 2/3 exec the real Omarchy shell command.
   out2="$(
@@ -301,8 +317,8 @@ EOF
       bash "$SESSION_COPY"
   )"
   check "$out3" "/usr/bin/quickshell -p $SHARE/launcher/shell.qml" "session-start (band 3-5) still prints the Level 1 exec line"
-  check "$(jq -r '.tiles | map(select(.id == "more-apps")) | length' "$ETC/sessions/kid-tot.json")" "0" \
-    "issue #28: band 3-5's manifest has no 'more-apps' tile"
+  check "$(jq -r '.tiles | map(select(.id == "more-apps")) | length' "$json_path")" "0" \
+    "issue #28: band 3-5's launcher JSON has no 'more-apps' tile"
 fi
 
 exit $fail

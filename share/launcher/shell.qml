@@ -1,5 +1,5 @@
-// shell.qml -- the Level 1/2 big-tile launcher. Reads the caller-bound
-// session manifest (SPEC.md R-DESK-3, R-DESK-5, R-MANIFEST-5; I-3, I-5, I-6).
+// shell.qml -- the Level 1/2 big-tile launcher. Reads its tile list from
+// /run, never the kid's home (SPEC.md R-DESK-3, R-DESK-5, Appendix E; I-3, I-5, I-6).
 // See docs/levels.md "Open questions" #5 for the Quickshell API guesses still to confirm.
 
 import QtQuick
@@ -26,9 +26,12 @@ Window {
     color: theme.background
 
     // --- Tile data -----------------------------------------------------
-    // The validated manifest is the only source for display and launch data.
+    // Written by bin/omarchy-kids-session-start from the kid's resolved
+    // allowlist. Read once at startup and again whenever the file
+    // changes underneath (a level change, a re-run of session-start).
     property var tiles: []
-    property var manifest: ({})
+    // The root-owned map is the only source of executable argv and install state.
+    property var launchMap: ({})
     // issue #43: this used to be a hardcoded `4` that drifted out of
     // sync with what GridView actually renders (five columns, seen live
     // with ten tiles). Derived here from the exact same inputs --
@@ -85,28 +88,29 @@ Window {
         return Quickshell.iconPath(value, true)
     }
 
-    Process {
-        id: manifestProcess
-        command: ["/usr/bin/omarchy-kids-session", "--manifest"]
-        running: true
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: root.reloadManifest(String(text || ""))
-        }
+    FileView {
+        id: tilesFile
+        path: (Quickshell.env("OMARCHY_KIDS_LAUNCHER_JSON") || (Quickshell.env("XDG_RUNTIME_DIR") + "/omarchy-kids/launcher.json"))
+        watchChanges: true
+        onLoaded: root.reloadTiles()
+        onTextChanged: root.reloadTiles()
     }
 
-    function reloadManifest(raw) {
+    FileView {
+        id: launchMapFile
+        path: Quickshell.env("OMARCHY_KIDS_LAUNCHER_MAP") || ""
+        watchChanges: true
+        onLoaded: root.reloadLaunchMap()
+        onTextChanged: root.reloadLaunchMap()
+    }
+
+    function reloadTiles() {
         var parsed = []
         try {
-            var data = JSON.parse(raw)
-            if (data && data.tiles) {
-                root.manifest = data
-                parsed = data.tiles
-            } else {
-                root.manifest = ({})
-            }
+            var data = JSON.parse(tilesFile.text())
+            if (data && data.tiles) parsed = data.tiles
         } catch (e) {
-            root.manifest = ({})
+            parsed = []
         }
         root.tiles = parsed
         if (root.currentIndex >= root.tiles.length) {
@@ -114,8 +118,17 @@ Window {
         }
     }
 
+    function reloadLaunchMap() {
+        try {
+            var data = JSON.parse(launchMapFile.text())
+            root.launchMap = data && data.tiles ? data : ({})
+        } catch (e) {
+            root.launchMap = ({})
+        }
+    }
+
     function launchEntry(id) {
-        var entries = root.manifest.tiles || []
+        var entries = root.launchMap.tiles || []
         for (var i = 0; i < entries.length; i++) {
             if (entries[i] && entries[i].id === id) return entries[i]
         }
@@ -135,6 +148,11 @@ Window {
         }
         if (entry.argv[0].charAt(0) !== "/") return []
         return entry.argv
+    }
+
+    Component.onCompleted: {
+        root.reloadTiles()
+        root.reloadLaunchMap()
     }
 
     // --- Reaching this window from Hyprland binds -----------------------
@@ -195,8 +213,13 @@ Window {
         if (root.currentIndex < 0 || root.currentIndex >= root.tiles.length) return
         var tile = root.tiles[root.currentIndex]
         if (!tile) return
-        // Unavailable applications stay honest and inert; the manifest is
-        // already the root-validated source of their installed state.
+        // issue #42, I-6: a tile bin/omarchy-kids-session-start kept
+        // only because apps.show_missing=yes (installed === false,
+        // explicitly, not just falsy/undefined -- every other tile
+        // this launcher has ever rendered has no `installed` key at
+        // all and must keep working) is shown greyed with a caption
+        // below, never launched -- Enter on it is a no-op, same as
+        // Escape everywhere else in this file.
         if (root.launchInstalled(tile.id || "") !== true) return
         var argv = root.launchArgv(tile.id || "")
         if (argv.length === 0) return
@@ -281,7 +304,16 @@ Window {
             interactive: false
 
             delegate: Rectangle {
-                // Missing applications remain navigable but cannot launch.
+                // issue #42, I-6: a tile whose app isn't installed yet
+                // (bin/omarchy-kids-session-start only ever emits one
+                // when apps.show_missing=yes; otherwise it's omitted
+                // entirely and never reaches this file) is greyed and
+                // captioned instead of looking like every other tile --
+                // it can be highlighted for consistent arrow-key
+                // navigation, but launchCurrent() above refuses to run
+                // it. `=== false`, not falsy: every other tile here
+                // carries no `installed` key at all and must render
+                // exactly as before.
                 readonly property bool missing: root.launchInstalled(modelData.id || "") === false
                 // issue #54: the resolved icon source, or "" -- an
                 // empty Image source (Image.Null) never reaches
@@ -365,11 +397,15 @@ Window {
                         horizontalAlignment: Text.AlignHCenter
                     }
 
-                    // The manifest does not make an unavailable app look runnable.
+                    // "installing..." while omarchy-kids-apps' queue for
+                    // this app is pending, else "not installed yet" --
+                    // set by bin/omarchy-kids-session-start, never
+                    // computed here (this file has no way to read the
+                    // queue itself, and shouldn't need one).
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        visible: missing
-                        text: "not installed yet"
+                        visible: missing && modelData.caption && modelData.caption.length > 0
+                        text: modelData.caption || ""
                         color: theme.caption
                         font.family: theme.fontFamily
                         font.pixelSize: 12

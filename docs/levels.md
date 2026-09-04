@@ -12,24 +12,29 @@ Quickshell, so treat everything under "Verify in the VM" as open until it has.
 | `share/hyprland/band-3-5.lua`, `band-6-8.lua` | Cursor/gap/scale overlays, loaded by whichever level file is active when `OMARCHY_KIDS_BAND` matches |
 | `share/launcher/shell.qml` | The Level 1/2 big-tile launcher (Quickshell/QtQuick), R-DESK-5 |
 | `share/launcher/gridnav.js` | Pure column/index math shared by `shell.qml`'s key navigation and its GridView layout (issue #43) |
-| `bin/omarchy-kids-session-start` | Runs once per session from each level file's `exec-once`; reads the validated manifest and starts the right surface for the level |
+| `bin/omarchy-kids-session-start` | Runs once per session from each level file's `exec-once`; writes the launcher's tile JSON and starts the right thing for the level |
 | `bin/omarchy-kids-launcher-ctl` | What the Hyprland binds call to show/activate the launcher, so the Lua files don't need Quickshell IPC details |
 | `bin/omarchy-kids-exit`, `bin/omarchy-kids-super-tap`, `share/exit-modal/shell.qml` | The exit modal for Super+Shift+K and the triple-tap (R-EXIT-1); see `docs/exit.md` |
 | `share/menu/omarchy-kids-trimmed.jsonc` | Best-effort omarchy-menu extension for R-DESK-4 (Install/Update/Setup hidden at Levels 1-2) |
 
 Deployment (R-DESK-1): the package installs these under `/usr/share/omarchy-kids/hyprland/` and
 `/usr/share/omarchy-kids/launcher/`; provisioning copies or links them to
-`/etc/omarchy-kids/hyprland/`. `omarchy-kids-session` reads the caller-bound manifest, exports the
-level and band before Hyprland parses its config, and execs:
+`/etc/omarchy-kids/hyprland/`. `omarchy-kids-session` (a stub as of this issue — a different
+issue) reads the kid's profile and execs:
 
 ```text
 Hyprland --config /etc/omarchy-kids/hyprland/L<level>.lua
 ```text
 
-`bin/omarchy-kids-session-start` reads the same validated manifest through
-`omarchy-kids-session --manifest`. It derives the level surface, theme, web mode, tile list,
-budget, and lights-out values from that one document; it does not re-read the profile or scan
-desktop files. This keeps the level overlay and the launcher on the same root-owned snapshot.
+**Cross-issue dependency, not yet wired:** the level file's band overlay (`OMARCHY_KIDS_BAND`)
+has to be an environment variable already set when Hyprland starts parsing its config — i.e.
+before `omarchy-kids-session` execs Hyprland — since the level files check it at config-parse
+time, not later. `bin/omarchy-kids-session-start` (this issue) separately re-reads the account's
+level/band itself via `omarchy-kids-conf` if `OMARCHY_KIDS_LEVEL`/`OMARCHY_KIDS_BAND` aren't
+already in its environment, so the *launcher JSON and level-2/3 shell startup* work either way —
+but the *band overlay* in L1.lua/L2.lua/L3.lua only fires if `omarchy-kids-session` exports
+`OMARCHY_KIDS_BAND` before the `Hyprland --config ...` exec. That's `omarchy-kids-session`'s job
+to do when it's built.
 
 ## What each level binds (Appendix E)
 
@@ -95,19 +100,18 @@ use the same root-time resolution for an absolute executable. The map contains:
 }
 ```text
 
-The root-owned session manifest at `/etc/omarchy-kids/sessions/<account>.json` is the launcher's
-only tile document. Each tile carries its `id`, `label`, `icon`, `installed` state, and fixed
-absolute `argv`; unavailable tiles carry `installed: false` and an empty argv. The launcher reads
-the validated document through `omarchy-kids-session --manifest`, so a kid-writable runtime file
-cannot add, remove, relabel, or activate a tile.
+The kid-side session writes only display data to `/run/user/<uid>/omarchy-kids/launcher-<uid>.json`:
+`id`, `label`, `icon`, `installed`, and `caption`. It has no executable field. The launcher uses a
+tile id to look up `argv` in the root map; a conflicting or extra runtime tile cannot launch
+anything. If the root map is missing or the id is absent, activation is a no-op.
 
 If the kid's `web` key isn't `none` **and** `/etc/chromium/policies/managed/omarchy-kids-<band>.json`
-is readable, manifest construction appends a `chromium` tile with the fixed argv
+is readable, the root map appends a `chromium` tile with the fixed argv
 `["/usr/bin/omarchy-kids-web", "launch"]` (R-WEB-4). The Level 1 `more-apps` tile likewise uses
 fixed argv for `/usr/bin/quickshell` and the packaged plugins shelf, with the band supplied as an
 environment argument. No tile is evaluated by a shell.
 
-**Installed/missing tiles (issue #42, I-6).** Every pack/`apps.extra` tile in the manifest also
+**Installed/missing tiles (issue #42, I-6).** Every pack/`apps.extra` tile in the root map also
 carries `installed: true|false` — a matched `.desktop` file, or (the bare-command fallback)
 `command -v` on the resolved executable, **never `pacman -Q`**, so this works the same for a pack app,
 an `apps.extra` id with no package at all, or any future non-pacman app source. By default
@@ -118,15 +122,15 @@ rendered but did nothing on Enter. With `apps.show_missing=yes` the tile is kept
 `bin/omarchy-kids-apps`' pending install queue (`OMARCHY_KIDS_ROOT/var/lib/omarchy-kids/apps-queue`,
 read here, never written) or `"not installed yet"` otherwise; `share/launcher/shell.qml` renders
 that tile greyed and the caption underneath the label, and refuses to launch it on Enter
-(`installed === false`, checked before `launchCurrent()` runs anything). An installed tile always
-carries `installed: true` and an empty `caption`. The synthetic `chromium`/`more-apps`/`kids-data`
-tiles are built into the manifest with fixed argv.
+(`installed === false`, checked before `launchCurrent()` runs anything). The session copies this
+state into the display JSON, but the root map wins if the two disagree. An installed tile always
+carries `installed: true` and an empty `caption` in both views. The synthetic
+`chromium`/`more-apps`/`kids-data` tiles are always root-authorized and have fixed argv.
 
-`share/launcher/shell.qml` reads the manifest through the fixed `omarchy-kids-session --manifest`
-command and polls only the small control file (`/run/user/<uid>/omarchy-kids/launcher-control`)
-that `bin/omarchy-kids-launcher-ctl` writes to on `Super+Return`. It renders the tiles as a grid
-with keyboard-only navigation (arrows move the highlight, Return/Enter launches, Escape is
-swallowed and does nothing).
+`share/launcher/shell.qml` polls the display file and root map, plus a small control file
+(`/run/omarchy-kids/launcher-control`) that `bin/omarchy-kids-launcher-ctl` writes to on
+`Super+Return`, and renders the tiles as a grid with keyboard-only navigation (arrows move the
+highlight, Return/Enter launches, Escape is swallowed and does nothing).
 
 **The grid's layout (issue #54).** Live at 1280x800 the grid used to be anchored top-left,
 full-width, with a hardcoded 160px cell: two tiles sat in a loose row with the rest of the screen
@@ -258,10 +262,10 @@ scripts copied to their spec-required paths and made root-owned):
 
 1. From a spare tty (or the omarchy-kids session entry, once `omarchy-kids-session` is built):
    `Hyprland --config /etc/omarchy-kids/hyprland/L1.lua`.
-2. Confirm the launcher appears fullscreen with tiles from the validated
-   `/etc/omarchy-kids/sessions/<account>.json` manifest, that arrows move the highlight, Return
-   launches, and Escape does nothing. Confirm that `/run/user/<uid>/omarchy-kids` contains no
-   launcher JSON. With a full row of tiles,
+2. Confirm the launcher appears fullscreen with display tiles from
+   `/run/user/<uid>/omarchy-kids/launcher-<uid>.json` and argv from
+   `/etc/omarchy-kids/launchers/<account>.json`, that arrows move the highlight, Return launches,
+   and Escape does nothing. With a full row of tiles,
    confirm Right/Left/Up/Down move to the visually adjacent tile (issue #43) — in particular,
    Right/Left at a row's end wrap to the next/previous row rather than holding still, except at
    the very first/last tile, which clamp; Up/Down clamp at the top/bottom edge. Confirm Enter
@@ -272,16 +276,18 @@ scripts copied to their spec-required paths and made root-owned):
 4. `Super+Q` closes the focused app; `Super+Shift+K` opens the exit modal (`docs/exit.md`).
 5. Repeat for `L2.lua` (focus/swap/cheat sheet) and `L3.lua` (real Omarchy desktop minus the
    terminal bind — try `Super+Return` and confirm nothing launches).
-6. Confirm the manifest-selected band overlay makes the cursor visibly larger and GTK/Qt apps
-   render bigger.
-7. Issue #42: on a box where pack apps are missing, confirm the manifest marks them
-   `installed: false`; the launcher shows them greyed with a "not installed yet" caption and Enter
-   does nothing. After installation and a manifest rebuild, confirm the tile has fixed argv and
-   launches directly.
+6. Set `OMARCHY_KIDS_BAND=3-5` (or `6-8`) before the `Hyprland --config` run and confirm the
+   cursor is visibly larger and GTK/Qt apps render bigger.
+7. Issue #42: on a box where the pack apps aren't installed (the reported live state), confirm
+   the launcher shows no tile for them at all by default, with a log line per omitted tile in
+   `$RUN/session-<uid>.log`; then `omarchy-kids-conf set <kid> apps.show_missing yes`, restart
+   the session, and confirm those tiles now appear greyed with a "not installed yet" caption, and
+   that Enter on one does nothing. `omarchy-kids-apps install <band> --apply` and confirm the
+   caption changes to "installing..." while the queue is pending.
 
 Everything above is run from `bash test/shell.d/levels-test.sh` first where it can be
-(grep-based binding checks, `luac -p` if available, `bin/omarchy-kids-session-start`'s manifest
-startup against a scratch profile), plus `bash test/shell.d/launcher-grid-test.sh` for
+(grep-based binding checks, `luac -p` if available, `bin/omarchy-kids-session-start`'s JSON
+output against a scratch profile), plus `bash test/shell.d/launcher-grid-test.sh` for
 `gridnav.js`'s index math (`node`, if available) and its wiring into `shell.qml` — the VM is only
 for what a test file on a laptop with no Hyprland or Quickshell cannot check, chiefly step 2's
 actual on-screen tile adjacency and issue #43's GridView column-count assumption (open question 8

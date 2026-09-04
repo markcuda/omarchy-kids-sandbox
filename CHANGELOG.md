@@ -9,8 +9,8 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Security
 
-- Launcher activation now uses fixed argv arrays embedded in the validated root-owned session
-  manifest; no kid-writable runtime launcher JSON or separate launcher map is read by the launcher.
+- Launcher activation now uses root-owned per-kid id-to-argv maps; kid-writable runtime JSON can
+  provide display data only and cannot inject a shell command.
 - Closed kid-session path and binary redirect surfaces: kid-facing commands use build-time paths,
   absolute Quickshell, the account's NSS home, private fenced `/tmp` and `/dev/shm`, and all
   six console gettys; exact supplementary groups and root-only ask review commands are enforced.
@@ -19,12 +19,6 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 - `omarchy-kids-session --manifest` now exposes only the caller's validated, current,
   root-owned 0644 session manifest; missing, linked, mutable, malformed, stale, and mismatched
   documents are refused without stdout.
-
-### Changed
-
-- Kid session startup now reads one caller-bound validated manifest for level, theme, web, tiles,
-  budget, and lights-out values, and executes the selected surface directly without desktop scans
-  or runtime launcher JSON.
 
 ### Added
 

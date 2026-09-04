@@ -183,6 +183,12 @@ from screenshots. Done since:
   the hardened root-helper shape from omarchy-clarity and omarchy-pisafe), one needs a written
   decision (our per-kid-account model against Pete's one-shared-account installer path, which is
   DHH's own spec). Filed as #88, #89, #90. Discord text stayed on the Mac.
+- After midnight: #66 and #67 landed together (session startup reads one root-built manifest;
+  assert and provision build it), and the first real boots found three root-only bugs that the
+  Mac suite cannot see: the launcher map read a file mode's owner digit as the world bit and
+  refused every root-owned 755 app, a kid without a theme of their own could not get a manifest,
+  and a settings change made the next login fail closed on a stale manifest until the next
+  assert. All three fixed with tests; `omarchy-kids-conf set` now rebuilds the manifest itself.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

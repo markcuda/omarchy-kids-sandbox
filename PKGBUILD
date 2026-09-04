@@ -43,6 +43,12 @@ package() {
 	# never sees it (docs/tui.md).
 	install -dm755 "$pkgdir/usr/bin"
 	install -m755 bin/omarchy-kids bin/omarchy-kids-* "$pkgdir/usr/bin/"
+	# Keep the schema package-owned: source copies use the checkout-relative path,
+	# while the installed command uses the fixed data path below.
+	sed -i 's|^SCHEMA="$DIR/share/config/schema.toml"$|SCHEMA="/usr/share/omarchy-kids/config/schema.toml"|' \
+		"$pkgdir/usr/bin/omarchy-kids-conf"
+	grep -q '^SCHEMA="/usr/share/omarchy-kids/config/schema.toml"$' "$pkgdir/usr/bin/omarchy-kids-conf" \
+		|| { echo "PKGBUILD: schema substitution failed" >&2; return 1; }
 
 	# Early-boot LUKS-unlock hook (R-BOOT).
 	install -dm755 "$pkgdir/usr/lib/omarchy-kids"

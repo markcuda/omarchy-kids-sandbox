@@ -43,7 +43,7 @@ else:  # pragma: no cover - Arch ships 3.11+; this is a courtesy for dev boxes
         sys.exit(2)
 
 BANDS_ORDER = ("3-5", "6-8", "9-12", "13+")
-SCHEMA_SOURCES = {"none", "band", "pack", "global"}
+SCHEMA_SOURCES = {"none", "band", "pack", "global", "parent-theme"}
 SCHEMA_TYPES = {"string", "enum", "integer", "csv"}
 SCHEMA_EDITORS = {"text", "avatar", "enum", "number", "time", "dns", "launcher-list", "site-list", "password", "toggle", "theme"}
 SCHEMA_VALIDATORS = {
@@ -89,7 +89,11 @@ def toml_scalar(value):
 
 def load_schema(path):
     data = load_toml(path)
-    if data.get("schema_version") != 1:
+    top_level_allowed = {"schema_version", "key"}
+    unknown_top_level = set(data) - top_level_allowed
+    if unknown_top_level:
+        die(f"schema {path} has unknown top-level fields: {', '.join(sorted(unknown_top_level))}")
+    if type(data.get("schema_version")) is not int or data["schema_version"] != 1:
         die(f"schema {path} must declare schema_version = 1")
     entries = data.get("key")
     if not isinstance(entries, list) or not entries:
@@ -157,14 +161,25 @@ def load_schema(path):
                 isinstance(value, str) and value and not any(char in value for char in "\t\n|") for value in entry["enum"]
             ):
                 die(f"schema {path} key '{key}' has an invalid enum")
+            if len(set(entry["enum"])) != len(entry["enum"]):
+                die(f"schema {path} key '{key}' has a duplicate enum value")
         if entry["type"] == "enum" and "enum" not in entry:
             die(f"schema {path} key '{key}' has no enum")
+        if "pattern" in entry and (not isinstance(entry["pattern"], str) or not entry["pattern"]):
+            die(f"schema {path} key '{key}' has an invalid pattern")
+        for field in ("min", "max"):
+            if field in entry and type(entry[field]) is not int:
+                die(f"schema {path} key '{key}' has a non-integer {field}")
         if entry["type"] == "integer":
             if type(entry.get("min")) is not int or type(entry.get("max")) is not int:
                 die(f"schema {path} key '{key}' has no integer bounds")
             if entry["min"] > entry["max"]:
                 die(f"schema {path} key '{key}' has reversed integer bounds")
-        if entry["required"] and entry["default_source"] != "none":
+        elif "min" in entry or "max" in entry:
+            die(f"schema {path} key '{key}' has bounds for a non-integer type")
+        if "min" in entry and "max" not in entry or "max" in entry and "min" not in entry:
+            die(f"schema {path} key '{key}' has incomplete integer bounds")
+        if entry["required"] and entry["default_source"] not in {"none", "parent-theme"}:
             die(f"schema {path} required key '{key}' has a default source")
     return entries
 

@@ -32,12 +32,8 @@ BANDS_TOML="$SHARE/bands/bands.toml"
 PACKS_DIR="$SHARE/packs"
 PYHELPER="$LIB/conf.py"
 
-# The schema is fixed to this command's package tree, never a runtime override.
-if [[ -f "$DIR/share/config/schema.toml" ]]; then
-  SCHEMA="$DIR/share/config/schema.toml"
-else
-  SCHEMA="/usr/share/omarchy-kids/config/schema.toml"
-fi
+# Build rewrites this checkout-relative constant to the installed package path.
+SCHEMA="$DIR/share/config/schema.toml"
 SCHEMA_DATA="$("$KIDS_PY" "$PYHELPER" schema-dump "$SCHEMA")"
 SCHEMA_KEYS=()
 while IFS='|' read -r key _; do
@@ -47,8 +43,6 @@ done <<<"$SCHEMA_DATA"
 # global_default KEY — the Appendix B global default, or exit 1.
 global_default() {
   case "$1" in
-    dns) echo cloudflare-family ;;
-    history_visible) echo yes ;;
     password) echo set ;;
     onboarded) echo no ;;
     apps.extra) echo "" ;;
@@ -225,6 +219,11 @@ resolve() {
       ;;
     global)
       value="$(global_default "$key")" || die "no default for '$key' (this is a bug)"
+      printf '%s\tdefault\n' "$value"
+      ;;
+    parent-theme)
+      value="$(theme_current_name)"
+      [[ -n "$value" ]] || die "no default for '$key' (this is a bug)"
       printf '%s\tdefault\n' "$value"
       ;;
     *)

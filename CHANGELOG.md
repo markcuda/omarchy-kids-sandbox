@@ -19,6 +19,8 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Added
 
+- Root screen-time state machine (#68, ticket 1): monotonic active seconds now feed root-owned
+  per-kid `allowed`/`warning`/`grace`/`finishing` state without rewriting integer usage history.
 - Package skeleton: `PKGBUILD`, `omarchy-kids.install`, the pacman hook, desktop entries, command
   stubs (#8)
 - `omarchy-kids-conf`, `bands.toml`, and the starter packs (#9)

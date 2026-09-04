@@ -1,7 +1,8 @@
-# The screen-time engine (SPEC.md R-TIME-1..5, R-ASK-1, Appendix F)
+# The screen-time engine (SPEC.md R-TIME-1..5, R-TIMEAUTH-1..4, Appendix F)
 
-Budget and lights-out per kid, accounted while their session is active and unlocked, with
-warnings on the way down and a full-screen stop at the end. This is issue #23.
+Budget and lights-out per kid, accounted while their session is active and unlocked. The root tick
+now owns the elapsed-time calculation and the `allowed`/`warning`/`grace`/`finishing` decision.
+This is issue #23 plus issue #68, ticket 1.
 
 **Nothing here has run against a real Hyprland, Quickshell, or `loginctl`/systemd-logind** — see
 "What's unverified" below before trusting any of it in front of a kid.
@@ -13,7 +14,7 @@ that *runs as the kid* in this feature only ever **reads**:
 
 | Piece | Runs as | Can write? |
 | --- | --- | --- |
-| `bin/omarchy-kids-time-ledger tick` | root, via `systemd/omarchy-kids-time.timer` (every minute) | yes — the only writer of `usage/<day>` |
+| `bin/omarchy-kids-time-ledger tick` | root, via `systemd/omarchy-kids-time.timer` | yes — the only writer of usage, grants remain separate, and runtime state |
 | `bin/omarchy-kids-time grant` | must be root (checked; refuses otherwise) | yes — the only writer of `usage/<day>.grant` |
 | `bin/omarchy-kids-time daemon` / `status` | the kid | no — read-only |
 
@@ -22,9 +23,10 @@ that *runs as the kid* in this feature only ever **reads**:
 profile file under `/etc/omarchy-kids/kids/`) but only ever *written* by the root helper above. A
 kid can kill their own `omarchy-kids-time daemon` — the warnings and the Time's Up screen just
 stop appearing — but there is no code path in anything that runs as the kid that writes a minute,
-a grant, or a lower "used" number into this tree. That's I-3 applied one level down from locks
-generally: the ledger itself lives outside every home, root-owned, same as everything else this
-package enforces.
+a grant, or a lower "used" number into this tree. The root tick also writes
+`/run/omarchy-kids/time/<kid>.json` atomically. Its directory is `0750 root:omarchy-kids`, and each
+document is `0640 root:omarchy-kids`, so the kid-side process can display the decision but cannot
+change it.
 
 ## Pieces
 
@@ -32,11 +34,17 @@ package enforces.
 | --- | --- |
 | `lib/time.sh` | Shared bash helpers: the clock, day-boundary/weekend, budget/lights-out resolution, ledger/grant reads and (root-only) writes |
 | `lib/time.py` | The one place this needs real calendar math — day rollover and weekday, portable across the dev machine's BSD `date` and the target's GNU `date` (same reasoning as `lib/conf.py`) |
-| `bin/omarchy-kids-time-ledger` | Root: `tick` adds a minute to every active/unlocked/non-paused kid's ledger, and refreshes `/run/omarchy-kids/status.json` (R-BAR-3) |
+| `bin/omarchy-kids-time-ledger` | Root: `tick` accounts monotonic active seconds, writes each kid's runtime state, and refreshes `/run/omarchy-kids/status.json` (R-BAR-3) |
 | `systemd/omarchy-kids-time.timer` + `omarchy-kids-time-ledger.service` | Runs `tick` once a minute |
 | `bin/omarchy-kids-time` | The kid-side daemon, plus `status`/`grant` |
 | `share/time/toast.qml` | The small "N minutes left" warning (R-TIME-3) |
 | `share/time/timesup.qml` | The full-screen "Time's up" overlay (R-TIME-4) |
+
+The root runtime document contains `kid`, `logical_day`, `state`, `reason`, `remaining_seconds`,
+`grace_deadline`, `last_tick`, `active_seconds_remainder`, and `warnings_fired`. `last_tick` and
+`grace_deadline` use monotonic seconds. `warnings_fired` stores the threshold values `10`, `5`, and
+`1` in minutes. Writes use a temporary file and rename, so the display reader sees one complete
+decision.
 
 ## Budget, lights-out, and the day (R-TIME-2, Appendix F)
 
@@ -48,37 +56,36 @@ of-week override beyond the weekday/weekend split — that split *is* R-TIME-2's
 The day rolls at **04:00 local**: a session still running at 03:59 is still spending yesterday's
 budget, and one still running at 04:01 has started spending a fresh day's (Appendix F). Weekend is
 Saturday and Sunday of the *logical* day, not the wall-clock day, for the same reason. Both are
-computed once per read by `lib/time.py logical-day`, never by shelling out to `date -d`/`date -v`
-(those two flags don't agree between GNU and BSD `date`, and this repo is developed on the latter,
-shipped on the former — see that file's header).
+computed once per read by `lib/time.py logical-day`, never by shelling out to `date -d`/`date -v`.
 
-`OMARCHY_KIDS_NOW` (format `"YYYY-MM-DD HH:MM:SS"`, local wall clock, no timezone — this system
-has no notion of one anywhere, same as `budget_min`/`lights_out` being plain numbers/`HH:MM`)
-overrides "now" in **both** `omarchy-kids-time` and `omarchy-kids-time-ledger`; unset, both call
-the real `date '+%Y-%m-%d %H:%M:%S'`. `test/shell.d/time-test.sh` sets it on every case so the
-suite never depends on the host's own clock or its `date` binary's flavor.
+Root commands use a fixed build-time `TIME_NOW_FILE` seam in copied test commands and the real
+local clock when installed. Root elapsed time uses the monotonic uptime source, with the same
+build-time seam for deterministic tests. No inherited value selects the root clock.
 
-## `bin/omarchy-kids-time-ledger tick` (root, once a minute)
+## `bin/omarchy-kids-time-ledger tick` (root, existing timer entry point)
 
-1. Reads today's logical day and weekend flag.
+1. Reads today's logical day, weekend flag, and one monotonic timestamp.
 2. Lists every session (`loginctl list-sessions --no-legend`), keeping the ones whose account has
-   a profile under `$OMARCHY_KIDS_ETC/kids/` (i.e., is a kid).
-3. For each such kid (deduplicated — two sessions for the same kid still only count once), checks
-   `loginctl show-session <id> -p Active -p LockedHint`. `Active=yes` and `LockedHint=no` and no
-   `paused` flag file (see below) → add one minute to `usage/<day>`.
-4. Refreshes `/run/omarchy-kids/status.json` (R-BAR-3) for every known kid, live or not — a
-   first cut for the future parent-bar widget (R-BAR), not consumed by anything in this issue.
-   Best-effort: a failure here (missing `jq`, an unwritable `/run`) never fails the tick itself.
+   a root-owned profile and whose session is `Active=yes`, `LockedHint=no`, and not paused.
+3. For every known kid, initializes or validates `/run/omarchy-kids/time/<kid>.json`. A first tick
+   records the timestamp without adding time. Later active intervals add whole minutes to
+   `usage/<day>` and retain the sub-minute remainder in runtime state. Inactive intervals add zero.
+4. Recomputes `allowed`, `warning`, `grace`, or `finishing` from the current budget, grant, logical
+   day, and lights-out schedule. Warning thresholds are retained in the state document.
+5. Refreshes `/run/omarchy-kids/status.json` and folds launch logs. Those auxiliary writes remain
+   best-effort; a runtime-state or ledger write failure does not become `allowed`.
+
+Ticket 1 records the enforcement decision but does not yet lock or terminate a session. Ticket 2
+moves those side effects into this root tick. Until then, the existing kid-side display path stays
+in place for compatibility.
 
 Requires root, through `lib/kids.sh`'s `is_root`. There is no environment escape: nothing a kid
 can set may decide whether a root check happens (`AGENTS.md` rule 9). A test that has to be root
 stubs `id` (`test/shell.d/tree.sh`'s `kids_id_stub`, `$KIDS_TEST_UID=0`).
 
-**Resolution note:** SPEC.md R-TIME-1 says "30 s resolution". This ledger writes once a minute
-(matching the timer's own period) — the 30 s figure is met by `omarchy-kids-time daemon`'s own
-poll loop noticing a boundary within 30 s of it actually being crossed, not by the ledger itself
-writing sub-minute totals. A minute's worth of slop at the very edge of a budget or lights-out is
-the trade-off; nothing here tries to hide that.
+The runtime remainder prevents the old whole-minute tick from fabricating usage. Historical usage
+and grant files remain integer-minute records. A boundary decision uses the remaining seconds after
+the retained remainder, so a tick cannot turn a warning or grace decision back into `allowed`.
 
 ## `bin/omarchy-kids-time` (the kid)
 
@@ -167,6 +174,13 @@ alone.
 
 ## Not built in this issue
 
+- **Ticket 2 is not included here.** The root state reaches `grace` and then `finishing`, but this
+  ticket does not call `loginctl lock-session` or `omarchy-kids-exit --finish`.
+- **Ticket 3 is not included here.** The kid daemon and Time's Up QML still contain today's display
+  and finish behavior; they remain compatibility code until the root side owns those actions.
+- **Ticket 4 is not included here.** The systemd interval remains unchanged, and assert/live proof
+  for the new runtime directory and root enforcement remain future work.
+
 - **The pre-reader full-screen countdown** (R-TIME-3's second half: "plus a full-screen countdown
   for pre-readers with icon and sound"). `share/time/toast.qml` is the same for every band today.
 - **Pushing lights-out for tonight only** (R-TIME-4). `grant` only ever extends the *budget*.
@@ -178,15 +192,20 @@ alone.
 Each of these is a real gap, not an oversight — I-6 says don't claim a control that isn't there,
 so this list is exactly the set of R-TIME/R-ASK behaviors this issue's "Done when" doesn't cover.
 
-## File locations (overridable for tests, same convention as `docs/conf.md`)
+## File locations
 
-| What | Default path | Env override |
+| What | Installed path | Test seam |
 | --- | --- | --- |
-| Kid overrides directory | `/etc/omarchy-kids/kids/` | `OMARCHY_KIDS_ETC` |
-| `bands.toml` | `/usr/share/omarchy-kids/` | `OMARCHY_KIDS_SHARE` |
-| Ledger/grant/paused files | `/var/lib/omarchy-kids/<kid>/` | `OMARCHY_KIDS_ROOT` (scratch prefix, same as `bin/omarchy-kids-apps`) |
-| `status.json` | `/run/omarchy-kids/status.json` | `OMARCHY_KIDS_ROOT` (scratch prefix) |
-| `omarchy-kids-time`'s runtime log | `$XDG_RUNTIME_DIR/omarchy-kids/session-<uid>.log` | `OMARCHY_KIDS_RUN` |
+| Kid overrides directory | `/etc/omarchy-kids/kids/` | copied command constant |
+| `bands.toml` | `/usr/share/omarchy-kids/` | copied command constant |
+| Ledger/grant/paused files | `/var/lib/omarchy-kids/<kid>/` | copied `SYSROOT` constant |
+| Runtime state | `/run/omarchy-kids/time/<kid>.json` | copied `SYSROOT` constant |
+| `status.json` | `/run/omarchy-kids/status.json` | copied `SYSROOT` constant |
+| `omarchy-kids-time`'s runtime log | `$XDG_RUNTIME_DIR/omarchy-kids/session-<uid>.log` | copied command constant |
+
+Tests relocate copied commands at build time, the same way `PKGBUILD` relocates package paths.
+Runtime environment variables cannot select an authority path, clock, account, command, or root
+check.
 
 ## What's unverified (check in the VM before this ships)
 
@@ -241,6 +260,9 @@ a live run can show, from the log alone, exactly what the daemon saw at the 1-mi
 budget-exhausted-Time's-Up, closing both of this "Verified live" note's open questions. None of
 the three (the clock clearance, the re-fire fix, or the 1-minute/budget-exhausted confirmation)
 has run against a real session yet — see "What's unverified" above.
+
+The following source-header blocks are historical snapshots retained for review. Their old
+environment-variable test seams do not describe the ticket-1 implementation above.
 
 ## Source header (moved from `bin/omarchy-kids-time`, issue #49)
 

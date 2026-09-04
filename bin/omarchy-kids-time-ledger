@@ -138,7 +138,7 @@ tick_kid() {
   local kid="$1" day="$2" weekend="$3" now="$4" monotonic="$5" active="$6"
   local file state_json state=allowed reason=none logical_day last last_wall remainder grace
   local previous_remaining="" fired="" elapsed accumulated minutes base_remaining remaining lo decision
-  local split old_elapsed new_elapsed old_accum old_minutes
+  local split old_elapsed new_elapsed old_accum old_minutes new_minutes
 
   if state_json="$(time_state_file "$kid")" && time_state_read "$state_json"; then
     logical_day="$(jq -r '.logical_day' "$state_json")"
@@ -172,6 +172,8 @@ tick_kid() {
       old_accum=$((remainder + old_elapsed))
       old_minutes=$((old_accum / 60))
       ((old_minutes > 0)) && time_ledger_add "$kid" "$logical_day" "$old_minutes"
+      new_minutes=$((new_elapsed / 60))
+      ((new_minutes > 0)) && time_ledger_add "$kid" "$day" "$new_minutes"
       remainder=$((new_elapsed % 60))
     else
       remainder=0

@@ -79,7 +79,8 @@ expected_keys=(
   lights_out lights_out_weekend wifi history_visible menu theme allowlist sites
   password onboarded apps.extra apps.hidden apps.show_missing
 )
-schema_keys="$(python3 - "$SHARE/config/schema.toml" <<'PY'
+schema_keys="$(
+  python3 - "$SHARE/config/schema.toml" <<'PY'
 import sys
 import tomllib
 
@@ -92,7 +93,8 @@ PY
 expected_key_text="$(printf '%s\n' "${expected_keys[@]}")"
 check "$schema_keys" "$expected_key_text" "schema: declares every profile and extension key once in CLI order"
 
-schema_metadata="$(python3 - "$SHARE/config/schema.toml" <<'PY'
+schema_metadata="$(
+  python3 - "$SHARE/config/schema.toml" <<'PY'
 import sys
 import tomllib
 

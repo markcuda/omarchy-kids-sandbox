@@ -23,21 +23,21 @@ _omarchy_kids_daemon_reload() {
 _omarchy_kids_enable_authd_socket() {
 	# The wizard's first screen needs the verifier before machine.conf exists.
 	if [ -d /run/systemd/system ]; then
-		systemctl enable --now omarchy-kids-authd.socket >/dev/null 2>&1 || true
+		systemctl enable --now omarchy-kids-authd.socket >/dev/null 2>&1 || return 1
 	fi
 }
 
 post_install() {
 	_omarchy_kids_ensure_groups
 	_omarchy_kids_daemon_reload
-	_omarchy_kids_enable_authd_socket
+	_omarchy_kids_enable_authd_socket || return 1
 	echo "Kids Mode is installed. Run: omarchy-kids"
 }
 
 post_upgrade() {
 	_omarchy_kids_ensure_groups
 	_omarchy_kids_daemon_reload
-	_omarchy_kids_enable_authd_socket
+	_omarchy_kids_enable_authd_socket || return 1
 }
 
 post_remove() {

@@ -42,7 +42,7 @@ done
 
 cores="$( (nproc || sysctl -n hw.ncpu) 2>/dev/null)"
 [[ "$cores" =~ ^[0-9]+$ ]] || cores=2
-: "${jobs_wanted:=$((cores / 4))}"  # a quarter: several drafting agents run their own suite here
+: "${jobs_wanted:=$((cores / 4))}" # a quarter: several drafting agents run their own suite here
 [[ "$jobs_wanted" =~ ^[0-9]+$ ]] && ((jobs_wanted > 0)) || jobs_wanted=2
 ((jobs_wanted < 2)) && jobs_wanted=1
 

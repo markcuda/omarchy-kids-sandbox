@@ -20,6 +20,70 @@ _omarchy_kids_daemon_reload() {
 	fi
 }
 
+_omarchy_kids_machine_conf="/etc/omarchy-kids/machine.conf"
+_omarchy_kids_kids_dir="/etc/omarchy-kids/kids"
+_omarchy_kids_legacy_dropin="/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+
+_omarchy_kids_machine_has_boot() {
+	[ -f "$_omarchy_kids_machine_conf" ] || return 1
+	[ ! -L "$_omarchy_kids_machine_conf" ] || return 1
+	[ "$(stat -c '%a' "$_omarchy_kids_machine_conf" 2>/dev/null)" = 644 ] || return 1
+	[ "$(stat -c '%u' "$_omarchy_kids_machine_conf" 2>/dev/null)" = 0 ] || return 1
+	[ "$(stat -c '%G' "$_omarchy_kids_machine_conf" 2>/dev/null)" = root ] || return 1
+	awk -F= '$1 == "boot" { count++; value=$2 } END { exit count == 1 && (value == "disk" || value == "portal") ? 0 : 1 }' \
+		"$_omarchy_kids_machine_conf"
+}
+
+_omarchy_kids_has_parent() {
+	awk -F= '$1 == "parent" && $2 != "" { found=1 } END { exit !found }' \
+		"$_omarchy_kids_machine_conf" 2>/dev/null
+}
+
+_omarchy_kids_has_kid() {
+	find "$_omarchy_kids_kids_dir" -maxdepth 1 -type f -name '*.conf' -print -quit 2>/dev/null | grep -q .
+}
+
+_omarchy_kids_root_is_luks() {
+	root_source="$(findmnt -no SOURCE / 2>/dev/null)" || return 1
+	case "$root_source" in
+		/dev/mapper/*)
+			command -v cryptsetup >/dev/null 2>&1 || return 1
+			cryptsetup status "${root_source#/dev/mapper/}" >/dev/null 2>&1
+			;;
+		*)
+			command -v lsblk >/dev/null 2>&1 || return 1
+			lsblk -sno FSTYPE "$root_source" 2>/dev/null | grep -qx crypto_LUKS
+			;;
+	esac
+}
+
+_omarchy_kids_migrate_boot_mode() {
+	# A valid existing setting is authoritative; an unsafe or ambiguous file is left for repair.
+	if _omarchy_kids_machine_has_boot; then return 0; fi
+	if [ -e "$_omarchy_kids_machine_conf" ]; then
+		_omarchy_kids_machine_conf_safe=0
+		[ ! -L "$_omarchy_kids_machine_conf" ] &&
+			[ "$(stat -c '%a' "$_omarchy_kids_machine_conf" 2>/dev/null)" = 644 ] &&
+			[ "$(stat -c '%u' "$_omarchy_kids_machine_conf" 2>/dev/null)" = 0 ] &&
+			[ "$(stat -c '%G' "$_omarchy_kids_machine_conf" 2>/dev/null)" = root ] &&
+			_omarchy_kids_machine_conf_safe=1
+		if [ "$_omarchy_kids_machine_conf_safe" -eq 0 ] ||
+			awk -F= '$1 == "boot" { found=1 } END { exit !found }' \
+				"$_omarchy_kids_machine_conf" 2>/dev/null; then
+			echo "omarchy-kids: could not migrate an unsafe or invalid machine.conf" >&2
+			return 1
+		fi
+	fi
+
+	mode=portal
+	if _omarchy_kids_has_parent && _omarchy_kids_has_kid && _omarchy_kids_root_is_luks &&
+		[ -f "$_omarchy_kids_legacy_dropin" ] &&
+		grep -q 'omarchy-kids-unlock' "$_omarchy_kids_legacy_dropin"; then
+		mode=disk
+	fi
+	/usr/bin/omarchy-kids-conf machine set boot "$mode"
+}
+
 post_install() {
 	_omarchy_kids_ensure_groups
 	_omarchy_kids_daemon_reload
@@ -29,6 +93,7 @@ post_install() {
 post_upgrade() {
 	_omarchy_kids_ensure_groups
 	_omarchy_kids_daemon_reload
+	_omarchy_kids_migrate_boot_mode
 }
 
 post_remove() {

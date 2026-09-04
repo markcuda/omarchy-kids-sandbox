@@ -307,6 +307,16 @@ wait_kid_ready() {
   done
 }
 
+# kid_budget_headroom KID — earlier scenarios may have spent today's budget, and root now ends a
+# session whose budget is gone; give KID room for this run. kid_budget_restore puts it back.
+kid_budget_headroom() {
+  KID_BUDGET_BEFORE="$(vmroot "omarchy-kids-conf get '$1' budget_min" 2>/dev/null | tr -d '[:space:]')"
+  vmroot "omarchy-kids-conf set '$1' budget_min 600 >/dev/null"
+}
+kid_budget_restore() {
+  [[ -n "${KID_BUDGET_BEFORE:-}" ]] && vmroot "omarchy-kids-conf set '$1' budget_min $KID_BUDGET_BEFORE >/dev/null"
+}
+
 # assert_no_session KID [DEADLINE=30] — KID has no live loginctl session within DEADLINE seconds.
 assert_no_session() {
   local kid="$1" deadline="${2:-30}" waited=0

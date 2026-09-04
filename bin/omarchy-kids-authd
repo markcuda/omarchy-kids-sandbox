@@ -102,12 +102,6 @@ def read_machine_conf_parent(path: str):
     return None
 
 
-def resolve_parent(args) -> "str | None":
-    if args.parent:
-        return args.parent
-    return read_machine_conf_parent(args.machine_conf)
-
-
 def read_shadow_hash(parent: str, shadow_path: str) -> "str | None":
     """Read the parent's hash fresh every time -- never cached (R-SEC-1)."""
     try:

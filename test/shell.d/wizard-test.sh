@@ -575,6 +575,18 @@ check_not_contains "$rm3b_out" "FAKE-omarchy-kids-provision" \
 
 # R-BOOTMODE-8: a real pseudo-terminal Apply has one stdin password
 # validation and no later interactive sudo prompt.
+# Make the new account visible to the safety check without changing the
+# wizard's invoking identity lookup.
+REAL_ID="$(command -v id)"
+cat >"$RM3_STUBS/id" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == kid-ada ]]; then
+  exit 0
+fi
+exec "$REAL_ID" "\$@"
+EOF
+chmod +x "$RM3_STUBS/id"
+
 SUDO_LOG="$RM3_TMP/sudo.log"
 pty_out="$(
   PATH="$RM3_STUBS:$PATH" \
@@ -619,8 +631,10 @@ sudo_calls="$(wc -l <"$SUDO_LOG" | tr -d ' ')"
 check_eq "$(grep -Ec '(^| )-n( |$)' "$SUDO_LOG")" "$((sudo_calls - 1))" \
   "R-BOOTMODE-8: every later sudo call is noninteractive"
 
-check_contains "$(cat "$RM3_TMP/pty-setup.log" 2>/dev/null)" "FAKE-omarchy-kids-assert: ok" \
-  "R-BOOTMODE-8: the PTY run completes Apply through the safety check"
+check_contains "$pty_out" "Ada's desktop is ready." \
+  "R-BOOTMODE-8: the PTY transcript reaches the success headline"
+check_contains "$pty_out" "FAKE-omarchy-kids-session: ok" \
+  "R-BOOTMODE-8: the PTY transcript includes the kid session check"
 check_not_contains "$pty_out" "hunter2" \
   "R-BOOTMODE-8: the candidate never appears in the terminal transcript"
 check_not_contains "$(cat "$RM3_TMP/pty-setup.log" 2>/dev/null)" "hunter2" \
@@ -629,18 +643,6 @@ check_not_contains "$(cat "$RM3_ARGV_LOG" 2>/dev/null)" "hunter2" \
   "R-BOOTMODE-8: the candidate never appears in child argv logs"
 check_not_contains "$SUDO_LOG" "hunter2" \
   "R-BOOTMODE-8: the candidate never appears in sudo argv logs"
-
-# Make the new account visible to the safety check without changing the
-# wizard's invoking identity lookup.
-REAL_ID="$(command -v id)"
-cat >"$RM3_STUBS/id" <<EOF
-#!/bin/bash
-if [[ "\${1:-}" == kid-ada ]]; then
-  exit 0
-fi
-exec "$REAL_ID" "\$@"
-EOF
-chmod +x "$RM3_STUBS/id"
 
 SLEEP_COUNT_FILE="$RM3_TMP/keeper-sleep-count"
 KEEPER_SLEEP_ARGS_FILE="$RM3_TMP/keeper-sleep-args"

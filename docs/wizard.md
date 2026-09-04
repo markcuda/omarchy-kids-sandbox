@@ -32,7 +32,7 @@ at the bottom of `bin/omarchy-kids-wizard` jumps straight from step 7 to step 12
 | Step | Appendix A | Screen | What happens |
 | --- | --- | --- | --- |
 | 1 | A1 | Welcome | Omy's line and three bullets; **Begin** is the only choice. |
-| 2 | A2 | Parent password | Right after Welcome. Verified against `omarchy-kids-authd`, the same protocol `bin/omarchy-kids-parent-auth` speaks (`docs/authd.md`), when that verifier is reachable; kept in memory (never written anywhere) and reused for the one sudo prompt at Apply. |
+| 2 | A2 | Parent password | Right after Welcome. Verified against `omarchy-kids-authd` with the caller-bound `BOOTSTRAP` frame (`docs/authd.md`), kept in memory (never written anywhere), and used to establish and maintain Apply's noninteractive sudo authorization. |
 | 3 | A3 | Name | Letters, spaces, and hyphens, 1-24 characters; previews the `kid-<slug>` account name via `omarchy-kids-conf slug`. |
 | 4 | A4 | Face | One of the twelve `share/avatars/*.svg` animals (Q18), as a keyboard list — `lib/tui.sh` has no separate grid widget, and a list is exactly as keyboard-complete. |
 | 5 | A5 | Age band | 3-5 / 6-8 / 9-12 / 13+, each with its `bands.toml` blurb as the reason line. **Prefetch starts here** (see below) and never blocks; so does `adv_init` (see "The Advanced path" below), seeding every Advanced-only cell to this band's default whether or not Advanced is ever opened. |
@@ -115,13 +115,13 @@ own five cells have always followed (R-BAND-2).
 ## Root and the one sudo prompt
 
 The wizard itself never needs root — reading `bands.toml`/`packs/`/`avatars/` and rendering
-screens is all unprivileged. Apply is the one place a real system change happens, so it's the one
-place `sudo` is used, and only once for the credential itself: right at the start of Apply,
-`sudo -S -p '' -v` spends the password collected back at A2 to warm sudo's credential cache (or, in
-`--dry-run`, just prints `sudo -v`). That same first step then, before anything else that depends
-on it, writes `machine.conf`'s `parent=` — `omarchy-kids-conf machine set parent
-$INVOKING_USER` (issue #46 follow-up; `$INVOKING_USER` defaults to `id -un`, since the wizard
-always runs unprivileged, as the parent) — since nothing else in this repo writes that line, and
+screens is all unprivileged. Apply is the one place a real system change happens. After authd
+accepts A2's caller-bound `BOOTSTRAP` request, the wizard uses `sudo -S -p '' -v` once to warm
+sudo's credential cache (or, in `--dry-run`, just prints `sudo -v`). A background keeper refreshes
+that ticket with `sudo -n -v` while the wizard remains open. That same first step then, before
+anything else that depends on it, writes `machine.conf`'s `parent=` — `omarchy-kids-conf machine
+set parent $INVOKING_USER` (issue #46 follow-up; `$INVOKING_USER` always comes from `id -un`, since
+the wizard always runs unprivileged, as the parent) — since nothing else in this repo writes that line, and
 without it `omarchy-kids-authd` answers "no" to every password and `omarchy-kids-provision`
 refuses to add a kid at all. Only then does it run `sudo systemctl enable --now` on the package's
 own units — `KIDS_UNITS`/`KIDS_SOCKETS`/`KIDS_TIMERS`, `lib/kids.sh`, the same list
@@ -130,8 +130,10 @@ fresh install before the first kid, or right after `omarchy-kids-remove` disable
 the boot-time autologin and a working authd socket back before Step 2 (the account) and the *next*
 wizard run both need them. Every subsequent Apply command (`run_priv`/`run_priv_stdin`/
 `run_priv_as`, called from one of the five
-`apply_step_*` functions) is then a plain `sudo <command>`, which shouldn't prompt
-again inside that cached window. This needs the parent's account to actually be in
+`apply_step_*` functions) is then a noninteractive `sudo <command>`, which shouldn't prompt
+again inside that cached window. If `sudo -n -v` fails before or during Apply, the wizard stops and
+returns to Step 2 without prompting from Apply. The keeper stops when the wizard exits. This needs
+the parent's account to actually be in
 `sudoers`/`wheel` with the usual Arch/Omarchy defaults — verifying that assumption, and that the
 single A2 password really does cover the whole Apply sequence with no surprise second prompt,
 needs a real terminal (or the test laptop/VM): `test/shell.d/wizard-test.sh` exercises both
@@ -361,45 +363,22 @@ parent
 | --- | --- | --- |
 | `OMARCHY_KIDS_ETC` | `/etc/omarchy-kids` | kid profiles (only read, to preview slug collisions) |
 | `OMARCHY_KIDS_SHARE` | `/usr/share/omarchy-kids` | `bands.toml`, `packs/<band>.toml`, `avatars/*.svg` |
-| `OMARCHY_KIDS_INVOKING_USER` | `id -un` | who Apply writes into machine.conf's `parent=` (issue #46 follow-up) |
 | `OMARCHY_KIDS_SETUP_LOG` | `/var/log/omarchy-kids/setup.log` | Apply's technical log (see "Apply's five steps" above) — a real run writes it; `--dry-run` never does |
 | `OMARCHY_KIDS_TUI_ANSWERS` | (unset — real terminal) | see `docs/tui.md` |
 | `DRY_RUN` | `1` | `0` (or `--apply`) makes Apply real |
 
 ## Parent-password verification (A2, issue #46)
 
-A2 tries `verify_parent_password_authd` first: the same one-line-in, `ok`/`no`-back protocol
-`bin/omarchy-kids-parent-auth` speaks to `omarchy-kids-authd` (`docs/authd.md`), against
-`OMARCHY_KIDS_AUTH_SOCK` — but only once `authd_verifiable` has confirmed *two* things: the socket
-is actually there (`[[ -S "$AUTH_SOCK" ]]`), **and** `$ETC/machine.conf` actually has a `parent=`
-line for the daemon to check candidates against (`conf_get`). Either gap sends A2 to
-`verify_parent_password_sudo` instead: `sudo -k` (clear any cached credential, so this always
-actually asks) then the typed candidate on stdin to `sudo -S -p '' -v`. The parent's login password
-is also their sudo password by design (SPEC's one-password model), so this is a real, independent
-check, not a shrug. Both gaps are real, and distinct (issue #46, then its own follow-up once seen
-live on the test VM):
+A2 sends the candidate through `omarchy-kids-parent-auth --bootstrap`, which sends the
+`BOOTSTRAP` frame to authd. Authd binds the check to the kernel peer uid, requires that account to
+be an eligible non-root `wheel` parent, and checks that account's own shadow entry. An unavailable
+verifier or a failed check stops at Step 2. There is no sudo fallback, and passwordless sudo cannot
+make a wrong candidate pass.
 
-- **Socket down**: a fresh install before the first kid, or right after `omarchy-kids-remove`
-  disables the package's units and takes the socket down with them.
-- **Socket up, nobody home**: right after a real `omarchy-kids-remove`, which deletes the whole
-  `$ETC` tree (`machine.conf` included), the pacman hook's own `units_fix`
-  (`bin/omarchy-kids-assert`'s `units` lock, `docs/assert.md`) re-enables the socket in that *same*
-  pacman transaction — active, but with no parent configured, so `omarchy-kids-authd` answers `no`
-  to every candidate no matter what's typed (`docs/authd.md`: "no parent configured … every one of
-  those answers no"). Left unhandled, A2 would burn all three tries and leave even with the right
-  password.
-
-Either way, this is exactly what lets a parent get past this screen, where the old behavior (accept
-blindly once the socket was down) was a silent hole and an even older shape crashed the whole
-screen with "failed unexpectedly." The *reason* for taking the fallback is logged to stderr as a
-technical detail — which of the two gaps it was, worded differently — never shown to the parent as
-a failure and never routed through the driver's generic "screen … failed unexpectedly" path.
-
-A wrong password, from either verification path, gets a plain "That wasn't it." and another try;
+An incorrect candidate gets a plain "That wasn't it." and another try;
 after three wrong tries in a row, `screen_parent_password` gives up and leaves with the same
 `rc 130` ("nothing changed") the driver's own Ctrl+C handling uses — not a crash, and not a longer
-lockout (that belongs to `omarchy-kids-authd`'s own rate limiter, `docs/authd.md`, which the sudo
-fallback doesn't have and doesn't need at this scale). The counting itself lives in
+lockout (that belongs to `omarchy-kids-authd`'s own rate limiter, `docs/authd.md`). The counting itself lives in
 `screen_parent_password`'s own loop, not in a `lib/tui.sh` `VALIDATOR` — a validator runs inside
 `tui_screen_input`'s command substitution, a subshell, so a counter kept there would never survive
 between tries.

@@ -39,7 +39,7 @@ AUTH_SOCK=/run/omarchy-kids/auth.sock
 SETUP_LOG="${OMARCHY_KIDS_SETUP_LOG:-/var/log/omarchy-kids/setup.log}"
 # The parent's own login name, written into machine.conf's parent= by
 # Apply's first step (issue #46) -- docs/wizard.md.
-INVOKING_USER="${OMARCHY_KIDS_INVOKING_USER:-$(id -un 2>/dev/null || echo "${USER:-}")}"
+INVOKING_USER="$(id -un)"
 
 # Interactive: a human's own button press is the confirmation, so the
 # default is a real run (review §1.5, docs/wizard.md).
@@ -193,6 +193,7 @@ run_priv_as() {
 # works with a cached sudo credential (from A2); otherwise skips and says
 # so -- Apply's install step works either way. docs/wizard.md "Prefetch".
 PREFETCH_PID=""
+SUDO_KEEPER_PID=""
 start_prefetch() {
   local band="$1"
   repo_and_aur_pkgs "$band"
@@ -216,7 +217,14 @@ stop_prefetch() {
   fi
   PREFETCH_PID=""
 }
-trap stop_prefetch EXIT
+stop_sudo_keeper() {
+  if [[ -n "$SUDO_KEEPER_PID" ]]; then
+    kill "$SUDO_KEEPER_PID" >/dev/null 2>&1 || true
+    wait "$SUDO_KEEPER_PID" >/dev/null 2>&1 || true
+  fi
+  SUDO_KEEPER_PID=""
+}
+trap 'stop_prefetch; stop_sudo_keeper' EXIT
 
 # --- validators ----------------------------------------------------------
 
@@ -257,6 +265,19 @@ establish_privilege() {
   sudo -n -v >/dev/null 2>&1
 }
 
+# Keep the A2 ticket alive while the wizard is open. A failed refresh is
+# checked again before each privileged Apply step and sends the parent back to A2.
+start_sudo_keeper() {
+  [[ "$DRY_RUN" == "1" ]] && return 0
+  stop_sudo_keeper
+  (
+    while sleep 60; do
+      sudo -n -v >/dev/null 2>&1 || exit 1
+    done
+  ) </dev/null >/dev/null 2>&1 &
+  SUDO_KEEPER_PID=$!
+}
+
 # verify_parent_password CANDIDATE — authd decides identity; sudo only
 # receives the accepted candidate to establish a noninteractive ticket.
 verify_parent_password() {
@@ -273,6 +294,7 @@ verify_parent_password() {
     PARENT_AUTH_ERROR=privilege
     return 1
   fi
+  start_sudo_keeper
   return 0
 }
 
@@ -344,6 +366,7 @@ KID_PASSWORD=""
 PARENT_PASSWORD=""
 APPLY_OK=1
 FAILED_STEP=""
+APPLY_AUTH_EXPIRED=0
 
 tui_init || exit $?
 
@@ -387,14 +410,20 @@ while ((STEP <= TOTAL_STEPS)); do
       fi
       ;;
     1)
-      if ((STEP == 1)); then
+      if ((STEP == 14 && APPLY_AUTH_EXPIRED)); then
+        stop_sudo_keeper
+        PARENT_PASSWORD=""
+        APPLY_AUTH_EXPIRED=0
+        STEP=2
+      elif ((STEP == 1)); then
         echo "Nothing to go back to — leaving, nothing changed." >&2
         exit 1
-      fi
-      if ((STEP == 7)) && [[ "$MODE" == advanced ]]; then
-        STEP=6 # Esc out of the checklist's own row list: back to A6
       else
-        STEP=$((STEP - 1))
+        if ((STEP == 7)) && [[ "$MODE" == advanced ]]; then
+          STEP=6 # Esc out of the checklist's own row list: back to A6
+        else
+          STEP=$((STEP - 1))
+        fi
       fi
       ;;
     130)

@@ -131,9 +131,10 @@ export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 BIN="$(wizard_for "$STUBS")"
-# Pinned rather than left to `id -un` (issue #46), so the machine-set-parent
-# checks below don't depend on whoever happens to run this suite.
-export OMARCHY_KIDS_INVOKING_USER="mark"
+# This hostile value must not affect Apply. The expected identity is the
+# process's real account, read the same way the wizard reads it.
+EXPECTED_INVOKING_USER="$(id -un)"
+export OMARCHY_KIDS_INVOKING_USER="forged-parent"
 export DRY_RUN=1
 
 answers_file() { # writes $@ (one per line) to a fresh file, prints its path
@@ -182,8 +183,10 @@ check_contains "$out" "Face          owl" "summary shows the chosen face"
 # parent for omarchy-kids-authd to check against and the boot-time
 # autologin back before the account step and the next wizard run need
 # them.
-check_contains "$out" "omarchy-kids-conf machine set parent mark" \
-  "Apply's first step writes machine.conf's parent=, to the invoking user"
+check_contains "$out" "omarchy-kids-conf machine set parent $EXPECTED_INVOKING_USER" \
+  "Apply's first step writes machine.conf's parent=, to id -un"
+check_not_contains "$out" "omarchy-kids-conf machine set parent forged-parent" \
+  "OMARCHY_KIDS_INVOKING_USER cannot change Apply's parent identity"
 check_contains "$out" "sudo systemctl enable --now omarchy-kids-boot-login.service omarchy-kids-boot-login-cleanup.service omarchy-kids-assert.service omarchy-kids-authd.socket omarchy-kids-wifid.socket omarchy-kids-time.timer omarchy-kids-ask-collect.timer" \
   "Apply's first step enables and starts the package's units, before provisioning"
 check_contains "$out" "omarchy-kids-provision add Ada --band 6-8 --avatar owl --password-stdin --parent-password-stdin --apply" \
@@ -449,6 +452,7 @@ rm -rf "$RM_TMP"
 RM3_TMP="$(mktemp -d)"
 RM3_STUBS="$RM3_TMP/stubs"
 RM3_ETC="$RM3_TMP/etc/omarchy-kids"
+RM3_ARGV_LOG="$RM3_TMP/argv.log"
 mkdir -p "$RM3_STUBS" "$RM3_ETC/kids"
 
 cat >"$RM3_STUBS/sudo" <<'EOF'
@@ -457,16 +461,25 @@ printf '%s\n' "$*" >>"${SUDO_LOG:-/dev/null}"
 args=()
 noninteractive=0
 reads_stdin=0
+validates=0
 while (($#)); do
     case "$1" in
         -n) noninteractive=1; shift ;;
-        -v) shift ;;
+        -v) validates=1; shift ;;
         -S) reads_stdin=1; shift ;;
         -p) shift 2 ;;
         -u) shift 2 ;;
         *) args+=("$1"); shift ;;
     esac
 done
+if ((noninteractive && validates)) && [[ -n "${SUDO_FAIL_V_AT:-}" ]]; then
+    count_file="${SUDO_V_COUNT_FILE:?}"
+    count=0
+    [[ -f "$count_file" ]] && count="$(<"$count_file")"
+    count=$((count + 1))
+    printf '%s\n' "$count" >"$count_file"
+    ((count < SUDO_FAIL_V_AT)) || exit 1
+fi
 if ((${#args[@]} == 0)); then
     ((reads_stdin)) && cat >/dev/null
     exit 0
@@ -489,8 +502,8 @@ EOF
 for name in omarchy-kids-provision omarchy-kids-web omarchy-kids-apps omarchy-kids-assert omarchy-kids-session; do
   cat >"$RM3_STUBS/$name" <<EOF
 #!/bin/bash
+printf '%s %s\n' "$name" "\$*" >>"$RM3_ARGV_LOG"
 echo "FAKE-$name: ok"
-cat >/dev/null
 exit 0
 EOF
 done
@@ -584,6 +597,43 @@ check_eq "$(grep -Ec '(^| )-S( |$)' "$SUDO_LOG")" "1" \
 sudo_calls="$(wc -l <"$SUDO_LOG" | tr -d ' ')"
 check_eq "$(grep -Ec '(^| )-n( |$)' "$SUDO_LOG")" "$((sudo_calls - 1))" \
   "R-BOOTMODE-8: every later sudo call is noninteractive"
+
+check_contains "$(cat "$RM3_TMP/pty-setup.log" 2>/dev/null)" "FAKE-omarchy-kids-assert: ok" \
+  "R-BOOTMODE-8: the PTY run completes Apply through the safety check"
+check_not_contains "$pty_out" "hunter2" \
+  "R-BOOTMODE-8: the candidate never appears in the terminal transcript"
+check_not_contains "$(cat "$RM3_TMP/pty-setup.log" 2>/dev/null)" "hunter2" \
+  "R-BOOTMODE-8: the candidate never appears in the technical log"
+check_not_contains "$(cat "$RM3_ARGV_LOG" 2>/dev/null)" "hunter2" \
+  "R-BOOTMODE-8: the candidate never appears in child argv logs"
+check_not_contains "$SUDO_LOG" "hunter2" \
+  "R-BOOTMODE-8: the candidate never appears in sudo argv logs"
+
+# If the cached authorization has expired before Apply, the wizard must
+# return to Step 2 rather than claiming Done. The fake fails the second
+# noninteractive validation, which is Apply's preflight after A2.
+EXPIRY_COUNT="$RM3_TMP/expiry-count"
+expiry_out="$(
+  PATH="$RM3_STUBS:$PATH" \
+    OMARCHY_KIDS_ETC="$RM3_ETC" \
+    OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_SETUP_LOG="$RM3_TMP/expiry-setup.log" \
+    SUDO_FAIL_V_AT=2 \
+    SUDO_V_COUNT_FILE="$EXPIRY_COUNT" \
+    CORRECT_PW="hunter2" \
+    OMARCHY_KIDS_TUI_ANSWERS="$(answers_file begin hunter2 Ada fox 6-8 simple garden default pack parent 1 secret1 secret1 apply parent @ctrlc yes)" \
+    DRY_RUN=0 "$(wizard_for "$RM3_STUBS")" 2>&1
+  )"
+expiry_status=$?
+check_status "$expiry_status" 130 "expired Apply authorization leaves after returning to Step 2"
+expiry_prompts="$(grep -c "First, your password." <<<"$expiry_out")"
+if ((expiry_prompts >= 2)); then
+  pass "expired Apply authorization redraws the only password screen"
+else
+  fail "expired Apply authorization redraws the only password screen (got $expiry_prompts prompt renders)"
+fi
+check_not_contains "$expiry_out" "Ada's desktop is ready." \
+  "expired Apply authorization never advances to Done"
 
 rm -rf "$RM3_TMP"
 
@@ -746,7 +796,7 @@ EOF
 cp "$RM_STUBS_SUDO" "$DEF_STUBS/sudo" # the real-mode sudo fake from above
 cp "$STUBS/omarchy-kids-parent-auth" "$DEF_STUBS/omarchy-kids-parent-auth"
 for n in omarchy-kids-web omarchy-kids-apps omarchy-kids-session omarchy-kids-assert \
-  pacman systemctl runuser id chpasswd usermod; do
+  pacman systemctl runuser chpasswd usermod; do
   printf '#!/bin/bash\nexit 0\n' >"$DEF_STUBS/$n"
 done
 chmod +x "$DEF_STUBS"/*

@@ -221,6 +221,26 @@ time_next_boundary() {
 time_state_dir() { printf '%s/run/omarchy-kids/time\n' "$TIME_SYSROOT"; }
 time_state_file() { printf '%s/%s.json\n' "$(time_state_dir)" "$1"; }
 
+# time_state_boundary FILE — format the root-published next deadline for a parent display.
+time_state_boundary() {
+  local file="$1" reason last_wall remaining
+  reason="$(jq -r '.reason' "$file")"
+  last_wall="$(jq -r '.last_wall' "$file")"
+  remaining="$(jq -r '.remaining_seconds' "$file")"
+  if [[ "$reason" == lights-out ]]; then
+    printf 'lights-out %s\n' "$(time_hm "$last_wall")"
+    return 0
+  fi
+  "$KIDS_PY" - "$last_wall" "$remaining" <<'PY'
+import datetime
+import sys
+
+wall = datetime.datetime.strptime(sys.argv[1], "%Y-%m-%d %H:%M:%S")
+deadline = wall + datetime.timedelta(seconds=int(sys.argv[2]))
+print(f"budget {deadline:%H:%M}")
+PY
+}
+
 # time_warning_thresholds PREV_SECONDS CURRENT_SECONDS FIRED — prints the
 # thresholds fired now, then the retained threshold list for the next tick.
 time_warning_thresholds() {

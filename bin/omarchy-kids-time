@@ -57,13 +57,32 @@ log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/
 # --- status ----------------------------------------------------------------
 
 cmd_status() {
-  local kid="${1:-$(id -un)}" file
+  local kid="${1:-$(id -un)}" file now hm day weekend used granted budget remaining kind at
+  now="$(time_root_now)"
+  hm="$(time_hm "$now")"
+  IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
+  used="$(time_used_minutes "$kid" "$day")"
+  granted="$(time_granted_minutes "$kid" "$day")"
+  budget="$(time_budget_minutes "$kid" "$weekend")" || die "no budget configured for '$kid'"
   file="$(time_state_file "$kid")"
-  time_state_read "$file" || die "root status unavailable for '$kid'" 1
-  jq -r '(.kid + ": state=" + .state + ", reason=" + .reason +
-    ", remaining=" + (.remaining_seconds | tostring) + " seconds") +
-    (if .grace_deadline > 0 then "\ngrace deadline=" + (.grace_deadline | tostring) else "" end)' \
-    "$file"
+  if time_state_read "$file" && [[ "$(jq -r '.logical_day' "$file")" == "$day" ]]; then
+    remaining="$(jq -r '.remaining_seconds / 60 | floor' "$file")"
+    read -r kind at <<<"$(time_state_boundary "$file")"
+  else
+    remaining="$(time_remaining_minutes "$kid" "$day" "$weekend")"
+    read -r kind at <<<"$(time_next_boundary "$kid" "$day" "$weekend" "$hm")"
+  fi
+  printf '%s: %d min used, %d min left today (budget %d' "$kid" "$used" "$remaining" "$budget"
+  ((granted > 0)) && printf ' + %d granted' "$granted"
+  printf ')\n'
+  if [[ "$kind" == lights-out ]]; then
+    printf 'lights-out at %s\n' "$at"
+  else
+    printf 'budget runs out at %s\n' "$at"
+  fi
+  if time_is_paused "$kid"; then
+    printf 'paused: time is not counting for %s right now\n' "$kid"
+  fi
 }
 
 # --- grant -------------------------------------------------------------

@@ -194,6 +194,15 @@ check "$(sed -n 1p <<<"$out")" "2026-09-02" "logical-day: exactly 04:00 already 
 out="$(python3 "$DIR/lib/time.py" logical-day "2026-09-05 10:00:00")"
 check "$(sed -n 2p <<<"$out")" "yes" "logical-day: 2026-09-05 (Saturday) is a weekend"
 
+# Before the root timer's first tick, status keeps its parent-facing facts
+# by falling back to the read-only ledger calculation.
+set_now "2026-09-02 10:00:00"
+out="$("$TIME" status kid-ada)"
+check_contains "$out" "kid-ada: 0 min used, 60 min left today (budget 60)" \
+  "status: missing root state keeps the parent-facing facts"
+check_contains "$out" "budget runs out at 11:00" \
+  "status: missing root state falls back to the ledger boundary"
+
 # =========================================================================
 # =========================================================================
 # omarchy-kids-time-ledger tick
@@ -318,8 +327,10 @@ set_clock 1660
 check "$(state_value state)" "warning" "tick: missing runtime state rebuilds from root ledgers"
 check "$(used_today 2026-09-03)" "55" "tick: state recovery leaves usage history unchanged"
 out="$("$TIME" status kid-ada)"
-check_contains "$out" "state=warning" "status: reflects the root-published state"
-check_contains "$out" "remaining=300 seconds" "status: reflects root-published remaining seconds"
+check_contains "$out" "kid-ada: 55 min used, 5 min left today (budget 60)" \
+  "status: keeps the parent-facing format with root remaining"
+check_contains "$out" "budget runs out at 04:05" \
+  "status: uses the root-published budget deadline"
 
 set_now "2026-09-03 20:00:00"
 set_clock 1720
@@ -332,6 +343,11 @@ check "$(enforcement_value reason)" "lights-out" "tick: state records why root l
 check "$(enforcement_value result)" "success" "tick: lights-out lock succeeds"
 check "$(enforcement_value at)" "2026-09-03 20:00:00" "tick: enforcement record uses the fixed wall-clock reading"
 check "$(wc -l <"$LOCK_LOG" | tr -d ' ')" "2" "tick: lights-out requests one additional root lock"
+out="$("$TIME" status kid-ada)"
+check_contains "$out" "kid-ada: 56 min used, 4 min left today (budget 60)" \
+  "status: keeps the parent-facing format at lights-out"
+check_contains "$out" "lights-out at 20:00" \
+  "status: uses the root-published lights-out deadline"
 set_clock 1780
 FINISH_RC=1 "$LEDGER" tick >/dev/null
 check "$(state_value state)" "finishing" "tick: expired grace enters finishing"
@@ -376,6 +392,9 @@ check "$st" 0 "grant: exits 0 with the root bypass"
 check_contains "$out" "granted 15" "grant: says how many minutes it granted"
 check "$(cat "$ROOT/var/lib/omarchy-kids/kid-ada/usage/2026-09-10.grant")" "15" \
   "grant: writes today's separate grant ledger"
+out2="$("$TIME" status kid-ada)"
+check_contains "$out2" "kid-ada: 0 min used, 75 min left today (budget 60 + 15 granted)" \
+  "status: keeps the grant in the parent-facing facts"
 
 "$TIME" grant kid-ada 0 >/dev/null 2>&1
 check "$?" 2 "grant: refuses a zero amount"

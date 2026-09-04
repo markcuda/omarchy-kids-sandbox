@@ -104,12 +104,19 @@ omarchy-kids-time status [<kid>]   # minutes used, left, and when they run out
 omarchy-kids-time grant <kid> <n>  # root only: +n minutes to <kid>'s budget, today only
 ```text
 
-`status` (default `<kid>`: this account) reads and validates that kid's root runtime document:
+`status` (default `<kid>`: this account) keeps the parent-facing two-line format used by the panel:
 
 ```text
 $ omarchy-kids-time status kid-ada
-kid-ada: state=warning, reason=budget, remaining=300 seconds
+kid-ada: 23 min used, 37 min left today (budget 60)
+budget runs out at 10:37
 ```text
+
+The used, budget, and grant numbers still come from the read-only ledger and profile resolution.
+When a current, validated root runtime document exists, its published remaining seconds and
+deadline supply the left and boundary values. Before the first root tick, or when the document is
+absent/stale, status falls back to the old read-only ledger calculation so the panel still shows
+facts. Its output remains `lights-out at HH:MM` or `budget runs out at HH:MM` on the second line.
 
 `grant` adds to a *separate* `usage/<day>.grant` file and remains root-only. The root tick is the
 only code that recomputes budget, lights-out, and enforcement state.

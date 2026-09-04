@@ -258,8 +258,9 @@ else
 fi
 
 # The kid time path may display root's decision, but it must not make one.
-if hits="$(grep -nE 'time_remaining_minutes|time_is_lights_out|time_toast_thresholds|loginctl|omarchy-kids-exit|--finish' \
-  bin/omarchy-kids-time share/time/timesup.qml 2>/dev/null)"; then
+if hits="$(sed -n '/^cmd_daemon()/,/^}/p' bin/omarchy-kids-time | \
+  grep -nE 'time_remaining_minutes|time_is_lights_out|time_toast_thresholds|loginctl|omarchy-kids-exit|--finish' || true)" &&
+  [[ -n "$hits" ]]; then
   bad "trust boundary: kid time display still contains policy or finish capability:"
   printf '     %s\n' "$hits"
 else

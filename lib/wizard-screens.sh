@@ -15,8 +15,8 @@ You stay in charge with your own password, and everything can be undone.'
   tui_screen_choose "Welcome" 1 "$TOTAL_STEPS" 1 "$omy" choices "begin" "$TUI_FOOTER_FIRST"
 }
 
-# A2: Parent password (SPEC.md R-WIZ-1), kept in memory for Apply's sudo
-# prompt. Three tries then leaves, counted here rather than via lib/tui.sh's
+# A2: Parent password (SPEC.md R-WIZ-1), kept in memory for Apply's
+# noninteractive sudo ticket. Three tries then leaves, counted here rather than via lib/tui.sh's
 # retry loop (its validator runs in a subshell) -- docs/wizard.md.
 PARENT_PASSWORD_TRIES=3
 screen_parent_password() {
@@ -33,6 +33,14 @@ screen_parent_password() {
       return 0
     fi
 
+    if [[ "${PARENT_AUTH_ERROR:-wrong}" != wrong ]]; then
+      echo
+      case "$PARENT_AUTH_ERROR" in
+        unavailable) echo "The parent verifier is unavailable. Ask a grown-up to start omarchy-kids-authd.socket." ;;
+        privilege) echo "Could not establish noninteractive privilege. Nothing was changed." ;;
+      esac
+      return 130
+    fi
     attempt=$((attempt + 1))
     if ((attempt >= PARENT_PASSWORD_TRIES)); then
       echo

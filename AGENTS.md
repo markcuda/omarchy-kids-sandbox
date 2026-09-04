@@ -51,6 +51,35 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
    this is built for.
 11. Drafting agents never drive the test VM: nothing under `test/live/` and no `scripts/vm-*.sh` runs from a draft; the gate runner alone does, one scenario at a time, from a clone that holds `test/live/config.env`. Draft clones do not get that file. (A draft ran a live scenario and rebooted the VM under three other gates, 2026-09-04.)
 
+## Before you call a ticket done
+
+Every review round this project has run found its blocking defects in the same six shapes. Read
+this list against your own diff before you hand it over; a round of review costs half an hour that
+a minute here saves.
+
+1. **A test that proves a command was not called must own that command as a stub.** Grepping a log
+   that only stubs write proves nothing about a command with no stub: the real one runs, writes
+   nothing to your log, and the check passes. Stub it, then assert.
+2. **An assertion must own its fixture.** A check that pins a group's membership, a package's
+   presence, or a path that exists only on the machine you happen to be on will pass here and fail
+   on a real Omarchy box with the package installed. Build the fixture (`test/shell.d/lib.sh`'s
+   `kids_base_path`, a `getent` stub, your own `mktemp` tree), or assert the shape rather than the
+   machine's state.
+3. **Do the irreversible thing after the record that lets a retry finish.** Killing a LUKS slot
+   before rewriting the slot map leaves a run that cannot be resumed and a report that lies. Where
+   the order cannot be changed, make the next run able to tell what happened and complete it.
+   Never let `set -e` inside a conditional stand in for checking the status of a destructive step.
+4. **Re-reading a value is not locking it.** If a decision must hold across a check and the action
+   it authorises, take the lock both sides take. A narrowed window is still a window, and the test
+   that changes the value before the guard rather than inside it does not test the race.
+5. **Quoting is not escaping.** Anything you wrap in quotes for a parser must also escape what that
+   parser treats specially, and every reader must reverse both. Values a parent types reach these
+   files; assume a quote, a backslash, and a comma in every one of them.
+6. **Say what the code does, not what it was meant to do.** `--help`, `docs/<command>.md` and the
+   labels in the UI are claims. If a path exits early, if a mode skips a check, if a failure leaves
+   state behind, that is what the docs say. This is the "label claims" rule and it is a blocking
+   defect, not a polish item.
+
 ## Layout
 
 | Path | What goes there |

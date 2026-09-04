@@ -5,17 +5,70 @@
 # hid four skipped suites -- among them the only tests of the password
 # verifier and of the Wi-Fi daemon's authorization boundary -- was worse
 # than no suite at all (the 2026-09-03 review's "On the tests").
+#
+# Files run in parallel (-j, default: half the cores, at least two) because the
+# suite is the gate every ticket waits on three or four times. Output is still
+# printed one file at a time, in the same order as a serial run, so a diff
+# between two runs means a real change and not a scheduling accident. Each test
+# owns its own scratch directory; a test that ever needs a fixed path must take
+# it under its own mktemp dir, not /tmp.
 exec </dev/null # a test that reads stdin must never block on the caller's terminal or tool
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
+
+jobs_wanted=""
+while (($#)); do
+  case "$1" in
+    -j)
+      jobs_wanted="${2:-}"
+      shift 2
+      ;;
+    -j*) jobs_wanted="${1#-j}" && shift ;;
+    -h | --help)
+      echo "Usage: test/all [-j JOBS]   (JOBS=1 runs the suite serially)"
+      exit 0
+      ;;
+    *)
+      echo "test/all: unknown argument '$1'" >&2
+      exit 2
+      ;;
+  esac
+done
+
+cores="$( (nproc || sysctl -n hw.ncpu) 2>/dev/null)"
+[[ "$cores" =~ ^[0-9]+$ ]] || cores=2
+: "${jobs_wanted:=$((cores / 2))}"
+[[ "$jobs_wanted" =~ ^[0-9]+$ ]] && ((jobs_wanted > 0)) || jobs_wanted=2
+((jobs_wanted < 2)) && jobs_wanted=1
+
+files=(test/shell.d/*-test.sh)
+out_dir="$(mktemp -d "${TMPDIR:-/tmp}/omarchy-kids-suite.XXXXXX")" || exit 1
+trap 'rm -rf "$out_dir"' EXIT
+
+i=0
+for t in "${files[@]}"; do
+  [[ -f $t ]] || continue
+  # A plain job-count poll rather than `wait -n`: /bin/bash on macOS is 3.2.
+  while (($(jobs -r | wc -l) >= jobs_wanted)); do sleep 0.2; done
+  {
+    bash "$t" >"$out_dir/$i.out" 2>&1
+    echo $? >"$out_dir/$i.status"
+  } &
+  i=$((i + 1))
+done
+wait
+
 fail=0
 n=0
 skipped=()
-for t in test/shell.d/*-test.sh; do
+i=0
+for t in "${files[@]}"; do
   [[ -f $t ]] || continue
   n=$((n + 1))
-  out="$(bash "$t" 2>&1)"
-  status=$?
+  out="$(cat "$out_dir/$i.out" 2>/dev/null)"
+  status="$(cat "$out_dir/$i.status" 2>/dev/null)"
+  [[ "$status" =~ ^[0-9]+$ ]] || status=1 # the job died without recording one
+  i=$((i + 1))
   printf '%s\n' "$out"
   if ((status == 0)); then echo "ok   $t"; else
     echo "FAIL $t"

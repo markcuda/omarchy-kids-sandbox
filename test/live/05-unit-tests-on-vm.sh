@@ -7,8 +7,12 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=test/live/lib.sh
 source "$DIR/lib.sh"
 
-REMOTE_DIR="/tmp/omarchy-kids-unit"
-REMOTE_TAR="/tmp/omarchy-kids-unit.tar.gz"
+# One directory per checkout, so two clones can gate on the VM at the same time: this used to be
+# a fixed path and a second gate silently overwrote the first one's tree mid-run. The suffix is
+# the checkout's own path, hashed, so the same clone reuses the same directory across runs.
+REMOTE_SLOT="$(printf '%s' "$LIVE_REPO_ROOT" | cksum | cut -d' ' -f1)"
+REMOTE_DIR="/tmp/omarchy-kids-unit-$REMOTE_SLOT"
+REMOTE_TAR="$REMOTE_DIR.tar.gz"
 LOCAL_TAR="$LIVE_OUT_DIR/05-checkout.tar.gz"
 LOG="$LIVE_OUT_DIR/05-unit-tests-on-vm.log"
 

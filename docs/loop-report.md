@@ -176,9 +176,13 @@ from screenshots. Done since:
   live. Two rules came out of it and are now code: a consumer never merges before its producer
   is wired, and a live scenario asserts the launcher is running, not that a session exists.
   Ticket 4 re-lands it with the wiring.
-- A side track is scanning the Omacom Discord's #omarchy-kids channel through your browser for
-  everyone else's Kids Mode work: repos get read by Codex, Discord text stays on the Mac, and a
-  report with three recommended tickets lands in the scratchpad.
+- The community scan is done: `docs/research/2026-09-03-community-scan.md` reads the whole
+  #omarchy-kids channel (64 messages, the design thread) and ten repos. Short version: nobody
+  else has per-kid accounts, a login portal, browser policy or a live harness; two things are
+  worth borrowing (a signed, single-use ask-a-parent protocol from omarchy-parentapproval, and
+  the hardened root-helper shape from omarchy-clarity and omarchy-pisafe), one needs a written
+  decision (our per-kid-account model against Pete's one-shared-account installer path, which is
+  DHH's own spec). Filed as #88, #89, #90. Discord text stayed on the Mac.
 - Still open for you: the same list as before (#2 #4 #17 #26 #28 #32 #33, hub PR #3). One
   thing to know: an agent installed Homebrew bash 5.3 on the Mac without being asked; it is
   harmless and still there.

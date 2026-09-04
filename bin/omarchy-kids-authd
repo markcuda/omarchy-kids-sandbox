@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import grp
 import hmac
 import importlib.util
 import json
@@ -51,6 +52,7 @@ DEFAULT_LIB = "/usr/lib/omarchy-kids"
 DEFAULT_ASK_BIN = "/usr/bin/omarchy-kids-ask"
 
 GRANT_PREFIX = "GRANT "
+BOOTSTRAP_PREFIX = "BOOTSTRAP"
 
 _LIBCRYPT = None
 
@@ -103,9 +105,6 @@ def read_machine_conf_parent(path: str):
 def resolve_parent(args) -> "str | None":
     if args.parent:
         return args.parent
-    env = os.environ.get("OMARCHY_KIDS_PARENT")
-    if env:
-        return env
     return read_machine_conf_parent(args.machine_conf)
 
 
@@ -209,6 +208,37 @@ def account_for_uid(uid: int) -> "str | None":
         return None
 
 
+def is_eligible_parent(uid: int) -> bool:
+    """True only for a non-root account in the wheel group."""
+    if uid <= 0:
+        return False
+    account = account_for_uid(uid)
+    if account is None:
+        return False
+    try:
+        entry = pwd.getpwnam(account)
+        wheel_gid = grp.getgrnam("wheel").gr_gid
+        return wheel_gid in os.getgrouplist(account, entry.pw_gid)
+    except (KeyError, OSError):
+        return False
+
+
+def verify_bootstrap(
+    candidate: bytes,
+    configured_parent: "str | None",
+    shadow_path: str,
+    limiter: RateLimiter,
+    uid: int,
+) -> bool:
+    """Verify a wizard caller against that caller's own shadow entry."""
+    account = account_for_uid(uid)
+    if not is_eligible_parent(uid) or account is None:
+        return False
+    if configured_parent and configured_parent != account:
+        return False
+    return verify(candidate, account, shadow_path, limiter, uid)
+
+
 # --- GRANT: the only on-the-spot approval path (review S1) ------------------
 
 
@@ -303,6 +333,13 @@ def handle_grant(header: str, password: bytes, conn: socket.socket, cfg, limiter
     return b"ok\n"
 
 
+def handle_bootstrap(password: bytes, conn: socket.socket, cfg, limiter: RateLimiter) -> bytes:
+    uid = peer_uid(conn)
+    if verify_bootstrap(password, cfg.parent, cfg.shadow, limiter, uid):
+        return b"ok\n"
+    return b"no\n"
+
+
 def read_candidate_line(conn: socket.socket, buf: bytearray) -> "bytes | None":
     """One newline-terminated line of at most MAX_LINE bytes; bytes after it stay in buf for
     the next call (a GRANT's password usually arrives in the same chunk). None on anything
@@ -342,6 +379,12 @@ def handle_client(conn: socket.socket, cfg, limiter: RateLimiter, slot=None):
                     reply = b"no missing password\n"
                 else:
                     reply = handle_grant(header, password, conn, cfg, limiter)
+            elif header == BOOTSTRAP_PREFIX:
+                password = read_candidate_line(conn, buf)
+                if password is None:
+                    reply = b"no missing password\n"
+                else:
+                    reply = handle_bootstrap(password, conn, cfg, limiter)
             else:
                 ok = verify(first, cfg.parent, cfg.shadow, limiter, peer_uid(conn))
                 reply = b"ok\n" if ok else b"no\n"
@@ -396,7 +439,7 @@ def parse_args(argv):
         description="Root verifier for the parent's password (R-SEC-1).",
     )
     parser.add_argument("--socket", default=DEFAULT_SOCKET, help="Unix socket path to listen on")
-    parser.add_argument("--parent", default=None, help="Parent login name (overrides machine.conf/env)")
+    parser.add_argument("--parent", default=None, help="Parent login name (overrides machine.conf)")
     parser.add_argument("--shadow", default=DEFAULT_SHADOW, help="Path to the shadow file")
     parser.add_argument(
         "--machine-conf",
@@ -410,14 +453,20 @@ def parse_args(argv):
 
 
 class Config:
-    """Everything a client handler needs, resolved once at startup."""
+    """Everything a client handler needs, with parent read per request."""
 
     def __init__(self, args):
-        self.parent = resolve_parent(args)
+        self.parent_override = args.parent
+        self.machine_conf = args.machine_conf
         self.shadow = args.shadow
         self.etc = args.etc
         self.lib = args.lib
         self.ask_bin = args.ask_bin
+
+    @property
+    def parent(self):
+        # Apply may write parent= after socket activation starts this daemon.
+        return self.parent_override or read_machine_conf_parent(self.machine_conf)
 
 
 def main(argv=None) -> int:

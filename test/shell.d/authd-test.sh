@@ -169,6 +169,31 @@ check "$(sed -n 1p <<<"$limiter_out")" "kid-locked" "S7: ten misses lock the uid
 check "$(sed -n 2p <<<"$limiter_out")" "parent-open" "S7: the parent's uid is untouched by the kid's misses"
 check "$(sed -n 3p <<<"$limiter_out")" "parent-still-open" "S7: the parent can still verify while the kid is locked out"
 
+# R-BOOTMODE-7: bootstrap is bound to the kernel peer's eligible parent
+# account, so passwordless sudo cannot make a wrong candidate pass.
+bootstrap_out="$(
+  python3 - "$AUTHD" <<'PYEOF'
+import importlib.machinery, importlib.util, sys
+spec = importlib.util.spec_from_loader("authd_bootstrap", importlib.machinery.SourceFileLoader("authd_bootstrap", sys.argv[1]))
+module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
+ns = vars(module)
+ns["account_for_uid"] = lambda uid: "testparent" if uid == 1000 else "kid-ada"
+ns["is_eligible_parent"] = lambda uid: uid == 1000
+ns["check_password"] = lambda candidate, parent, shadow: parent == "testparent" and candidate == b"secret123"
+limiter = ns["RateLimiter"]()
+verify = ns["verify_bootstrap"]
+print("no" if not verify(b"wrongpass", None, "unused", limiter, 1000) else "wrong-accepted")
+print("ok" if verify(b"secret123", None, "unused", limiter, 1000) else "right-rejected")
+print("no" if not verify(b"secret123", None, "unused", limiter, 1001) else "kid-accepted")
+PYEOF
+)"
+check "$(sed -n 1p <<<"$bootstrap_out")" "no" \
+  "R-BOOTMODE-7: bootstrap rejects a wrong candidate before sudo can help"
+check "$(sed -n 2p <<<"$bootstrap_out")" "ok" \
+  "R-BOOTMODE-7: bootstrap accepts the eligible caller's correct candidate"
+check "$(sed -n 3p <<<"$bootstrap_out")" "no" \
+  "R-BOOTMODE-7: bootstrap rejects a non-parent peer"
+
 # =====================================================================
 # review S4: the verifier a kid runs is not a verifier a kid controls
 # =====================================================================
@@ -250,6 +275,10 @@ wait "$HOSTILE_PID" 2>/dev/null
 # environment for the socket either.
 check "$(grep -c 'pam_exec.so quiet expose_authtok /usr/bin/omarchy-kids-parent-auth' "$DIR/lib/posture.sh")" "1" \
   "S4: the PAM line execs the verifier by absolute path"
+check "$(grep -c 'systemctl enable --now omarchy-kids-authd.socket' "$DIR/omarchy-kids.install")" "1" \
+  "package installation enables and starts authd before the first wizard run"
+check "$(grep -c 'OMARCHY_KIDS_PARENT' "$AUTHD")" "0" \
+  "authd does not let an environment variable select the parent account"
 
 # =====================================================================
 # GRANT over the wire: what must be refused, refused everywhere

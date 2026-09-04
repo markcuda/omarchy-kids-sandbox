@@ -306,3 +306,14 @@ a grant clearing enforcement without unlocking, swallowed systemctl failures, we
 bypassing both live scenarios, and the VM gate saw launch-history tests break under the new
 0640 ledgers). #73 (typed profile access) and #92/#96 are in their fix rounds. The VM now has
 ShellCheck so the install script is linted for real.
+
+### 07:30, one VM driver at a time
+
+Three VM gates in a row lost their SSH session mid-suite and one left a QEMU stuck at the disk
+prompt with no control socket. Cause: the #71 fix-forward draft, whose brief named live
+scenarios 40 and 50, ran scenario 40 itself from its clone, and its boot step rebooted the VM
+under the gates. Fixes: AGENTS.md rule 11 (drafting agents never drive the VM), draft clones no
+longer carry `test/live/config.env` (the gate runner lends it for its own run only), every
+brief now says so in its first line, and `boot_with` retypes the disk password every 30 s while
+the VM stays unreachable. The dropped gates (#73 round three, #92, scenario 30, #96) are queued
+again in order.

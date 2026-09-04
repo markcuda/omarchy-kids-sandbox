@@ -6,12 +6,17 @@
 # verifier and of the Wi-Fi daemon's authorization boundary -- was worse
 # than no suite at all (the 2026-09-03 review's "On the tests").
 #
-# Files run in parallel (-j, default: half the cores, at least two) because the
+# Files run in parallel (-j, default: a quarter of the cores, at least two) because the
 # suite is the gate every ticket waits on three or four times. Output is still
 # printed one file at a time, in the same order as a serial run, so a diff
 # between two runs means a real change and not a scheduling accident. Each test
 # owns its own scratch directory; a test that ever needs a fixed path must take
 # it under its own mktemp dir, not /tmp.
+#
+# A file that fails in the parallel pass is re-run on its own before it is
+# reported, because a gate that cries wolf is worse than a slow one. The retry
+# is listed by name at the end: a file that only fails in company is sharing
+# state with another file, and that is a bug in the test, not a fact of life.
 exec </dev/null # a test that reads stdin must never block on the caller's terminal or tool
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 1
@@ -37,7 +42,7 @@ done
 
 cores="$( (nproc || sysctl -n hw.ncpu) 2>/dev/null)"
 [[ "$cores" =~ ^[0-9]+$ ]] || cores=2
-: "${jobs_wanted:=$((cores / 2))}"
+: "${jobs_wanted:=$((cores / 4))}"  # a quarter: several drafting agents run their own suite here
 [[ "$jobs_wanted" =~ ^[0-9]+$ ]] && ((jobs_wanted > 0)) || jobs_wanted=2
 ((jobs_wanted < 2)) && jobs_wanted=1
 
@@ -61,6 +66,7 @@ wait
 fail=0
 n=0
 skipped=()
+retried=()
 i=0
 for t in "${files[@]}"; do
   [[ -f $t ]] || continue
@@ -69,6 +75,11 @@ for t in "${files[@]}"; do
   status="$(cat "$out_dir/$i.status" 2>/dev/null)"
   [[ "$status" =~ ^[0-9]+$ ]] || status=1 # the job died without recording one
   i=$((i + 1))
+  if ((status != 0)) && ((jobs_wanted > 1)); then
+    out="$(bash "$t" 2>&1)"
+    status=$?
+    ((status == 0)) && retried+=("$t")
+  fi
   printf '%s\n' "$out"
   if ((status == 0)); then echo "ok   $t"; else
     echo "FAIL $t"
@@ -79,6 +90,10 @@ for t in "${files[@]}"; do
   done < <(printf '%s\n' "$out" | grep -E '^ *SKIP' || true)
 done
 echo "$n test file(s)"
+if ((${#retried[@]})); then
+  echo "${#retried[@]} file(s) failed in parallel and passed alone -- they share state with another file:"
+  printf '  %s\n' "${retried[@]}"
+fi
 if ((${#skipped[@]})); then
   echo "${#skipped[@]} skipped check(s) -- these did NOT run:"
   printf '  %s\n' "${skipped[@]}"

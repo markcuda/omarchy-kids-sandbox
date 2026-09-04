@@ -319,12 +319,22 @@ fi
 exit 0
 EOF
 chmod +x "$INSTALL_STUBS"/*
-if (PATH="$INSTALL_STUBS:$PATH"; export FAIL_ENABLE=1; . "$INSTALL_COPY"; post_install >/dev/null 2>&1); then
+if (
+  PATH="$INSTALL_STUBS:$PATH"
+  export FAIL_ENABLE=1
+  . "$INSTALL_COPY"
+  post_install >/dev/null 2>&1
+); then
   bad "a failed authd socket startup is returned by post_install"
 else
   ok "a failed authd socket startup is returned by post_install"
 fi
-if (PATH="$INSTALL_STUBS:$PATH"; export FAIL_TRY_RESTART=1; . "$INSTALL_COPY"; post_upgrade >/dev/null 2>&1); then
+if (
+  PATH="$INSTALL_STUBS:$PATH"
+  export FAIL_TRY_RESTART=1
+  . "$INSTALL_COPY"
+  post_upgrade >/dev/null 2>&1
+); then
   bad "a failed authd restart is returned by post_upgrade"
 else
   ok "a failed authd restart is returned by post_upgrade"
@@ -463,7 +473,8 @@ check "$(grep -c -- "apply-grant --kid $ME --kind app --what minecraft --apply" 
 # expected result is derived from the daemon's real account and group lookups,
 # not from a test double.
 start_daemon "$ACTUAL_PARENT"
-eligible="$(python3 - "$AUTHD" <<'PYEOF'
+eligible="$(
+  python3 - "$AUTHD" <<'PYEOF'
 import importlib.machinery, importlib.util, os, sys
 spec = importlib.util.spec_from_loader("authd_peer", importlib.machinery.SourceFileLoader("authd_peer", sys.argv[1]))
 module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)

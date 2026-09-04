@@ -248,3 +248,25 @@ hardware, spawn gpt-5.6-sol agents, best work. GOAL.md's definition of done chan
   the pacman hook, chosen by the wizard from detection and overridable; it also fixes the
   boot-login bug, the wizard's passwordless-sudo password check (accepts anything), and the
   apply step's second prompt. The Air install follows spec 07's first tickets, in portal mode.
+
+### 04:00, first screenshot pass (VM, kid-cy, tokyo-night and catppuccin-latte)
+
+Surfaces shot: portal, launcher (rest and focus), KTuberling at Level 1, the exit modal over the
+launcher and over the fullscreen app, the modal with a typed password, the launcher after
+Super+Q, then the screen-time surfaces. Findings, in order of weight:
+
+- Screen time did not act. With a fresh root state, budget set to used+1 minute and a ledger
+  tick forced, no toast appeared within 5 s and no Time's Up within 150 s of the next tick; the
+  session stayed up. Main today has the kid path reduced to display (#70) but the root
+  infrastructure re-assert and the live proof are #71, in its VM gate now. Re-shot after #71.
+- The portal shows a leftover account as a kid tile (#100): SDDM's user model feeds every
+  regular account into the tile list and anything not a parent is treated as a kid. The
+  fallback silhouette also overflows its circle.
+- The wizard's Apply asks for the sudo password a second time: the step output is piped through
+  `sudo tee` into the root-owned setup log before the ticket exists (spec 07 ticket 5, #96).
+- The exit modal, Super x3 over a fullscreen app, Escape, Super+Q, and the launcher all behave;
+  dark and light themes render correctly on the launcher and modal. The light portal could not
+  be judged yet: the VM owner's theme switch needs the Omarchy path exported over SSH.
+- Driver lessons: QEMU key names (`esc`), chords are one `key` call with several names, gum
+  renders late under CPU load (the unit gate on the VM), a kid tile that is "not installed
+  yet" swallows Enter (the first kid-day video opened nothing; re-recorded next).

@@ -122,34 +122,37 @@ Each mode scenario finishes by switching to the other mode and back. Disk to por
 
 ## Tickets
 
+Ordered so the portal-mode consumers land before the transition machinery: the Air installs in portal mode after tickets 1-5.
+
 1. **Add the trusted machine boot setting**
-   - Files: `lib/boot-mode.sh`, `bin/omarchy-kids-conf`, `test/shell.d/conf-test.sh`, `test/shell.d/trust-boundary-test.sh`
-   - Acceptance: `machine get/set boot` enforce the exact enum, ownership, atomicity, exit codes, and fixed-path trust boundary without yet changing a boot artifact.
+   - Files: `lib/boot-mode.sh`, `bin/omarchy-kids-conf`, `test/shell.d/conf-test.sh`, `test/shell.d/trust-boundary-test.sh`, `PKGBUILD`, `omarchy-kids.install`, `test/shell.d/packaging-test.sh`
+   - Acceptance: `machine get/set boot` enforce the exact enum, ownership, atomicity, exit codes, and fixed-path trust boundary without yet changing a boot artifact; the package stops owning `/etc/mkinitcpio.conf.d/omarchy_kids.conf` and ships the template under `/usr/share/omarchy-kids/boot/` instead (Migration).
    - Satisfies: R-BOOTMODE-1, R-BOOTMODE-12
-2. **Build idempotent mode transitions and package the inactive template**
-   - Files: `lib/boot-mode-transition.sh`, `bin/omarchy-kids-conf`, `PKGBUILD`, `omarchy-kids.install`, `test/shell.d/boot-mode-test.sh`
-   - Acceptance: Both directions converge existing profiles, portal to disk rolls back failed additions, disk to portal rebuilds exactly once, and the package no longer owns an active `/etc` drop-in.
-   - Satisfies: R-BOOTMODE-3, R-BOOTMODE-4, R-BOOTMODE-9, R-BOOTMODE-10
-3. **Make parent authentication independent of sudo**
-   - Files: `bin/omarchy-kids-authd`, `bin/omarchy-kids-parent-auth`, `bin/omarchy-kids-wizard`, `lib/wizard-apply.sh`, `omarchy-kids.install`, `test/shell.d/wizard-test.sh`, `test/shell.d/authd-test.sh`
-   - Acceptance: PAM/authd rejects a wrong candidate under passwordless sudo, step 2 establishes noninteractive privilege, and a pseudo-terminal Apply shows no later password prompt.
-   - Satisfies: R-BOOTMODE-7, R-BOOTMODE-8
-4. **Add wizard detection and the Advanced boot row**
-   - Files: `bin/omarchy-kids-wizard`, `lib/wizard-screens.sh`, `lib/wizard-advanced.sh`, `lib/wizard-apply.sh`, `test/shell.d/wizard-test.sh`
-   - Acceptance: Detection chooses disk only with all prerequisites, Advanced can choose either valid mode, the summary explains it, and Apply converges mode before adding the first kid without another disk-secret prompt.
-   - Satisfies: R-BOOTMODE-2, R-BOOTMODE-8
-5. **Make provisioning and removal mode-aware**
-   - Files: `bin/omarchy-kids-provision`, `lib/provision-add.sh`, `lib/provision-remove.sh`, `bin/omarchy-kids-remove`, `test/shell.d/provision-test.sh`, `test/shell.d/remove-test.sh`
-   - Acceptance: Disk per-kid and full removal handle the exact slots and one final rebuild; portal add/remove makes zero LUKS, UKI, or Limine calls and rejects disk-only options; invalid mode mutates nothing.
-   - Satisfies: R-BOOTMODE-3, R-BOOTMODE-4, R-BOOTMODE-11
-6. **Gate assert and the pacman path**
+2. **Gate assert and the pacman path**
    - Files: `bin/omarchy-kids-assert`, `lib/assert-locks.sh`, `lib/assert-limine.sh`, `pacman/omarchy-kids.hook`, `test/shell.d/assert-test.sh`
    - Acceptance: Disk retains boot repair, portal repairs non-boot locks with zero UKI or Limine access, and the exact pacman-hook invocation has the same result.
    - Satisfies: R-BOOTMODE-6, R-BOOTMODE-11, R-BOOTMODE-12
-7. **Preserve stock login and report mode-specific safety**
+3. **Preserve stock login and report mode-specific safety**
    - Files: `bin/omarchy-kids-boot-login`, `systemd/omarchy-kids-boot-login.service`, `systemd/omarchy-kids-boot-login-cleanup.service`, `lib/check-boot.sh`, `test/shell.d/boot-login-test.sh`, `test/shell.d/check-test.sh`
    - Acceptance: Portal and missing-slot runs write nothing, mapped disk slots select the right session, malformed mappings fail safe without blocking SDDM, and check JSON exposes only the selected mode's checks.
    - Satisfies: R-BOOTMODE-4, R-BOOTMODE-5, R-BOOTMODE-11, R-BOOTMODE-12
+4. **Make provisioning and removal mode-aware**
+   - Files: `bin/omarchy-kids-provision`, `lib/provision-add.sh`, `lib/provision-remove.sh`, `bin/omarchy-kids-remove`, `test/shell.d/provision-test.sh`, `test/shell.d/remove-test.sh`
+   - Acceptance: Disk per-kid and full removal handle the exact slots and one final rebuild; portal add/remove makes zero LUKS, UKI, or Limine calls and rejects disk-only options; invalid mode mutates nothing.
+   - Satisfies: R-BOOTMODE-3, R-BOOTMODE-4, R-BOOTMODE-11
+5. **Make parent authentication independent of sudo**
+   - Files: `bin/omarchy-kids-authd`, `bin/omarchy-kids-parent-auth`, `bin/omarchy-kids-wizard`, `lib/wizard-apply.sh`, `omarchy-kids.install`, `test/shell.d/wizard-test.sh`, `test/shell.d/authd-test.sh`
+   - Acceptance: PAM/authd rejects a wrong candidate under passwordless sudo, step 2 establishes noninteractive privilege, and a pseudo-terminal Apply shows no later password prompt.
+   - Satisfies: R-BOOTMODE-7, R-BOOTMODE-8
+   - Root cause found on the VM (2026-09-04): `lib/wizard-apply.sh` pipes each step through `sudo tee -a /var/log/omarchy-kids/setup.log` before the first step has established the ticket, so that `sudo` prompts on the terminal (`[sudo] password for kid-vm:`) while `sudo -S -v` runs beside it in the same pipeline. Establish authorization and open the log once, before any pipeline.
+6. **Add wizard detection and the Advanced boot row**
+   - Files: `bin/omarchy-kids-wizard`, `lib/wizard-screens.sh`, `lib/wizard-advanced.sh`, `lib/wizard-apply.sh`, `test/shell.d/wizard-test.sh`
+   - Acceptance: Detection chooses disk only with all prerequisites, Advanced can choose either valid mode, the summary explains it, and Apply converges mode before adding the first kid without another disk-secret prompt.
+   - Satisfies: R-BOOTMODE-2, R-BOOTMODE-8
+7. **Build idempotent mode transitions and package the inactive template**
+   - Files: `lib/boot-mode-transition.sh`, `bin/omarchy-kids-conf`, `test/shell.d/boot-mode-test.sh`
+   - Acceptance: Both directions converge existing profiles, portal to disk rolls back failed additions, disk to portal rebuilds exactly once.
+   - Satisfies: R-BOOTMODE-3, R-BOOTMODE-4, R-BOOTMODE-9, R-BOOTMODE-10
 8. **Prove both modes in the VM**
    - Files: `test/live/10-cold-boot-kid.sh`, `test/live/30-portal-login-and-finish.sh`, `docs/install.md`
    - Acceptance: The disk scenario proves cold-boot selection and both transitions, the portal scenario proves SSH-safe zero boot mutation through pacman, and install documentation states both paths without overstating live proof.

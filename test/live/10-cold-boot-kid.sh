@@ -23,15 +23,21 @@ else
   state
 fi
 
-shot 10-cold-boot-kid || fail "screenshot failed"
+shot 10-session-manifest-launcher || fail "screenshot failed"
 
-# The root launcher map is rebuilt at boot by omarchy-kids-assert; an empty environment there
-# once produced a map with no app tiles (2026-09-03).
-tiles="$(vmroot "jq -r '.tiles | length' /etc/omarchy-kids/launchers/$LIVE_KID1_ACCOUNT.json" 2>/dev/null | tr -d '[:space:]')"
-if [[ "${tiles:-0}" -gt 2 ]]; then
-  ok "root launcher map lists $tiles tiles for $LIVE_KID1_ACCOUNT"
+# The manifest is rebuilt at boot by omarchy-kids-assert; a missing one used to leave a black
+# screen even though the session itself had started (R-MANIFEST-7, 2026-09-03).
+manifest="/etc/omarchy-kids/sessions/$LIVE_KID1_ACCOUNT.json"
+if vmroot "test -f '$manifest'" 2>/dev/null; then
+  ok "session manifest exists for $LIVE_KID1_ACCOUNT"
 else
-  fail "root launcher map has only ${tiles:-0} tiles for $LIVE_KID1_ACCOUNT"
+  fail "session manifest is missing for $LIVE_KID1_ACCOUNT"
+fi
+tiles="$(vmroot "jq -r '.tiles | length' '$manifest'" 2>/dev/null | tr -d '[:space:]')"
+if [[ "${tiles:-0}" -gt 2 ]]; then
+  ok "session manifest lists $tiles tiles for $LIVE_KID1_ACCOUNT"
+else
+  fail "session manifest has only ${tiles:-0} tiles for $LIVE_KID1_ACCOUNT"
 fi
 
 # A live session is not a working desktop: the launcher must actually be running (2026-09-03,

@@ -317,3 +317,12 @@ longer carry `test/live/config.env` (the gate runner lends it for its own run on
 brief now says so in its first line, and `boot_with` retypes the disk password every 30 s while
 the VM stays unreachable. The dropped gates (#73 round three, #92, scenario 30, #96) are queued
 again in order.
+
+### 08:50, the boot setting lands
+
+#92 merged: `boot=disk|portal` in machine.conf behind a trusted reader, the package no longer
+owns the mkinitcpio drop-in, and upgrades migrate from real disk evidence. Three sol rounds;
+ShellCheck now runs on the VM. Luna is on its consumers #93 (assert and the pacman hook never
+touch the UKI or Limine in portal mode) and #95 (provision and removal mode-aware); #94
+(boot-login preserves stock autologin) follows. #96 (parent auth without sudo) is on its fifth
+and final commit and queued for the VM; #73, #76 and the #71 fix-forward are in review rounds.

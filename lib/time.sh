@@ -21,6 +21,16 @@ time_now() {
   fi
 }
 
+# time_root_now — the authority never accepts an inherited clock value.
+time_root_now() {
+  if [[ -n "$TIME_NOW_FILE" && -r "$TIME_NOW_FILE" ]]; then
+    tr -d '\n' <"$TIME_NOW_FILE"
+    printf '\n'
+  else
+    date '+%Y-%m-%d %H:%M:%S'
+  fi
+}
+
 # time_monotonic — integer monotonic seconds. Tests replace the build-time
 # clock file; production reads Linux's monotonic uptime source.
 time_monotonic() {
@@ -266,6 +276,7 @@ time_state_write() {
   local grace="$6" last="$7" remainder="$8" fired="$9" dir tmp fired_json='[]'
   dir="$(time_state_dir)"
   install -d -m 0750 "$dir"
+  chmod 0750 "$dir"
   chown root:omarchy-kids "$dir" 2>/dev/null || true
   if [[ -n "$fired" ]]; then
     fired_json="[$(tr ' ' ',' <<<"$fired")]"

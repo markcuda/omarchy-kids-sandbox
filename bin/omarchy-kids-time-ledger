@@ -76,7 +76,7 @@ active_kid_sessions() {
 # write_status_json — R-BAR-3, best-effort: never fails the tick.
 write_status_json() {
   local now day weekend hm kid remaining paused live rows active
-  now="$(time_now)"
+  now="$(time_root_now)"
   hm="$(time_hm "$now")"
   IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || return 0
   command -v jq >/dev/null 2>&1 || return 0
@@ -109,7 +109,7 @@ cmd_tick() {
     die "tick must run as root (it is meant to be run by systemd/omarchy-kids-time.timer)" 1
   fi
   local now day weekend monotonic active kid is_active
-  now="$(time_now)"
+  now="$(time_root_now)"
   IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
   monotonic="$(time_monotonic)" || die "could not read the monotonic clock"
   active="$(active_kid_sessions)"

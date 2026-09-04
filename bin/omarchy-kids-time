@@ -59,7 +59,7 @@ log() { printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" "$*" >>"$LOG_FILE" 2>/
 cmd_status() {
   local kid="${1:-$(id -un)}"
   local now hm day weekend used granted budget remaining kind at
-  now="$(time_now)"
+  now="$(time_root_now)"
   hm="$(time_hm "$now")"
   IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
   used="$(time_used_minutes "$kid" "$day")"
@@ -89,7 +89,7 @@ cmd_grant() {
   if ! is_root; then
     die "grant: must run as root (a parent action, R-TIME-4 -- see docs/time.md)" 1
   fi
-  now="$(time_now)"
+  now="$(time_root_now)"
   IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
   time_grant_add "$kid" "$day" "$minutes"
   printf '%s: granted %d more minute(s) for today (now %d granted today)\n' \

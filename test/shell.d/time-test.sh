@@ -20,6 +20,8 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LEDGER="$DIR/bin/omarchy-kids-time-ledger"
 TIME="$DIR/bin/omarchy-kids-time"
+# shellcheck source=test/shell.d/lib.sh
+source "$DIR/test/shell.d/lib.sh"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "SKIP time-test.sh: python3 not found"
@@ -224,6 +226,8 @@ set_sessions "1 1000 kid-ada yes no"
 check "$(used_today 2026-09-02)" "0" "tick: the first active tick initializes without fabricating a minute"
 check "$(state_value state)" "allowed" "tick: first state is allowed"
 check "$(state_value remaining_seconds)" "3600" "tick: first state starts from the integer ledgers"
+check "$(kids_file_mode "$ROOT/run/omarchy-kids/time")" "750" "tick: runtime state directory is mode 0750"
+check "$(kids_file_mode "$ROOT/run/omarchy-kids/time/kid-ada.json")" "640" "tick: runtime state is mode 0640"
 set_clock 1030
 "$LEDGER" tick >/dev/null
 check "$(used_today 2026-09-02)" "0" "tick: thirty active seconds stay in the runtime remainder"
@@ -318,6 +322,17 @@ set_clock 1660
 "$LEDGER" tick >/dev/null
 check "$(state_value state)" "warning" "tick: missing runtime state rebuilds from root ledgers"
 check "$(used_today 2026-09-03)" "55" "tick: state recovery leaves usage history unchanged"
+
+set_now "2026-09-03 20:00:00"
+set_clock 1720
+"$LEDGER" tick >/dev/null
+check "$(state_value state)" "grace" "tick: lights-out enters grace independently of budget"
+check "$(state_value reason)" "lights-out" "tick: lights-out records its own reason"
+check "$(state_value grace_deadline)" "1780" "tick: lights-out grace gets a sixty-second deadline"
+set_clock 1780
+"$LEDGER" tick >/dev/null
+check "$(state_value state)" "finishing" "tick: expired grace advances to finishing"
+check "$(state_value reason)" "lights-out" "tick: finishing preserves the enforcement reason"
 
 echo
 

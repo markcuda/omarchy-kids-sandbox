@@ -402,11 +402,12 @@ kids_set_const "$BIN" RUN_DIR "$RUN"
 REAL_STAT="$(type -P stat)"
 cat >"$STUBS/stat" <<'EOF'
 #!/bin/bash
+# GNU stat is `-c %a/%u/%G`, BSD stat is `-f %Lp/%u/%Sg`; lib/kids.sh's file_stat tries GNU first.
 if [[ "${KIDS_TEST_MANIFEST_STAT:-}" == 1 && "${3:-}" == */sessions/* ]]; then
   case "${2:-}" in
-    %Lp) echo "${KIDS_TEST_MANIFEST_MODE:-644}"; exit 0 ;;
+    %Lp | %a) echo "${KIDS_TEST_MANIFEST_MODE:-644}"; exit 0 ;;
     %u) [[ "${KIDS_TEST_MANIFEST_OWNER:-root}" == root ]] && echo 0 || echo 501; exit 0 ;;
-    %Sg) echo root; exit 0 ;;
+    %Sg | %G) echo root; exit 0 ;;
   esac
 fi
 exec "$KIDS_TEST_REAL_STAT" "$@"
@@ -451,7 +452,10 @@ manifest_refused() {
   check_eq "$(wc -l <"$TMP/manifest.err" | tr -d ' ')" "1" "$label: prints one stderr line"
   check_contains "$(cat "$TMP/manifest.err")" "validated manifest unavailable" "$label: says manifest is unavailable"
 }
-manifest_restore() { rm -rf "$MANIFEST"; cp "$TMP/valid-manifest.json" "$MANIFEST"; }
+manifest_restore() {
+  rm -rf "$MANIFEST"
+  cp "$TMP/valid-manifest.json" "$MANIFEST"
+}
 
 manifest_restore
 manifest_run

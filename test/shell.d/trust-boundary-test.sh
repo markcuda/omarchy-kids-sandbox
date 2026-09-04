@@ -184,7 +184,7 @@ if manifest_out="$(OMARCHY_KIDS_ETC="$manifest_hostile_dir" \
   "$DIR/bin/omarchy-kids-session" --manifest 2>"$manifest_hostile_dir/error")"; then
   bad "trust boundary: --manifest accepted OMARCHY_KIDS_ETC"
 elif [[ -n "$manifest_out" || "$(cat "$manifest_hostile_dir/error")" == *KID_WRITABLE_MANIFEST_MARKER* ||
-  "$(cat "$manifest_hostile_dir/error")" == *"$manifest_hostile_dir"* ]]; then
+"$(cat "$manifest_hostile_dir/error")" == *"$manifest_hostile_dir"* ]]; then
   bad "trust boundary: --manifest read or disclosed the kid-writable hostile manifest"
 else
   ok "trust boundary: --manifest ignores OMARCHY_KIDS_ETC and kid-writable manifests"

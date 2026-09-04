@@ -1,10 +1,9 @@
 #!/bin/bash
-# Tests the pure helpers in test/live/lib.sh — the theme.conf.user index math (portal_kid_index,
-# portal_kid_count) and the report table generator (report_header, report_row). These are the
-# only parts of the VM acceptance harness (issue #31, SPEC.md R-BUILD-3) that don't need the test
-# laptop or the VM, so this is the only test/live coverage that runs in `test/all`/CI; the
-# scenarios themselves (test/live/NN-*.sh) are exercised by hand against the real VM per
-# docs/live-tests.md, never here.
+# Tests the pure helpers in test/live/lib.sh — portal tile index/count parsing, the finalized
+# journal-report parser, and the report table generator. These are the only parts of the VM
+# acceptance harness (issue #31, SPEC.md R-BUILD-3) that don't need the test laptop or the VM, so
+# this is the only test/live coverage that runs in `test/all`/CI; the scenarios themselves
+# (test/live/NN-*.sh) are exercised by hand against the real VM per docs/live-tests.md, never here.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -62,12 +61,15 @@ PARENTS="kid-vm,parent-helper"
 check "$(portal_conf_accounts "$CSV" "$PARENTS")" \
   $'kid-ada\nkid-cy\nkid-vm\nparent-helper' \
   "portal_conf_accounts: kids precede the explicit parent allowlist"
+check "$(portal_conf_accounts "kid-ada:Ada Lovelace:fox" "kid-ada,parent-helper")" \
+  $'kid-ada\nparent-helper' \
+  "portal_conf_accounts: duplicate kid/parent membership produces one tile"
 check "$(portal_conf_tile_count "$CSV" "$PARENTS")" "4" \
   "portal_conf_tile_count: counts profiled kids plus parents"
-check "$(portal_visible_tile_count $'kid-cy\nkid-vm\nparent-helper\nkid-ada' "$CSV" "$PARENTS")" "4" \
-  "portal_visible_tile_count: configured accounts are the only tile sources"
-check "$(portal_visible_tile_count $'kid-cy\nkid-vm\nparent-helper' "kid-cy:Cy:owl" "kid-vm,parent-helper")" "3" \
-  "portal_visible_tile_count: absent stale accounts do not become tiles"
+check "$(portal_parse_tile_report 'qrc:/Main.qml: portal: 3 tiles (kids=2 parents=1)')" "3 2 1" \
+  "portal_parse_tile_report: extracts the greeter's observed finalized counts"
+portal_parse_tile_report "portal: malformed" >/dev/null 2>&1
+check_status "$?" "1" "portal_parse_tile_report: malformed journal output fails"
 
 # --- report_header / report_row ---------------------------------------------------------------
 

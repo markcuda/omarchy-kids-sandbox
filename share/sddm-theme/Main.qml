@@ -148,6 +148,7 @@ Rectangle {
         var kids = root.users.filter(function (u) { return !u.isParent })
         var parents = root.users.filter(function (u) { return u.isParent })
         root.users = kids.concat(parents)
+        console.error("portal: " + root.users.length + " tiles (kids=" + kids.length + " parents=" + parents.length + ")")
         // R-LOGIN-1: the last-used tile preselected.
         for (var i = 0; i < root.users.length; i++) {
             if (root.users[i].name === userModel.lastUser) { root.currentIndex = i; break }

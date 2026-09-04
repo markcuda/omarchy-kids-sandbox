@@ -101,6 +101,10 @@ extra process environment, and no `systemctl restart` needed beyond whatever a n
 allowlist. Only those two allowlists may produce tiles; a stale Unix account is intentionally
 invisible. Both are re-asserted together as the `portal-conf` lock (`docs/assert.md`).
 
+After the user model is finalized, `Main.qml` writes one `console.error` line to stderr in the
+form `portal: N tiles (kids=K parents=P)`. Scenario 30 reads that finalized count from the SDDM
+journal and uses the config only for an independent expected-count check.
+
 **Avatars.** `posture_write_accountsservice` already points AccountsService's `Icon=` at
 `/usr/share/omarchy-kids/avatars/<avatar>.svg`, and `Main.qml`'s `avatarSourceFor()` still uses
 that role (falling back to rebuilding the same path from `theme.conf.user`'s per-account avatar id

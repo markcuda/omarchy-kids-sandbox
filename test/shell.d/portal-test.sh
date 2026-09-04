@@ -176,6 +176,11 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
   else
     fail "portal allowlist adversarial case: inherited constructor was admitted"
   fi
+  if grep -qF 'console.error("portal: " + root.users.length + " tiles (kids="' "$MAIN_QML"; then
+    pass "Main.qml logs the finalized portal tile count to stderr"
+  else
+    fail "Main.qml does not log the finalized portal tile count"
+  fi
   if grep -qF 'function loginUser(user, password)' "$MAIN_QML" &&
     grep -qF 'if (sessionIndex < 0) return' "$MAIN_QML" &&
     [[ "$(grep -cF 'return -1' "$MAIN_QML")" -ge 1 ]] &&

@@ -153,13 +153,15 @@ portal_kid_count() {
 portal_conf_accounts() {
   local csv old_ifs=$IFS entry
   local -a entries
-  for csv in "$@"; do
-    IFS=',' read -ra entries <<<"$csv"
-    IFS=$old_ifs
-    for entry in "${entries[@]}"; do
-      [[ -n "$entry" ]] && printf '%s\n' "${entry%%:*}"
+  {
+    for csv in "$@"; do
+      IFS=',' read -ra entries <<<"$csv"
+      IFS=$old_ifs
+      for entry in "${entries[@]}"; do
+        [[ -n "$entry" ]] && printf '%s\n' "${entry%%:*}"
+      done
     done
-  done
+  } | awk '!seen[$0]++'
 }
 
 # portal_conf_tile_count KIDS_CSV PARENTS_CSV — count the tiles the producer
@@ -172,28 +174,37 @@ portal_conf_tile_count() {
   echo "$count"
 }
 
-# portal_visible_tile_count USER_ACCOUNTS KIDS_CSV PARENTS_CSV — count only
-# configured accounts present in SDDM's regular-account model.
-portal_visible_tile_count() {
-  local accounts="$1" count=0 account
-  while IFS= read -r account; do
-    [[ -n "$account" ]] || continue
-    portal_tile_index "$accounts" "$account" >/dev/null && count=$((count + 1))
-  done < <(portal_conf_accounts "$2" "$3")
-  echo "$count"
+# portal_parse_tile_report REPORT — extracts the finalized QML count and its
+# kid/parent breakdown from a journal line. Pure; unit-tested in
+# test/shell.d/live-lib-test.sh.
+portal_parse_tile_report() {
+  local report="$1"
+  local pattern='portal: ([0-9]+) tiles \(kids=([0-9]+) parents=([0-9]+)\)'
+  if [[ "$report" =~ $pattern ]]; then
+    printf '%s %s %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}"
+    return 0
+  fi
+  return 1
 }
 
-# portal_live_tile_counts — prints "actual expected" for scenario 30's
-# rendered-source count assertion.
+# portal_live_tile_counts — reads the finalized QML count from the current
+# boot's greeter journal. It does not reconstruct the rendered tile list.
 portal_live_tile_counts() {
-  local conf kids parents accounts expected actual
+  local line parsed
+  line="$(vmroot "journalctl -b --no-pager -o cat -u sddm -u sddm-greeter 2>/dev/null | grep -E 'portal: [0-9]+ tiles \\(kids=[0-9]+ parents=[0-9]+\\)' | tail -1")" || return 1
+  [[ -n "$line" ]] || return 1
+  parsed="$(portal_parse_tile_report "$line")" || return 1
+  printf '%s\n' "$parsed"
+}
+
+# portal_live_config_tile_count — expected count from the producer-owned
+# config only. The observed value comes separately from portal_live_tile_counts.
+portal_live_config_tile_count() {
+  local conf kids parents
   conf="$(vmroot "cat /usr/share/sddm/themes/omarchy-kids/theme.conf.user")" || return 1
   kids="$(awk -F= '$1 == "kids" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
   parents="$(awk -F= '$1 == "parents" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
-  accounts="$(vmroot "getent passwd | awk -F: '\$3>=1000 && \$3<65534 {print \$1}' | sort")" || return 1
-  expected="$(portal_conf_tile_count "$kids" "$parents")"
-  actual="$(portal_visible_tile_count "$accounts" "$kids" "$parents")"
-  printf '%s %s\n' "$actual" "$expected"
+  portal_conf_tile_count "$kids" "$parents"
 }
 
 # portal_login KID PASSWORD [DEADLINE] — at the portal (the greeter showing the kid tiles),

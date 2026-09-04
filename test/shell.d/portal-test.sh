@@ -157,6 +157,25 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
   else
     fail "Main.qml does not hide SDDM accounts outside the profile/parent allowlists"
   fi
+  if grep -qF 'Object.prototype.hasOwnProperty.call(root.portalKids, String(name))' "$MAIN_QML"; then
+    pass "Main.qml uses an own-property check for profiled kids"
+  else
+    fail "Main.qml admits inherited portalKids properties"
+  fi
+  if grep -qF '!root.hasPortalKid(name)' "$MAIN_QML"; then
+    pass "Main.qml gives profiled-kid membership precedence over parent membership"
+  else
+    fail "Main.qml can classify an account in both allowlists as a parent"
+  fi
+  if command -v node >/dev/null 2>&1 && node -e '
+    const kids = {}
+    const hasKid = name => Object.prototype.hasOwnProperty.call(kids, String(name))
+    if (hasKid("constructor")) process.exit(1)
+  '; then
+    pass "portal allowlist adversarial case: inherited constructor is not a kid"
+  else
+    fail "portal allowlist adversarial case: inherited constructor was admitted"
+  fi
   if grep -qF 'OpacityMask' "$MAIN_QML" && grep -qF 'radius: width / 2' "$MAIN_QML"; then
     pass "Main.qml masks fallback avatar images to a circle"
   else

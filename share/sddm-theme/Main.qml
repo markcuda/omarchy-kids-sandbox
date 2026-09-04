@@ -72,11 +72,14 @@ Rectangle {
     // The producer writes both the profile and parent allowlists; account
     // naming is only retained for display fallback text.
     function isKidName(name) { return String(name).indexOf("kid-") === 0 }
+    function hasPortalKid(name) {
+        return root.portalKids && Object.prototype.hasOwnProperty.call(root.portalKids, String(name))
+    }
     function isParentAccount(name) {
-        return root.portalParents && root.portalParents[String(name)] === true
+        return !root.hasPortalKid(name) && root.portalParents && Object.prototype.hasOwnProperty.call(root.portalParents, String(name)) && root.portalParents[String(name)] === true
     }
     function isPortalUser(name) {
-        return (root.portalKids && root.portalKids[String(name)] !== undefined) || root.isParentAccount(name)
+        return root.hasPortalKid(name) || root.isParentAccount(name)
     }
     // displayNameFor: realName (the passwd GECOS field, set once by
     // `omarchy-kids-provision`'s `usermod -c`, docs/provision.md) wins if
@@ -86,7 +89,7 @@ Rectangle {
     // name with "kid-" stripped and the first letter capitalized.
     function displayNameFor(name, realName) {
         if (realName && realName.length > 0) return realName
-        var portalEntry = root.portalKids ? root.portalKids[name] : undefined
+        var portalEntry = root.hasPortalKid(name) ? root.portalKids[String(name)] : undefined
         if (portalEntry && portalEntry.name && portalEntry.name.length > 0) return portalEntry.name
         var base = isKidName(name) ? String(name).slice(4) : String(name)
         return base.length > 0 ? base.charAt(0).toUpperCase() + base.slice(1) : base
@@ -98,7 +101,7 @@ Rectangle {
     // (docs/portal.md's "Avatars" section).
     function avatarSourceFor(modelData) {
         if (modelData.icon && modelData.icon.length > 0) return modelData.icon
-        var portalEntry = root.portalKids ? root.portalKids[modelData.name] : undefined
+        var portalEntry = root.hasPortalKid(modelData.name) ? root.portalKids[String(modelData.name)] : undefined
         if (portalEntry && portalEntry.avatar && portalEntry.avatar.length > 0) {
             return "/usr/share/omarchy-kids/avatars/" + portalEntry.avatar + ".svg"
         }

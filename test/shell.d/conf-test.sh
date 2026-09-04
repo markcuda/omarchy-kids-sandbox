@@ -277,7 +277,7 @@ check "$(cat "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/
 "$CONF" set kid-ada theme tokyo-night >/dev/null
 
 # get-with-no-override still behaves like name/avatar/band (theme joined
-# REQUIRED_KEYS, docs/conf.md) -- a second, fresh kid that's never had
+# the schema's required metadata, docs/conf.md) -- a second fixture that's never had
 # `theme` set at all.
 "$CONF" set kid-notheme name Notheme >/dev/null
 "$CONF" set kid-notheme avatar fox >/dev/null

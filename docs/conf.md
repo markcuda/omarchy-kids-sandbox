@@ -93,7 +93,7 @@ written to a kid's `.conf` file, and aren't part of Appendix B.
 
 Three more keys live in the same per-kid `.conf` file and go through the same `get`/`set`/`show`/
 `reset` as the table above, but aren't part of Appendix B, so they're kept out of that table and
-out of `omarchy-kids-conf`'s `APPENDIX_B_KEYS`: `bin/omarchy-kids-apps` is `apps.extra`/
+out of the schema's Appendix B rows: `bin/omarchy-kids-apps` is `apps.extra`/
 `apps.hidden`'s only real caller (docs/apps.md), through `hide`/`show`, never by writing the
 profile file directly; `bin/omarchy-kids-session-start` is `apps.show_missing`'s only reader
 (issue #42).
@@ -264,7 +264,7 @@ entirely against scratch trees:
 
 ```text
 Extension keys (issue #24, docs/apps.md): not in Appendix B, so kept out
-of APPENDIX_B_KEYS, cmd_show's main table, and "reset"'s identity-key
+of the schema key rows, `cmd_show`'s main table, and `reset`'s identity-key
 exemption -- but still one KEY=VALUE line in the same profile file,
 read and written through this same tool (docs/conf.md's "no other
 command touches a kid's .conf file directly" rule applies to these

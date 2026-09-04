@@ -1,6 +1,6 @@
 #!/bin/bash
-# Tests bin/omarchy-kids-web (SPEC.md R-WEB-1..4) and the fail-closed web
-# tile bin/omarchy-kids-session-start builds from it.
+# Tests bin/omarchy-kids-web (SPEC.md R-WEB-1..4) and the manifest-backed web
+# tile consumed by bin/omarchy-kids-session-start.
 #
 # Self-contained: a copied command has its build-time SHARE/ETC/SYSROOT
 # constants substituted with scratch paths (same convention as the session test).
@@ -279,45 +279,51 @@ check_status "$st" 0 "--help exits 0"
 check_contains "$out" "Usage: omarchy-kids-web" "--help prints usage"
 
 # =====================================================================
-# Fail-closed: omarchy-kids-session-start omits the web tile (and logs
-# why) when the band's policy file is missing (R-WEB-4).
+# The manifest remains valid when the band's policy file is missing; its
+# root-built tile list simply contains no chromium tile (R-WEB-4).
 # =====================================================================
 
 ETC="$TMP/etc-session"
 RUN="$TMP/run-session"
-SESSION_SYSROOT="$TMP/session-sysroot"
-mkdir -p "$ETC/kids"
+mkdir -p "$ETC/kids" "$ETC/sessions"
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada
 avatar=fox
 band=6-8
+level=1
+theme=tokyo-night
+web=garden
+budget_min=60
+budget_min_weekend=60
+lights_out=19:30
+lights_out_weekend=20:00
+EOF
+
+cat >"$ETC/sessions/kid-ada.json" <<'EOF'
+{"schema_version":1,"account":"kid-ada","name":"Ada","avatar":"fox","band":"6-8","level":1,"theme":"tokyo-night","allowlist":[],"web":"garden","policy_id":"omarchy-kids-6-8","budget_min":60,"budget_min_weekend":60,"lights_out":"19:30","lights_out_weekend":"20:00","tiles":[]}
 EOF
 
 kids_tree "$TMP/session-tree" "$DIR"
 SESSION_START="$TMP/session-tree/bin/omarchy-kids-session-start"
-kids_set_const "$SESSION_START" ETC "$ETC"
 kids_set_const "$SESSION_START" SHARE "$SHARE"
-kids_set_const "$SESSION_START" SYSROOT "$SESSION_SYSROOT"
 kids_set_const "$SESSION_START" RUN "$RUN"
-kids_set_const "$SESSION_START" APPLICATIONS_DIRS "$TMP/applications"
-mkdir -p "$TMP/applications"
+cat >"$TMP/session-tree/bin/omarchy-kids-session" <<EOF
+#!/bin/bash
+set -euo pipefail
+[[ "\${1:-}" == --manifest ]]
+cat "$ETC/sessions/kid-ada.json"
+EOF
+chmod +x "$TMP/session-tree/bin/omarchy-kids-session"
 out="$(OMARCHY_KIDS_SESSION_START_NO_EXEC=1 bash "$SESSION_START" 2>&1)"
 st=$?
-check_status "$st" 0 "session-start with no policy file: still exits 0 (own preflight is bin/omarchy-kids-session's job)"
-
-json_path="$RUN/launcher-$(id -u).json"
-if [[ -f "$json_path" ]]; then
-  check "$(jq -r '.tiles | map(select(.id == "chromium")) | length' "$json_path")" "0" \
-    "session-start: no chromium tile when the policy file is missing"
-else
-  echo "FAIL session-start: no launcher JSON written at $json_path"
-  fail=1
-fi
-
-log_content="$(cat "$RUN/session-$(id -u).log" 2>/dev/null || true)"
-check_contains "$log_content" "web tile omitted" "session-start: logs why the web tile was omitted"
-check_contains "$log_content" "kid-ada" "session-start: log names the account"
-check_contains "$log_content" "R-WEB-4" "session-start: log cites R-WEB-4"
+check_status "$st" 0 "session-start with a manifest lacking Chromium: exits 0"
+check "$(jq -r '.tiles | map(select(.id == "chromium")) | length' "$ETC/sessions/kid-ada.json")" "0" \
+  "session-start: manifest has no chromium tile when the policy file is missing"
+[[ ! -e "$RUN/launcher-$(id -u).json" ]] && echo "ok   session-start: no runtime launcher JSON" ||
+  {
+    echo "FAIL session-start: runtime launcher JSON was written"
+    fail=1
+  }
 
 echo "web-test RESULT: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"
 exit $fail

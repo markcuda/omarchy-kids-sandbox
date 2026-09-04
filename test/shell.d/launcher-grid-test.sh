@@ -1,6 +1,7 @@
 #!/bin/bash
-# Tests share/launcher/gridnav.js -- the pure column/index math the Level
-# 1/2 launcher's key navigation and its GridView layout share (issue #43:
+# Tests share/launcher/gridnav.js and shell.qml -- the Level 1/2 launcher
+# reads its tiles and fixed argv from the caller-bound session manifest,
+# while its key navigation and GridView layout share (issue #43:
 # key nav used a hardcoded `columns: 4` while the GridView actually drew
 # five tiles per row, so Down from row1/col4 landed on row2/col3 instead
 # of row2/col4, and Right from row2/col3 didn't move at all). See
@@ -54,16 +55,20 @@ check_contains "$qml_content" 'GridNav.moveDown(root.currentIndex, root.columns,
   "Down key uses the shared move function"
 check_contains "$qml_content" 'Keys.onReturnPressed' "Return launches the highlighted tile"
 check_contains "$qml_content" 'root.launchCurrent()' "Enter/Return calls launchCurrent()"
-check_contains "$qml_content" 'OMARCHY_KIDS_LAUNCHER_MAP' \
-  "launcher reads the root-owned ID-to-argv map"
+check_contains "$qml_content" 'command: ["/usr/bin/omarchy-kids-session", "--manifest"]' \
+  "launcher reads the caller-bound session manifest"
+check_contains "$qml_content" 'root.manifest.tiles || []' \
+  "launcher gets tiles from the manifest"
 check_contains "$qml_content" 'root.launchInstalled(tile.id || "") !== true' \
-  "activation requires the root map to mark the tile installed"
+  "activation requires the manifest to mark the tile installed"
 check_contains "$qml_content" 'launcherProcess.command = argv' \
-  "activation passes argv directly to Quickshell Process"
+  "activation passes manifest argv directly to Quickshell Process"
+check "$(grep -c 'OMARCHY_KIDS_LAUNCHER_JSON\|OMARCHY_KIDS_LAUNCHER_MAP\|launcherMap' "$QML" || true)" "0" \
+  "launcher has no runtime launcher JSON or separate launcher map"
 check "$(grep -c 'tile\.exec\|\["sh", "-c"\]' "$QML" || true)" "0" \
   "shell.qml never evaluates a tile-provided shell command"
 check "$(grep -c 'tile\.installed' "$QML" || true)" "0" \
-  "activation does not trust runtime installed state"
+  "activation does not trust an unvalidated tile state"
 
 # issue #43's bug was exactly this: a hardcoded columns count baked into
 # the nav's own `%`/`<` comparisons instead of read from the layout.

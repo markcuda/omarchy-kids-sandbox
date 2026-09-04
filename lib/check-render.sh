@@ -32,17 +32,18 @@ render_human() {
 
 # --- render: json --------------------------------------------------------
 
+# Write through the caller's variable so a large report does not fork once per field.
 json_escape() {
-  local s="$1"
+  local output_var="$1" s="$2"
   s="${s//\\/\\\\}"
   s="${s//\"/\\\"}"
   s="${s//$'\n'/\\n}"
   s="${s//$'\t'/\\t}"
-  printf '%s' "$s"
+  printf -v "$output_var" '%s' "$s"
 }
 
 render_json() {
-  local sec entry section id status detail first_sec=1 first_chk
+  local sec entry section id status detail first_sec=1 first_chk escaped_name escaped_id escaped_detail
   printf '{\n'
   printf '  "generated_at": "%s",\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%dT%H:%M:%S')"
   printf '  "verdict": "%s",\n' "$VERDICT"
@@ -51,15 +52,18 @@ render_json() {
   for sec in "${SECTION_ORDER[@]}"; do
     [[ "$first_sec" == 1 ]] || printf ',\n'
     first_sec=0
-    printf '    {\n      "name": "%s",\n      "checks": [\n' "$(json_escape "$sec")"
+    json_escape escaped_name "$sec"
+    printf '    {\n      "name": "%s",\n      "checks": [\n' "$escaped_name"
     first_chk=1
     for entry in "${RESULTS[@]}"; do
       IFS=$'\x1f' read -r section id status detail <<<"$entry"
       [[ "$section" == "$sec" ]] || continue
       [[ "$first_chk" == 1 ]] || printf ',\n'
       first_chk=0
+      json_escape escaped_id "$id"
+      json_escape escaped_detail "$detail"
       printf '        {"id": "%s", "status": "%s", "detail": "%s"}' \
-        "$(json_escape "$id")" "$status" "$(json_escape "$detail")"
+        "$escaped_id" "$status" "$escaped_detail"
     done
     printf '\n      ]\n    }'
   done

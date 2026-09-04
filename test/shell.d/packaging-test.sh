@@ -29,6 +29,12 @@ else
 	ok "PKGBUILD no longer owns the active drop-in"
 fi
 
+if [[ -f "$ROOT/.SRCINFO" ]] && grep -qF 'backup = etc/mkinitcpio.conf.d/omarchy_kids.conf' "$ROOT/.SRCINFO"; then
+	bad ".SRCINFO still owns the active drop-in"
+else
+	ok ".SRCINFO no longer owns the active drop-in"
+fi
+
 if grep -qF 'share/boot/omarchy_kids.conf' "$ROOT/PKGBUILD" ||
 	grep -qF 'cp -a share/. ' "$ROOT/PKGBUILD"; then
 	ok "package() ships the inactive boot template"

@@ -22,6 +22,5 @@ pkgbase = omarchy-kids
 	optdepends = socat: faster transport between omarchy-kids-parent-auth and omarchy-kids-authd
 	optdepends = snapper: pre-apply "before Kids Mode" snapshot and Remove Kids Mode snapshot (R-TRUST-1)
 	optdepends = limine-snapper-sync: refresh the boot menu right after hiding/showing snapshot entries (issue #38)
-	backup = etc/mkinitcpio.conf.d/omarchy_kids.conf
 
 pkgname = omarchy-kids

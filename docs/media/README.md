@@ -1,6 +1,22 @@
-# Screenshots
+# Release media
 
-Taken on the test VM (Omarchy 4.0.2, 1280x800) by the harness driver, one file per surface and
-theme: `<surface>-<theme>.png`. A dark theme (tokyo-night) and a light one (catppuccin-latte)
-prove every surface reads the owner's Omarchy theme. The portal and the screen-time surfaces
-are added once #100 (stray tiles) and #71 (root enforcement) land.
+`scripts/media-driver.sh` takes the release screenshots from the test VM at 1280x800. It defaults
+to tokyo-night and catppuccin-latte, one dark and one light Omarchy theme. Each successful capture
+replaces one `<surface>-<theme>.png`; a failed capture leaves the previous file intact.
+
+| File pair | What it shows |
+| --- | --- |
+| `portal-<theme>.png` | The restarted SDDM portal with the configured kid and parent tiles. |
+| `launcher-<theme>.png` | The test kid's Level 1 launcher and clock. |
+| `exit-modal-<theme>.png` | The parent-password exit card over the kid desktop. |
+| `ask-<theme>.png` | The Ask a grown-up card for fifteen more minutes. |
+| `times-up-<theme>.png` | The root-triggered Time's Up card and countdown. |
+| `wifi-picker-<theme>.png` | The keyboard-driven Wi-Fi picker in helper mode. |
+| `plugins-shelf-<theme>.png` | The read-only More apps shelf for the test kid's band. |
+| `wizard-<theme>.png` | The parent wizard's Welcome screen in a floating terminal. |
+| `panel-<theme>.png` | The parent panel's Home screen in a floating terminal. |
+| `bar-module-<theme>.png` | The enabled parent bar module with a live test-kid indicator. |
+
+The existing `exit-modal-over-app-<theme>.png` files are extra composition checks, not another
+required surface. The three walkthrough videos in docs/GOAL.md item 3 are recorded separately;
+this driver only takes stills.

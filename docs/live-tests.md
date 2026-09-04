@@ -48,6 +48,41 @@ Every scenario is idempotent: run it once, run it twice in a row, get the same r
 Markdown table of scenario, PASS/FAIL, and the screenshots it took — plus the screenshots
 themselves, all under `test/live/out/` by default.
 
+## Release screenshots
+
+`scripts/media-driver.sh` is the Mac-side driver for docs/GOAL.md item 3. It uses this harness's
+boot, portal, session, QMP, and screenshot helpers, but it is not a numbered acceptance scenario
+and `test/live/all` never runs it. The package already installed in the VM must match the checkout;
+the driver does not build or install it.
+
+```text
+bash scripts/media-driver.sh
+bash scripts/media-driver.sh nord catppuccin-latte
+bash scripts/media-driver.sh --surface ask catppuccin-latte
+```
+
+With no theme arguments it captures every surface under `tokyo-night` and
+`catppuccin-latte`. `--surface` reshoots one surface. Successful files land directly in
+`docs/media/<surface>-<theme>.png`; each one is staged beside that directory first, so a failed
+copy cannot replace a good image. A failed surface prints `FAILED`, the driver tries the next
+surface, and the run exits 1 after the pass.
+
+Run one VM driver at a time. Never start this beside a numbered scenario or `test/live/all`.
+Drafting agents do not run it. The driver boots the owner, records both current themes, sets the
+owner through `omarchy-theme-set` with `OMARCHY_PATH=/usr/share/omarchy`, sets the test kid through
+the governed `omarchy-kids-conf` theme writer, runs `omarchy-kids-assert`, and restarts SDDM before
+the portal shot. Its EXIT trap restores both themes and refreshes SDDM again.
+
+Time's Up and Wi-Fi need temporary test-kid settings. The driver records and restores both
+weekday/weekend lights-out values and the Wi-Fi mode even after a failed capture. For the bar shot
+it briefly stops the time timer after publishing a live status row, then restarts it. The parent
+bar must already be enabled: the driver refuses that shot instead of changing the parent's bar
+configuration. SIGINT and SIGTERM run the same cleanup; SIGKILL or a power loss cannot run shell
+cleanup, so inspect those settings before another scenario after either event.
+
+The driver does not record the three walkthrough videos in docs/GOAL.md item 3. Those remain a
+separate gate-runner recording step using QMP frames and ffmpeg.
+
 ## Safety rules
 
 These are AGENTS.md's rules, restated for this specific harness:

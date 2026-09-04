@@ -24,6 +24,7 @@ TIME_SYSROOT="$SYSROOT"
 TIME_VARLIB="$SYSROOT/var/lib/omarchy-kids"
 TIME_NOW_FILE="$SYSROOT/run/omarchy-kids/time/now"
 TIME_CLOCK_FILE="$SYSROOT/run/omarchy-kids/time/monotonic"
+EXIT_BIN="$(kids_bin exit "$DIR")"
 
 die() {
   echo "omarchy-kids-time-ledger: $1" >&2
@@ -71,6 +72,31 @@ active_kid_sessions() {
     seen+="$user"$'\n'
     printf '%s\n' "$user"
   done < <(loginctl list-sessions --no-legend 2>/dev/null)
+}
+
+# kid_session_ids ACCOUNT — active, unlocked sessions that belong to ACCOUNT.
+kid_session_ids() {
+  local wanted="$1" line id user active locked
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    id="$(awk '{print $1}' <<<"$line")"
+    user="$(awk '{print $3}' <<<"$line")"
+    [[ "$user" == "$wanted" ]] || continue
+    active="$(session_prop "$id" Active || true)"
+    locked="$(session_prop "$id" LockedHint || true)"
+    [[ "$active" == yes && "$locked" == no ]] || continue
+    printf '%s\n' "$id"
+  done < <(loginctl list-sessions --no-legend 2>/dev/null)
+}
+
+# lock_kid_sessions SESSION_IDS — lock each target and retain any failure.
+lock_kid_sessions() {
+  local session_id status=0
+  while IFS= read -r session_id; do
+    [[ -n "$session_id" ]] || continue
+    loginctl lock-session "$session_id" >/dev/null 2>&1 || status=1
+  done <<<"$1"
+  return "$status"
 }
 
 # write_status_json — R-BAR-3, best-effort: never fails the tick.
@@ -139,6 +165,8 @@ tick_kid() {
   local file state_json state=allowed reason=none logical_day last last_wall remainder grace
   local previous_remaining="" fired="" elapsed accumulated minutes base_remaining remaining lo decision
   local split old_elapsed new_elapsed old_accum old_minutes new_minutes
+  local enforcement_action=none enforcement_reason=none enforcement_result=none enforcement_at=""
+  local session_ids
 
   if state_json="$(time_state_file "$kid")" && time_state_read "$state_json"; then
     logical_day="$(jq -r '.logical_day' "$state_json")"
@@ -150,12 +178,20 @@ tick_kid() {
     grace="$(jq -r '.grace_deadline' "$state_json")"
     previous_remaining="$(jq -r '.remaining_seconds' "$state_json")"
     fired="$(jq -r '.warnings_fired | map(tostring) | join(" ")' "$state_json")"
+    enforcement_action="$(jq -r '.enforcement.action // "none"' "$state_json")"
+    enforcement_reason="$(jq -r '.enforcement.reason // "none"' "$state_json")"
+    enforcement_result="$(jq -r '.enforcement.result // "none"' "$state_json")"
+    enforcement_at="$(jq -r '.enforcement.at // ""' "$state_json")"
   else
     logical_day=""
     last="$monotonic"
     last_wall="$now"
     remainder=0
     grace=0
+    enforcement_action=none
+    enforcement_reason=none
+    enforcement_result=none
+    enforcement_at=""
   fi
 
   # A changed logical day starts from that day's integer ledgers, not from
@@ -184,6 +220,10 @@ tick_kid() {
     grace=0
     previous_remaining=""
     fired=""
+    enforcement_action=none
+    enforcement_reason=none
+    enforcement_result=none
+    enforcement_at=""
   elif [[ "$state" != grace && "$state" != finishing && "$active" == yes ]] &&
     [[ "$last" =~ ^[0-9]+$ && "$monotonic" =~ ^[0-9]+$ ]]; then
     elapsed=$((monotonic - last))
@@ -207,6 +247,10 @@ tick_kid() {
       if ((remaining <= 600)); then state=warning; else state=allowed; fi
       reason=budget
       grace=0
+      enforcement_action=none
+      enforcement_reason=none
+      enforcement_result=none
+      enforcement_at=""
     elif [[ "$state" == grace && "$monotonic" -lt "$grace" ]]; then
       reason="${reason:-budget}"
     else
@@ -227,8 +271,41 @@ tick_kid() {
     grace=0
   fi
 
+  if [[ "$state" == grace ]]; then
+    session_ids="$(kid_session_ids "$kid")"
+    if [[ "$enforcement_action" != lock || "$enforcement_reason" != "$reason" ||
+      "$enforcement_result" == failed ||
+      ("$enforcement_result" == not-needed && -n "$session_ids") ]]; then
+      enforcement_action=lock
+      enforcement_reason="$reason"
+      enforcement_at="$now"
+      if [[ -n "$session_ids" ]]; then
+        if lock_kid_sessions "$session_ids"; then
+          enforcement_result=success
+        else
+          enforcement_result=failed
+        fi
+      else
+        enforcement_result=not-needed
+      fi
+    fi
+  elif [[ "$state" == finishing ]]; then
+    if [[ "$enforcement_action" != finish || "$enforcement_reason" != "$reason" ||
+      "$enforcement_result" == failed ]]; then
+      enforcement_action=finish
+      enforcement_reason="$reason"
+      enforcement_at="$now"
+      if "$EXIT_BIN" --finish --kid "$kid" >/dev/null 2>&1; then
+        enforcement_result=success
+      else
+        enforcement_result=failed
+      fi
+    fi
+  fi
+
   time_state_write "$kid" "$day" "$state" "$reason" "$remaining" "$grace" \
-    "$last" "$remainder" "$fired" "$now"
+    "$last" "$remainder" "$fired" "$now" "$enforcement_action" \
+    "$enforcement_reason" "$enforcement_result" "$enforcement_at"
 }
 
 # fold_all_launches — R-DATA-1, every known kid, best-effort.

@@ -285,12 +285,31 @@ for option in "--luks-device /dev/fake0" "--parent-password-stdin"; do
 done
 
 : >"$ARGV_LOG"
+out_portal_reject="$(printf 'kidpass1\n' | "$BIN" add "Dot" --band 6-8 --password-stdin \
+  --parent-password-fd 9 9<<<'parentpass1' 2>&1)"
+st=$?
+check_eq "$st" 2 "portal add rejects disk-only option: --parent-password-fd"
+check_contains "$out_portal_reject" "not available in portal mode" "portal add names why --parent-password-fd is rejected"
+[[ -e "$ETC/kids/kid-dot.conf" ]] && fail "portal fd rejection must not create kid-dot" ||
+  pass "portal fd rejection mutates no profile"
+check_eq "$(cat "$ARGV_LOG")" "" "portal fd rejection invokes no system command"
+
+: >"$ARGV_LOG"
 out_portal="$(printf 'kidpass1\n' | "$BIN" add "Cy" --band 6-8 --avatar fox --password-stdin 2>&1)"
 st=$?
 check_eq "$st" 0 "portal add succeeds without a disk secret"
 check_contains "$out_portal" "Done: kid-cy" "portal add reports completion"
 check_not_contains "$(cat "$ARGV_LOG")" "cryptsetup" "portal add makes no LUKS call"
 [[ -e "$ETC/kids/kid-cy.conf" ]] && pass "portal add creates the kid profile" || fail "portal add did not create kid-cy"
+
+: >"$ARGV_LOG"
+out_portal_remove_reject="$("$BIN" remove kid-cy --luks-device /dev/fake0 2>&1)"
+st=$?
+check_eq "$st" 2 "portal per-kid remove rejects --luks-device"
+check_contains "$out_portal_remove_reject" "not available in portal mode" "portal per-kid remove names why --luks-device is rejected"
+[[ -e "$ETC/kids/kid-cy.conf" ]] && pass "portal per-kid rejection leaves the profile" ||
+  fail "portal per-kid rejection removed the profile"
+check_eq "$(cat "$ARGV_LOG")" "" "portal per-kid rejection invokes no system command"
 
 : >"$ARGV_LOG"
 "$BIN" remove kid-cy >/dev/null 2>&1

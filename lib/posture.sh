@@ -394,12 +394,14 @@ posture_theme_conf_lines() {
 # of the two parent groups. Invalid NSS names are ignored before interpolation.
 posture_portal_parent_accounts() {
   local parent="$1"
-  local group line members member parents=",$parent,"
+  local group line members_csv member parents=",$parent,"
+  local -a members=()
   for group in omarchy-parents wheel; do
     command -v getent >/dev/null 2>&1 || break
     line="$(getent group "$group" 2>/dev/null || true)"
-    members="$(awk -F: 'NR == 1 { print $4 }' <<<"$line")"
-    IFS=',' read -ra members <<<"$members"
+    members_csv="$(awk -F: 'NR == 1 { print $4 }' <<<"$line")"
+    [[ -n "$members_csv" ]] || continue
+    IFS=',' read -ra members <<<"$members_csv"
     for member in "${members[@]}"; do
       posture_valid_account "$member" || continue
       case "$parents" in

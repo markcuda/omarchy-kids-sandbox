@@ -307,6 +307,7 @@ source "$DIR/lib/launcher-map.sh"
 # shellcheck source=lib/session-manifest.sh
 source "$DIR/lib/session-manifest.sh"
 CONF_BIN="$CONF" LIB="$DIR/lib" KIDS_PY=python3 KIDS_DIR="$ETC/kids" SYSROOT="$TMP/sysroot"
+export OMARCHY_KIDS_ROOT="$SYSROOT" # the map builder scans <root>/usr/share/applications, never this box's
 mkdir -p "$ETC/sessions" "$ETC/launchers" "$SYSROOT" "$SHARE/avatars"
 [[ -e "$SHARE/avatars/fox.svg" ]] || cp "$DIR/share/avatars/fox.svg" "$SHARE/avatars/fox.svg"
 if session_manifest_build kid-ada 2>"$TMP/mf.err"; then

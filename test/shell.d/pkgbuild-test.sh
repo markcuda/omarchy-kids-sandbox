@@ -126,6 +126,16 @@ else
   fail "pacman/omarchy-kids.hook not found at $HOOK"
 fi
 
+# The scriptlet has one intentional unit side effect: authd.socket must be
+# enabled before the first wizard run, while the other units remain runtime
+# responsibilities of Apply/assert.
+if grep -q 'enables and starts' "$ROOT/docs/packaging.md" &&
+  grep -q 'omarchy-kids-authd.socket' "$ROOT/docs/packaging.md"; then
+  pass "packaging docs record authd.socket as the scriptlet exception"
+else
+  fail "packaging docs must record authd.socket as the scriptlet exception"
+fi
+
 # --- desktop entries have Name/Exec/Type ---------------------------------
 for f in "$APP_DESKTOP" "$SESSION_DESKTOP"; do
   if [[ -f "$f" ]]; then

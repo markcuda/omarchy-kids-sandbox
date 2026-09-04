@@ -106,7 +106,9 @@ upgrade is safe (`omarchy-kids.install:8-14`):
 
 The package does not add accounts to these groups. `omarchy-kids-provision` does that when a
 parent applies a kid setup. The scriptlet also runs `systemctl daemon-reload` when
-`/run/systemd/system` exists (`omarchy-kids.install:16-21`). It does not enable units itself.
+`/run/systemd/system` exists (`omarchy-kids.install:16-21`). It enables and starts
+`omarchy-kids-authd.socket` at that point so the first wizard run has a verifier available; this
+is the one unit exception. It does not enable the other units itself.
 
 `post_remove` only prints a notice. It leaves the groups, kid accounts, homes, disk slots, and
 runtime configuration in place (`omarchy-kids.install:34-36`).

@@ -321,6 +321,10 @@ if (PATH="$INSTALL_STUBS:$PATH"; . "$INSTALL_COPY"; post_install >/dev/null 2>&1
 else
   ok "a failed authd socket startup is returned by post_install"
 fi
+check "$(grep -c 'to `id -un`' "$DIR/docs/conf.md")" "1" \
+  "conf documentation names id -un as the parent identity source"
+check "$(grep -c 'OMARCHY_KIDS_INVOKING_USER' "$DIR/docs/conf.md")" "0" \
+  "conf documentation names no invoking-user environment override"
 # =====================================================================
 # GRANT over the wire: what must be refused, refused everywhere
 # =====================================================================

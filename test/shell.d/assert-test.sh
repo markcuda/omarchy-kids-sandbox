@@ -960,18 +960,26 @@ mv "$SCRATCH_ROOT/hook.bak" "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-u
 # assert trusts its initial disk-mode read.
 RACE_STUBS="$TMP/race-stubs"
 RACE_ARMED="$TMP/race-armed"
+RACE_REACHED="$TMP/race-reached"
+RACE_RELEASE="$TMP/race-release"
 mkdir -p "$RACE_STUBS"
 REAL_CHMOD="$(type -P chmod)"
 cat >"$RACE_STUBS/chmod" <<'EOF'
 #!/bin/bash
 if [[ -f "__RACE_ARMED__" && "${*: -1}" == "__CHROMIUM_FILE__" ]]; then
-  printf 'parent=mark\nboot=portal\n' >"__MACHINE_CONF__"
+  touch "__RACE_REACHED__"
+  for _ in {1..500}; do
+    [[ -f "__RACE_RELEASE__" ]] && break
+    sleep 0.01
+  done
+  [[ -f "__RACE_RELEASE__" ]] || exit 98
   rm -f "__RACE_ARMED__"
 fi
 exec "__REAL_CHMOD__" "$@"
 EOF
 sed -i.bak -e "s#__RACE_ARMED__#$RACE_ARMED#g" -e "s#__CHROMIUM_FILE__#$CHROMIUM_FILE#g" \
-  -e "s#__MACHINE_CONF__#$ETC/machine.conf#g" -e "s#__REAL_CHMOD__#$REAL_CHMOD#g" "$RACE_STUBS/chmod"
+  -e "s#__RACE_REACHED__#$RACE_REACHED#g" -e "s#__RACE_RELEASE__#$RACE_RELEASE#g" \
+  -e "s#__REAL_CHMOD__#$REAL_CHMOD#g" "$RACE_STUBS/chmod"
 rm -f "$RACE_STUBS/chmod.bak"
 chmod +x "$RACE_STUBS/chmod"
 
@@ -980,8 +988,25 @@ chmod 0644 "$CHROMIUM_FILE"
 printf 'usr/lib/initcpio/hooks/some-other-hook\n' >"$LOG/lsinitcpio-output"
 touch "$RACE_ARMED"
 : >"$ARGV_LOG"
+(
+  for _ in {1..500}; do
+    [[ -f "$RACE_REACHED" ]] && break
+    sleep 0.01
+  done
+  if [[ ! -f "$RACE_REACHED" ]]; then
+    touch "$RACE_RELEASE"
+    exit 1
+  fi
+  printf 'parent=mark\nboot=portal\n' >"$ETC/.machine.conf.race"
+  chmod 0644 "$ETC/.machine.conf.race"
+  mv -f "$ETC/.machine.conf.race" "$ETC/machine.conf"
+  touch "$RACE_RELEASE"
+) &
+race_pid=$!
 out="$(PATH="$RACE_STUBS:$PATH" "$BIN" 2>&1)"
 st=$?
+wait "$race_pid"
+check_eq "$?" 0 "mode race: concurrent transition reached the synchronized write"
 check_eq "$st" 1 "mode race: assert aborts when disk changes to portal during non-boot repair"
 check_contains "$out" "boot mode changed" "mode race: assert names the changed authority"
 if grep -qF 'mkinitcpio -P' "$ARGV_LOG"; then

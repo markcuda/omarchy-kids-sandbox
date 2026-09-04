@@ -22,6 +22,8 @@ RUN_DIR="$SYSROOT/run/omarchy-kids"
 STATUS_JSON="$RUN_DIR/status.json"
 TIME_SYSROOT="$SYSROOT"
 TIME_VARLIB="$SYSROOT/var/lib/omarchy-kids"
+TIME_NOW_FILE="$SYSROOT/run/omarchy-kids/time/now"
+TIME_CLOCK_FILE="$SYSROOT/run/omarchy-kids/time/monotonic"
 
 die() {
   echo "omarchy-kids-time-ledger: $1" >&2
@@ -106,18 +108,108 @@ cmd_tick() {
   if ! is_root; then
     die "tick must run as root (it is meant to be run by systemd/omarchy-kids-time.timer)" 1
   fi
-  local now day weekend kid
+  local now day weekend monotonic active kid is_active
   now="$(time_now)"
   IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
+  monotonic="$(time_monotonic)" || die "could not read the monotonic clock"
+  active="$(active_kid_sessions)"
   while IFS= read -r kid; do
     [[ -n "$kid" ]] || continue
-    if time_is_paused "$kid"; then
-      continue
-    fi
-    time_ledger_add "$kid" "$day" 1
-  done < <(active_kid_sessions)
+    is_active=no
+    kid_is_active "$kid" "$active" && is_active=yes
+    time_is_paused "$kid" && is_active=no
+    tick_kid "$kid" "$day" "$weekend" "$now" "$monotonic" "$is_active"
+  done < <(kids_list "$KIDS_DIR")
   write_status_json
   fold_all_launches
+}
+
+kid_is_active() {
+  local wanted="$1" list="$2" line
+  while IFS= read -r line; do
+    [[ "$line" == "$wanted" ]] && return 0
+  done <<<"$list"
+  return 1
+}
+
+# tick_kid ACCOUNT DAY WEEKEND NOW MONOTONIC ACTIVE — update one root state
+# and its integer ledger without making the kid process part of enforcement.
+tick_kid() {
+  local kid="$1" day="$2" weekend="$3" now="$4" monotonic="$5" active="$6"
+  local file state_json state=allowed reason=none logical_day last remainder grace
+  local previous_remaining="" fired="" elapsed accumulated minutes base_remaining remaining lo decision
+
+  if state_json="$(time_state_file "$kid")" && time_state_read "$state_json"; then
+    logical_day="$(jq -r '.logical_day' "$state_json")"
+    state="$(jq -r '.state' "$state_json")"
+    reason="$(jq -r '.reason' "$state_json")"
+    last="$(jq -r '.last_tick' "$state_json")"
+    remainder="$(jq -r '.active_seconds_remainder' "$state_json")"
+    grace="$(jq -r '.grace_deadline' "$state_json")"
+    previous_remaining="$(jq -r '.remaining_seconds' "$state_json")"
+    fired="$(jq -r '.warnings_fired | map(tostring) | join(" ")' "$state_json")"
+  else
+    logical_day=""
+    last="$monotonic"
+    remainder=0
+    grace=0
+  fi
+
+  # A changed logical day starts from that day's integer ledgers, not from
+  # an old day's remainder or a fabricated interval.
+  if [[ "$logical_day" != "$day" ]]; then
+    state=allowed
+    reason=none
+    last="$monotonic"
+    remainder=0
+    grace=0
+    previous_remaining=""
+    fired=""
+  elif [[ "$state" != grace && "$state" != finishing && "$active" == yes ]] &&
+    [[ "$last" =~ ^[0-9]+$ && "$monotonic" =~ ^[0-9]+$ ]]; then
+    elapsed=$((monotonic - last))
+    ((elapsed < 0)) && elapsed=0
+    accumulated=$((remainder + elapsed))
+    minutes=$((accumulated / 60))
+    remainder=$((accumulated % 60))
+    ((minutes > 0)) && time_ledger_add "$kid" "$day" "$minutes"
+  fi
+  last="$monotonic"
+
+  base_remaining=$((($(time_remaining_minutes "$kid" "$day" "$weekend")) * 60))
+  remaining=$((base_remaining - remainder))
+  ((remaining < 0)) && remaining=0
+  decision="$(time_warning_thresholds "$previous_remaining" "$remaining" "$fired")"
+  fired="$(sed -n '2p' <<<"$decision")"
+  lo="$(time_is_lights_out "$kid" "$weekend" "$(time_hm "$now")")"
+
+  if [[ "$state" == grace || "$state" == finishing ]]; then
+    if [[ "$lo" != yes && "$remaining" -gt 0 ]]; then
+      if ((remaining <= 600)); then state=warning; else state=allowed; fi
+      reason=budget
+      grace=0
+    elif [[ "$state" == grace && "$monotonic" -lt "$grace" ]]; then
+      reason="${reason:-budget}"
+    else
+      state=finishing
+      reason="${reason:-budget}"
+    fi
+  elif [[ "$remaining" -le 0 || "$lo" == yes ]]; then
+    state=grace
+    if [[ "$lo" == yes ]]; then reason=lights-out; else reason=budget; fi
+    grace=$((monotonic + 60))
+  elif ((remaining <= 600)); then
+    state=warning
+    reason=budget
+    grace=0
+  else
+    state=allowed
+    reason=none
+    grace=0
+  fi
+
+  time_state_write "$kid" "$day" "$state" "$reason" "$remaining" "$grace" \
+    "$last" "$remainder" "$fired"
 }
 
 # fold_all_launches — R-DATA-1, every known kid, best-effort.

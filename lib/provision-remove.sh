@@ -43,7 +43,7 @@ cmd_remove() {
 
   echo "Removing kid $account"
 
-  # R-SEC-4: kill the LUKS slot by number, then rewrite luks-slots.
+  # R-SEC-4: retain the mapping until the slot is gone, then rewrite it.
   local slot="" device=""
   if [[ "$boot_mode" == disk ]]; then
     slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
@@ -51,7 +51,6 @@ cmd_remove() {
   if [[ -n "$slot" ]]; then
     device="$(detect_luks_device "$luks_device")" ||
       die "remove: disk mode cannot find the LUKS root for slot $slot" 1
-    run cryptsetup luksKillSlot --batch-mode "$device" "$slot"
     local parent_line entries=() line acct
     parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
     while IFS= read -r line; do
@@ -61,7 +60,21 @@ cmd_remove() {
       [[ "$acct" == "$account" ]] && continue
       entries+=("$line")
     done < <(luks_slots_kid_entries "$SLOTS_FILE")
-    run posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}"
+    if [[ "$DRY_RUN" == "0" ]]; then
+      local slot_state
+      if luks_slot_occupied "$device" "$slot"; then
+        cryptsetup luksKillSlot --batch-mode "$device" "$slot" ||
+          die "remove: cryptsetup could not remove slot $slot for $account" 1
+      else
+        slot_state=$?
+        ((slot_state == 1)) || die "remove: could not inspect LUKS slots on $device" 1
+      fi
+      posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}" ||
+        die "remove: slot $slot is gone, but could not update $SLOTS_FILE; retry removal" 1
+    else
+      run cryptsetup luksKillSlot --batch-mode "$device" "$slot"
+      run posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}"
+    fi
   fi
 
   # R-FND-2a

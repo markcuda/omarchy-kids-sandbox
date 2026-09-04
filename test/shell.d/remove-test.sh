@@ -172,15 +172,25 @@ true
 # argv (a path only), matching every other password test in this repo.
 # shellcheck disable=SC2016
 stub cryptsetup '
-if [[ "$1" == "luksKillSlot" ]]; then
-    shift
-    for a in "$@"; do
-        case "$a" in
-            --key-file=*) cat "${a#--key-file=}" >> "__LOG__/luks-keyfile-used" 2>/dev/null ;;
-        esac
-    done
-    [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1
-fi
+case "$1" in
+    luksDump)
+        for slot in $(seq 0 31); do
+            grep -qx "$slot" "__LOG__/luks-empty-slots" 2>/dev/null || echo "  $slot: luks2"
+        done
+        ;;
+    luksKillSlot)
+        shift
+        for a in "$@"; do
+            case "$a" in
+                --key-file=*) cat "${a#--key-file=}" >> "__LOG__/luks-keyfile-used" 2>/dev/null ;;
+            esac
+        done
+        [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1
+        slot="${@: -1}"
+        grep -qx "$slot" "__LOG__/luks-empty-slots" 2>/dev/null && exit 1
+        echo "$slot" >> "__LOG__/luks-empty-slots"
+        ;;
+esac
 '
 # systemctl: unmask drops the getty symlink; disable [--now] drops
 # whichever *.target.wants symlink(s) a unit has (a unit with none, like
@@ -240,6 +250,8 @@ fi
 # The fixed-path boot reader requires root ownership. This fixture owns the
 # scratch files, so only the ownership fields are substituted.
 REAL_STAT="$(command -v stat)"
+REAL_CHMOD="$(command -v chmod)"
+REAL_RM="$(command -v rm)"
 cat >"$STUBS/stat" <<EOF
 #!/bin/bash
 if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
@@ -247,6 +259,8 @@ format="\${2:-}"
 target="\${3:-}"
 if [[ "\$target" == "$ETC" || "\$target" == "$ETC/machine.conf" ||
   "\$target" == "$TMP/fail/etc/omarchy-kids" || "\$target" == "$TMP/fail/etc/omarchy-kids/machine.conf" ||
+  "\$target" == "$TMP/recover/etc/omarchy-kids" || "\$target" == "$TMP/recover/etc/omarchy-kids/machine.conf" ||
+  "\$target" == "$TMP/purge/etc/omarchy-kids" || "\$target" == "$TMP/purge/etc/omarchy-kids/machine.conf" ||
   "\$target" == "$TMP/portal/etc/omarchy-kids" || "\$target" == "$TMP/portal/etc/omarchy-kids/machine.conf" ||
   "\$target" == "$TMP/invalid/etc/omarchy-kids" || "\$target" == "$TMP/invalid/etc/omarchy-kids/machine.conf" ]]; then
   case "\$format" in
@@ -259,6 +273,18 @@ fi
 exec "$REAL_STAT" "\$@"
 EOF
 chmod +x "$STUBS/stat"
+cat >"$STUBS/chmod" <<EOF
+#!/bin/bash
+if [[ -e "$LOG/luks-map-write-fail" && "\${@: -1}" == */.luks-slots.* ]]; then exit 1; fi
+exec "$REAL_CHMOD" "\$@"
+EOF
+chmod +x "$STUBS/chmod"
+cat >"$STUBS/rm" <<EOF
+#!/bin/bash
+if [[ -e "$LOG/varlib-purge-fail" && "\${@: -1}" == */var/lib/omarchy-kids ]]; then exit 1; fi
+exec "$REAL_RM" "\$@"
+EOF
+chmod +x "$STUBS/rm"
 # tar: a spy, not a stub -- argv is logged like every other fake here, but
 # the archive itself is real (delegates to the real /usr/bin/tar), so this
 # file can inspect luks-slots' content as it stood the moment it was
@@ -685,8 +711,9 @@ check_contains "$out8" "Summary: 1 step(s) FAILED: mkinitcpio-hook" \
 [[ -e "$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" ]] &&
   pass "failed rebuild restores the previous mkinitcpio drop-in" ||
   fail "failed rebuild must not discard the previous mkinitcpio drop-in"
+stub mkinitcpio ''
 
-# --- disk slot failure preserves the retry state --------------------------
+# --- every failed disk slot preserves its own kid -------------------------
 
 FAIL_ETC="$TMP/fail/etc/omarchy-kids"
 FAIL_ROOT="$TMP/fail/root"
@@ -694,8 +721,10 @@ FAIL_HOME="$TMP/fail/home"
 mkdir -p "$FAIL_ETC/kids" "$FAIL_ROOT" "$FAIL_HOME/home/kid-dot"
 printf 'parent=mark\nboot=disk\n' >"$FAIL_ETC/machine.conf"
 printf 'name=Dot\nband=6-8\npassword=set\n' >"$FAIL_ETC/kids/kid-dot.conf"
-printf '0=mark:omarchy.desktop\n9=kid-dot\n' >"$FAIL_ETC/luks-slots"
-touch "$LOG/account-kid-dot" "$LOG/luks-kill-fail"
+printf 'name=Test\nband=6-8\npassword=set\n' >"$FAIL_ETC/kids/kid-test.conf"
+printf '0=mark:omarchy.desktop\n9=kid-dot\n10=kid-test\n' >"$FAIL_ETC/luks-slots"
+mkdir -p "$FAIL_HOME/home/kid-test"
+touch "$LOG/account-kid-dot" "$LOG/account-kid-test" "$LOG/luks-kill-fail"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$FAIL_ETC/machine.conf"
 
 : >"$ARGV_LOG"
@@ -707,10 +736,65 @@ luks_fail_argv="$(cat "$ARGV_LOG")"
 check_eq "$st" 1 "failed disk slot removal fails the full run"
 check_status "$out_luks_fail" "luks:kid-dot" "FAILED" "failed disk slot removal is reported"
 check_contains "$luks_fail_argv" "/dev/fake0 9" "failed disk removal targeted the exact recorded slot"
-check_eq "$(cat "$FAIL_ETC/luks-slots")" $'0=mark:omarchy.desktop\n9=kid-dot' "failed disk removal preserves the slot map"
+check_eq "$(cat "$FAIL_ETC/luks-slots")" $'0=mark:omarchy.desktop\n9=kid-dot\n10=kid-test' "failed disk removals preserve the slot map"
 [[ -e "$FAIL_ETC/kids/kid-dot.conf" ]] && pass "failed disk removal preserves the profile" || fail "failed disk removal removed the profile"
+[[ -e "$FAIL_ETC/kids/kid-test.conf" ]] && pass "a second failed slot removal preserves that profile too" || fail "the second failed slot removal removed its profile"
 check_not_contains "$luks_fail_argv" "userdel" "failed disk removal stops before account deletion"
 check_not_contains "$luks_fail_argv" "mkinitcpio" "failed disk removal stops before the final rebuild"
+
+# --- a map-write failure after slot kill is retryable ---------------------
+
+RECOVER_ETC="$TMP/recover/etc/omarchy-kids"
+RECOVER_ROOT="$TMP/recover/root"
+RECOVER_HOME="$TMP/recover/home"
+mkdir -p "$RECOVER_ETC/kids" "$RECOVER_ROOT" "$RECOVER_HOME/home/kid-ben"
+printf 'parent=mark\nboot=disk\n' >"$RECOVER_ETC/machine.conf"
+printf 'name=Ben\nband=6-8\npassword=set\n' >"$RECOVER_ETC/kids/kid-ben.conf"
+printf '0=mark:omarchy.desktop\n11=kid-ben\n' >"$RECOVER_ETC/luks-slots"
+touch "$LOG/account-kid-ben" "$LOG/luks-map-write-fail"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$RECOVER_ETC/machine.conf"
+
+: >"$ARGV_LOG"
+out_map_fail="$(OMARCHY_KIDS_ETC="$RECOVER_ETC" OMARCHY_KIDS_ROOT="$RECOVER_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$RECOVER_HOME" "$BIN" --yes --no-snapshot --luks-device /dev/fake0 2>&1)"
+st=$?
+rm -f "$LOG/luks-map-write-fail"
+check_eq "$st" 1 "a slot-map write failure fails the full run"
+check_status "$out_map_fail" "luks:kid-ben" "FAILED" "slot-map write failure is not masked"
+check_eq "$(cat "$RECOVER_ETC/luks-slots")" $'0=mark:omarchy.desktop\n11=kid-ben' "slot-map write failure preserves the trusted map"
+[[ -e "$RECOVER_ETC/kids/kid-ben.conf" ]] && pass "slot-map write failure preserves the profile" || fail "slot-map write failure removed the profile"
+
+: >"$ARGV_LOG"
+OMARCHY_KIDS_ETC="$RECOVER_ETC" OMARCHY_KIDS_ROOT="$RECOVER_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$RECOVER_HOME" "$BIN" --yes --no-snapshot --luks-device /dev/fake0 >/dev/null 2>&1
+st=$?
+retry_argv="$(cat "$ARGV_LOG")"
+check_eq "$st" 0 "retry finishes after the slot was already killed"
+check_not_contains "$retry_argv" "luksKillSlot" "retry does not kill the already-empty slot again"
+check_contains "$retry_argv" "cryptsetup luksDump /dev/fake0" "retry verifies the recorded slot is already empty"
+[[ -e "$RECOVER_ETC" ]] && fail "successful retry should finish the full purge" || pass "successful retry finishes the full purge"
+
+# --- purge failure keeps machine.conf so the next run can retry -----------
+
+PURGE_ETC="$TMP/purge/etc/omarchy-kids"
+PURGE_ROOT="$TMP/purge/root"
+mkdir -p "$PURGE_ETC/kids" "$PURGE_ROOT/var/lib/omarchy-kids"
+printf 'parent=mark\nboot=portal\n' >"$PURGE_ETC/machine.conf"
+echo usage >"$PURGE_ROOT/var/lib/omarchy-kids/usage.log"
+touch "$LOG/varlib-purge-fail"
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$PURGE_ETC/machine.conf"
+
+out_purge_fail="$(OMARCHY_KIDS_ETC="$PURGE_ETC" OMARCHY_KIDS_ROOT="$PURGE_ROOT" \
+  "$BIN" --yes --no-snapshot 2>&1)"
+st=$?
+rm -f "$LOG/varlib-purge-fail"
+check_eq "$st" 1 "a varlib purge failure fails the full run"
+check_status "$out_purge_fail" "etc-and-varlib" "FAILED" "varlib purge failure is reported"
+[[ -e "$PURGE_ETC/machine.conf" ]] && pass "purge failure preserves machine.conf" || fail "purge failure removed machine.conf"
+
+OMARCHY_KIDS_ETC="$PURGE_ETC" OMARCHY_KIDS_ROOT="$PURGE_ROOT" "$BIN" --yes --no-snapshot >/dev/null 2>&1
+check_eq "$?" 0 "purge retry can read machine.conf and finish"
+[[ -e "$PURGE_ETC" ]] && fail "purge retry should remove etc" || pass "purge retry removes etc"
 
 # --- portal and invalid modes are decided before boot mutation ------------
 

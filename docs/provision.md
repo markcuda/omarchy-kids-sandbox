@@ -14,7 +14,7 @@ own use of it, docs/conf.md); `bin/omarchy-kids-provision` is the sequencing and
 
 `DRY_RUN=1` is the default everywhere (AGENTS.md rule 8): every action below is printed, not
 run, unless `--apply` is passed or `DRY_RUN=0` is set. The few things that only *decide* what to
-do — the slug collision check, LUKS device/slot detection, reading `luks-slots` and
+do — the slug collision check, LUKS device selection, reading `luks-slots` and
 `machine.conf` — always happen for real, dry run or not, since reading never changes anything.
 Before reading a password or changing state, `add` and `remove` read `boot=` through the fixed-path
 trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the command with exit 1.
@@ -24,26 +24,35 @@ trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the com
 1. **Account name** (Appendix B.1): `omarchy-kids-conf slug "<display-name>"` gives the base
    `kid-<slug>`; if a profile already exists for it (`$OMARCHY_KIDS_ETC/kids/<slug>.conf`), or
    `getent passwd` already knows it, `-2`, `-3`, ... is appended until one is free.
-2. **The account itself** (R-FND-2): `useradd -m -s /bin/bash -G omarchy-kids,<band-group>
+2. **A LUKS key slot** (R-SEC-4), only in `boot=disk` when a password was given. This runs before
+   account creation. Disk mode requires an encrypted device (`--luks-device`, or the first
+   `crypto_LUKS` device from `lsblk`) and the parent's passphrase. The command rejects a kid
+   password that already unlocks the device, captures the occupied slots from `luksDump`, runs
+   `luksAddKey`, then diffs a second `luksDump` to find the new slot number. Only then does it
+   atomically add the mapping. If the map write fails, it tries to kill the new slot and exits
+   without creating the account. If that rollback also fails, the error names the exact slot for
+   manual removal. Portal mode makes no LUKS call and rejects `--luks-device`,
+   `--parent-password-stdin`, and `--parent-password-fd`.
+3. **The account itself** (R-FND-2): `useradd -m -s /bin/bash -G omarchy-kids,<band-group>
    <account>`. Band groups: `omarchy-kids-3-5`, `omarchy-kids-6-8`, `omarchy-kids-9-12`,
    `omarchy-kids-13plus` (docs/packaging.md).
-3. **Password** (R-SEC-3): with `--password-stdin`, the kid's password is the first line of
+4. **Password** (R-SEC-3): with `--password-stdin`, the kid's password is the first line of
    stdin, piped straight into `chpasswd` as `<account>:<password>` — never on argv, never
    logged. With `--no-password` (3-5 only; refused for every other band, checking
    `password_optional` from `omarchy-kids-conf band <band>`), the account is locked instead
    (`usermod -L`).
-4. **Display name** (R-LOGIN, issue #39): `usermod -c "<display-name>" <account>` sets the passwd
+5. **Display name** (R-LOGIN, issue #39): `usermod -c "<display-name>" <account>` sets the passwd
    GECOS field. SDDM's greeter reads its `realName` role from GECOS (`getpwnam(3)`'s
    `pw_gecos`), not from AccountsService, so this is a separate call from the AccountsService pin
    below, not folded into it. Re-asserted as the `gecos:<account>` lock (`docs/assert.md`).
-5. **Home, bind-mounted `nosuid,nodev,noexec`** (R-FND-2): a line is appended to
+6. **Home, bind-mounted `nosuid,nodev,noexec`** (R-FND-2): a line is appended to
    `/etc/fstab` — `/home/<account> /home/<account> none bind,nosuid,nodev,noexec 0 0` — and then
    `mount -o remount,bind,nosuid,nodev,noexec /home/<account>` applies it immediately, without
    waiting for the next boot.
-6. **The profile** (Appendix B): `omarchy-kids-conf set <account> name|avatar|band|password|onboarded ...`
+7. **The profile** (Appendix B): `omarchy-kids-conf set <account> name|avatar|band|password|onboarded ...`
    writes `name`, `avatar`, `band`, `password` (`set` or `none`), `onboarded=no` to
    `$OMARCHY_KIDS_ETC/kids/<account>.conf`.
-7. **Polkit** (R-FND-3, R-FND-4): `/etc/polkit-1/rules.d/40-omarchy-kids.rules` (admin identity
+8. **Polkit** (R-FND-3, R-FND-4): `/etc/polkit-1/rules.d/40-omarchy-kids.rules` (admin identity
    `["unix-user:<parent>"]` for `omarchy-kids` members — the parent's name comes from `parent=`
    in `$OMARCHY_KIDS_ETC/machine.conf`, written by machine setup before any kid exists) and
    `/etc/polkit-1/rules.d/41-omarchy-kids-deny.rules` (outright `polkit.Result.NO`, no prompt, for
@@ -51,16 +60,16 @@ trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the com
    packagekit, flatpak, and any `org.omarchy.*` action). Both are written once and are
    idempotent: a second kid's `add` compares content and leaves an unchanged file alone, so
    there's never a duplicate rule block.
-8. **Text consoles masked** (R-FND-5): `systemctl mask getty@tty2.service` .. `tty6.service`.
+9. **Text consoles masked** (R-FND-5): `systemctl mask getty@tty2.service` .. `tty6.service`.
    Also idempotent (masking an already-masked unit is a no-op).
-9. **A private noexec tmpfs for `/tmp` and `/dev/shm`** (R-FND-2a, issue #10 finding c): two
+10. **A private noexec tmpfs for `/tmp` and `/dev/shm`** (R-FND-2a, issue #10 finding c): two
    lines appended to `/etc/security/namespace.conf` —
    `/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec <account>` and the same shape for
    `/dev/shm` — plus, in `/etc/pam.d/sddm` and `/etc/pam.d/systemd-user`, a marker comment
    (`# omarchy-kids: pam_namespace for kid sessions (R-FND-2a)`) followed by
    `session required pam_namespace.so`, appended once per file and never duplicated (the marker
    is the idempotence check).
-10. **The parent-unlock verifier line** (R-SEC-2, R-SEC-3; `docs/authd.md`), machine-level and
+11. **The parent-unlock verifier line** (R-SEC-2, R-SEC-3; `docs/authd.md`), machine-level and
    idempotent: `lib/posture.sh`'s `posture_ensure_parent_unlock_line` inserts the
    `pam_exec.so … omarchy-kids-parent-auth` line (a fixed `[success=done default=ignore]`
    control — "done" ends the stack on a verified parent password before pam_unix is ever
@@ -74,19 +83,6 @@ trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the com
    `pam_unix.so` line worth jumping around (`lib/posture.sh`'s own header comment has the full
    placement rule). A stack that doesn't exist yet on this box (the lock screen hasn't been
    configured) is a warning, not a reason to fail the whole `add` — see "Judgment calls" below.
-11. **A LUKS key slot** (R-SEC-4), only in `boot=disk` when a password was given. Disk mode
-   requires an encrypted device (`--luks-device`, or the first `crypto_LUKS` device from `lsblk`)
-   and the parent's passphrase; failure stops before the account is created. The parent's
-   passphrase (the second line
-   of stdin with `--parent-password-stdin`, or an already-open fd with `--parent-password-fd`)
-   unlocks the device long enough to add the kid's password as a new slot
-   (`cryptsetup luksAddKey --key-file=<(parent password) DEVICE <(kid password)`); the new slot's
-   *number* is then read back by testing the kid's password
-   (`cryptsetup open --test-passphrase --verbose --key-file=<(kid password) DEVICE`, parsing its
-   own `Key slot N unlocked.` line) — see "Why luks-slots is rewritten whole" below for why this
-   step exists at all instead of just remembering the slot cryptsetup handed out. Portal mode
-   makes no LUKS call and rejects `--luks-device`, `--parent-password-stdin`, and
-   `--parent-password-fd`.
 12. **AccountsService** (R-LOGIN-3): `/var/lib/AccountsService/users/<account>` gets
     `Session=omarchy-kids`, `XSession=omarchy-kids`, `Icon=/usr/share/omarchy-kids/avatars/<avatar>.svg`
     so the tile has no session picker at all.
@@ -129,7 +125,9 @@ Reverses every account-level step `add` took, in reverse-ish order, then removes
    place slot number, not password, is the key), killed with
    `cryptsetup luksKillSlot --batch-mode DEVICE SLOT` (`--luks-device`, or auto-detection), then
    `luks-slots` is rewritten without that entry. A failed kill leaves the mapping and profile in
-   place. Portal mode skips the map and cryptsetup entirely, and rejects `--luks-device`.
+   place. If the kill succeeded but the map write failed, a retry confirms the slot is empty and
+   finishes the rewrite without killing it again. Portal mode skips the map and cryptsetup
+   entirely, and rejects `--luks-device`.
 2. `pam_namespace` lines for the account removed from `namespace.conf` (the `pam.d/sddm` and
    `pam.d/systemd-user` marker lines stay — they're not per-account).
 3. The AccountsService file removed.
@@ -242,9 +240,9 @@ in place by that point — and falls back to `mark_migrations_done`.
   `omarchy-kids-conf band <band>` and refuses a too-short `--password-stdin` password outright,
   rather than writing a weak key slot and finding out later.
 - **`--parent-password-fd`**: added alongside `--parent-password-stdin` per the issue text ("...
-  or from a file descriptor"), reading one line via `read -r pw <&"$FD"`. Not exercised by
-  `test/shell.d/provision-test.sh` (which only drives the stdin form) since it needs a caller
-  that pre-opens an fd — noted here rather than left silently unverified.
+  or from a file descriptor"), reading one line via `read -r pw <&"$FD"`. The rejection matrix
+  opens an fd and proves portal mode rejects it before mutation; disk-mode success uses the stdin
+  form.
 - **`umount` and `userdel` as additional stub commands**: the issue lists `useradd`, `usermod`,
   `cryptsetup`, `mount`, `systemctl`, `gpasswd`, `chpasswd`, `omarchy-provision-user` as the
   fakes to build; `remove` also needs to unmount a home and delete the account, so

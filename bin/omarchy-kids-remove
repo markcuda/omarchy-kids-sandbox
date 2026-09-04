@@ -35,6 +35,7 @@ LUKS_DEVICE=""
 BOOT_MODE=""
 DRY_RUN=0
 ANY_FAIL=0
+STEP_FAILED=0
 FAILED_STEPS=()
 
 die() {
@@ -120,6 +121,7 @@ report() { printf '%-12s %s\n' "$1" "$2"; }
 plan_one() {
   local desc="$1" check="$2" fix="$3"
   shift 3
+  STEP_FAILED=0
   if ! "$check" "$@"; then
     report skipped "$desc"
     return 0
@@ -133,6 +135,7 @@ plan_one() {
   else
     report FAILED "$desc"
     ANY_FAIL=1
+    STEP_FAILED=1
     FAILED_STEPS+=("$desc")
   fi
   return 0
@@ -168,16 +171,21 @@ fstab_remove() { posture_remove_fstab_line "$1"; }
 
 luks_present() { [[ -n "$(luks_slot_for_account "$SLOTS_FILE" "$1" || true)" ]]; }
 luks_remove() {
-  local account="$1" slot device
+  local account="$1" slot device slot_state
   slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
   if ! device="$(detect_luks_device "$LUKS_DEVICE")"; then
     echo "omarchy-kids-remove: disk mode cannot find the LUKS root for slot $slot" >&2
     return 1
   fi
-  if [[ -n "$PARENT_PASSWORD" ]]; then
-    cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$PARENT_PASSWORD") "$device" "$slot" || return 1
+  if luks_slot_occupied "$device" "$slot"; then
+    if [[ -n "$PARENT_PASSWORD" ]]; then
+      cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$PARENT_PASSWORD") "$device" "$slot" || return 1
+    else
+      cryptsetup luksKillSlot --batch-mode "$device" "$slot" || return 1
+    fi
   else
-    cryptsetup luksKillSlot --batch-mode "$device" "$slot" || return 1
+    slot_state=$?
+    ((slot_state == 1)) || return 1
   fi
   local parent_line entries=() line acct
   parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
@@ -188,7 +196,7 @@ luks_remove() {
     [[ "$acct" == "$account" ]] && continue
     entries+=("$line")
   done < <(luks_slots_kid_entries "$SLOTS_FILE")
-  posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}"
+  posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}" || return 1
 }
 
 namespace_present() {
@@ -235,13 +243,12 @@ home_remove() {
 }
 
 remove_kid() {
-  local account="$1" display_name failures_before
+  local account="$1" display_name
   display_name="$(conf_get "$KIDS_DIR/$account.conf" name 2>/dev/null || true)"
   [[ -n "$display_name" ]] || display_name="$account"
   if [[ "$BOOT_MODE" == disk ]]; then
-    failures_before="$ANY_FAIL"
     plan_one "luks:$account" luks_present luks_remove "$account"
-    ((ANY_FAIL == failures_before)) || return 0
+    ((STEP_FAILED == 0)) || return 0
   fi
   plan_one "mount:$account" mount_present mount_remove "$account"
   plan_one "fstab:$account" fstab_present fstab_remove "$account"
@@ -466,8 +473,8 @@ purge_remove() {
   if [[ ${#paths[@]} -gt 0 ]]; then
     tar czf "$tarball" "${paths[@]}" || return 1
   fi
-  rm -rf "$ETC"
-  rm -rf "$varlib"
+  rm -rf "$varlib" || return 1
+  rm -rf "$ETC" || return 1
 }
 
 print_uninstall_hint() {

@@ -32,8 +32,12 @@ BANDS_TOML="$SHARE/bands/bands.toml"
 PACKS_DIR="$SHARE/packs"
 PYHELPER="$LIB/conf.py"
 
-# Schema rows are package-owned data; no caller can choose the parser or path.
-SCHEMA="$SHARE/config/schema.toml"
+# The schema is fixed to this command's package tree, never a runtime override.
+if [[ -f "$DIR/share/config/schema.toml" ]]; then
+  SCHEMA="$DIR/share/config/schema.toml"
+else
+  SCHEMA="/usr/share/omarchy-kids/config/schema.toml"
+fi
 SCHEMA_DATA="$("$KIDS_PY" "$PYHELPER" schema-dump "$SCHEMA")"
 SCHEMA_KEYS=()
 while IFS='|' read -r key _; do

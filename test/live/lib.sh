@@ -316,7 +316,27 @@ portal_clean_exit() {
 # hasn't hit disk yet has, once, left zero-length files), then gates on `pacman -Qkk omarchy-kids`'s
 # own exit code — pacman -Qk exits non-zero if any installed file fails its content/mtime/
 # permission check, a cheaper and more reliable "did this land intact" signal than parsing text.
+# vm_ready DEADLINE — waits until the VM answers ssh, retyping the disk password every 30 s in
+# case it is still at the LUKS prompt. A scenario that starts while the VM is mid-boot (the
+# previous gate just rebooted it) used to fail its build step on "banner exchange" and then
+# report every later check as broken; waiting here keeps a failure meaning what it says.
+vm_ready() {
+  local deadline="${1:-180}" waited=0
+  while ((waited < deadline)); do
+    vm true 2>/dev/null && return 0
+    sleep 5
+    waited=$((waited + 5))
+    ((waited % 30 == 0)) && {
+      qmp type "$LIVE_OWNER_PASSWORD" >/dev/null 2>&1
+      qmp enter >/dev/null 2>&1
+    }
+  done
+  echo "vm_ready: the vm never answered ssh within ${deadline}s" >&2
+  return 1
+}
+
 build_install() {
+  vm_ready 180 || return 1
   air "cd ~/$LIVE_REMOTE_REPO && git pull -q && rm -rf pkg src omarchy-kids-*.pkg.tar.zst && makepkg -sf --noconfirm >/dev/null 2>&1" ||
     {
       echo "build_install: makepkg failed on air" >&2

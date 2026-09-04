@@ -1,28 +1,22 @@
 #!/bin/bash
-# omarchy:summary=Set up one kid Hyprland session: launcher tile, apps, time, web
-# Runs once per kid Hyprland session (exec-once/hl.on): the launcher tile, then apps/time/web
-# (SPEC.md R-DESK-1, R-DESK-3, R-DESK-5, Appendix E). See docs/session.md for the tile JSON format and path constants.
+# omarchy:summary=Start the kid session surfaces from its validated manifest
+# omarchy:args=[--help]
+# Runs once per kid Hyprland session (exec-once/hl.on); the validated manifest is the only session input.
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 LIB="$DIR/lib"
-[[ -f "$LIB/conf.sh" ]] || LIB=/usr/lib/omarchy-kids
+[[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
-CONF_BIN="$(kids_bin conf "$DIR")"
-APPS_BIN="$(kids_bin apps "$DIR")"
 TIME_BIN="$(kids_bin time "$DIR")"
+SESSION_BIN="$DIR/bin/omarchy-kids-session"
 
-# Build-time constants: a kid may edit display data, never the launcher code or map.
-ETC=/etc/omarchy-kids
+# Build-time constants: a kid may edit neither the manifest path nor the launcher code.
 SHARE=/usr/share/omarchy-kids
-# The kid can only write to their own runtime dir; /run/omarchy-kids is root-owned (found live).
 RUN="/run/user/$(id -u)/omarchy-kids"
-mkdir -p "$RUN" 2>/dev/null || true
-# Read-only view of omarchy-kids-apps' pending-install queue (docs/apps.md).
-SYSROOT=""
 QUICKSHELL_BIN=/usr/bin/quickshell
-QUEUE_FILE="$SYSROOT/var/lib/omarchy-kids/apps-queue"
+JQ_BIN=/usr/bin/jq
 
 # Appends to the same per-session log omarchy-kids-session writes to, so the
 # R-DESK-2 preflight and this file's tile-building share one timeline.
@@ -34,8 +28,8 @@ usage() {
 Usage: omarchy-kids-session-start
 
 Run from a Kids Mode Hyprland level config's exec-once (share/hyprland/
-L1.lua, L2.lua, L3.lua). Writes the Level 1/2 launcher's tile JSON, then
-starts the launcher (Level 1) or Omarchy's own shell (Level 2/3).
+L1.lua, L2.lua, L3.lua). Reads the caller-bound validated session manifest,
+then starts the Level 1 launcher or Omarchy's own shell.
 
   -h, --help  Show this help and exit.
 EOF
@@ -54,82 +48,44 @@ for arg in "$@"; do
   esac
 done
 
-export OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE"
+mkdir -p "$RUN" 2>/dev/null || true
 
-# Level and band are outputs of the root-owned profile, never inputs: a
-# kid who could pick their own level would pick Level 3 (review §3.4).
-ACCOUNT="$(id -un)"
-LEVEL="$("$CONF_BIN" get "$ACCOUNT" level)"
-BAND="$("$CONF_BIN" get "$ACCOUNT" band)"
-ALLOWLIST="$("$APPS_BIN" allowlist "$ACCOUNT")"
-WEB="$("$CONF_BIN" get "$ACCOUNT" web)"
-
-UID_NUM="$(id -u)"
-LAUNCHER_JSON="$RUN/launcher-$UID_NUM.json"
-
-# queue_has_pkg PKG -> 0 if PKG is already queued by omarchy-kids-apps
-# install (docs/apps.md). Read-only: never writes the queue itself.
-queue_has_pkg() {
-  local pkg="$1"
-  local pkgname="${pkg#aur:}"
-  [[ -s "$QUEUE_FILE" ]] || return 1
-  grep -qxF "$pkgname" "$QUEUE_FILE" 2>/dev/null
-}
-
-LAUNCHER_MAP="$ETC/launchers/$ACCOUNT.json"
-TILES_FILE="$(mktemp)"
-trap 'rm -f "$TILES_FILE"' EXIT
-
-# apps.show_missing (docs/conf.md, docs/levels.md "Installed/missing tiles").
-SHOW_MISSING="$("$CONF_BIN" get "$ACCOUNT" apps.show_missing)"
-
-# Only the root-written map supplies launch eligibility and metadata.
-while IFS= read -r tile_json; do
-  [[ -n "$tile_json" ]] || continue
-  id="$(jq -r '.id' <<<"$tile_json")"
-  label="$(jq -r '.label // .id' <<<"$tile_json")"
-  icon="$(jq -r '.icon // ""' <<<"$tile_json")"
-  pkg="$(jq -r '.pkg // ""' <<<"$tile_json")"
-  installed="$(jq -r '.installed == true' <<<"$tile_json")"
-  caption=""
-  if [[ "$installed" != true ]]; then
-    if queue_has_pkg "$pkg"; then caption="installing..."; else caption="not installed yet"; fi
-    if [[ "$SHOW_MISSING" != yes ]]; then
-      log "tile omitted for '$id' ('$ACCOUNT'): not installed ($caption)"
-      continue
-    fi
-  fi
-  jq -n --arg id "$id" --arg label "$label" --arg icon "$icon" \
-    --argjson installed "$installed" --arg caption "$caption" \
-    '{id: $id, label: $label, icon: $icon, installed: $installed, caption: $caption}' >>"$TILES_FILE"
-done < <(jq -c '.tiles[]' "$LAUNCHER_MAP" 2>/dev/null || true)
-
-[[ -r "$LAUNCHER_MAP" ]] || log "launcher map missing for '$ACCOUNT': $LAUNCHER_MAP (no launchable tiles)"
-if [[ "$WEB" != none ]] && ! jq -e '[.tiles[]? | select(.id == "chromium")] | length > 0' "$LAUNCHER_MAP" >/dev/null 2>&1; then
-  log "web tile omitted for '$ACCOUNT': root map has no chromium entry (R-WEB-4)"
+# The caller-bound command validates the root-owned document before this parse.
+if ! MANIFEST_JSON="$($SESSION_BIN --manifest 2>/dev/null)" || [[ -z "$MANIFEST_JSON" ]]; then
+  echo "omarchy-kids-session-start: validated manifest unavailable" >&2
+  exit 1
 fi
 
-jq -s '{account: $account, band: $band, level: $level, tiles: .}' \
-  --arg account "$ACCOUNT" --arg band "$BAND" --arg level "$LEVEL" \
-  "$TILES_FILE" >"$LAUNCHER_JSON.tmp"
-mv "$LAUNCHER_JSON.tmp" "$LAUNCHER_JSON"
-chmod 0644 "$LAUNCHER_JSON"
+if ! MANIFEST_FIELDS="$($JQ_BIN -r '
+  [.account, .band, (.level | tostring), .theme, .web,
+   (.budget_min | tostring), (.budget_min_weekend | tostring),
+   .lights_out, .lights_out_weekend, (.allowlist | join(","))] | @tsv
+' <<<"$MANIFEST_JSON")"; then
+  echo "omarchy-kids-session-start: validated manifest unavailable" >&2
+  exit 1
+fi
+IFS=$'\t' read -r ACCOUNT BAND LEVEL THEME WEB BUDGET_MIN BUDGET_MIN_WEEKEND \
+  LIGHTS_OUT LIGHTS_OUT_WEEKEND <<<"$MANIFEST_FIELDS"
+[[ -n "$ACCOUNT" && -n "$BAND" && -n "$LEVEL" && -n "$THEME" && -n "$WEB" &&
+  -n "$BUDGET_MIN" && -n "$BUDGET_MIN_WEEKEND" && -n "$LIGHTS_OUT" &&
+  -n "$LIGHTS_OUT_WEEKEND" ]] || {
+  echo "omarchy-kids-session-start: validated manifest unavailable" >&2
+  exit 1
+}
 
-: >"$RUN/launcher-control" # the launcher polls this file; create it so the poll never warns
-export OMARCHY_KIDS_LAUNCHER_JSON="$LAUNCHER_JSON" OMARCHY_KIDS_LAUNCHER_CONTROL="$RUN/launcher-control" \
-  OMARCHY_KIDS_LAUNCHER_MAP="$LAUNCHER_MAP"
+log "manifest loaded for '$ACCOUNT': level=$LEVEL theme=$THEME web=$WEB budget=$BUDGET_MIN/$BUDGET_MIN_WEEKEND"
+: >"$RUN/launcher-control" # the launcher polls this file; create it before the QML surface starts
+export OMARCHY_KIDS_ACCOUNT="$ACCOUNT" OMARCHY_KIDS_LEVEL="$LEVEL" OMARCHY_KIDS_BAND="$BAND" \
+  OMARCHY_KIDS_THEME="$THEME" OMARCHY_KIDS_WEB="$WEB" \
+  OMARCHY_KIDS_BUDGET_MIN="$BUDGET_MIN" OMARCHY_KIDS_BUDGET_MIN_WEEKEND="$BUDGET_MIN_WEEKEND" \
+  OMARCHY_KIDS_LIGHTS_OUT="$LIGHTS_OUT" OMARCHY_KIDS_LIGHTS_OUT_WEEKEND="$LIGHTS_OUT_WEEKEND" \
+  OMARCHY_KIDS_LAUNCHER_CONTROL="$RUN/launcher-control"
 
 case "$LEVEL" in
   1)
     EXEC_LINE=("$QUICKSHELL_BIN" -p "$SHARE/launcher/shell.qml")
     ;;
   2 | 3)
-    # $RUN/allowlist.json (R-DESK-4, issue #24) -- docs/apps.md.
-    jq -n --arg account "$ACCOUNT" --arg band "$BAND" --arg allowlist "$ALLOWLIST" \
-      '{account: $account, band: $band, allowlist: ($allowlist | split(",") | map(select(length > 0)))}' \
-      >"$RUN/allowlist.json.tmp"
-    mv "$RUN/allowlist.json.tmp" "$RUN/allowlist.json"
-    chmod 0644 "$RUN/allowlist.json"
     # The exact command Omarchy's own default.hypr.autostart uses.
     EXEC_LINE=(/usr/bin/omarchy-launch-shell)
     ;;

@@ -36,7 +36,7 @@ fi
 
 # A live session is not a working desktop: the launcher must actually be running (2026-09-03,
 # a session that failed closed on a missing manifest still counted as "live").
-if vmroot "pgrep -u '$LIVE_KID1_ACCOUNT' -f 'omarchy-kids/launcher/shell.qml' >/dev/null" 2>/dev/null; then
+if wait_kid_ready "$LIVE_KID1_ACCOUNT" 60; then
   ok "the Level 1 launcher is running for $LIVE_KID1_ACCOUNT"
 else
   fail "no launcher process for $LIVE_KID1_ACCOUNT (session-start failed closed?)"

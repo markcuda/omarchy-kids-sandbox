@@ -326,3 +326,19 @@ ShellCheck now runs on the VM. Luna is on its consumers #93 (assert and the pacm
 touch the UKI or Limine in portal mode) and #95 (provision and removal mode-aware); #94
 (boot-login preserves stock autologin) follows. #96 (parent auth without sudo) is on its fifth
 and final commit and queued for the VM; #73, #76 and the #71 fix-forward are in review rounds.
+
+### 09:50, sol takes the code, and the Air is prepped
+
+Mark switched the drafting model: gpt-5.6-sol on high writes the code as well as the specs and
+reviews (a separate sol session reviews, so the reviewer never grades its own work). Merged
+since the last note: #101 (the launcher stays edge to edge after an app closes) and, earlier,
+#92, #100, #102, #72, #71.
+
+The Air is prepped for the portal-mode install: rollback state captured at
+`/root/omarchy-kids-preflight` (the PAM, SDDM, fstab, namespace, Limine and mkinitcpio files as
+a tar, the 981-package list, the single UKI hash, limine.conf), the package builds clean on the
+laptop, and two runbooks are ready in the scratchpad: one installs in portal mode and gates on
+"the UKI, Limine and the stock autologin are byte-identical afterwards", the other returns the
+laptop to stock. The install waits on #93 (assert and the pacman hook), #94 (boot-login) and
+#95 (provision and removal) so that portal mode is honoured by every root path, not just the
+setting.

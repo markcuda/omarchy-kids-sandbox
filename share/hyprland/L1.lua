@@ -162,3 +162,8 @@ if band == "3-5" then
 elseif band == "6-8" then
   dofile(HYPRLAND_DIR .. "/band-6-8.lua")
 end
+
+-- Band overlays may loosen gaps; Level 1 stays edge to edge after apps close.
+hl.config({
+  general = { gaps_in = 0, gaps_out = 0, border_size = 0 },
+})

@@ -17,7 +17,7 @@ fi
 install -m 755 "$R/initcpio/hooks/omarchy-kids-unlock" /usr/lib/initcpio/hooks/omarchy-kids-unlock
 install -m 755 "$R/initcpio/install/omarchy-kids-unlock" /usr/lib/initcpio/install/omarchy-kids-unlock
 install -m 755 "$R/initcpio/omarchy-kids-open" /usr/lib/initcpio/omarchy-kids-open
-install -m 644 "$R/etc/mkinitcpio.conf.d/omarchy_kids.conf" /etc/mkinitcpio.conf.d/omarchy_kids.conf
+install -m 644 "$R/share/boot/omarchy_kids.conf" /etc/mkinitcpio.conf.d/omarchy_kids.conf
 install -m 755 "$R/bin/omarchy-kids-boot-login" /usr/bin/omarchy-kids-boot-login
 install -m 644 "$R/systemd/omarchy-kids-boot-login.service" "$R/systemd/omarchy-kids-boot-login-cleanup.service" /etc/systemd/system/
 install -d -m 700 /etc/omarchy-kids

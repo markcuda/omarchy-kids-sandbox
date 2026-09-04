@@ -1,60 +1,236 @@
 #!/bin/bash
-# Tests the ticket's package migration (R-BOOTMODE-1, R-BOOTMODE-12).
-# Static checks only: no makepkg, pacman, or /etc writes run here.
+# Tests the package migration lifecycle (R-BOOTMODE-1, R-BOOTMODE-6,
+# R-BOOTMODE-11, R-BOOTMODE-12). The copied fixtures call the scriptlet
+# through pre_upgrade, simulated package replacement, and post_upgrade.
 set -uo pipefail
 
+# shellcheck source=test/shell.d/lib.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=test/shell.d/tree.sh
+source "$(dirname "${BASH_SOURCE[0]}")/tree.sh"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 fail=0
 ok() { echo "ok   $*"; }
 bad() {
-	echo "FAIL $*"
-	fail=1
+  echo "FAIL $*"
+  fail=1
+}
+check() {
+  if [[ "$1" == "$2" ]]; then ok "$3"; else bad "$3 (want '$2', got '$1')"; fi
+}
+check_status() {
+  if [[ "$1" == "$2" ]]; then ok "$3"; else bad "$3 (want '$2', got '$1')"; fi
 }
 
 if [[ -f "$ROOT/share/boot/omarchy_kids.conf" ]]; then
-	ok "boot template is shipped under share/boot"
+  ok "boot template is shipped under share/boot"
 else
-	bad "boot template is missing from share/boot"
+  bad "boot template is missing from share/boot"
 fi
 
 if [[ ! -e "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" ]]; then
-	ok "active mkinitcpio drop-in is not in the source package"
+  ok "active mkinitcpio drop-in is not in the source package"
 else
-	bad "source package still contains the active mkinitcpio drop-in"
+  bad "source package still contains the active mkinitcpio drop-in"
 fi
 
 if grep -qF 'etc/mkinitcpio.conf.d/omarchy_kids.conf' "$ROOT/PKGBUILD"; then
-	bad "PKGBUILD still owns the active drop-in"
+  bad "PKGBUILD still owns the active drop-in"
 else
-	ok "PKGBUILD no longer owns the active drop-in"
+  ok "PKGBUILD no longer owns the active drop-in"
 fi
 
 if [[ -f "$ROOT/.SRCINFO" ]] && grep -qF 'backup = etc/mkinitcpio.conf.d/omarchy_kids.conf' "$ROOT/.SRCINFO"; then
-	bad ".SRCINFO still owns the active drop-in"
+  bad ".SRCINFO still owns the active drop-in"
 else
-	ok ".SRCINFO no longer owns the active drop-in"
+  ok ".SRCINFO no longer owns the active drop-in"
 fi
 
 if grep -qF 'share/boot/omarchy_kids.conf' "$ROOT/PKGBUILD" ||
-	grep -qF 'cp -a share/. ' "$ROOT/PKGBUILD"; then
-	ok "package() ships the inactive boot template"
+  grep -qF 'cp -a share/. ' "$ROOT/PKGBUILD"; then
+  ok "package() ships the inactive boot template"
 else
-	bad "package() does not ship the inactive boot template"
+  bad "package() does not ship the inactive boot template"
 fi
 
-if bash -n "$ROOT/omarchy-kids.install"; then
-	ok "bash -n omarchy-kids.install"
+if sh -n "$ROOT/omarchy-kids.install"; then
+  ok "sh -n omarchy-kids.install"
 else
-	bad "omarchy-kids.install is not valid shell"
+  bad "omarchy-kids.install is not valid POSIX shell"
+fi
+if command -v shellcheck >/dev/null 2>&1 && shellcheck -s sh "$ROOT/omarchy-kids.install"; then
+  ok "ShellCheck validates omarchy-kids.install as POSIX sh"
+else
+  bad "ShellCheck rejects or is unavailable for omarchy-kids.install"
 fi
 
-if grep -qF '/etc/omarchy-kids/machine.conf' "$ROOT/omarchy-kids.install" &&
-	grep -qF '/usr/bin/omarchy-kids-conf machine set boot' "$ROOT/omarchy-kids.install" &&
-	! grep -q 'OMARCHY_KIDS_' "$ROOT/omarchy-kids.install"; then
-	ok "migration uses fixed paths and the trusted setter"
+if grep -qF '_omarchy_kids_machine_conf="/etc/omarchy-kids/machine.conf"' "$ROOT/omarchy-kids.install" &&
+  grep -qF '_omarchy_kids_conf_bin="/usr/bin/omarchy-kids-conf"' "$ROOT/omarchy-kids.install" &&
+  grep -qF 'machine get boot' "$ROOT/omarchy-kids.install" &&
+  ! grep -qE 'awk .*boot|boot.*awk' "$ROOT/omarchy-kids.install" &&
+  ! grep -q 'OMARCHY_KIDS_' "$ROOT/omarchy-kids.install"; then
+  ok "migration uses fixed paths and the trusted setter"
 else
-	bad "migration does not use the fixed trusted boot path"
+  bad "migration does not use the fixed trusted boot path"
 fi
+
+if grep -qF '"$R/share/boot/omarchy_kids.conf"' "$ROOT/scripts/deploy-boot-hook.sh" &&
+  ! grep -qF '"$R/etc/mkinitcpio.conf.d/omarchy_kids.conf"' "$ROOT/scripts/deploy-boot-hook.sh"; then
+  ok "deployment reads the package-owned boot template"
+else
+  bad "deployment still reads the deleted boot template path"
+fi
+
+TMP="$(mktemp -d)"
+# shellcheck disable=SC2329 # invoked via trap EXIT, not called directly
+cleanup() { rm -rf "$TMP"; }
+trap cleanup EXIT
+
+CASE_ROOT="$TMP/case"
+INSTALL="$TMP/omarchy-kids.install"
+BOOT_TREE="$TMP/boot-tree"
+STUBS="$TMP/stubs"
+mkdir -p "$STUBS/bin"
+cp "$ROOT/omarchy-kids.install" "$INSTALL"
+kids_tree "$BOOT_TREE" "$ROOT"
+rm -f "$BOOT_TREE/lib"
+cp -a "$ROOT/lib" "$BOOT_TREE/lib"
+BOOT_CONF="$BOOT_TREE/bin/omarchy-kids-conf"
+kids_set_const "$INSTALL" _omarchy_kids_machine_conf "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+kids_set_const "$INSTALL" _omarchy_kids_kids_dir "$CASE_ROOT/etc/omarchy-kids/kids"
+kids_set_const "$INSTALL" _omarchy_kids_legacy_dropin "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+kids_set_const "$INSTALL" _omarchy_kids_migration_copy "$CASE_ROOT/var/lib/omarchy-kids/legacy-boot.conf"
+kids_set_const "$INSTALL" _omarchy_kids_conf_bin "$BOOT_CONF"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+kids_id_stub "$STUBS" mark 0
+kids_stub "$STUBS" groupadd <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+kids_stub "$STUBS" systemctl <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+kids_stub "$STUBS" findmnt <<'EOF'
+#!/bin/bash
+echo /dev/mapper/root
+EOF
+kids_stub "$STUBS" cryptsetup <<'EOF'
+#!/bin/bash
+[[ "${1:-}" == status ]]
+EOF
+kids_stub "$STUBS" chown <<'EOF'
+#!/bin/bash
+exit 0
+EOF
+REAL_STAT="$(command -v stat)"
+cat >"$STUBS/stat" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
+format=""
+target=""
+case "\${1:-}" in
+  -c | -f)
+    format="\${2:-}"
+    target="\${3:-}"
+    ;;
+esac
+case "\$target" in
+  "$CASE_ROOT" | "$CASE_ROOT"/*)
+    case "\$format" in
+      %u) echo 0 ;;
+      %G | %Sg) echo root ;;
+      %a) exec "$REAL_STAT" -c '%a' "\$target" ;;
+      %Lp) exec "$REAL_STAT" -f '%Lp' "\$target" ;;
+      %i) if [[ "\${1:-}" == -c ]]; then exec "$REAL_STAT" -c '%i' "\$target"; else exec "$REAL_STAT" -f '%i' "\$target"; fi ;;
+      *) exit 1 ;;
+    esac
+    ;;
+  *) exec "$REAL_STAT" "\$@" ;;
+esac
+EOF
+chmod +x "$STUBS/stat"
+BASE_PATH="$(kids_base_path "$TMP/base")"
+PATH_VALUE="$STUBS/bin:$STUBS:$BASE_PATH"
+
+reset_case() {
+  rm -rf "$CASE_ROOT"
+  mkdir -p "$CASE_ROOT/etc/omarchy-kids/kids" "$CASE_ROOT/etc/mkinitcpio.conf.d"
+  chmod 0755 "$CASE_ROOT/etc/omarchy-kids" "$CASE_ROOT/etc/omarchy-kids/kids" "$CASE_ROOT/etc/mkinitcpio.conf.d"
+}
+
+run_upgrade() {
+  PATH="$PATH_VALUE" sh -c '. "$1"; pre_upgrade; rm -f "$2"; post_upgrade' sh "$INSTALL" "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+}
+
+legacy_dropin() { cp "$ROOT/share/boot/omarchy_kids.conf" "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"; }
+mode() { PATH="$PATH_VALUE" "$BOOT_CONF" machine get boot 2>/dev/null || true; }
+
+# A legacy disk install must retain its drop-in after pacman replaces files.
+reset_case
+printf 'parent=mark\n' >"$CASE_ROOT/etc/omarchy-kids/machine.conf"
+printf 'band=6-8\n' >"$CASE_ROOT/etc/omarchy-kids/kids/kid-ada.conf"
+chmod 0644 "$CASE_ROOT/etc/omarchy-kids/machine.conf" "$CASE_ROOT/etc/omarchy-kids/kids/kid-ada.conf"
+legacy_dropin
+run_upgrade
+check_status "$?" 0 "legacy disk upgrade succeeds"
+check "$(mode)" "disk" "legacy disk upgrade sets and reads back disk"
+check "$(test -f "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo present)" "present" "legacy disk upgrade restores the transition-owned drop-in"
+
+# A legacy install without disk evidence migrates to portal and leaves no copy.
+reset_case
+printf 'parent=mark\n' >"$CASE_ROOT/etc/omarchy-kids/machine.conf"
+chmod 0644 "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+run_upgrade
+check_status "$?" 0 "legacy portal upgrade succeeds"
+check "$(mode)" "portal" "legacy portal upgrade sets and reads back portal"
+check "$(test ! -e "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo absent)" "absent" "legacy portal upgrade has no active drop-in"
+
+# A valid existing disk setting still restores the old package file captured before replacement.
+reset_case
+printf 'parent=mark\nboot=disk\n' >"$CASE_ROOT/etc/omarchy-kids/machine.conf"
+chmod 0644 "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+legacy_dropin
+run_upgrade
+check_status "$?" 0 "valid disk upgrade succeeds"
+check "$(mode)" "disk" "valid disk state remains authoritative"
+check "$(test -f "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo present)" "present" "valid disk state restores the captured drop-in"
+
+# A valid portal setting removes a stale captured drop-in.
+reset_case
+printf 'parent=mark\nboot=portal\n' >"$CASE_ROOT/etc/omarchy-kids/machine.conf"
+chmod 0644 "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+legacy_dropin
+run_upgrade
+check_status "$?" 0 "valid portal upgrade succeeds"
+check "$(mode)" "portal" "valid portal state remains authoritative"
+check "$(test ! -e "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo absent)" "absent" "valid portal state removes the captured drop-in"
+
+# Unsafe ownership/mode is rejected by the real fixed-path reader.
+reset_case
+printf 'parent=mark\n' >"$CASE_ROOT/etc/omarchy-kids/machine.conf"
+chmod 0664 "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+run_upgrade
+check_status "$?" 1 "unsafe machine.conf blocks migration"
+check "$(mode)" "" "unsafe machine.conf has no boot mode"
+
+# A malformed line cannot pass a weaker boot-key grep.
+reset_case
+printf 'parent=mark\nboot=disk\nmalformed\n' >"$CASE_ROOT/etc/omarchy-kids/machine.conf"
+chmod 0644 "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+legacy_dropin
+run_upgrade
+check_status "$?" 1 "ambiguous machine.conf blocks migration"
+check "$(mode)" "" "ambiguous machine.conf has no boot mode"
+
+# post_remove remains harmless and does not erase transition-owned state.
+reset_case
+printf 'parent=mark\nboot=disk\n' >"$CASE_ROOT/etc/omarchy-kids/machine.conf"
+chmod 0644 "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+legacy_dropin
+PATH="$PATH_VALUE" sh -c '. "$1"; post_remove' sh "$INSTALL" >/dev/null
+check_status "$?" 0 "post_remove fixture succeeds"
+check "$(test -f "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo present)" "present" "post_remove leaves transition-owned boot state"
 
 echo "packaging-test RESULT: $([[ $fail == 0 ]] && echo PASS || echo FAIL)"
 exit "$fail"

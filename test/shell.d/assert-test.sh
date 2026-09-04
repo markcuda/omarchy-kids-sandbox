@@ -944,6 +944,43 @@ mv "$SCRATCH_ROOT/hook.bak" "$SCRATCH_ROOT/usr/lib/initcpio/hooks/omarchy-kids-u
 
 # --- boot-mode gate and the exact pacman argv ---------------------------
 
+# A disk-to-portal transition writes boot=portal first. Flip the mode during
+# the last non-boot repair and leave a UKI that would trigger mkinitcpio if
+# assert trusts its initial disk-mode read.
+RACE_STUBS="$TMP/race-stubs"
+RACE_ARMED="$TMP/race-armed"
+mkdir -p "$RACE_STUBS"
+REAL_CHMOD="$(type -P chmod)"
+cat >"$RACE_STUBS/chmod" <<'EOF'
+#!/bin/bash
+if [[ -f "__RACE_ARMED__" && "${*: -1}" == "__CHROMIUM_FILE__" ]]; then
+  printf 'parent=mark\nboot=portal\n' >"__MACHINE_CONF__"
+  rm -f "__RACE_ARMED__"
+fi
+exec "__REAL_CHMOD__" "$@"
+EOF
+sed -i.bak -e "s#__RACE_ARMED__#$RACE_ARMED#g" -e "s#__CHROMIUM_FILE__#$CHROMIUM_FILE#g" \
+  -e "s#__MACHINE_CONF__#$ETC/machine.conf#g" -e "s#__REAL_CHMOD__#$REAL_CHMOD#g" "$RACE_STUBS/chmod"
+rm -f "$RACE_STUBS/chmod.bak"
+chmod +x "$RACE_STUBS/chmod"
+
+conf_set "$ETC/machine.conf" boot disk
+chmod 0644 "$CHROMIUM_FILE"
+printf 'usr/lib/initcpio/hooks/some-other-hook\n' >"$LOG/lsinitcpio-output"
+touch "$RACE_ARMED"
+: >"$ARGV_LOG"
+out="$(PATH="$RACE_STUBS:$PATH" "$BIN" 2>&1)"
+st=$?
+check_eq "$st" 1 "mode race: assert aborts when disk changes to portal during non-boot repair"
+check_contains "$out" "boot mode changed" "mode race: assert names the changed authority"
+if grep -qF 'mkinitcpio -P' "$ARGV_LOG"; then
+  fail "mode race: stale disk mode rebuilt the UKI after portal became authoritative"
+else
+  pass "mode race: portal authority prevents a stale UKI rebuild"
+fi
+check_eq "$(conf_get "$ETC/machine.conf" boot)" "portal" "mode race: portal remains authoritative"
+chmod 0640 "$CHROMIUM_FILE"
+
 TRACE_STUBS="$TMP/trace-stubs"
 mkdir -p "$TRACE_STUBS"
 trace_limine_paths() {

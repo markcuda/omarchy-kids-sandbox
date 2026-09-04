@@ -120,6 +120,43 @@ assert_one() {
   return 0
 }
 
+boot_mode_still() {
+  local expected="$1" current
+  current="$(boot_mode_get 2>/dev/null || true)"
+  [[ "$current" == "$expected" ]] && return 0
+  echo "omarchy-kids-assert: trusted boot mode changed or became invalid during assert; no boot locks changed" >&2
+  return 1
+}
+
+# Boot checks re-read the authority before touching evidence and again before
+# a possible repair. Ticket #98 will close the remaining window with its lock.
+assert_boot_one() {
+  local expected="$1" lock="$2" check="$3" fix="$4" rc
+  shift 4
+  boot_mode_still "$expected" || return 1
+  "$check" "$@" && rc=0 || rc=$?
+  boot_mode_still "$expected" || return 1
+  if [[ "$rc" -eq 0 ]]; then
+    report ok "$lock"
+    return 0
+  fi
+  if [[ "$rc" -eq 2 ]]; then
+    report warn "$lock"
+    ANY_WARN=1
+    return 0
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    report would-fix "$lock"
+    return 0
+  fi
+  if "$fix" "$@"; then
+    report fixed "$lock"
+  else
+    report FAIL "$lock"
+  fi
+  return 0
+}
+
 # --- thin dispatch: one lib/assert-<area>.sh per lock group ----------------
 
 # shellcheck source=lib/assert-locks.sh
@@ -201,12 +238,12 @@ main() {
 
   if [[ "$boot_mode" == disk ]]; then
     if [[ -f "$HOOK_FILE" ]]; then
-      assert_one "boot-hook" boot_hook_ok boot_hook_fix
+      assert_boot_one "$boot_mode" "boot-hook" boot_hook_ok boot_hook_fix || exit 1
     fi
 
     # Machine-level, never nested under the boot hook (review S5, docs/assert.md).
-    assert_one "limine-editor" limine_editor_ok limine_editor_fix
-    assert_one "limine-snapshots" limine_snapshots_ok limine_snapshots_fix
+    assert_boot_one "$boot_mode" "limine-editor" limine_editor_ok limine_editor_fix || exit 1
+    assert_boot_one "$boot_mode" "limine-snapshots" limine_snapshots_ok limine_snapshots_fix || exit 1
   else
     report skip "boot-locks:portal"
   fi

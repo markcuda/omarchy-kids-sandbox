@@ -38,10 +38,13 @@ check_status() { # got_status want_status label
 # --- portal_kid_index / portal_kid_count -----------------------------------------------------
 
 CSV="kid-ada:Ada Lovelace:fox,kid-cy:Cy:panda"
+QUOTED_CSV="\"$CSV\""
 
 check "$(portal_kid_index "$CSV" kid-ada)" "0" "portal_kid_index: the first kid is index 0"
 check "$(portal_kid_index "$CSV" kid-cy)" "1" "portal_kid_index: the second kid is index 1"
 check "$(portal_kid_count "$CSV")" "2" "portal_kid_count: two entries"
+check "$(portal_kid_index "$QUOTED_CSV" kid-cy)" "1" "portal_kid_index: quoted two-kid value keeps the second kid"
+check "$(portal_kid_count "$QUOTED_CSV")" "2" "portal_kid_count: quoted two-kid value has two entries"
 TILES=$'kid-ada\nkid-ben\nkid-cy\nkid-vm'
 check "$(portal_tile_index "$TILES" kid-cy)" "2" "portal_tile_index: sorted greeter order, third account is index 2"
 check "$(portal_tile_index "$TILES" kid-vm)" "3" "portal_tile_index: the parent sorts last here"
@@ -58,6 +61,7 @@ portal_kid_index "" kid-ada >/dev/null 2>&1
 check_status "$?" "1" "portal_kid_index: no kids= value yet always fails"
 
 PARENTS="kid-vm,parent-helper"
+QUOTED_PARENTS="\"$PARENTS\""
 check "$(portal_conf_accounts "$CSV" "$PARENTS")" \
   $'kid-ada\nkid-cy\nkid-vm\nparent-helper' \
   "portal_conf_accounts: kids precede the explicit parent allowlist"
@@ -66,6 +70,25 @@ check "$(portal_conf_accounts "kid-ada:Ada Lovelace:fox" "kid-ada,parent-helper"
   "portal_conf_accounts: duplicate kid/parent membership produces one tile"
 check "$(portal_conf_tile_count "$CSV" "$PARENTS")" "4" \
   "portal_conf_tile_count: counts profiled kids plus parents"
+check "$(portal_conf_accounts "$QUOTED_CSV" "$QUOTED_PARENTS")" \
+  $'kid-ada\nkid-cy\nkid-vm\nparent-helper' \
+  "portal_conf_accounts: quoted lists preserve every account"
+check "$(portal_conf_tile_count "$QUOTED_CSV" "$QUOTED_PARENTS")" "4" \
+  "portal_conf_tile_count: quoted lists keep all four tiles"
+
+PORTAL_CONF="$TMP/theme.conf.user"
+cat >"$PORTAL_CONF" <<'EOF'
+[General]
+parent=kid-vm
+parents="kid-vm"
+kids="kid-ada:Ada Lovelace:fox,kid-cy:Cy:panda"
+EOF
+conf="$(cat "$PORTAL_CONF")"
+kids="$(portal_conf_field "$conf" kids)"
+parents="$(portal_conf_field "$conf" parents)"
+check "$kids" "$CSV" "theme.conf.user: reads back the complete two-kid list"
+check "$(portal_conf_accounts "$kids" "$parents")" $'kid-ada\nkid-cy\nkid-vm' \
+  "theme.conf.user: both written kids and the parent survive readback"
 check "$(portal_parse_tile_report 'qrc:/Main.qml: portal: 3 tiles (kids=2 parents=1)')" "3 2 1" \
   "portal_parse_tile_report: extracts the greeter's observed finalized counts"
 portal_parse_tile_report "portal: malformed" >/dev/null 2>&1

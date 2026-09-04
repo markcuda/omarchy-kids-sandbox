@@ -740,8 +740,8 @@ rm -f "$PORTAL_CONF"
 out="$("$BIN")"
 only_this_lock_changed "$out" "portal-conf" "portal-conf"
 check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "parent=mark" "portal-conf: the file is back, with the parent"
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "parents=mark" "portal-conf: the parent allowlist is back"
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kid-ada:Ada Lovelace:fox" "portal-conf: kid-ada's entry is back"
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" 'parents="mark"' "portal-conf: the quoted parent allowlist is back"
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" 'kids="kid-ada:Ada Lovelace:fox"' "portal-conf: kid-ada's quoted entry is back"
 
 # pam:sddm
 #

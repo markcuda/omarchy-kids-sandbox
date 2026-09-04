@@ -457,10 +457,15 @@ check_status "$out" "sddm-theme" "removed" "sddm-theme removed"
   pass "sddm theme drop-in removed"
 
 check_status "$out" "portal-conf" "removed" "portal-conf removed"
-check_not_contains "$(cat "$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user" 2>/dev/null)" "kid-ada" \
+PORTAL_CONF="$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
+check_not_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kid-ada" \
   "portal-conf: theme.conf.user no longer names kid-ada"
-check_contains "$(cat "$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user" 2>/dev/null)" "parent=mark" \
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "parent=mark" \
   "portal-conf: theme.conf.user still names the parent"
+check_eq "$(grep '^parents=' "$PORTAL_CONF" 2>/dev/null)" 'parents="mark"' \
+  "portal-conf: quoted parent allowlist survives removal"
+check_eq "$(grep '^kids=' "$PORTAL_CONF" 2>/dev/null)" 'kids=""' \
+  "portal-conf: quoted kid allowlist is empty after removal"
 
 check_status "$out" "parent-unlock:sddm" "removed" "parent-unlock:sddm removed"
 check_eq "$(grep -c 'parent-unlock verifier' "$SCRATCH_ROOT/etc/pam.d/sddm")" "0" "pam.d/sddm: parent-unlock marker gone"

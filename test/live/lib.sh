@@ -123,11 +123,32 @@ boot_with() {
   return 1
 }
 
+# portal_conf_unquote VALUE — QSettings strips these quotes before QML sees
+# the value; shell readers of theme.conf.user must do the same.
+portal_conf_unquote() {
+  local value="$1"
+  case "$value" in
+    \"*\")
+      value="${value#\"}"
+      value="${value%\"}"
+      ;;
+  esac
+  printf '%s\n' "$value"
+}
+
+# portal_conf_field CONF KEY — reads one [General] value as QSettings does.
+portal_conf_field() {
+  local conf="$1" key="$2" value
+  value="$(awk -F= -v key="$key" '$1 == key { print substr($0, length($1) + 2); exit }' <<<"$conf")"
+  portal_conf_unquote "$value"
+}
+
 # portal_kid_index KIDS_CSV ACCOUNT — pure, no ssh: KIDS_CSV is theme.conf.user's "kids=" value
 # (share/sddm-theme's own posture_portal_conf_text), "account:name:avatar,account:name:avatar,...".
 # Prints ACCOUNT's 0-based position among the kid tiles, or fails (exit 1) if it isn't listed.
 portal_kid_index() {
-  local csv="$1" acct="$2" i=0 entry a old_ifs=$IFS
+  local csv acct="$2" i=0 entry a old_ifs=$IFS
+  csv="$(portal_conf_unquote "$1")"
   IFS=','
   # shellcheck disable=SC2086 # word-splitting on the comma is the point
   set -- $csv
@@ -146,7 +167,8 @@ portal_kid_index() {
 # portal_kid_count KIDS_CSV — pure, no ssh: how many comma-separated entries
 # a portal config field lists.
 portal_kid_count() {
-  local csv="$1" old_ifs=$IFS
+  local csv old_ifs=$IFS
+  csv="$(portal_conf_unquote "$1")"
   IFS=','
   # shellcheck disable=SC2086
   set -- $csv
@@ -161,6 +183,7 @@ portal_conf_accounts() {
   local -a entries
   {
     for csv in "$@"; do
+      csv="$(portal_conf_unquote "$csv")"
       IFS=',' read -ra entries <<<"$csv"
       IFS=$old_ifs
       for entry in "${entries[@]}"; do
@@ -211,8 +234,8 @@ portal_live_tile_counts() {
 portal_live_config_tile_count() {
   local conf kids parents
   conf="$(vmroot "cat /usr/share/sddm/themes/omarchy-kids/theme.conf.user")" || return 1
-  kids="$(awk -F= '$1 == "kids" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
-  parents="$(awk -F= '$1 == "parents" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
+  kids="$(portal_conf_field "$conf" kids)"
+  parents="$(portal_conf_field "$conf" parents)"
   portal_conf_tile_count "$kids" "$parents"
 }
 
@@ -235,8 +258,8 @@ portal_login() {
   # Main.qml filters SDDM's regular-account model through these producer-owned
   # fields, preserving kids first and parents last.
   conf="$(vmroot "cat /usr/share/sddm/themes/omarchy-kids/theme.conf.user")" || return 1
-  kids="$(awk -F= '$1 == "kids" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
-  parents="$(awk -F= '$1 == "parents" { print substr($0, length($1) + 2); exit }' <<<"$conf")"
+  kids="$(portal_conf_field "$conf" kids)"
+  parents="$(portal_conf_field "$conf" parents)"
   tiles="$(portal_conf_accounts "$kids" "$parents")"
   index="$(portal_tile_index "$tiles" "$kid")" || {
     echo "portal_login: $kid is not among the greeter's accounts ($(echo "$tiles" | tr '\n' ' '))" >&2

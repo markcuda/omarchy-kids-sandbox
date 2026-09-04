@@ -322,6 +322,11 @@ posture_write_sddm_theme_dropin
 posture_write_accountsservice kid-ada fox
 posture_write_face_icon "$SHARE/avatars/fox.svg" kid-ada
 posture_write_portal_conf mark "$(printf 'kid-ada\tAda Lovelace\tfox')"
+PORTAL_CONF="$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
+check_eq "$(grep '^parents=' "$PORTAL_CONF" 2>/dev/null)" 'parents="mark"' \
+  "fixture: portal parent allowlist is quoted"
+check_eq "$(grep '^kids=' "$PORTAL_CONF" 2>/dev/null)" 'kids="kid-ada:Ada Lovelace:fox"' \
+  "fixture: portal kid list is quoted"
 printf '%s' 'Ada Lovelace' >"$LOG/gecos/kid-ada"
 posture_ensure_parent_unlock_line sddm
 posture_ensure_parent_unlock_line omarchy-lock-password

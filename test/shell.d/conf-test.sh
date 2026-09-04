@@ -110,6 +110,12 @@ check_contains "$schema_metadata" $'name\tstring\tyes\tnone\tIdentity\tName\ttex
   "schema: name declares its type, required state, source, label, group, editor, and validator"
 check_contains "$schema_metadata" $'level\tenum\tno\tband\tDesktop\tDesktop level\tenum\tlevel' \
   "schema: level declares band precedence and its editor metadata"
+check_contains "$schema_metadata" $'dns\tstring\tno\tband\tWeb\tSafe-search DNS\tdns\tdns' \
+  "schema: dns retains band precedence"
+check_contains "$schema_metadata" $'history_visible\tenum\tno\tband\tData\tBrowsing history\ttoggle\tyes-no' \
+  "schema: history visibility retains band precedence"
+check_contains "$schema_metadata" $'theme\tstring\tyes\tparent-theme\tDesktop\tTheme\ttheme\ttheme-id' \
+  "schema: theme names the required parent-theme source"
 check_contains "$schema_metadata" $'allowlist\tcsv\tno\tpack\tApps\tStarter apps\tlauncher-list\tlauncher-ids' \
   "schema: allowlist declares pack precedence and its editor metadata"
 
@@ -117,6 +123,54 @@ for key in "${expected_keys[@]}"; do
   count="$(printf '%s\n' "$schema_keys" | grep -cxF "$key")"
   check "$count" "1" "schema: $key occurs exactly once"
 done
+
+schema_rejections=(
+  "schema-version-bool|schema_version = 1"
+  "unknown-top-level|unknown top-level fields"
+  "enum-non-list|invalid enum"
+  "min-non-integer|non-integer min"
+  "max-non-integer|non-integer max"
+  "pattern-non-string|invalid pattern"
+  "bounds-on-string|bounds for a non-integer type"
+  "duplicate-enum|duplicate enum value"
+)
+for rejection in "${schema_rejections[@]}"; do
+  kind="${rejection%%|*}"
+  expected="${rejection#*|}"
+  rejected="$TMP/$kind.toml"
+  cp "$DIR/share/config/schema.toml" "$rejected"
+  python3 - "$rejected" "$kind" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+kind = sys.argv[2]
+text = path.read_text()
+if kind == "schema-version-bool":
+    text = text.replace("schema_version = 1", "schema_version = true", 1)
+elif kind == "unknown-top-level":
+    text = 'unexpected = "nope"\n' + text
+elif kind == "enum-non-list":
+    text = text.replace('enum = ["3-5", "6-8", "9-12", "13+"]', 'enum = "3-5"', 1)
+elif kind == "min-non-integer":
+    text = text.replace("min = 1", 'min = "one"', 1)
+elif kind == "max-non-integer":
+    text = text.replace("max = 1440", 'max = "many"', 1)
+elif kind == "pattern-non-string":
+    text = text.replace('pattern = "^([01][0-9]|2[0-3]):[0-5][0-9]$"', "pattern = 24", 1)
+elif kind == "bounds-on-string":
+    text = text.replace('type = "string"\n', 'type = "string"\nmin = 1\nmax = 2\n', 1)
+elif kind == "duplicate-enum":
+    text = text.replace('enum = ["3-5", "6-8", "9-12", "13+"]', 'enum = ["3-5", "3-5"]', 1)
+path.write_text(text)
+PY
+  err="$(python3 "$DIR/lib/conf.py" schema-dump "$rejected" 2>&1 >/dev/null)"
+  check_status "$?" 2 "schema-dump rejects $kind"
+  check_contains "$err" "$expected" "schema-dump explains $kind"
+done
+
+out="$(SCHEMA="$TMP/not-the-package-schema.toml" "$CONF" bands)"
+check_contains "$out" "3-5" "schema path ignores a runtime environment override"
 
 # --- bands / band ---------------------------------------------------------
 
@@ -175,6 +229,29 @@ for band in 3-5 6-8 9-12 13+; do
 done
 "$CONF" set kid-ada band 6-8 >/dev/null
 
+# Distinct scratch values prove band-derived keys are not silently global.
+python3 - "$SHARE/bands/bands.toml" <<'PY'
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+lines = path.read_text().splitlines()
+band = None
+for index, line in enumerate(lines):
+    if line.startswith("[band.\""):
+        band = line.split('"')[1]
+    elif band == "6-8" and line.startswith("dns = "):
+        lines[index] = 'dns = "cleanbrowsing-family"'
+    elif band == "6-8" and line.startswith("history_visible = "):
+        lines[index] = 'history_visible = "no"'
+path.write_text("\n".join(lines) + "\n")
+PY
+check "$("$CONF" get kid-ada dns)" "cleanbrowsing-family" "get: dns follows a distinct band value"
+check "$("$CONF" get kid-ada history_visible)" "no" "get: history visibility follows a distinct band value"
+out="$("$CONF" show kid-ada)"
+check "$(echo "$out" | awk '/^dns[ \t]/{print $NF}')" "band" "show: dns marks its band source"
+check "$(echo "$out" | awk '/^history_visible[ \t]/{print $NF}')" "band" "show: history visibility marks its band source"
+
 # --- get: override -> band -> default fallback ----------------------------
 
 check "$("$CONF" get kid-ada level)" "1" "get: level falls back to band 6-8's default (1)"
@@ -214,11 +291,11 @@ check "$("$CONF" get kid-ada budget_min)" "75" "set: a valid budget_min is writt
 # Every schema validator accepts the current shape and rejects its old bad shape.
 valid_values=(
   "name|Ada" "avatar|fox" "band|6-8" "level|1" "web|garden"
-  "dns|cloudflare-family" "budget_min|60" "budget_min_weekend|60"
+  "dns|cloudflare-family" "dns|custom:https://example.test/dns" "budget_min|60" "budget_min_weekend|60"
   "lights_out|19:30" "lights_out_weekend|20:00" "wifi|parent"
   "history_visible|yes" "menu|trimmed" "theme|tokyo-night"
-  "allowlist|gcompris" "sites|example.com" "password|set" "onboarded|no"
-  "apps.extra|gcompris" "apps.hidden|gcompris" "apps.show_missing|no"
+  "allowlist|gcompris" "allowlist|" "sites|example.com" "sites|" "password|set" "onboarded|no"
+  "apps.extra|gcompris" "apps.extra|" "apps.hidden|gcompris" "apps.hidden|" "apps.show_missing|no"
 )
 for pair in "${valid_values[@]}"; do
   key="${pair%%|*}"
@@ -229,7 +306,7 @@ done
 
 invalid_values=(
   "name|" "avatar|Bad Id" "avatar|not-an-avatar"
-  "band|7-9" "level|0" "web|open-everything" "dns|custom:"
+  "band|7-9" "level|0" "web|open-everything" "dns|custom:" "dns|custom"
   "budget_min|0" "budget_min_weekend|1441" "lights_out|9pm"
   "lights_out_weekend|24:00" "wifi|child" "history_visible|maybe"
   "menu|all" "theme|Not A Real Theme" "theme|no-such-theme"

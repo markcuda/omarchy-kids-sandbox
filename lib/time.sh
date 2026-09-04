@@ -42,6 +42,29 @@ time_monotonic() {
   fi
 }
 
+# time_split_elapsed PREVIOUS_WALL CURRENT_WALL ELAPSED — split a short
+# active interval at the 04:00 logical-day boundary.
+time_split_elapsed() {
+  "$KIDS_PY" - "$1" "$2" "$3" <<'PY'
+import datetime
+import sys
+
+previous = datetime.datetime.strptime(sys.argv[1], "%Y-%m-%d %H:%M:%S")
+current = datetime.datetime.strptime(sys.argv[2], "%Y-%m-%d %H:%M:%S")
+elapsed = max(0, int(sys.argv[3]))
+wall_seconds = (current - previous).total_seconds()
+boundary = datetime.datetime.combine(current.date(), datetime.time(4, 0))
+if (wall_seconds <= 0 or wall_seconds > 86400 or
+        not previous < boundary <= current):
+    print("0")
+    print(elapsed)
+    raise SystemExit
+before = max(0, min(elapsed, int((boundary - previous).total_seconds())))
+print(before)
+print(elapsed - before)
+PY
+}
+
 # time_hm NOW — prints NOW's "HH:MM" (the last field, minus seconds).
 time_hm() {
   local now="$1"
@@ -265,7 +288,8 @@ time_state_read() {
     (.last_tick | type == "number" and . >= 0 and floor == .) and
     (.active_seconds_remainder | type == "number" and . >= 0 and . < 60 and floor == .) and
     (.warnings_fired | type == "array" and all(.[]; . == 1 or . == 5 or . == 10)) and
-    (.logical_day | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$"))
+    (.logical_day | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")) and
+    (.last_wall | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}$"))
   ' "$file" >/dev/null 2>&1
 }
 
@@ -273,7 +297,7 @@ time_state_read() {
 # Atomic replacement keeps a reader from seeing half a decision.
 time_state_write() {
   local kid="$1" day="$2" state="$3" reason="$4" remaining="$5"
-  local grace="$6" last="$7" remainder="$8" fired="$9" dir tmp fired_json='[]'
+  local grace="$6" last="$7" remainder="$8" fired="$9" last_wall="${10}" dir tmp fired_json='[]'
   dir="$(time_state_dir)"
   install -d -m 0750 "$dir"
   chmod 0750 "$dir"
@@ -286,7 +310,8 @@ time_state_write() {
     --arg reason "$reason" --argjson remaining "$remaining" \
     --argjson grace "$grace" --argjson last "$last" \
     --argjson remainder "$remainder" --argjson fired "$fired_json" \
-    '{kid: $kid, logical_day: $day, state: $state, reason: $reason,
+    --arg last_wall "$last_wall" \
+    '{kid: $kid, logical_day: $day, last_wall: $last_wall, state: $state, reason: $reason,
       remaining_seconds: $remaining, grace_deadline: $grace, last_tick: $last,
       active_seconds_remainder: $remainder, warnings_fired: $fired}' >"$tmp"
   chmod 0640 "$tmp"

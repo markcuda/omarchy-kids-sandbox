@@ -284,16 +284,20 @@ check "$(used_today 2026-09-02)" "4" "tick: two sessions for the same kid still 
 
 # --- day-boundary rollover: a tick just before 04:00 lands on yesterday --
 
-set_now "2026-09-03 03:30:00"
+set_now "2026-09-03 03:59:30"
 set_clock 1480
 "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "5" "tick: 03:30 still counts active time against the prior logical day"
+check "$(used_today 2026-09-02)" "5" "tick: 03:59 still counts active time against the prior logical day"
 check "$(used_today 2026-09-03)" "0" "tick: nothing recorded yet for the new logical day before 04:00"
 
 # --- state transitions: warning, grace, grant recovery, restart ------------
 
-set_now "2026-09-03 10:00:00"
+set_now "2026-09-03 04:00:30"
 set_clock 1540
+"$LEDGER" tick >/dev/null
+check "$(used_today 2026-09-02)" "5" "tick: a session crossing 04:00 keeps the pre-boundary seconds on yesterday"
+check "$(used_today 2026-09-03)" "0" "tick: a session crossing 04:00 starts the new day's integer ledger cleanly"
+check "$(state_value active_seconds_remainder)" "30" "tick: a session crossing 04:00 carries only new-day seconds"
 echo 50 >"$USAGE_DIR/2026-09-03"
 "$LEDGER" tick >/dev/null
 check "$(state_value state)" "warning" "tick: remaining ten minutes enters warning"

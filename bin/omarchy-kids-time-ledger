@@ -136,14 +136,16 @@ kid_is_active() {
 # and its integer ledger without making the kid process part of enforcement.
 tick_kid() {
   local kid="$1" day="$2" weekend="$3" now="$4" monotonic="$5" active="$6"
-  local file state_json state=allowed reason=none logical_day last remainder grace
+  local file state_json state=allowed reason=none logical_day last last_wall remainder grace
   local previous_remaining="" fired="" elapsed accumulated minutes base_remaining remaining lo decision
+  local split old_elapsed new_elapsed old_accum old_minutes
 
   if state_json="$(time_state_file "$kid")" && time_state_read "$state_json"; then
     logical_day="$(jq -r '.logical_day' "$state_json")"
     state="$(jq -r '.state' "$state_json")"
     reason="$(jq -r '.reason' "$state_json")"
     last="$(jq -r '.last_tick' "$state_json")"
+    last_wall="$(jq -r '.last_wall' "$state_json")"
     remainder="$(jq -r '.active_seconds_remainder' "$state_json")"
     grace="$(jq -r '.grace_deadline' "$state_json")"
     previous_remaining="$(jq -r '.remaining_seconds' "$state_json")"
@@ -151,6 +153,7 @@ tick_kid() {
   else
     logical_day=""
     last="$monotonic"
+    last_wall="$now"
     remainder=0
     grace=0
   fi
@@ -158,10 +161,24 @@ tick_kid() {
   # A changed logical day starts from that day's integer ledgers, not from
   # an old day's remainder or a fabricated interval.
   if [[ "$logical_day" != "$day" ]]; then
+    if [[ "$logical_day" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && "$active" == yes &&
+      "$state" != grace && "$state" != finishing && "$last" =~ ^[0-9]+$ &&
+      "$last_wall" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}\ [0-9]{2}:[0-9]{2}:[0-9]{2}$ ]]; then
+      elapsed=$((monotonic - last))
+      ((elapsed < 0)) && elapsed=0
+      split="$(time_split_elapsed "$last_wall" "$now" "$elapsed")"
+      old_elapsed="$(sed -n '1p' <<<"$split")"
+      new_elapsed="$(sed -n '2p' <<<"$split")"
+      old_accum=$((remainder + old_elapsed))
+      old_minutes=$((old_accum / 60))
+      ((old_minutes > 0)) && time_ledger_add "$kid" "$logical_day" "$old_minutes"
+      remainder=$((new_elapsed % 60))
+    else
+      remainder=0
+    fi
     state=allowed
     reason=none
     last="$monotonic"
-    remainder=0
     grace=0
     previous_remaining=""
     fired=""
@@ -209,7 +226,7 @@ tick_kid() {
   fi
 
   time_state_write "$kid" "$day" "$state" "$reason" "$remaining" "$grace" \
-    "$last" "$remainder" "$fired"
+    "$last" "$remainder" "$fired" "$now"
 }
 
 # fold_all_launches — R-DATA-1, every known kid, best-effort.

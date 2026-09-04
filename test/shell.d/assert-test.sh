@@ -1,7 +1,8 @@
 #!/bin/bash
 # Tests bin/omarchy-kids-assert (SPEC.md I-4, R-TRUST-5, R-BOOT-5, R-WEB-1,
-# R-FND-2..6, §5.1): every lock it re-asserts, one at a time, plus the
-# no-profiles no-op and the "second run is all ok" idempotence claim.
+# R-TIMEAUTH-5, R-TIMEAUTH-7, R-FND-2..6, §5.1): every lock it re-asserts,
+# one at a time, plus the no-profiles no-op and the "second run is all ok"
+# idempotence claim.
 #
 # Fully self-contained, per AGENTS.md rule 8 (never write outside a
 # scratch tree; never run as root): every system command that would touch
@@ -453,6 +454,43 @@ for lock in "fstab:kid-ada" "mount:kid-ada" "namespace:kid-ada" \
   "launcher-map:kid-ada" "session-manifest:kid-ada" "limine-editor" "limine-snapshots"; do
   check_status "$out" "$lock" "ok" "first run: $lock is ok"
 done
+
+# --- root screen-time infrastructure -------------------------------------
+
+TIME_UNIT="$ROOT_DIR/systemd/omarchy-kids-time.timer"
+grep -qxF 'OnBootSec=30s' "$TIME_UNIT" && pass "time timer: starts after 30 seconds" ||
+  fail "time timer: missing OnBootSec=30s"
+grep -qxF 'OnUnitActiveSec=30s' "$TIME_UNIT" && pass "time timer: repeats every 30 seconds" ||
+  fail "time timer: missing OnUnitActiveSec=30s"
+
+TIME_STATE_DIR="$SCRATCH_ROOT/run/omarchy-kids/time"
+TIME_STATE="$TIME_STATE_DIR/kid-ada.json"
+TIME_LEDGER_DIR="$SCRATCH_ROOT/var/lib/omarchy-kids/kid-ada/usage"
+mkdir -p "$TIME_STATE_DIR" "$TIME_LEDGER_DIR"
+cat >"$TIME_STATE" <<'EOF'
+{"kid":"kid-ada","state":"grace","reason":"lights-out","remaining_seconds":0,"grace_deadline":1234,"last_tick":1200,"active_seconds_remainder":12,"warnings_fired":[10],"logical_day":"2026-09-04","last_wall":"2026-09-04 21:00:00","enforcement":{"action":"lock","reason":"lights-out","result":"success","at":"2026-09-04 21:00:00"}}
+EOF
+printf '17\n' >"$TIME_LEDGER_DIR/2026-09-04"
+printf '15\n' >"$TIME_LEDGER_DIR/2026-09-04.grant"
+chmod 0770 "$TIME_STATE_DIR"
+chmod 0660 "$TIME_STATE"
+chmod 0700 "$TIME_LEDGER_DIR"
+chmod 0600 "$TIME_LEDGER_DIR/2026-09-04" "$TIME_LEDGER_DIR/2026-09-04.grant"
+state_before="$(cat "$TIME_STATE")"
+state_inode="$(kids_file_mtime "$TIME_STATE")"
+usage_before="$(cat "$TIME_LEDGER_DIR/2026-09-04")"
+grant_before="$(cat "$TIME_LEDGER_DIR/2026-09-04.grant")"
+out="$($BIN)"
+check_status "$out" "units" "fixed" "time infrastructure: broken modes report fixed through units"
+check_eq "$(kids_file_mode "$TIME_STATE_DIR")" "750" "time infrastructure: runtime directory is mode 0750"
+check_eq "$(kids_file_mode "$TIME_STATE")" "640" "time infrastructure: runtime state is mode 0640"
+check_eq "$(kids_file_mode "$TIME_LEDGER_DIR")" "755" "time infrastructure: usage directory is mode 0755"
+check_eq "$(kids_file_mode "$TIME_LEDGER_DIR/2026-09-04")" "644" "time infrastructure: usage ledger is mode 0644"
+check_eq "$(kids_file_mode "$TIME_LEDGER_DIR/2026-09-04.grant")" "644" "time infrastructure: grant ledger is mode 0644"
+check_eq "$(cat "$TIME_STATE")" "$state_before" "time infrastructure: runtime state bytes are unchanged"
+check_eq "$(kids_file_mtime "$TIME_STATE")" "$state_inode" "time infrastructure: runtime state was not replaced"
+check_eq "$(cat "$TIME_LEDGER_DIR/2026-09-04")" "$usage_before" "time infrastructure: usage ledger is unchanged"
+check_eq "$(cat "$TIME_LEDGER_DIR/2026-09-04.grant")" "$grant_before" "time infrastructure: grant ledger is unchanged"
 
 # --- --quiet on an all-ok tree prints nothing ---------------------------
 

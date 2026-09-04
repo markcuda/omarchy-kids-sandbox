@@ -207,6 +207,109 @@ getty_fix() {
   systemctl "${root_args[@]}" mask "getty@tty$1.service"
 }
 
+# time_metadata_* — re-assert modes and root ownership without rewriting
+# usage, grants, or the runtime decision document (R-TIMEAUTH-7).
+time_metadata_owner_ok() {
+  local path="$1" group="${2:-}"
+  is_root || return 0
+  [[ "$(file_stat u "$path")" == 0 ]] || return 1
+  [[ -z "$group" || "$(file_stat G "$path")" == "$group" ]]
+}
+
+time_metadata_owner_fix() {
+  local path="$1" group="${2:-}"
+  if is_root; then
+    if [[ -n "$group" ]]; then
+      chown "root:$group" "$path"
+    else
+      chown root "$path"
+    fi
+  else
+    if [[ -n "$group" ]]; then
+      chown "root:$group" "$path" >/dev/null 2>&1 || true
+    else
+      chown root "$path" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+time_metadata_dir_ok() {
+  local path="$1" mode="$2" group="${3:-}"
+  [[ -d "$path" && ! -L "$path" ]] || return 1
+  [[ "$(file_stat a "$path")" == "$mode" ]] || return 1
+  time_metadata_owner_ok "$path" "$group"
+}
+
+time_metadata_dir_fix() {
+  local path="$1" mode="$2" group="${3:-}"
+  if [[ -L "$path" || (-e "$path" && ! -d "$path") ]]; then return 1; fi
+  install -d -m "$mode" "$path" || return 1
+  chmod "$mode" "$path" || return 1
+  time_metadata_owner_fix "$path" "$group"
+}
+
+time_metadata_file_ok() {
+  local path="$1" mode="$2" group="${3:-}"
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  [[ "$(file_stat a "$path")" == "$mode" ]] || return 1
+  time_metadata_owner_ok "$path" "$group"
+}
+
+time_metadata_file_fix() {
+  local path="$1" mode="$2" group="${3:-}"
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  chmod "$mode" "$path" || return 1
+  time_metadata_owner_fix "$path" "$group"
+}
+
+time_metadata_kid_ok() {
+  local account="$1" state_dir ledger_dir file base
+  state_dir="$(posture_root)/run/omarchy-kids/time"
+  ledger_dir="$(posture_root)/var/lib/omarchy-kids/$account/usage"
+  [[ ! -e "$state_dir" && ! -L "$state_dir" ]] || time_metadata_dir_ok "$state_dir" 750 omarchy-kids || return 1
+  [[ ! -e "$ledger_dir" && ! -L "$ledger_dir" ]] || time_metadata_dir_ok "$ledger_dir" 755 || return 1
+  file="$state_dir/$account.json"
+  [[ ! -e "$file" && ! -L "$file" ]] || time_metadata_file_ok "$file" 640 omarchy-kids || return 1
+  for file in "$ledger_dir"/*; do
+    [[ -e "$file" || -L "$file" ]] || continue
+    base="$(basename "$file")"
+    [[ "$base" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(\.grant)?$ ]] || continue
+    time_metadata_file_ok "$file" 644 || return 1
+  done
+}
+
+time_metadata_kid_fix() {
+  local account="$1" state_dir ledger_dir file base
+  state_dir="$(posture_root)/run/omarchy-kids/time"
+  ledger_dir="$(posture_root)/var/lib/omarchy-kids/$account/usage"
+  time_metadata_dir_fix "$state_dir" 750 omarchy-kids || return 1
+  time_metadata_dir_fix "$ledger_dir" 755 || return 1
+  file="$state_dir/$account.json"
+  [[ ! -e "$file" && ! -L "$file" ]] || time_metadata_file_fix "$file" 640 omarchy-kids || return 1
+  for file in "$ledger_dir"/*; do
+    [[ -e "$file" || -L "$file" ]] || continue
+    base="$(basename "$file")"
+    [[ "$base" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}(\.grant)?$ ]] || continue
+    time_metadata_file_fix "$file" 644 || return 1
+  done
+}
+
+time_metadata_ok() {
+  local account
+  while IFS= read -r account; do
+    [[ -n "$account" ]] || continue
+    time_metadata_kid_ok "$account" || return 1
+  done < <(kids_list "$KIDS_DIR")
+}
+
+time_metadata_fix() {
+  local account
+  while IFS= read -r account; do
+    [[ -n "$account" ]] || continue
+    time_metadata_kid_fix "$account" || return 1
+  done < <(kids_list "$KIDS_DIR")
+}
+
 # units (R-BOOT-3, R-SEC-2): enabled or the autologin drop-in never
 # gets written. KIDS_UNITS/SOCKETS/TIMERS come from lib/kids.sh, shared
 # with bin/omarchy-kids-wizard's Apply-time enable --now (issue #46).
@@ -220,10 +323,12 @@ units_ok() {
   if [[ -z "$(posture_root)" ]]; then
     for u in "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}"; do systemctl is-active --quiet "$u" || return 1; done
   fi
+  time_metadata_ok
 }
 units_fix() {
   local root_args=()
   [[ -n "$(posture_root)" ]] && root_args=(--root="$(posture_root)")
+  time_metadata_fix || return 1
   systemctl "${root_args[@]}" enable "${KIDS_UNITS[@]}" "${KIDS_SOCKETS[@]}" "${KIDS_TIMERS[@]}" || return 1
   # On a live system the sockets and timers must also be running now, not at the next boot
   # (seen live: enabled-but-inactive timers, no ledger tick). --root has no running systemd.

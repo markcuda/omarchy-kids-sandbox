@@ -225,6 +225,8 @@ esac
 '
 # mkinitcpio -P: just logged (argv is asserted directly).
 stub mkinitcpio ''
+stub limine ''
+stub limine-snapper-sync ''
 stub lsblk 'echo "fake0 crypto_LUKS"'
 # snapper -c root create --print-number -d "...": prints a fake snapshot
 # number on stdout when --print-number is given, same as a real snapper --

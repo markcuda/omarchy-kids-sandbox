@@ -295,3 +295,14 @@ in gates: #92 (boot setting; rebasing over the schema merge), #96 (PAM-only pare
 second-round items being fixed), #100 (portal tiles), the #71 fix-forward on `roottime-5`, and
 #73 (wizard and panel read the schema). Screenshot and video passes resume once #100 and the
 fix-forward land, so the portal and the screen-time surfaces are shot as they will ship.
+
+### 06:20, the portal is honest
+
+#100 merged after two sol rounds: tiles come only from posture's root-owned allowlists, a stray
+account gets nothing, an unpinned session refuses login, and scenario 30 now reads the tile
+count the greeter itself reports. Scenario 30 runs on main next, which also takes the first live
+picture of the Finish-only modal (#102). The #71 fix-forward is in its second round (sol found
+a grant clearing enforcement without unlocking, swallowed systemctl failures, weekend settings
+bypassing both live scenarios, and the VM gate saw launch-history tests break under the new
+0640 ledgers). #73 (typed profile access) and #92/#96 are in their fix rounds. The VM now has
+ShellCheck so the install script is linted for real.

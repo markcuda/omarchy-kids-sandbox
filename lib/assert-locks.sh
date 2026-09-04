@@ -111,6 +111,10 @@ theme_fix() {
 launcher_lock_ok() { launcher_map_ok "$1"; }
 launcher_lock_fix() { launcher_map_fix "$1"; }
 
+# session manifest: one validated root-owned input for every kid session (R-MANIFEST-7).
+session_manifest_lock_ok() { session_manifest_check "$1"; }
+session_manifest_lock_fix() { session_manifest_build "$1"; }
+
 # --- machine-level locks ---
 
 # expected in a local first: inline, an unusable parent name would make an

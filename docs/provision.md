@@ -109,6 +109,10 @@ do — the slug collision check, LUKS device/slot detection, reading `luks-slots
 16. **Omarchy's own per-user setup** (issue #10 finding b): if `omarchy-provision-user` exists on
     the target, it's run with the new account. If it doesn't, `mark_migrations_done` writes a
     best-effort stand-in — see "Known gap" below.
+17. **The launcher map and session manifest** (R-MANIFEST-1..3): the root-derived map is built at
+    `/etc/omarchy-kids/launchers/<account>.json`, immediately followed by the atomic manifest at
+    `/etc/omarchy-kids/sessions/<account>.json`. The manifest is the validated input for the next
+    kid login; `omarchy-kids-assert` rebuilds it after package updates.
 
 ## `remove <account> [--keep-home]`
 
@@ -130,8 +134,11 @@ Reverses every account-level step `add` took, in reverse-ish order, then removes
    in-place edit, for the same reason `luks-slots` is a full rewrite (see below).
 6. The home unmounted (`umount /home/<account>`) and its `fstab` line dropped.
 7. The profile file (`$OMARCHY_KIDS_ETC/kids/<account>.conf`) removed.
-8. `userdel <account>` (no `-r`: the home is left on disk on purpose, for the next step).
-9. Unless `--keep-home`, the home moves to `<parent home>/Kids Mode/<display name>/` — the
+8. **The launcher map and session manifest** removed from
+   `/etc/omarchy-kids/launchers/<account>.json` and
+   `/etc/omarchy-kids/sessions/<account>.json`.
+9. `userdel <account>` (no `-r`: the home is left on disk on purpose, for the next step).
+10. Unless `--keep-home`, the home moves to `<parent home>/Kids Mode/<display name>/` — the
    parent's login name comes from `machine.conf`'s `parent=`, and their home directory from
    `getent passwd` (falling back to `/home/<parent>` where `getent` isn't available, e.g. this
    repo's macOS dev environment).

@@ -55,6 +55,7 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `groups:<account>` | Supplementary groups are exactly `omarchy-kids` and the account's band group (`omarchy-kids-3-5`/`6-8`/`9-12`/`13plus`); unrelated groups such as `wheel` or `docker` fail the lock | `usermod -G` replaces the supplementary list while preserving the primary group |
 | `theme:<account>` | The account's own `.../current/theme.name` matches the profile's `theme` override (issue #53, `docs/theming.md`). "ok" (nothing to fix) if the profile carries no `theme` override at all — a box provisioned before issue #53, or a parent with no theme to copy at provision time | `lib/theme.sh`'s `theme_apply_for` — the same writer `omarchy-kids-conf set <kid> theme <name>` uses |
 | `launcher-map:<account>` | `/etc/omarchy-kids/launchers/<account>.json` is mode 0644 and exactly matches the root-derived id-to-argv map | `lib/launcher-map.sh` rebuilds it atomically from the profile, pack, allowlist, and system desktop entries |
+| `session-manifest:<account>` | `/etc/omarchy-kids/sessions/<account>.json` is a current, root-owned 0644 manifest rendered from the profile and launcher map (R-MANIFEST-7) | `lib/session-manifest.sh` rebuilds it atomically; a failed rebuild preserves the last valid document and reports `FAIL` |
 
 ### Machine-level (once per run, only while at least one kid is provisioned — except `units`, which is checked even with zero kids; see below)
 

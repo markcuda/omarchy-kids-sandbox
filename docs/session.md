@@ -12,16 +12,17 @@ shell command.
 
 For example: `{"schema_version":1,"account":"kid-ada","name":"Display Name","avatar":"fox","band":"6-8","level":1,"theme":"tokyo-night","allowlist":["gcompris"],"web":"garden","policy_id":"omarchy-kids-6-8","budget_min":60,"budget_min_weekend":60,"lights_out":"19:30","lights_out_weekend":"20:00","tiles":[]}`.
 
-Only root-side provisioning and assert callers write manifests by calling `session_manifest build
-<kid>`. They may validate one with `session_manifest check <kid>`.
+Root-side provisioning builds the manifest immediately after the launcher map. Provision removal
+removes both root-owned inputs. The assert caller writes manifests by calling `session_manifest
+build <kid>` and may validate one with `session_manifest check <kid>`.
 
 `omarchy-kids-session --manifest` is the caller-bound read verb. It derives the account from
 `id -un`, then opens only `/etc/omarchy-kids/sessions/<account>.json` through the command's fixed
 `ETC` constant. It refuses a missing, linked, non-regular, non-root-owned, or non-0644 document,
 malformed JSON, a schema other than 1, a stale document, or an account mismatch. A refusal emits
 one plain line on stderr and no stdout; success prints the validated JSON. It accepts no account or
-path argument. Session startup and the launcher consume this validated document; assert remains
-the later ticket that wires the same manifest check into its re-assert path.
+path argument. Session startup and the launcher consume this validated document; assert checks and
+rebuilds the same manifest for every provisioned kid after package updates or drift.
 
 ## Manifest-backed session startup
 

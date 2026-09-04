@@ -237,6 +237,11 @@ check_eq "$(grep -c '^band=6-8$' "$ETC/kids/$SLUG.conf")" "1" "profile: band=6-8
 check_eq "$(grep -c '^password=set$' "$ETC/kids/$SLUG.conf")" "1" "profile: password=set"
 check_eq "$(grep -c '^onboarded=no$' "$ETC/kids/$SLUG.conf")" "1" "profile: onboarded=no"
 
+MANIFEST="$ETC/sessions/$SLUG.json"
+[[ -f "$MANIFEST" ]] && pass "add: built the session manifest" || fail "add: did not build the session manifest"
+check_eq "$(jq -r '.account' "$MANIFEST")" "$SLUG" "manifest: account matches the added kid"
+check_eq "$(jq -r '.schema_version' "$MANIFEST")" "1" "manifest: schema version is 1 after add"
+
 FSTAB="$SCRATCH_ROOT/etc/fstab"
 check_eq "$(grep -c "^/home/$SLUG /home/$SLUG none bind,nosuid,nodev,noexec 0 0\$" "$FSTAB")" "1" \
   "fstab: exact bind-mount line for $SLUG"
@@ -464,6 +469,7 @@ check_eq "$(grep -c "$SLUG\$" "$NSCONF")" "0" "namespace.conf lines for $SLUG ar
 check_eq "$(grep -c "^/home/$SLUG /home/$SLUG " "$FSTAB")" "0" "fstab line for $SLUG removed"
 check_contains "$argv6" "umount $HOMEROOT/home/$SLUG" "remove: unmounted the home"
 [[ -e "$ETC/kids/$SLUG.conf" ]] && fail "profile for $SLUG should be removed" || pass "profile for $SLUG removed"
+[[ -e "$MANIFEST" ]] && fail "manifest for $SLUG should be removed" || pass "manifest for $SLUG removed"
 check_contains "$argv6" "userdel $SLUG" "remove: userdel called"
 [[ -d "$HOMEROOT/home/mark/Kids Mode/Ada Lovelace" ]] && pass "home moved to <parent home>/Kids Mode/<name>" ||
   fail "home was not moved to $HOMEROOT/home/mark/Kids Mode/Ada Lovelace"

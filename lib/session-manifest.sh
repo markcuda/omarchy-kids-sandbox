@@ -346,6 +346,8 @@ session_manifest_check() {
   rm -f "$expected"
 }
 
+session_manifest_remove() { rm -f "$(session_manifest_path "$1")"; }
+
 session_manifest() {
   [[ $# -eq 2 ]] || {
     session_manifest_error "usage: session_manifest <build|check> <kid>"

@@ -342,32 +342,30 @@ def handle_verify(password: bytes, conn: socket.socket, cfg, limiter: RateLimite
     return b"no\n"
 
 
-def read_candidate_line(conn: socket.socket, buf: bytearray) -> "bytes | None":
-    """One newline-terminated line of at most MAX_LINE bytes; bytes after it stay in buf for
-    the next call (a GRANT's password usually arrives in the same chunk). None on anything
-    else (no newline, too long, timeout, reset) -> "no"."""
+def read_candidate_line(conn: socket.socket, buf: bytearray) -> "tuple[bytes | None, bool]":
+    """Read one line and flag malformed frames separately from missing lines."""
     while b"\n" not in buf:
         try:
             chunk = conn.recv(4096)
         except (socket.timeout, OSError):
-            return None
+            return None, False
         if not chunk:
-            return None  # closed before sending a full line
+            return None, len(buf) > MAX_LINE  # closed before sending a full line
         buf += chunk
         if len(buf) > MAX_LINE * 2:
-            return None
+            return None, True
     line, _, rest = bytes(buf).partition(b"\n")
     buf[:] = rest
     if len(line) > MAX_LINE:
-        return None
-    return line
+        return None, True
+    return line, False
 
 
 def handle_client(conn: socket.socket, cfg, limiter: RateLimiter, slot=None):
     conn.settimeout(CLIENT_TIMEOUT)
     buf = bytearray()
     try:
-        first = read_candidate_line(conn, buf)
+        first, _first_malformed = read_candidate_line(conn, buf)
         if first is None:
             reply = b"no\n"
         else:
@@ -376,15 +374,15 @@ def handle_client(conn: socket.socket, cfg, limiter: RateLimiter, slot=None):
                 # Two-line form: the request, then the parent's password.
                 # Only read a second line for a GRANT, so the plain verify
                 # path still answers the instant its one line arrives.
-                password = read_candidate_line(conn, buf)
+                password, malformed = read_candidate_line(conn, buf)
                 if password is None:
-                    reply = b"no missing password\n"
+                    reply = b"no\n" if malformed else b"no missing password\n"
                 else:
                     reply = handle_grant(header, password, conn, cfg, limiter)
             elif header in (BOOTSTRAP_PREFIX, VERIFY_PREFIX):
-                password = read_candidate_line(conn, buf)
+                password, malformed = read_candidate_line(conn, buf)
                 if password is None:
-                    reply = b"no missing password\n"
+                    reply = b"no\n" if malformed else b"no missing password\n"
                 elif header == BOOTSTRAP_PREFIX:
                     reply = handle_bootstrap(password, conn, cfg, limiter)
                 else:

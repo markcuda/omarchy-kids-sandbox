@@ -126,10 +126,11 @@ directly on `/boot/initramfs-linux.img`.
 Remove Kids Mode (R-FND-6 / §5.2 Remove flow) does all four steps before the package is removed;
 plain package removal leaves runtime state in place, as documented in `docs/packaging.md`.
 
-## Naming deviation from SPEC.md
+## Why the drop-in uses an underscore
 
-SPEC.md's R-BOOT-2 names the mkinitcpio conf.d file `omarchy-kids.conf` (hyphen). This
-repo ships it as **`omarchy_kids.conf`** (underscore) instead. Reason: `/etc/mkinitcpio.conf.d/*.conf`
+R-BOOT-2 requires a mkinitcpio conf.d drop-in that rebuilds `HOOKS` with the Kids Mode hook
+before `encrypt` and does nothing when `encrypt` is absent; it does not specify the filename. This
+repo uses **`omarchy_kids.conf`** (underscore). Reason: `/etc/mkinitcpio.conf.d/*.conf`
 is sourced in lexical (byte) order, and on the reference machine `HOOKS` is *assigned* (not
 appended to) by `/etc/mkinitcpio.conf.d/omarchy_hooks.conf`. A hyphen (`0x2D`) sorts before an
 underscore (`0x5F`), so a literal `omarchy-kids.conf` would be sourced *before*
@@ -138,8 +139,7 @@ that (nonexistent) edit thrown away the moment `omarchy_hooks.conf` assigns `HOO
 Every real boot would silently end up with the hook never added — exactly the failure mode I-9
 exists to rule out. Naming it `omarchy_kids.conf` sorts it immediately after
 `omarchy_hooks.conf`, which is what R-BOOT-2 actually needs to work. `test/shell.d/mkinitcpio-conf-test.sh`
-and this file are the record of why; SPEC.md should be corrected to match on the next pass over
-R-BOOT.
+and this section are the record of why.
 ## `boot-login` decides by the registry, not the username (2026-09-03)
 
 `session_for` used to be `case "$1" in kid-*)`. `lib/posture.sh` already documents that exact

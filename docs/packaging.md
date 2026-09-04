@@ -28,6 +28,15 @@ running. It does not create a kid or apply Kids Mode locks. The installed pacman
 `omarchy-kids-assert --quiet` after the transaction; the wizard's Apply step also enables and
 starts the required units, sockets, and timers.
 
+On upgrade, `pre_upgrade` captures a regular legacy boot drop-in that contains the Kids Mode hook
+before pacman replaces package files. `post_upgrade` preserves an explicit valid `boot=disk` or
+`boot=portal` setting; when the setting is missing, it chooses disk only for a configured parent
+and kid on a LUKS root with that legacy drop-in evidence, and chooses portal otherwise. It writes
+the result through the trusted configuration command, reads it back, and restores the captured
+drop-in only for disk mode. This preserves existing disk boots while making unconfigured,
+unencrypted, or incomplete installations fail safe to portal mode as ownership of the active
+drop-in moves from the package to the disk transition.
+
 ## AUR readiness (issue #32, R-BUILD-2)
 
 The package is not ready for a first AUR upload yet. The local packaging pieces are mostly here,

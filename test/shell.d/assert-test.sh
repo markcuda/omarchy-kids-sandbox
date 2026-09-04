@@ -982,6 +982,7 @@ check_eq "$(conf_get "$ETC/machine.conf" boot)" "portal" "mode race: portal rema
 chmod 0640 "$CHROMIUM_FILE"
 
 TRACE_STUBS="$TMP/trace-stubs"
+BOOT_PROBE_LOG="$LOG/boot-probes.log"
 mkdir -p "$TRACE_STUBS"
 trace_limine_paths() {
   local tool="$1" real
@@ -1007,17 +1008,36 @@ run_assert_clean() {
     OMARCHY_PATH="$OMARCHY_PATH" "$BIN" "$@"
 }
 
+run_assert_with_boot_probe_traps() {
+  env -i PATH="$TRACE_STUBS:$PATH" OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" \
+    OMARCHY_KIDS_ROOT="$SCRATCH_ROOT" OMARCHY_KIDS_HOME_ROOT="$HOMEROOT" \
+    OMARCHY_PATH="$OMARCHY_PATH" bash -c '
+      bin="$1" probe_log="$2"
+      shift 2
+      source "$bin" "$@"
+      boot_probe() { printf "%s\n" "$1" >>"$probe_log"; return 1; }
+      find_uki() { boot_probe find_uki; }
+      limine_editor_ok() { boot_probe limine_editor_ok; }
+      limine_editor_fix() { boot_probe limine_editor_fix; }
+      limine_snapshots_ok() { boot_probe limine_snapshots_ok; }
+      limine_snapshots_fix() { boot_probe limine_snapshots_fix; }
+      main
+    ' bash "$BIN" "$BOOT_PROBE_LOG" "$@"
+}
+
 conf_set "$ETC/machine.conf" boot portal
 printf 'usr/lib/initcpio/hooks/some-other-hook\n' >"$LOG/lsinitcpio-output"
+printf 'hostile portal UKI fixture\n' >"$SCRATCH_ROOT/boot/EFI/Linux/portal-probe.efi"
 printf 'editor_enabled: yes\ndefault_entry: 2\n' >"$SCRATCH_ROOT/boot/limine.conf"
 printf 'MAX_SNAPSHOT_ENTRIES=10\n' >"$LIMINE_DEFAULT"
 stub limine ''
 rm -f "$DENY_RULE"
 : >"$ARGV_LOG"
+: >"$BOOT_PROBE_LOG"
 limine_conf_before="$(cat "$SCRATCH_ROOT/boot/limine.conf")"
 limine_default_before="$(cat "$LIMINE_DEFAULT")"
 
-out="$(run_assert_clean)"
+out="$(run_assert_with_boot_probe_traps)"
 st=$?
 check_eq "$st" 0 "portal mode: assert exits 0 after repairing a non-boot lock with env -i and no HOME"
 check_status "$out" "polkit-deny" "fixed" "portal mode: non-boot locks are still repaired"
@@ -1036,6 +1056,11 @@ if grep -qE "(objcopy|lsinitcpio|mkinitcpio|limine|$SCRATCH_ROOT/boot/limine.con
 else
   pass "portal mode: assert records zero UKI/Limine calls and zero Limine paths"
 fi
+if [[ -s "$BOOT_PROBE_LOG" ]]; then
+  fail "portal mode: entered boot evidence code: $(tr '\n' ' ' <"$BOOT_PROBE_LOG")"
+else
+  pass "portal mode: never calls find_uki or a Limine lock function"
+fi
 
 hook_exec="$(sed -n 's/^Exec = //p' "$ROOT_DIR/pacman/omarchy-kids.hook")"
 check_eq "$hook_exec" "/usr/bin/omarchy-kids-assert --quiet" "pacman hook: exact assert invocation is unchanged"
@@ -1045,7 +1070,8 @@ check_eq "$hook_arg" "--quiet" "pacman hook: passes only --quiet"
 check_eq "$hook_extra" "" "pacman hook: has no hidden extra argv"
 rm -f "$DENY_RULE"
 : >"$ARGV_LOG"
-out="$(run_assert_clean "$hook_arg")"
+: >"$BOOT_PROBE_LOG"
+out="$(run_assert_with_boot_probe_traps "$hook_arg")"
 st=$?
 check_eq "$st" 0 "pacman hook path: portal-mode repair exits 0"
 check_status "$out" "polkit-deny" "fixed" "pacman hook path: repairs the same non-boot lock"
@@ -1053,6 +1079,11 @@ if grep -qE "(objcopy|lsinitcpio|mkinitcpio|limine|$SCRATCH_ROOT/boot/limine.con
   fail "pacman hook path: portal mode touched UKI or Limine"
 else
   pass "pacman hook path: portal mode records zero UKI/Limine access"
+fi
+if [[ -s "$BOOT_PROBE_LOG" ]]; then
+  fail "pacman hook path: entered boot evidence code: $(tr '\n' ' ' <"$BOOT_PROBE_LOG")"
+else
+  pass "pacman hook path: never calls find_uki or a Limine lock function"
 fi
 
 conf_set "$ETC/machine.conf" boot invalid

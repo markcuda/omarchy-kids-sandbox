@@ -311,15 +311,23 @@ EOF
 cat >"$INSTALL_STUBS/systemctl" <<'EOF'
 #!/bin/bash
 if [[ "$*" == *"enable --now omarchy-kids-authd.socket"* ]]; then
-  exit 1
+  [[ "${FAIL_ENABLE:-0}" == 1 ]] && exit 1
+fi
+if [[ "$*" == *"try-restart omarchy-kids-authd.service"* ]]; then
+  [[ "${FAIL_TRY_RESTART:-0}" == 1 ]] && exit 1
 fi
 exit 0
 EOF
 chmod +x "$INSTALL_STUBS"/*
-if (PATH="$INSTALL_STUBS:$PATH"; . "$INSTALL_COPY"; post_install >/dev/null 2>&1); then
+if (PATH="$INSTALL_STUBS:$PATH"; export FAIL_ENABLE=1; . "$INSTALL_COPY"; post_install >/dev/null 2>&1); then
   bad "a failed authd socket startup is returned by post_install"
 else
   ok "a failed authd socket startup is returned by post_install"
+fi
+if (PATH="$INSTALL_STUBS:$PATH"; export FAIL_TRY_RESTART=1; . "$INSTALL_COPY"; post_upgrade >/dev/null 2>&1); then
+  bad "a failed authd restart is returned by post_upgrade"
+else
+  ok "a failed authd restart is returned by post_upgrade"
 fi
 check "$(grep -c 'to `id -un`' "$DIR/docs/conf.md")" "1" \
   "conf documentation names id -un as the parent identity source"

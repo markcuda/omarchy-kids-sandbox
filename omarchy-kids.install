@@ -38,6 +38,9 @@ post_upgrade() {
 	_omarchy_kids_ensure_groups
 	_omarchy_kids_daemon_reload
 	_omarchy_kids_enable_authd_socket || return 1
+	if [ -d /run/systemd/system ]; then
+		systemctl try-restart omarchy-kids-authd.service >/dev/null 2>&1 || return 1
+	fi
 }
 
 post_remove() {

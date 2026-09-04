@@ -45,7 +45,10 @@ per kid, the parent never restricted, one parent password. Hub and decisions:
    (`OMARCHY_KIDS_TUI_ANSWERS`, `DRY_RUN`, the scratch-tree prefixes), one line of why each.
 
 10. **Nothing about a real child.** No names, ages, photos, or transcripts in code, tests, docs,
-   fixtures, or commit messages. Fixtures use `kid-ada` with band `6-8` and nothing else.
+   fixtures, or commit messages. Fixtures and test accounts use only these invented names:
+   `kid-ada` (the default, band `6-8`), and where a second or third kid is genuinely needed
+   `kid-cy`, `kid-dot`, `kid-ben`, `kid-test`. Nothing else, and never a name from the family
+   this is built for.
 11. Drafting agents never drive the test VM: nothing under `test/live/` and no `scripts/vm-*.sh` runs from a draft; the gate runner alone does, one scenario at a time, from a clone that holds `test/live/config.env`. Draft clones do not get that file. (A draft ran a live scenario and rebooted the VM under three other gates, 2026-09-04.)
 
 ## Layout

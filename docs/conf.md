@@ -267,3 +267,7 @@ too). omarchy-kids-apps is the only caller that needs them:
                entirely (I-6: no tile that Enter silently does
                nothing on)
 ```
+
+`set` and `reset` also rebuild the kid's session manifest when the box is provisioned (the
+`/etc/omarchy-kids/sessions/` directory exists): a manifest older than the profile is refused at
+login, so the change must land there too. `omarchy-kids-assert` repairs it if that fails.

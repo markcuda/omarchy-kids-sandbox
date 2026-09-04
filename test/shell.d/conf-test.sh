@@ -293,7 +293,30 @@ check "$?" "2" "an unknown machine key exits 2"
 # sudo strips OMARCHY_PATH; the theme validation must not die on it (seen live 2026-09-03).
 err="$(env -u OMARCHY_PATH "$CONF" set kid-ada theme tokyo-night 2>&1 >/dev/null)"
 check "$?" "0" "set theme with OMARCHY_PATH unset exits 0"
-[[ "$err" != *"unbound variable"* ]]
-check "$?" "0" "set theme with OMARCHY_PATH unset prints no unbound-variable error"
+[[ "$err" != *"unbound variable"* ]] && clean=0 || clean=1
+check "$clean" "0" "set theme with OMARCHY_PATH unset prints no unbound-variable error"
+
+# A profile change rebuilds the kid's session manifest on a provisioned box (the sessions dir
+# exists), so the next login does not fail closed on a stale manifest (seen live 2026-09-04).
+# shellcheck source=lib/kids.sh
+source "$DIR/lib/kids.sh"
+# shellcheck source=lib/conf.sh
+source "$DIR/lib/conf.sh"
+# shellcheck source=lib/launcher-map.sh
+source "$DIR/lib/launcher-map.sh"
+# shellcheck source=lib/session-manifest.sh
+source "$DIR/lib/session-manifest.sh"
+CONF_BIN="$CONF" LIB="$DIR/lib" KIDS_PY=python3 KIDS_DIR="$ETC/kids" SYSROOT="$TMP/sysroot"
+mkdir -p "$ETC/sessions" "$ETC/launchers" "$SYSROOT" "$SHARE/avatars"
+[[ -e "$SHARE/avatars/fox.svg" ]] || cp "$DIR/share/avatars/fox.svg" "$SHARE/avatars/fox.svg"
+if session_manifest_build kid-ada 2>"$TMP/mf.err"; then
+  "$CONF" set kid-ada budget_min 45 >/dev/null
+  check "$(jq -r '.budget_min' "$ETC/sessions/kid-ada.json")" "45" "set: the session manifest follows the profile change"
+else
+  check "built" "not built: $(tr "\n" " " <"$TMP/mf.err" | cut -c1-400)" "set: a manifest could be built for the fixture kid"
+fi
+rm -rf "$ETC/sessions"
+"$CONF" set kid-ada budget_min 60 >/dev/null
+check "$?" "0" "set: no sessions dir (not provisioned) is not an error"
 
 exit $fail

@@ -16,6 +16,12 @@ source "$LIB/kids.sh"
 # theme_apply_for/theme_reload_if_live (issue #53, docs/theming.md).
 # shellcheck source=lib/theme.sh
 source "$LIB/theme.sh"
+# A profile change makes the kid's session manifest stale until it is rebuilt (docs/session.md).
+CONF_BIN="$(readlink -f "${BASH_SOURCE[0]}")"
+# shellcheck source=lib/launcher-map.sh
+source "$LIB/launcher-map.sh"
+# shellcheck source=lib/session-manifest.sh
+source "$LIB/session-manifest.sh"
 
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
@@ -249,7 +255,16 @@ cmd_set() {
       echo "omarchy-kids-conf: wrote the 'theme' override for '$kid' but could not apply it to disk yet (see stderr above) -- omarchy-kids-assert will retry" >&2
     fi
   fi
+  manifest_follow_profile "$kid"
   echo "$kid: $key=$value"
+}
+
+# manifest_follow_profile KID -- on a provisioned box the manifest must match the profile, or the
+# kid's next login fails closed (R-MANIFEST-4). Best-effort: assert rebuilds it too.
+manifest_follow_profile() {
+  [[ -d "$(session_manifest_dir)" ]] || return 0
+  session_manifest_build "$1" ||
+    echo "omarchy-kids-conf: could not rebuild the session manifest for '$1' (see stderr above) -- omarchy-kids-assert will" >&2
 }
 
 cmd_show() {
@@ -271,6 +286,7 @@ cmd_reset() {
     is_in "$key" band name avatar theme password onboarded && continue
     conf_del "$profile" "$key"
   done
+  manifest_follow_profile "$kid"
   echo "$kid: reset to band defaults"
 }
 

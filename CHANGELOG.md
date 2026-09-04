@@ -105,6 +105,8 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Fixed (later)
 
+- `omarchy-kids-conf set`/`reset` rebuild the kid's session manifest: a settings change had
+  made the next login fail closed on a stale manifest (seen live)
 - `omarchy-kids-conf set <kid> theme` died under `sudo` on an unset `OMARCHY_PATH` after the
   theme library stopped exporting it at source time; the validation defaults it itself now
 - The kid session starts Hyprland through `start-hyprland -- --config`, its own watchdog

@@ -23,8 +23,6 @@ else
   state
 fi
 
-shot 10-session-manifest-launcher || fail "screenshot failed"
-
 # The manifest is rebuilt at boot by omarchy-kids-assert; a missing one used to leave a black
 # screen even though the session itself had started (R-MANIFEST-7, 2026-09-03).
 manifest="/etc/omarchy-kids/sessions/$LIVE_KID1_ACCOUNT.json"
@@ -48,5 +46,7 @@ else
   fail "no launcher process for $LIVE_KID1_ACCOUNT (session-start failed closed?)"
   vmroot "uid=\$(id -u '$LIVE_KID1_ACCOUNT'); tail -3 /run/user/\$uid/omarchy-kids/session-\$uid.log" 2>/dev/null | cut -c1-160
 fi
+
+shot 10-session-manifest-launcher || fail "screenshot failed"
 
 scenario_result 10-cold-boot-kid

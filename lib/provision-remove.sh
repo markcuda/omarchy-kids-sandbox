@@ -80,6 +80,7 @@ cmd_remove() {
   # Appendix B
   run rm -f "$profile"
   run launcher_map_remove "$account"
+  run session_manifest_remove "$account"
 
   # R-FND-6: the account, then its home.
   run userdel "$account"

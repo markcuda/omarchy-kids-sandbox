@@ -20,6 +20,8 @@ source "$LIB/theme.sh"
 source "$LIB/kids.sh"
 # shellcheck source=lib/launcher-map.sh
 source "$LIB/launcher-map.sh"
+# shellcheck source=lib/session-manifest.sh
+source "$LIB/session-manifest.sh"
 
 CONF_BIN="$(kids_bin conf "$DIR")"
 
@@ -150,6 +152,7 @@ main() {
     assert_one "groups:$account" groups_ok groups_fix "$account" "$band"
     assert_one "theme:$account" theme_ok theme_fix "$account"
     assert_one "launcher-map:$account" launcher_lock_ok launcher_lock_fix "$account"
+    assert_one "session-manifest:$account" session_manifest_lock_ok session_manifest_lock_fix "$account"
   done
 
   assert_one "polkit-admin" polkit_admin_ok polkit_admin_fix

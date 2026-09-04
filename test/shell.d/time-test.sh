@@ -10,9 +10,9 @@
 # plain "id uid user active locked" state file this test writes before
 # each scenario (same stub() shape as test/shell.d/apps-test.sh), and
 # `omarchy-kids-conf` is the real thing against a scratch tree (real
-# bands.toml/packs, same reasoning as that file). OMARCHY_KIDS_NOW
-# drives the clock in both commands under test, so nothing here depends
-# on the host's own clock or its `date` binary's flavor. One provisioned
+# bands.toml/packs, same reasoning as that file). The copied commands read
+# the clock fixtures below, so nothing here depends on the host's own clock
+# or its `date` binary's flavor. One provisioned
 # kid throughout: kid-ada, band 6-8 (AGENTS.md rule 9's fixture
 # convention).
 set -uo pipefail
@@ -20,6 +20,8 @@ set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LEDGER="$DIR/bin/omarchy-kids-time-ledger"
 TIME="$DIR/bin/omarchy-kids-time"
+# shellcheck source=test/shell.d/lib.sh
+source "$DIR/test/shell.d/lib.sh"
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "SKIP time-test.sh: python3 not found"
@@ -51,8 +53,10 @@ SHARE="$TMP/share"
 ROOT="$TMP/root" # OMARCHY_KIDS_ROOT
 STUBS="$TMP/stubs"
 SESSIONS="$TMP/sessions" # loginctl stub's state file
+CLOCK_FILE="$ROOT/run/omarchy-kids/time/monotonic"
+NOW_FILE="$ROOT/run/omarchy-kids/time/now"
 
-mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$STUBS"
+mkdir -p "$SHARE/bands" "$SHARE/packs" "$ETC/kids" "$STUBS" "$(dirname "$CLOCK_FILE")"
 cp "$DIR/share/bands/bands.toml" "$SHARE/bands/"
 cp "$DIR"/share/packs/*.toml "$SHARE/packs/"
 : >"$SESSIONS"
@@ -116,9 +120,12 @@ LEDGER="$TMP/tree/bin/omarchy-kids-time-ledger"
 TIME="$TMP/tree/bin/omarchy-kids-time"
 kids_set_const "$LEDGER" ETC "$ETC"
 kids_set_const "$LEDGER" SYSROOT "$ROOT"
+kids_set_const "$LEDGER" TIME_CLOCK_FILE "$CLOCK_FILE"
+kids_set_const "$LEDGER" TIME_NOW_FILE "$NOW_FILE"
 kids_set_const "$TIME" ETC "$ETC"
 kids_set_const "$TIME" SHARE "$SHARE"
 kids_set_const "$TIME" SYSROOT "$ROOT"
+kids_set_const "$TIME" TIME_NOW_FILE "$NOW_FILE"
 kids_set_const "$TIME" RUN "$TMP/run"
 
 export PATH="$STUBS:$PATH"
@@ -130,6 +137,12 @@ export KIDS_TEST_UID=0
 USAGE_DIR="$ROOT/var/lib/omarchy-kids/kid-ada/usage"
 
 used_today() { cat "$USAGE_DIR/$1" 2>/dev/null || echo 0; }
+set_clock() { printf '%s\n' "$1" >"$CLOCK_FILE"; }
+set_now() { printf '%s\n' "$1" >"$NOW_FILE"; }
+state_value() {
+  jq -r --arg key "$1" '.[$key] | if type == "array" then tojson else tostring end' \
+    "$ROOT/run/omarchy-kids/time/kid-ada.json"
+}
 
 # --- --help --------------------------------------------------------------
 
@@ -203,44 +216,60 @@ echo
 # omarchy-kids-time-ledger tick
 # =========================================================================
 
-export OMARCHY_KIDS_NOW="2026-09-02 10:00:00"
+set_now "2026-09-02 10:00:00"
+set_clock 1000
 
 # --- active + unlocked: counts -------------------------------------------
 
 set_sessions "1 1000 kid-ada yes no"
 "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "1" "tick: an active, unlocked kid session adds a minute"
+check "$(used_today 2026-09-02)" "0" "tick: the first active tick initializes without fabricating a minute"
+check "$(state_value state)" "allowed" "tick: first state is allowed"
+check "$(state_value remaining_seconds)" "3600" "tick: first state starts from the integer ledgers"
+check "$(kids_file_mode "$ROOT/run/omarchy-kids/time")" "750" "tick: runtime state directory is mode 0750"
+check "$(kids_file_mode "$ROOT/run/omarchy-kids/time/kid-ada.json")" "640" "tick: runtime state is mode 0640"
+set_clock 1030
 "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "2" "tick: a second tick adds another minute"
+check "$(used_today 2026-09-02)" "0" "tick: thirty active seconds stay in the runtime remainder"
+check "$(state_value active_seconds_remainder)" "30" "tick: runtime remainder preserves sub-minute usage"
+set_clock 1060
+"$LEDGER" tick >/dev/null
+check "$(used_today 2026-09-02)" "1" "tick: sixty active seconds add one historical ledger minute"
+check "$(state_value active_seconds_remainder)" "0" "tick: a whole minute clears the runtime remainder"
 
 # --- inactive: does not count --------------------------------------------
 
 set_sessions "1 1000 kid-ada no no"
+set_clock 1120
 "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "2" "tick: an inactive session does not add a minute"
+check "$(used_today 2026-09-02)" "1" "tick: an inactive session does not add a minute"
 
 # --- locked: does not count ------------------------------------------------
 
 set_sessions "1 1000 kid-ada yes yes"
+set_clock 1180
 "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "2" "tick: a locked session does not add a minute"
+check "$(used_today 2026-09-02)" "1" "tick: a locked session does not add a minute"
 
 # --- paused flag file: does not count, even if active+unlocked -----------
 
 mkdir -p "$ROOT/var/lib/omarchy-kids/kid-ada"
 touch "$ROOT/var/lib/omarchy-kids/kid-ada/paused"
 set_sessions "1 1000 kid-ada yes no"
+set_clock 1240
 "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "2" "tick: a paused kid does not add a minute even while active and unlocked"
+check "$(used_today 2026-09-02)" "1" "tick: a paused kid does not add a minute even while active and unlocked"
 rm -f "$ROOT/var/lib/omarchy-kids/kid-ada/paused"
+set_clock 1300
 "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "3" "tick: counting resumes once the paused flag is gone"
+check "$(used_today 2026-09-02)" "2" "tick: counting resumes once the paused flag is gone"
 
 # --- a non-kid account's session is ignored -------------------------------
 
 set_sessions "1 1000 kid-ada yes no" "2 1001 mark yes no"
+set_clock 1360
 "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "4" "tick: kid-ada's session still counts"
+check "$(used_today 2026-09-02)" "3" "tick: kid-ada's session still counts"
 # (no profile for "mark" under $ETC/kids -- if it were mistakenly
 # counted there'd be no ledger file to even check against; the real
 # assertion is just that this doesn't error out.)
@@ -249,14 +278,65 @@ pass "tick: a non-kid account's session is silently ignored (no crash, no ledger
 # --- two sessions for the same kid: only one minute, not two -------------
 
 set_sessions "1 1000 kid-ada yes no" "2 1000 kid-ada yes no"
+set_clock 1420
 "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "5" "tick: two sessions for the same kid still only add one minute"
+check "$(used_today 2026-09-02)" "4" "tick: two sessions for the same kid still only add one minute"
 
 # --- day-boundary rollover: a tick just before 04:00 lands on yesterday --
 
-OMARCHY_KIDS_NOW="2026-09-03 03:30:00" "$LEDGER" tick >/dev/null
-check "$(used_today 2026-09-02)" "6" "tick: 03:30 the next calendar day still lands on the day before (Appendix F)"
+set_now "2026-09-03 03:59:30"
+set_clock 1480
+"$LEDGER" tick >/dev/null
+check "$(used_today 2026-09-02)" "5" "tick: 03:59 still counts active time against the prior logical day"
 check "$(used_today 2026-09-03)" "0" "tick: nothing recorded yet for the new logical day before 04:00"
+
+# --- state transitions: warning, grace, grant recovery, restart ------------
+
+set_now "2026-09-03 04:00:30"
+set_clock 1540
+"$LEDGER" tick >/dev/null
+check "$(used_today 2026-09-02)" "5" "tick: a session crossing 04:00 keeps the pre-boundary seconds on yesterday"
+check "$(used_today 2026-09-03)" "0" "tick: a session crossing 04:00 starts the new day's integer ledger cleanly"
+check "$(state_value active_seconds_remainder)" "30" "tick: a session crossing 04:00 carries only new-day seconds"
+echo 50 >"$USAGE_DIR/2026-09-03"
+"$LEDGER" tick >/dev/null
+check "$(state_value state)" "warning" "tick: remaining ten minutes enters warning"
+check "$(state_value reason)" "budget" "tick: warning records the budget reason"
+check "$(state_value warnings_fired)" "[10]" "tick: warning persists the crossed threshold"
+
+set_clock 1600
+set_sessions
+echo 60 >"$USAGE_DIR/2026-09-03"
+"$LEDGER" tick >/dev/null
+check "$(state_value state)" "grace" "tick: zero budget enters grace"
+check "$(state_value reason)" "budget" "tick: grace records the budget reason"
+check "$(state_value grace_deadline)" "1660" "tick: grace deadline is sixty monotonic seconds later"
+check "$(used_today 2026-09-03)" "60" "tick: enforcement does not rewrite the usage ledger"
+
+echo 15 >"$ROOT/var/lib/omarchy-kids/kid-ada/usage/2026-09-03.grant"
+set_clock 1630
+"$LEDGER" tick >/dev/null
+check "$(state_value state)" "allowed" "tick: a grant clears grace when policy permits use"
+check "$(state_value grace_deadline)" "0" "tick: cleared grace removes its deadline"
+
+rm -f "$ROOT/run/omarchy-kids/time/kid-ada.json"
+rm -f "$ROOT/var/lib/omarchy-kids/kid-ada/usage/2026-09-03.grant"
+echo 55 >"$USAGE_DIR/2026-09-03"
+set_clock 1660
+"$LEDGER" tick >/dev/null
+check "$(state_value state)" "warning" "tick: missing runtime state rebuilds from root ledgers"
+check "$(used_today 2026-09-03)" "55" "tick: state recovery leaves usage history unchanged"
+
+set_now "2026-09-03 20:00:00"
+set_clock 1720
+"$LEDGER" tick >/dev/null
+check "$(state_value state)" "grace" "tick: lights-out enters grace independently of budget"
+check "$(state_value reason)" "lights-out" "tick: lights-out records its own reason"
+check "$(state_value grace_deadline)" "1780" "tick: lights-out grace gets a sixty-second deadline"
+set_clock 1780
+"$LEDGER" tick >/dev/null
+check "$(state_value state)" "finishing" "tick: expired grace advances to finishing"
+check "$(state_value reason)" "lights-out" "tick: finishing preserves the enforcement reason"
 
 echo
 
@@ -264,27 +344,29 @@ echo
 # budget/lights-out math: band defaults, overrides, weekday vs weekend
 # =========================================================================
 
-export OMARCHY_KIDS_NOW="2026-09-02 10:00:00" # a Wednesday
+set_now "2026-09-02 10:00:00" # a Wednesday
 CONF="$DIR/bin/omarchy-kids-conf"
 
 out="$("$TIME" status kid-ada)"
 check_contains "$out" "budget 60" "status: band 6-8's weekday default budget (60) with no override"
-check_contains "$out" "6 min used" "status: reflects today's ledger total (6, from the tick tests above)"
-check_contains "$out" "54 min left today" "status: 60 - 6 = 54 remaining"
-check_contains "$out" "budget runs out at 10:54" "status: budget (54 min from 10:00) runs out well before lights-out (19:30)"
+check_contains "$out" "5 min used" "status: reflects today's ledger total (5, from the tick tests above)"
+check_contains "$out" "55 min left today" "status: 60 - 5 = 55 remaining"
+check_contains "$out" "budget runs out at 10:55" "status: budget (55 min from 10:00) runs out well before lights-out (19:30)"
 
 "$CONF" set kid-ada budget_min 90 >/dev/null
 out="$("$TIME" status kid-ada)"
 check_contains "$out" "budget 90" "status: a budget_min override wins over the band default"
-check_contains "$out" "84 min left today" "status: 90 - 6 = 84 remaining with the override"
+check_contains "$out" "85 min left today" "status: 90 - 5 = 85 remaining with the override"
 
 # A Saturday: budget_min_weekend/lights_out_weekend apply instead, and
 # the override above (weekday-only) does not carry over.
-out="$(OMARCHY_KIDS_NOW="2026-09-05 10:00:00" "$TIME" status kid-ada)"
+set_now "2026-09-05 10:00:00"
+out="$("$TIME" status kid-ada)"
 check_contains "$out" "budget 60" "status: weekend uses budget_min_weekend (band default, no override set)"
 
 "$CONF" set kid-ada budget_min_weekend 30 >/dev/null
-out="$(OMARCHY_KIDS_NOW="2026-09-05 09:50:00" "$TIME" status kid-ada)"
+set_now "2026-09-05 09:50:00"
+out="$("$TIME" status kid-ada)"
 check_contains "$out" "budget 30" "status: budget_min_weekend override applies on a Saturday"
 check_contains "$out" "budget runs out at 10:20" "status: next boundary picks the sooner of budget-out vs lights-out (budget wins here)"
 
@@ -295,7 +377,8 @@ check_contains "$out" "budget runs out at 10:20" "status: next boundary picks th
 # binding constraint).
 "$LEDGER" tick >/dev/null # bump used by one so remaining isn't a round number, just to be sure both paths compute independently
 "$TIME" grant kid-ada 500 >/dev/null
-out="$(OMARCHY_KIDS_NOW="2026-09-02 19:00:00" "$TIME" status kid-ada)"
+set_now "2026-09-02 19:00:00"
+out="$("$TIME" status kid-ada)"
 check_contains "$out" "lights-out at 19:30" "status: lights-out wins when the budget would outlast it"
 
 echo
@@ -306,7 +389,7 @@ echo
 
 # A fresh logical day, so the 500-minute grant from the "next boundary"
 # scenario above doesn't leak into these totals.
-export OMARCHY_KIDS_NOW="2026-09-10 10:00:00"
+set_now "2026-09-10 10:00:00"
 
 # Refuses without the root bypass (simulating a real non-root caller);
 # skip this one assertion if the test suite itself happens to run as
@@ -345,7 +428,7 @@ echo
 # =========================================================================
 
 DAEMON_DAY="2026-09-16" # a fresh day, untouched by the tests above
-export OMARCHY_KIDS_NOW="$DAEMON_DAY 10:00:00"
+set_now "$DAEMON_DAY 10:00:00"
 "$CONF" set kid-ada budget_min 12 >/dev/null
 "$CONF" set kid-ada budget_min_weekend 12 >/dev/null
 

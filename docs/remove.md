@@ -26,9 +26,12 @@ LUKS, Limine, or mkinitcpio path.
 2. **For every kid** (every `$OMARCHY_KIDS_ETC/kids/<account>.conf`), in this order:
    1. In disk mode, kills the account's exact LUKS key slot (looked up by *number* in
       `/etc/omarchy-kids/luks-slots`) and only then rewrites `luks-slots` without that entry.
-      `--luks-device` supplies the device when auto-detection is unavailable. A failed kill leaves
-      the mapping and profile in place, stops that kid's removal, and prevents machine cleanup.
-      Portal mode skips this step without reading the slot map.
+      `--luks-device` supplies the device when auto-detection is unavailable. Before killing, the
+      command checks `cryptsetup luksDump`. A failed kill leaves the mapping and profile in place,
+      stops that kid's removal, and prevents machine cleanup. If the kill succeeded but the atomic
+      map replacement failed, a retry sees that the recorded slot is already empty, removes the
+      stale map entry, and finishes without trying to kill the slot again. Portal mode skips this
+      step without reading the slot map.
    2. Unmounts the home's noexec bind mount (`umount`), and best-effort stops whatever transient
       systemd mount unit fstab's own generator may have made for it (`systemd-escape --path
       --suffix=mount` then `systemctl stop`, both skipped quietly if `systemd-escape` isn't
@@ -80,11 +83,11 @@ LUKS, Limine, or mkinitcpio path.
      unless `--keep-parent-group` is given, in which case this step is left `skipped` on purpose
      (issue #45 item 3). Runs before `etc-and-varlib` below, since it still needs `machine.conf`'s
      `parent=` line.
-   - Deletes `/etc/omarchy-kids` and `/var/lib/omarchy-kids` — which is also what takes every
-     kid's recorded screen-time state (`/var/lib/omarchy-kids/<account>/usage/`) with it — after
-     first taring both into `/root/omarchy-kids-removed-<YYYYmmdd-HHMMSS>.tar.gz`, so a parent (or
-     a future issue's "undo the undo") has one place to look if something in there mattered after
-     all.
+   - Tars `/etc/omarchy-kids` and `/var/lib/omarchy-kids` into
+     `/root/omarchy-kids-removed-<YYYYmmdd-HHMMSS>.tar.gz`, then deletes the recorded state under
+     `/var/lib/omarchy-kids` first. It deletes `/etc/omarchy-kids` last. Every deletion status is
+     checked explicitly, so a failed recorded-state deletion leaves `machine.conf` available for
+     a retry; the tarball covers a failure during the final `/etc` deletion.
    - Prints the `pacman -R omarchy-kids` command. Never runs it.
 4. **A one-line summary** follows the real pass (issue #45 item 4): `Summary: every step removed or
    skipped, nothing failed.`, or `Summary: N step(s) FAILED: <desc>, <desc>, ...` naming every step
@@ -105,9 +108,11 @@ Every run prints **the plan first**: every step above, either `skipped` (nothing
   (including EOF) cancels with exit 1 and changes nothing.
 - **With `--yes`**, or after typing `yes`, a second pass runs for real, reporting `removed` /
   `skipped` / `FAILED` per step, printed under a `Removing:` header. Ordinary independent failures
-  are collected for the summary. A disk-slot failure stops dependent account and machine removal;
-  any failure preserves `/etc/omarchy-kids` so the operation can be retried. Exit is 1 if anything
-  failed, 0 otherwise.
+  are collected for the summary. Each disk-slot result has its own failure guard, so an earlier
+  failure cannot hide a later kid's failed slot removal. A disk-slot failure stops that account and
+  machine removal. Every failure before the final `/etc/omarchy-kids` deletion preserves
+  `machine.conf` for a retry; the pre-delete tarball covers a failure during that last deletion.
+  Exit is 1 if anything failed, 0 otherwise.
 
 This is the same `AGENTS.md` rule 8 exception `omarchy-kids-assert` already documents (see
 `docs/assert.md`'s "Judgment calls"): a command whose whole reason to exist is a single, deliberate

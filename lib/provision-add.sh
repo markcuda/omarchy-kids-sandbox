@@ -102,6 +102,24 @@ cmd_add() {
       die "add: disk mode needs the parent passphrase via --parent-password-stdin or --parent-password-fd"
   fi
 
+  local parent
+  parent="$(read_parent)"
+  [[ -n "$parent" ]] || die "cannot find 'parent=' in $MACHINE_CONF; run machine setup before provisioning a kid"
+
+  # R-SEC-4: a passworded disk profile never exists without its key slot.
+  if [[ "$boot_mode" == disk ]] && ((want_password)); then
+    # Never through `run`: its preview would print both secrets.
+    if [[ "$DRY_RUN" == "0" ]]; then
+      add_luks_slot "$account" "$device" \
+        3< <(printf '%s\n' "$kid_password") \
+        4< <(printf '%s\n' "$parent_password")
+    else
+      printf '  [dry-run]'
+      printf ' %q' add_luks_slot "$account" "$device"
+      printf ' <secret> <secret>\n'
+    fi
+  fi
+
   echo "Adding kid '$display' as $account (band $band)"
 
   # R-FND-2: the account itself (groupadd -f: a checkout run may lack these).
@@ -133,9 +151,6 @@ cmd_add() {
   run "$CONF_BIN" set "$account" onboarded no
 
   # R-FND-3, R-FND-4: polkit admin identity + denies.
-  local parent
-  parent="$(read_parent)"
-  [[ -n "$parent" ]] || die "cannot find 'parent=' in $MACHINE_CONF; run machine setup before provisioning a kid"
   run posture_write_polkit_admin_rule "$parent"
   run posture_write_polkit_deny_rule
 
@@ -157,20 +172,6 @@ cmd_add() {
   # Soft-fails: the lock screen's PAM stack may not exist yet on this box.
   ensure_parent_unlock_soft sddm
   ensure_parent_unlock_soft "$(posture_parent_unlock_lock_stack)"
-
-  # R-SEC-4: portal never enters the disk path.
-  if [[ "$boot_mode" == disk ]] && ((want_password)); then
-    # Never through `run`: its preview would print both secrets.
-    if [[ "$DRY_RUN" == "0" ]]; then
-      add_luks_slot "$account" "$device" \
-        3< <(printf '%s\n' "$kid_password") \
-        4< <(printf '%s\n' "$parent_password")
-    else
-      printf '  [dry-run]'
-      printf ' %q' add_luks_slot "$account" "$device"
-      printf ' <secret> <secret>\n'
-    fi
-  fi
 
   # R-LOGIN-3: pin the kid session, no session picker.
   run posture_write_accountsservice "$account" "$avatar"
@@ -229,15 +230,6 @@ cmd_add() {
   echo "Done: $account"
 }
 
-# luks_occupied_slots DEVICE — occupied slots, sorted, handling both
-# LUKS2's and LUKS1's luksDump spellings.
-luks_occupied_slots() {
-  cryptsetup luksDump "$1" 2>/dev/null | sed -n \
-    -e 's/^[[:space:]]*\([0-9][0-9]*\):[[:space:]]*luks2[[:space:]]*$/\1/p' \
-    -e 's/^Key Slot \([0-9][0-9]*\): ENABLED[[:space:]]*$/\1/p' |
-    sort -n -u
-}
-
 # add_luks_slot ACCOUNT DEVICE — kid's passphrase on fd 3, parent's on fd
 # 4, never argv, never through `run` (review S6, docs/provision.md).
 add_luks_slot() {
@@ -269,6 +261,11 @@ add_luks_slot() {
     entries+=("$line")
   done < <(luks_slots_kid_entries "$SLOTS_FILE")
   entries+=("$slot=$account")
-  posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]}"
+  if ! posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]}"; then
+    if cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$parent_password") "$device" "$slot"; then
+      die "add: could not record LUKS slot $slot for $account; the new slot was rolled back" 1
+    fi
+    die "add: could not record or roll back LUKS slot $slot for $account; remove that slot by hand" 1
+  fi
   echo "  LUKS slot $slot added for $account"
 }

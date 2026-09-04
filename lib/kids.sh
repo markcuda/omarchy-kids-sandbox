@@ -161,6 +161,25 @@ luks_slot_for_account() {
   done <"$file"
 }
 
+# luks_occupied_slots DEVICE -- occupied slot numbers from a trusted dump.
+luks_occupied_slots() {
+  local dump slots
+  dump="$(cryptsetup luksDump "$1" 2>/dev/null)" || return 1
+  slots="$(printf '%s\n' "$dump" | sed -n \
+    -e 's/^[[:space:]]*\([0-9][0-9]*\):[[:space:]]*luks2[[:space:]]*$/\1/p' \
+    -e 's/^Key Slot \([0-9][0-9]*\): ENABLED[[:space:]]*$/\1/p' |
+    sort -n -u)" || return 1
+  [[ -n "$slots" ]] || return 1
+  printf '%s\n' "$slots"
+}
+
+# luks_slot_occupied DEVICE SLOT -- 0 occupied, 1 empty, 2 unreadable.
+luks_slot_occupied() {
+  local slots
+  slots="$(luks_occupied_slots "$1")" || return 2
+  grep -qxF -- "$2" <<<"$slots"
+}
+
 # posture_write_luks_slots FILE PARENT_LINE [ENTRY...] — always a full
 # rewrite, never append/edit-in-place: LUKS2 reuses freed slot numbers,
 # so a stale line could point a reused slot at the wrong account
@@ -168,16 +187,30 @@ luks_slot_for_account() {
 # lib/posture.sh, which still owns every other machine-posture writer;
 # only the file changed).
 posture_write_luks_slots() {
-  local file="$1" parent_line="$2" tmp e
+  local file="$1" parent_line="$2" tmp lines=()
   shift 2
-  install -d -m 0755 "$(dirname "$file")"
-  tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")"
-  {
-    [[ -n "$parent_line" ]] && printf '%s\n' "$parent_line"
-    for e in "$@"; do printf '%s\n' "$e"; done
-  } >"$tmp"
-  chmod 0600 "$tmp"
-  mv -f "$tmp" "$file"
+  install -d -m 0755 "$(dirname "$file")" || return 1
+  tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")" || return 1
+  [[ -z "$parent_line" ]] || lines+=("$parent_line")
+  lines+=("$@")
+  if ((${#lines[@]})); then
+    printf '%s\n' "${lines[@]}" >"$tmp" || {
+      rm -f "$tmp" || true
+      return 1
+    }
+  elif ! : >"$tmp"; then
+    rm -f "$tmp" || true
+    return 1
+  fi
+  chmod 0600 "$tmp" || {
+    rm -f "$tmp" || true
+    return 1
+  }
+  mv -f "$tmp" "$file" || {
+    rm -f "$tmp" || true
+    return 1
+  }
+  return 0
 }
 
 # luks_slots_record_parent FILE KIDS_DIR PARENT -- makes sure slot 0 maps

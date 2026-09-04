@@ -179,8 +179,15 @@ case "$1" in
         echo "  1: luks2"
         [[ -e "__LOG__/luks-added" ]] && echo "  3: luks2"
         ;;
-    luksAddKey) : > "__LOG__/luks-added" ;;
-    luksKillSlot) [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1 ;;
+    luksAddKey)
+        [[ ! -e "__LOG__/luks-add-fail" ]] || exit 1
+        : > "__LOG__/luks-added"
+        ;;
+    luksKillSlot)
+        [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1
+        [[ -e "__LOG__/luks-added" ]] || exit 1
+        rm -f "__LOG__/luks-added"
+        ;;
     open) [[ -e "__LOG__/luks-open-ok" ]] || exit 1 ;;
 esac
 '
@@ -192,6 +199,7 @@ stub runuser
 # The fixed-path boot reader requires root ownership. This fixture owns the
 # scratch files, so only the ownership fields are substituted.
 REAL_STAT="$(command -v stat)"
+REAL_CHMOD="$(command -v chmod)"
 cat >"$STUBS/stat" <<EOF
 #!/bin/bash
 if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
@@ -208,6 +216,12 @@ fi
 exec "$REAL_STAT" "\$@"
 EOF
 chmod +x "$STUBS/stat"
+cat >"$STUBS/chmod" <<EOF
+#!/bin/bash
+if [[ -e "$LOG/luks-map-write-fail" && "\${@: -1}" == */.luks-slots.* ]]; then exit 1; fi
+exec "$REAL_CHMOD" "\$@"
+EOF
+chmod +x "$STUBS/chmod"
 
 # Only the stubs and a base toolset: an Omarchy box has the real
 # omarchy-*/omarchy-kids-* commands on PATH, and a check that one is
@@ -309,6 +323,21 @@ rm -f "$ETC/kids/kid-test.conf"
 
 printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
 
+# --- add: a failed LUKS add mutates no account or profile -----------------
+
+: >"$ARGV_LOG"
+touch "$LOG/luks-add-fail"
+out_add_fail="$(printf 'kidpass1\nwrongparent\n' | "$BIN" add "Dot" --band 6-8 --avatar fox \
+  --password-stdin --parent-password-stdin --luks-device /dev/fake0 2>&1)"
+st=$?
+rm -f "$LOG/luks-add-fail"
+check_eq "$st" 2 "failed luksAddKey fails provisioning"
+check_contains "$out_add_fail" "luksAddKey failed" "failed LUKS add names the failing operation"
+check_not_contains "$(cat "$ARGV_LOG")" "useradd" "failed LUKS add happens before account creation"
+[[ -e "$ETC/kids/kid-dot.conf" ]] && fail "failed LUKS add must not create a profile" ||
+  pass "failed LUKS add creates no profile"
+check_eq "$(cat "$ETC/luks-slots")" "0=mark:omarchy.desktop" "failed LUKS add leaves the slot map unchanged"
+
 # --- add: kid-ada, band 6-8, password + LUKS slot -------------------------
 
 : >"$ARGV_LOG"
@@ -391,6 +420,13 @@ check_contains "$argv" "/dev/fake0" "add: cryptsetup ran against the given --luk
 check_contains "$argv" "cryptsetup luksDump /dev/fake0" "add: the new slot is found by diffing luksDump, not by --test-passphrase"
 check_contains "$argv" "cryptsetup open --test-passphrase" "add: the kid password is tested against the disk before it is added"
 check_contains "$out" "LUKS slot 3 added for $SLUG" "add: the discovered slot (3) is reported"
+luks_add_line="$(awk '/cryptsetup luksAddKey/{print NR; exit}' "$ARGV_LOG")"
+useradd_line="$(awk '/useradd /{print NR; exit}' "$ARGV_LOG")"
+if [[ -n "$luks_add_line" && -n "$useradd_line" ]] && ((luks_add_line < useradd_line)); then
+  pass "add: LUKS succeeds before account creation"
+else
+  fail "add: LUKS must succeed before account creation"
+fi
 
 # Review S6: neither secret may appear anywhere in the command's own output,
 # and the dry-run preview shows placeholders instead.
@@ -567,12 +603,24 @@ check_not_contains "$(cat "$ARGV_LOG")" "userdel" "failed disk slot removal stop
 check_not_contains "$(cat "$ARGV_LOG")" "umount" "failed disk slot removal stops before home mutation"
 
 : >"$ARGV_LOG"
+touch "$LOG/luks-map-write-fail"
+out_map_fail="$("$BIN" remove "$SLUG" --luks-device /dev/fake0 2>&1)"
+st=$?
+rm -f "$LOG/luks-map-write-fail"
+check_eq "$st" 1 "slot-map write failure fails per-kid removal"
+check_contains "$out_map_fail" "could not update" "slot-map write failure names the preserved map"
+check_eq "$(cat "$ETC/luks-slots")" "$slots_before" "slot-map write failure preserves the trusted map"
+[[ -e "$ETC/kids/$SLUG.conf" ]] && pass "slot-map write failure preserves the profile" ||
+  fail "slot-map write failure removed the profile"
+
+: >"$ARGV_LOG"
 "$BIN" remove "$SLUG" --luks-device /dev/fake0 >/dev/null 2>&1
 st=$?
 argv6="$(cat "$ARGV_LOG")"
 
-check_eq "$st" 0 "remove $SLUG exits 0"
-check_contains "$argv6" "cryptsetup luksKillSlot --batch-mode /dev/fake0 3" "remove: killed the exact LUKS slot (3)"
+check_eq "$st" 0 "remove retry after a map-write failure exits 0"
+check_not_contains "$argv6" "luksKillSlot" "remove retry does not kill the already-empty slot again"
+check_contains "$argv6" "cryptsetup luksDump /dev/fake0" "remove retry verifies the recorded slot is empty"
 check_eq "$(grep -c "^3=$SLUG\$" "$ETC/luks-slots")" "0" "luks-slots: $SLUG's slot is gone"
 check_eq "$(grep -c '^0=mark:omarchy.desktop$' "$ETC/luks-slots")" "1" "luks-slots: the parent's slot 0 survives remove's rewrite"
 check_eq "$(grep -c "$SLUG-2\$" "$ETC/luks-slots")" "0" "luks-slots: never had an entry for $SLUG-2 (no LUKS device was given for it)"

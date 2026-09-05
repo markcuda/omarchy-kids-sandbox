@@ -657,8 +657,15 @@ count=0
 count=$((count + 1))
 printf '%s\n' "$count" >"$SLEEP_COUNT_FILE"
 if ((count == 1)); then
-  while [[ ! -e "$KEEPER_RELEASE_FILE" ]]; do /bin/sleep 0.01; done
-  exit 0
+  # Bounded: if the run this stub belongs to dies before it releases, an unbounded wait outlives
+  # its own scratch dir and spins forever. Sixteen of these were found on the test VM, the oldest
+  # a day old, burning a third of its CPU and slowing every gate (2026-09-05).
+  for _ in $(seq 1 3000); do
+    [[ -e "$KEEPER_RELEASE_FILE" ]] && exit 0
+    /bin/sleep 0.01
+  done
+  echo "sleep stub: keeper never released within 30s" >&2
+  exit 1
 fi
 exit 1
 EOF

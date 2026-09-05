@@ -61,7 +61,7 @@ bash scripts/media-driver.sh nord catppuccin-latte
 bash scripts/media-driver.sh --surface ask catppuccin-latte
 ```
 
-With no theme arguments it captures every surface under `tokyo-night` and
+With no theme arguments it captures the nine supported surfaces under `tokyo-night` and
 `catppuccin-latte`. `--surface` reshoots one surface. Successful files land directly in
 `docs/media/<surface>-<theme>.png`; each one is staged beside that directory first, so a failed
 copy cannot replace a good image. A failed surface prints `FAILED`, the driver tries the next
@@ -78,15 +78,18 @@ fails, verifies both test accounts have no seat session, and confirms the greete
 Time's Up and Wi-Fi need temporary test-kid settings. The driver records whether each theme,
 weekday/weekend lights-out value, and Wi-Fi mode is an override. Cleanup restores an override with
 `set` and an inherited value with `unset`, so a run never pins a band or parent-theme default. A
-failed restore keeps the first saved value until a later cleanup restores it. For the bar shot
-it briefly stops the time timer after publishing a live status row, then restarts it. The parent
-bar must already be enabled: the driver refuses that shot instead of changing the parent's bar
-configuration. SIGINT and SIGTERM run the same cleanup. Inspect the VM after SIGKILL, power loss,
-or any run whose final cleanup checks fail.
+failed restore keeps the first saved value until a later cleanup restores it. SIGINT and SIGTERM
+run the same cleanup. Inspect the VM after SIGKILL, power loss, or any run whose final cleanup
+checks fail.
 
 The Time's Up shot waits on the running QML card's `timesUpReady` IPC result. That result stays
 false until the grace document is loaded, the card is visible, and its countdown has rendered a
 tick. A timeout fails the surface without replacing its previous image.
+
+The driver does not offer `bar-module`. Omarchy 4.0.2's SDDM path cannot show the parent session
+while keeping the kid session live. The old capture stopped status updates, ended the kid session,
+and photographed stale `live=true` state. That image is intentionally absent until a real
+concurrent-session capture exists.
 
 The driver does not record the three walkthrough videos in docs/GOAL.md item 3. Those remain a
 separate gate-runner recording step using QMP frames and ffmpeg.

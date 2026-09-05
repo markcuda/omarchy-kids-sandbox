@@ -15,8 +15,12 @@ replaces one `<surface>-<theme>.png`; a failed capture leaves the previous file 
 | `plugins-shelf-<theme>.png` | The read-only More apps shelf for the test kid's band. |
 | `wizard-<theme>.png` | The parent wizard's Welcome screen in a floating terminal. |
 | `panel-<theme>.png` | The parent panel's Home screen in a floating terminal. |
-| `bar-module-<theme>.png` | The enabled parent bar module with a live test-kid indicator. |
 
 The existing `exit-modal-over-app-<theme>.png` files are extra composition checks, not another
 required surface. The three walkthrough videos in docs/GOAL.md item 3 are recorded separately;
 this driver only takes stills.
+
+No `bar-module-<theme>.png` is shipped. Omarchy 4.0.2 cannot keep the kid and parent graphical
+sessions live at the same time through SDDM. A parent-bar screenshot with a live kid would require
+frozen or invented state, so the driver refuses that surface until a real concurrent-session path
+exists.

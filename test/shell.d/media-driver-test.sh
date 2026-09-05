@@ -76,6 +76,11 @@ vm() {
 }
 vmroot() {
   log "vmroot $*"
+  if [[ -n "${MEDIA_TEST_FAIL_VMROOT_ONCE:-}" && "$*" == *"$MEDIA_TEST_FAIL_VMROOT_ONCE"* &&
+    ! -e "$MEDIA_TEST_STATE_DIR/fail-once" ]]; then
+    : >"$MEDIA_TEST_STATE_DIR/fail-once"
+    return 1
+  fi
   if [[ -n "${MEDIA_TEST_FAIL_VMROOT:-}" && "$*" == *"$MEDIA_TEST_FAIL_VMROOT"* ]]; then
     return 1
   fi
@@ -92,9 +97,25 @@ vmroot() {
     *"omarchy-kids-conf source kid-cy wifi"*)
       if [[ "${MEDIA_TEST_INHERITED:-0}" == 1 ]]; then echo band; else echo override; fi
       ;;
-    *"omarchy-kids-conf get kid-cy lights_out_weekend"*) echo 22:00 ;;
+    *"omarchy-kids-conf set kid-cy lights_out_weekend 00:01"*)
+      [[ -z "${MEDIA_TEST_STATE_DIR:-}" ]] || printf '00:01\n' >"$MEDIA_TEST_STATE_DIR/lights_out_weekend"
+      ;;
+    *"omarchy-kids-conf set kid-cy lights_out_weekend 22:00"*)
+      [[ -z "${MEDIA_TEST_STATE_DIR:-}" ]] || printf '22:00\n' >"$MEDIA_TEST_STATE_DIR/lights_out_weekend"
+      ;;
+    *"omarchy-kids-conf set kid-cy lights_out 00:01"*)
+      [[ -z "${MEDIA_TEST_STATE_DIR:-}" ]] || printf '00:01\n' >"$MEDIA_TEST_STATE_DIR/lights_out"
+      ;;
+    *"omarchy-kids-conf set kid-cy lights_out 21:00"*)
+      [[ -z "${MEDIA_TEST_STATE_DIR:-}" ]] || printf '21:00\n' >"$MEDIA_TEST_STATE_DIR/lights_out"
+      ;;
+    *"omarchy-kids-conf get kid-cy lights_out_weekend"*)
+      if [[ -n "${MEDIA_TEST_STATE_DIR:-}" ]]; then cat "$MEDIA_TEST_STATE_DIR/lights_out_weekend"; else echo 22:00; fi
+      ;;
     *"omarchy-kids-conf get kid-cy theme"*) echo original-kid ;;
-    *"omarchy-kids-conf get kid-cy lights_out"*) echo 21:00 ;;
+    *"omarchy-kids-conf get kid-cy lights_out"*)
+      if [[ -n "${MEDIA_TEST_STATE_DIR:-}" ]]; then cat "$MEDIA_TEST_STATE_DIR/lights_out"; else echo 21:00; fi
+      ;;
     *"omarchy-kids-conf get kid-cy wifi"*) echo parent ;;
     *"omarchy-kids-conf get kid-cy band"*) echo 6-8 ;;
   esac
@@ -284,6 +305,23 @@ if [[ "$log10" != *"omarchy-kids-conf set kid-cy theme original-kid"* &&
 else
   fail_ "an inherited value was pinned as an explicit override"
 fi
+
+ROOT11="$TMP/restore-retry"
+make_fixture "$ROOT11"
+LOG11="$TMP/restore-retry.log"
+STATE11="$TMP/restore-retry-state"
+mkdir -p "$STATE11"
+printf '21:00\n' >"$STATE11/lights_out"
+printf '22:00\n' >"$STATE11/lights_out_weekend"
+MEDIA_TEST_LOG="$LOG11" MEDIA_TEST_STATE_DIR="$STATE11" \
+  MEDIA_TEST_FAIL_VMROOT_ONCE="lights_out 21:00" \
+  "$ROOT11/scripts/media-driver.sh" --surface times-up tokyo-night nord >"$TMP/restore-retry.out" 2>&1
+status=$?
+check "$status" "1" "a transient restoration failure remains visible in the run status"
+check "$(cat "$STATE11/lights_out")" "21:00" \
+  "a later theme restores the true original weekday value"
+check "$(cat "$STATE11/lights_out_weekend")" "22:00" \
+  "a later theme keeps the true original weekend value"
 
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck -S warning "$DIR/scripts/media-driver.sh" "$DIR/test/shell.d/media-driver-test.sh"; then

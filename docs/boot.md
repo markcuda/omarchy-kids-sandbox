@@ -22,8 +22,9 @@ fail-safe list, how to verify the hook is actually in the image, and how to remo
    would if our hook weren't installed at all.
 4. **`switch_root`.** `/run` (with `boot-slot` in it, if we wrote one) carries over from the
    initramfs into the booted system.
-5. **`omarchy-kids-boot-login.service`, before `display-manager.service`.** If
-   `/run/omarchy-kids/boot-slot` exists, this reads the slot number, maps it through
+5. **`omarchy-kids-boot-login.service`, before `display-manager.service`.** It reads the trusted
+   `boot=` setting first. Portal mode and a missing `/run/omarchy-kids/boot-slot` are no-ops. In
+   disk mode with a recorded slot, it maps the slot through
    `/etc/omarchy-kids/luks-slots`, and writes `/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf`
    with `[Autologin] User=<account>` (and `Session=<session>`) for the mapped account — the
    parent's slot maps to the parent and the stock session, unchanged from today. The `0=<parent>`
@@ -32,15 +33,14 @@ fail-safe list, how to verify the hook is actually in the image, and how to remo
    is — the wizard's Apply step, first thing it does, on a fresh install, and again on every
    provision after "Remove Kids Mode" deletes the whole `$ETC` tree; nothing else in this repo
    ever writes it. Without that line, a boot unlocked with the parent's own disk password maps to
-   nothing and lands on the portal below instead of their desktop. An unmapped
-   slot writes an empty `User=` so the portal shows instead of guessing. If `boot-slot` doesn't
-   exist at all, the unit's `ConditionPathExists` skips it entirely and Omarchy's own (earlier)
-   autologin drop-in is untouched — the exact behavior from before Kids Mode was installed.
+   nothing and lands on the portal below instead of their desktop. An unmapped slot writes an
+   empty `User=` so the portal shows instead of guessing. Malformed disk input does the same
+   where possible and returns nonzero, but the unit ignores that status so SDDM still starts.
 6. **SDDM starts**, reads its `conf.d` in order, and autologs whoever `zz-omarchy-kids-autologin.conf`
    says (or shows the portal if `User=` is empty).
 7. **`omarchy-kids-boot-login-cleanup.service`, after `display-manager.service`, 20s later.**
-   Removes the drop-in. SDDM has already read it for this boot's greeter; removing it means a
-   later logout (which restarts the greeter) never re-autologs anyone.
+   In disk mode, it removes only the drop-in whose inode boot-login marked under `/run` on this
+   boot. Portal mode writes nothing. A later logout therefore never re-autologs anyone.
 
 ## The exact files
 
@@ -50,23 +50,27 @@ fail-safe list, how to verify the hook is actually in the image, and how to remo
 | `initcpio/install/omarchy-kids-unlock` → `/usr/lib/initcpio/install/omarchy-kids-unlock` | mkinitcpio install file: pulls in `dm-crypt`, `cryptsetup`, the helper, same as upstream's `install/encrypt` |
 | `initcpio/omarchy-kids-open` → `/usr/lib/initcpio/omarchy-kids-open` | The passphrase-reading helper the hook shells out to |
 | `share/boot/omarchy_kids.conf` → `/usr/share/omarchy-kids/boot/omarchy_kids.conf` | Package-owned inactive template; disk mode copies it to the transition-owned `/etc/mkinitcpio.conf.d/omarchy_kids.conf` (R-BOOT-2) |
-| `bin/omarchy-kids-boot-login` → `/usr/bin/omarchy-kids-boot-login` | Writes/removes the SDDM autologin drop-in (R-BOOT-3) |
+| `bin/omarchy-kids-boot-login` → `/usr/bin/omarchy-kids-boot-login` | Selects or cleans the disk-mode SDDM autologin drop-in |
 | `systemd/omarchy-kids-boot-login.service` | Writes the drop-in, before `display-manager.service` |
 | `systemd/omarchy-kids-boot-login-cleanup.service` | Removes it, after `display-manager.service` |
 | `/run/omarchy-kids/boot-slot` | root 0600, dir 0755 — the slot number that unlocked root this boot |
 | `/etc/omarchy-kids/luks-slots` | root 0600 — `slot=account`, or `slot=account:session` (R-SEC-4) |
-| `/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf` | Written per-boot, removed ~20s after the display manager starts |
+| `/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf` | Written only for a recorded disk-mode slot, removed ~20s after the display manager starts |
+| `/run/omarchy-kids/boot-login-dropin` | root 0600 inode marker proving cleanup owns the current drop-in |
 
 ### `luks-slots` format
 
-One mapping per line, `slot=account` or `slot=account:session`. Blank lines and `#` comments
-are ignored; no whitespace around `=` or `:`. When no `:session` is given, the session is
-guessed from the account name: `kid-*` → `omarchy-kids`, anything else → `omarchy`. Example:
+One mapping per line, `slot=account` or the legacy `slot=account:session`. Blank lines and `#`
+comments are ignored; no whitespace around `=` or `:`. Duplicate slots or accounts invalidate
+the map. Boot-login parses and validates a legacy session suffix but never trusts it to choose a
+session. The parent recorded in trusted `machine.conf` selects `omarchy.desktop`; an account with
+a root-owned `0644` profile under the root-owned kids directory selects `omarchy-kids.desktop`.
+Anything else is an invalid mapping and selects the portal. Example:
 
 ```text
 0=mark
 2=kid-ada
-3=kid-ben:omarchy
+3=kid-ben
 ```text
 
 ## Fail-safe list (I-9: never a machine that will not boot)
@@ -82,10 +86,11 @@ run exactly as it always has — whenever:
 - three password attempts fail (`--number-of-tries=3` under plymouth, or three tries in the
   console fallback loop).
 
-`omarchy-kids-boot-login.service` only ever runs when `/run/omarchy-kids/boot-slot` exists
-(`ConditionPathExists`); if it doesn't, Omarchy's own autologin drop-in — which already autologs
-the owner on encrypted installs — is left exactly as it was. An unrecognized slot number writes
-an empty `User=`, showing the portal rather than guessing.
+`omarchy-kids-boot-login.service` runs on every boot. Portal mode and a missing `boot-slot` change
+nothing, so Omarchy's stock autologin remains byte-for-byte. An unrecognized numeric slot writes
+an empty `User=`, showing the portal rather than guessing. A mapped account with no trusted parent
+or kid role, unsafe input, or malformed input also tries that safe override, returns 1 for
+diagnosis, and cannot block SDDM startup.
 
 `omarchy-kids-boot-login` itself never writes the passphrase anywhere; it only ever sees a slot
 *number*. The helper (`omarchy-kids-open`) never writes the passphrase anywhere either — it goes
@@ -140,35 +145,27 @@ Every real boot would silently end up with the hook never added — exactly the 
 exists to rule out. Naming it `omarchy_kids.conf` sorts it immediately after
 `omarchy_hooks.conf`, which is what R-BOOT-2 actually needs to work. `test/shell.d/mkinitcpio-conf-test.sh`
 and this section are the record of why.
-## `boot-login` decides by the registry, not the username (2026-09-03)
 
-`session_for` used to be `case "$1" in kid-*)`. `lib/posture.sh` already documents that exact
-heuristic failing live -- a VM whose owner was named `kid-vm` had the owner's own portal tile
-misclassified as a kid -- and the portal was fixed to read the profile registry while this path
-was not (review §1.6). Here the consequence is worse than a wrong avatar: an owner account whose
-name happens to start with `kid-` unlocks with their own passphrase and is autologged straight
-into a root-owned kiosk session. `session_for` now asks whether
-`/etc/omarchy-kids/kids/<account>.conf` exists, the same source of truth `omarchy-kids-assert`,
-`-ask` and `-time-ledger` already use, with `OMARCHY_KIDS_ETC` overridable for tests.
-`test/shell.d/boot-login-test.sh` covers both directions: an unprovisioned `kid-vm` gets the
-stock session, and a provisioned account with no `kid-` prefix gets the kid session.
+## `boot-login` decides by trusted role, not the map (2026-09-04)
 
-## Source header (moved from `bin/omarchy-kids-boot-login`, issue #49)
+The slot map records which account unlocked the disk. It does not authorize a session. Boot-login
+derives that from package-owned records: the exact `parent=` account in trusted `machine.conf`
+gets the stock session, and an account with a trusted provisioned profile gets the kid session.
+An explicit `:omarchy` suffix cannot send a kid to the stock session or bless an unknown account.
+`test/shell.d/boot-login-test.sh` proves both cases and gives the stock-session case a fixture whose
+recorded parent really is `kid-test`.
 
-Kept for reference; the file itself now carries a short pointer instead.
+## Fixed root paths
 
-```text
-omarchy-kids-boot-login — writes or removes the per-boot SDDM autologin
-drop-in based on which LUKS slot unlocked the root device (R-BOOT-3).
+Boot-login accepts no path environment variables. It resolves `lib/` from its own installed
+location and uses fixed `/run` and `/etc` paths. Tests copy the command and libraries, then
+substitute those constants in the copy. This keeps an empty-environment systemd run working
+without letting caller-controlled state choose boot files or code.
 
-Usage:
-  omarchy-kids-boot-login             write the drop-in for this boot
-  omarchy-kids-boot-login --cleanup   remove the drop-in (post-boot)
+## Shared mode-transition lock
 
-Every path below is overridable for tests, so test/shell.d/boot-login-test.sh
-runs entirely against a scratch tree:
-  OMARCHY_KIDS_RUN_DIR     default /run/omarchy-kids   (boot-slot lives here)
-  OMARCHY_KIDS_SLOTS_FILE  default /etc/omarchy-kids/luks-slots
-  OMARCHY_KIDS_SDDM_DIR    default /etc/sddm.conf.d
-  OMARCHY_KIDS_ETC         default /etc/omarchy-kids (the profile registry)
-```
+Ticket #93 owns the shared root-created mode-transition lock. Until this branch is rebased onto
+that producer, boot-login and check still read the trusted mode without holding the transition
+lock, so the review's read-then-act/report race remains open. After the rebase, boot-login's one
+mode-read/action boundary and check's one mode-read/section-dispatch boundary will hold that shared
+lock. This ticket does not add a second lock contract.

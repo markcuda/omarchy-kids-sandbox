@@ -17,6 +17,8 @@ source "$LIB/posture.sh"
 source "$LIB/time.sh"
 # shellcheck source=lib/kids.sh
 source "$LIB/kids.sh"
+# shellcheck source=lib/boot-mode.sh
+source "$LIB/boot-mode.sh"
 
 ASSERT_BIN="$(kids_bin assert "$DIR")"
 PROC_ROOT="${OMARCHY_KIDS_PROC_ROOT:-/proc}"
@@ -160,7 +162,8 @@ source "$LIB/check-live.sh"
 source "$LIB/check-render.sh"
 
 run_accounts_section
-run_locks_section
+check_boot_mode_load
+run_locks_section "$CHECK_BOOT_MODE"
 run_boot_section
 run_login_section
 run_pam_section

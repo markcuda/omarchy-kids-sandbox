@@ -1,122 +1,273 @@
 #!/bin/bash
-# omarchy:summary=Write or remove the per-boot SDDM autologin drop-in for the unlocked LUKS slot
+# omarchy:summary=Select the per-boot SDDM login from the trusted boot mode and LUKS slot
 # omarchy:args=[--cleanup]
-# Writes or removes the per-boot SDDM autologin drop-in based on which
-# LUKS slot unlocked the root device (R-BOOT-3). See docs/boot.md for
-# the write/cleanup lifecycle and every env var.
+# R-BOOTMODE-4/5/11/12. See docs/boot.md for the write and cleanup lifecycle.
 set -euo pipefail
 
-RUN_DIR="${OMARCHY_KIDS_RUN_DIR:-/run/omarchy-kids}"
-SLOTS_FILE="${OMARCHY_KIDS_SLOTS_FILE:-/etc/omarchy-kids/luks-slots}"
-SDDM_DIR="${OMARCHY_KIDS_SDDM_DIR:-/etc/sddm.conf.d}"
-ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
-DROPIN="$SDDM_DIR/zz-omarchy-kids-autologin.conf"
+DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+LIB="$DIR/lib"
+[[ -f "$LIB/kids.sh" ]] || LIB=/usr/lib/omarchy-kids
+# shellcheck source=lib/kids.sh
+source "$LIB/kids.sh"
+# shellcheck source=lib/boot-mode.sh
+source "$LIB/boot-mode.sh"
+
+# Fixed production paths. Tests substitute these in a copied command tree.
+BOOT_LOGIN_RUN_DIR=/run/omarchy-kids
+BOOT_LOGIN_SLOTS_FILE=/etc/omarchy-kids/luks-slots
+BOOT_LOGIN_KIDS_DIR=/etc/omarchy-kids/kids
+BOOT_LOGIN_SDDM_DIR=/etc/sddm.conf.d
+
+DROPIN="$BOOT_LOGIN_SDDM_DIR/zz-omarchy-kids-autologin.conf"
+MARKER="$BOOT_LOGIN_RUN_DIR/boot-login-dropin"
 
 usage() {
   cat <<EOF
 Usage: $(basename "$0") [--cleanup] [--help]
 
-Writes $DROPIN with the [Autologin] section for whichever account's LUKS
-slot unlocked the root device this boot (R-BOOT-3): the parent's slot maps
-to the parent and the stock session (today's behavior, preserved); a kid's
-slot maps to that kid and their session; no mapping writes an empty
-User= so the portal shows instead of guessing.
+In trusted boot=disk mode, writes $DROPIN for a valid recorded LUKS slot.
+A mapped provisioned kid selects omarchy-kids.desktop; the parent recorded
+in machine.conf selects omarchy.desktop. Any unknown account selects the portal.
 
---cleanup removes the drop-in (wired to run a short while after
-display-manager.service starts) so a later logout never re-autologs.
+In boot=portal mode, or when boot-slot is absent, this command writes nothing.
+Invalid mode also writes nothing and exits 0 so early boot stays available.
+Malformed disk-mode input selects the portal where possible and exits 1.
+
+--cleanup removes only a disk-mode drop-in this command marked as created
+on the current boot.
 EOF
 }
 
-# session_for ACCOUNT — default session, decided by the profile registry,
-# never a `kid-*` username heuristic (found live, docs/boot.md).
-session_for() {
-  if [[ -f "$ETC/kids/$1.conf" ]]; then
-    echo "omarchy-kids.desktop"
-  else
-    echo "omarchy.desktop"
-  fi
+root_dir_safe() {
+  local dir="$1" mode
+  [[ -d "$dir" && ! -L "$dir" ]] || return 1
+  mode="$(file_stat a "$dir")"
+  [[ "$mode" =~ ^7[0-5][0-5]$ ]] || return 1
+  [[ "$(file_stat u "$dir")" == 0 ]] || return 1
+  [[ "$(file_stat G "$dir")" == root ]]
 }
 
-# lookup_slot SLOT — "account session" on a match, nothing otherwise.
-# luks-slots format: "slot=account[:session]" (docs/boot.md).
-lookup_slot() {
-  local slot="$1" line key val account session
-  [[ -r "$SLOTS_FILE" ]] || return 0
+root_file_safe() {
+  local file="$1" mode="$2"
+  [[ -f "$file" && ! -L "$file" ]] || return 1
+  [[ "$(file_stat a "$file")" == "$mode" ]] || return 1
+  [[ "$(file_stat u "$file")" == 0 ]] || return 1
+  [[ "$(file_stat G "$file")" == root ]]
+}
+
+valid_account() {
+  [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,30}[$]?$ ]]
+}
+
+trusted_parent() {
+  local line key value parent="" count=0
   while IFS= read -r line || [[ -n "$line" ]]; do
     case "$line" in
       '' | '#'*) continue ;;
     esac
     key="${line%%=*}"
-    val="${line#*=}"
-    [[ "$key" == "$slot" ]] || continue
-    account="${val%%:*}"
-    if [[ "$val" == *:* ]]; then
-      session="${val#*:}"
-    else
-      session=""
-    fi
-    [[ -n "$account" ]] || return 0
-    [[ -n "$session" ]] || session="$(session_for "$account")"
-    # SDDM names sessions by their .desktop file (Omarchy writes Session=omarchy.desktop).
-    [[ "$session" == *.desktop ]] || session="${session}.desktop"
-    printf '%s %s\n' "$account" "$session"
-    return 0
-  done <"$SLOTS_FILE"
+    [[ "$key" == parent ]] || continue
+    value="${line#*=}"
+    count=$((count + 1))
+    parent="$value"
+  done <"$BOOT_MODE_MACHINE_CONF"
+  [[ "$count" -eq 1 ]] || return 1
+  valid_account "$parent" || return 1
+  printf '%s\n' "$parent"
 }
 
-# write_dropin ACCOUNT [SESSION] — ACCOUNT="" writes an empty User= (portal).
+session_for() {
+  local account="$1" parent profile
+  parent="$(trusted_parent 2>/dev/null || true)"
+  if [[ -n "$parent" && "$account" == "$parent" ]]; then
+    printf '%s\n' omarchy.desktop
+    return 0
+  fi
+
+  root_dir_safe "$BOOT_LOGIN_KIDS_DIR" || return 1
+  profile="$BOOT_LOGIN_KIDS_DIR/$account.conf"
+  root_file_safe "$profile" 644 || return 1
+  printf '%s\n' omarchy-kids.desktop
+}
+
+# lookup_slot SLOT prints "account session", returns 3 when unmapped,
+# and returns 1 when any slot-map line is malformed or duplicated.
+lookup_slot() {
+  local slot="$1" line key value account session found="" seen_slots="|" seen_accounts="|"
+  local session_re='^[A-Za-z0-9_.@+-]+$'
+
+  [[ -e "$BOOT_LOGIN_SLOTS_FILE" || -L "$BOOT_LOGIN_SLOTS_FILE" ]] || return 3
+  root_file_safe "$BOOT_LOGIN_SLOTS_FILE" 600 || return 1
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      '' | '#'*) continue ;;
+    esac
+    [[ "$line" == *=* ]] || return 1
+    key="${line%%=*}"
+    value="${line#*=}"
+    [[ "$value" != *=* ]] || return 1
+    [[ "$key" =~ ^(0|[1-9][0-9]*)$ ]] || return 1
+    ((key <= 31)) || return 1
+
+    account="${value%%:*}"
+    session=""
+    if [[ "$value" == *:* ]]; then
+      session="${value#*:}"
+      [[ -n "$session" ]] || return 1
+    fi
+    valid_account "$account" || return 1
+    [[ -z "$session" || "$session" =~ $session_re ]] || return 1
+    [[ "$seen_slots" != *"|$key|"* && "$seen_accounts" != *"|$account|"* ]] || return 1
+    seen_slots+="$key|"
+    seen_accounts+="$account|"
+
+    [[ "$key" == "$slot" ]] || continue
+    session="$(session_for "$account")" || return 1
+    found="$account $session"
+  done <"$BOOT_LOGIN_SLOTS_FILE"
+
+  [[ -n "$found" ]] || return 3
+  printf '%s\n' "$found"
+}
+
+read_boot_slot() {
+  local slot
+  root_dir_safe "$BOOT_LOGIN_RUN_DIR" || return 1
+  root_file_safe "$BOOT_LOGIN_RUN_DIR/boot-slot" 600 || return 1
+  slot="$(cat "$BOOT_LOGIN_RUN_DIR/boot-slot")" || return 1
+  [[ "$slot" =~ ^(0|[1-9][0-9]*)$ ]] || return 1
+  ((slot <= 31)) || return 1
+  printf '%s\n' "$slot"
+}
+
+# The temp files and marker land before the rename, so a failed write never
+# truncates a valid drop-in and cleanup can identify only this boot's inode.
 write_dropin() {
-  local account="$1" session="${2:-}"
-  install -d -m 0755 "$SDDM_DIR"
-  {
+  local account="$1" session="${2:-}" tmp marker_tmp inode
+  root_dir_safe "$BOOT_LOGIN_RUN_DIR" || return 1
+  if [[ -e "$BOOT_LOGIN_SDDM_DIR" || -L "$BOOT_LOGIN_SDDM_DIR" ]]; then
+    root_dir_safe "$BOOT_LOGIN_SDDM_DIR" || return 1
+  else
+    install -d -m 0755 "$BOOT_LOGIN_SDDM_DIR" || return 1
+    root_dir_safe "$BOOT_LOGIN_SDDM_DIR" || return 1
+  fi
+
+  tmp="$(mktemp "$BOOT_LOGIN_SDDM_DIR/.zz-omarchy-kids-autologin.conf.XXXXXX")" || return 1
+  marker_tmp="$(mktemp "$BOOT_LOGIN_RUN_DIR/.boot-login-dropin.XXXXXX")" || {
+    rm -f "$tmp"
+    return 1
+  }
+  if ! {
     printf '[Autologin]\n'
     printf 'User=%s\n' "$account"
-    [[ -n "$session" ]] && printf 'Session=%s\n' "$session"
-  } >"$DROPIN"
-  chmod 0644 "$DROPIN"
+    if [[ -n "$session" ]]; then
+      printf 'Session=%s\n' "$session"
+    fi
+  } >"$tmp"; then
+    rm -f "$tmp" "$marker_tmp"
+    return 1
+  fi
+  chmod 0644 "$tmp" || {
+    rm -f "$tmp" "$marker_tmp"
+    return 1
+  }
+  inode="$(file_stat i "$tmp")"
+  [[ "$inode" =~ ^[0-9]+$ ]] || {
+    rm -f "$tmp" "$marker_tmp"
+    return 1
+  }
+  printf '%s\n' "$inode" >"$marker_tmp" || {
+    rm -f "$tmp" "$marker_tmp"
+    return 1
+  }
+  chmod 0600 "$marker_tmp" || {
+    rm -f "$tmp" "$marker_tmp"
+    return 1
+  }
+  if ! mv -f "$marker_tmp" "$MARKER" || ! mv -f "$tmp" "$DROPIN"; then
+    rm -f "$tmp" "$marker_tmp" "$MARKER"
+    return 1
+  fi
+}
+
+fail_to_portal() {
+  write_dropin "" || true
+  return 1
 }
 
 cleanup() {
-  rm -f "$DROPIN"
+  local recorded current
+  [[ -e "$MARKER" || -L "$MARKER" ]] || return 0
+  root_dir_safe "$BOOT_LOGIN_RUN_DIR" || return 1
+  root_file_safe "$MARKER" 600 || return 1
+  recorded="$(cat "$MARKER")" || return 1
+  [[ "$recorded" =~ ^[0-9]+$ ]] || return 1
+
+  if [[ -e "$DROPIN" || -L "$DROPIN" ]]; then
+    root_dir_safe "$BOOT_LOGIN_SDDM_DIR" || return 1
+    [[ -f "$DROPIN" && ! -L "$DROPIN" ]] || return 1
+    current="$(file_stat i "$DROPIN")"
+    if [[ "$current" == "$recorded" ]]; then
+      rm -f "$DROPIN" || return 1
+    fi
+  fi
+  rm -f "$MARKER"
 }
 
 main() {
+  local action=write mode slot result rc account session
   case "${1:-}" in
     --help | -h)
       usage
-      exit 0
+      return 0
       ;;
-    --cleanup)
-      cleanup
-      exit 0
-      ;;
-    "")
-      ;;
+    --cleanup) action=cleanup ;;
+    "") ;;
     *)
       echo "omarchy-kids-boot-login: unknown argument '$1'" >&2
       usage >&2
-      exit 1
+      return 2
       ;;
   esac
+  [[ "$#" -le 1 ]] || {
+    echo "omarchy-kids-boot-login: too many arguments" >&2
+    usage >&2
+    return 2
+  }
 
-  if [[ ! -r "$RUN_DIR/boot-slot" ]]; then
-    # Fail safe to the portal rather than guess (ConditionPathExists normally guards this).
-    write_dropin ""
+  if ! mode="$(boot_mode_get 2>/dev/null)"; then
     return 0
   fi
+  [[ "$mode" == disk ]] || return 0
+  is_root || {
+    echo "omarchy-kids-boot-login: disk mode requires root" >&2
+    return 1
+  }
 
-  local slot result account session
-  slot="$(<"$RUN_DIR/boot-slot")"
-  slot="${slot//[[:space:]]/}"
+  [[ "$action" == cleanup ]] && {
+    cleanup
+    return $?
+  }
+  [[ -e "$BOOT_LOGIN_RUN_DIR/boot-slot" || -L "$BOOT_LOGIN_RUN_DIR/boot-slot" ]] || return 0
 
-  result="$(lookup_slot "$slot")" || true
-  if [[ -n "$result" ]]; then
+  if ! slot="$(read_boot_slot)"; then
+    fail_to_portal
+    return $?
+  fi
+  if result="$(lookup_slot "$slot")"; then
     account="${result%% *}"
     session="${result#* }"
     write_dropin "$account" "$session"
+    return $?
   else
-    write_dropin ""
+    rc=$?
   fi
+  if [[ "$rc" -eq 3 ]]; then
+    write_dropin ""
+    return $?
+  fi
+  fail_to_portal
 }
 
 main "$@"

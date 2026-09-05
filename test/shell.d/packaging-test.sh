@@ -64,14 +64,14 @@ else
   bad "ShellCheck rejects or is unavailable for omarchy-kids.install"
 fi
 
-if grep -qF '_omarchy_kids_machine_conf="/etc/omarchy-kids/machine.conf"' "$ROOT/omarchy-kids.install" &&
-  grep -qF '_omarchy_kids_conf_bin="/usr/bin/omarchy-kids-conf"' "$ROOT/omarchy-kids.install" &&
-  grep -qF 'machine get boot' "$ROOT/omarchy-kids.install" &&
-  ! grep -qE 'awk .*boot|boot.*awk' "$ROOT/omarchy-kids.install" &&
+if grep -qF '_omarchy_kids_conf_bin="/usr/bin/omarchy-kids-conf"' "$ROOT/omarchy-kids.install" &&
+  grep -qF 'machine migrate boot' "$ROOT/omarchy-kids.install" &&
+  ! grep -qF 'machine get boot' "$ROOT/omarchy-kids.install" &&
+  ! grep -qF 'machine set boot' "$ROOT/omarchy-kids.install" &&
   ! grep -q 'OMARCHY_KIDS_' "$ROOT/omarchy-kids.install"; then
-  ok "migration uses fixed paths and the trusted setter"
+  ok "scriptlet delegates the complete migration to the trusted locked command"
 else
-  bad "migration does not use the fixed trusted boot path"
+  bad "scriptlet bypasses the trusted locked boot migration"
 fi
 
 if grep -qF '"$R/share/boot/omarchy_kids.conf"' "$ROOT/scripts/deploy-boot-hook.sh" &&
@@ -96,12 +96,11 @@ kids_tree "$BOOT_TREE" "$ROOT"
 rm -f "$BOOT_TREE/lib"
 cp -a "$ROOT/lib" "$BOOT_TREE/lib"
 BOOT_CONF="$BOOT_TREE/bin/omarchy-kids-conf"
-kids_set_const "$INSTALL" _omarchy_kids_machine_conf "$CASE_ROOT/etc/omarchy-kids/machine.conf"
-kids_set_const "$INSTALL" _omarchy_kids_kids_dir "$CASE_ROOT/etc/omarchy-kids/kids"
 kids_set_const "$INSTALL" _omarchy_kids_legacy_dropin "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
-kids_set_const "$INSTALL" _omarchy_kids_migration_copy "$CASE_ROOT/var/lib/omarchy-kids/legacy-boot.conf"
+kids_set_const "$INSTALL" _omarchy_kids_migration_copy "$CASE_ROOT/run/omarchy-kids/legacy-boot.conf"
 kids_set_const "$INSTALL" _omarchy_kids_conf_bin "$BOOT_CONF"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_LOCK "$CASE_ROOT/run/omarchy-kids/boot-mode.lock"
 kids_id_stub "$STUBS" mark 0
 kids_stub "$STUBS" groupadd <<'EOF'
 #!/bin/bash
@@ -122,6 +121,34 @@ EOF
 kids_stub "$STUBS" chown <<'EOF'
 #!/bin/bash
 exit 0
+EOF
+REAL_FLOCK="$(command -v flock || true)"
+LOCK_HELD="$TMP/packaging-boot-mode-held"
+LOCK_OWNER="$TMP/packaging-boot-mode-owner"
+kids_stub "$STUBS" flock <<EOF
+#!/bin/bash
+if [[ -n "$REAL_FLOCK" ]]; then
+  exec "$REAL_FLOCK" "\$@"
+fi
+if [[ "\${1:-}" == -u ]]; then
+  if [[ "\$(cat "$LOCK_OWNER" 2>/dev/null || true)" == "\$PPID" ]]; then
+    rm -rf "$LOCK_HELD" "$LOCK_OWNER"
+  fi
+  exit 0
+fi
+for ((i = 0; i < 500; i++)); do
+  if mkdir "$LOCK_HELD" 2>/dev/null; then
+    printf '%s\n' "\$PPID" >"$LOCK_OWNER"
+    exit 0
+  fi
+  owner="\$(cat "$LOCK_OWNER" 2>/dev/null || true)"
+  if [[ -n "\$owner" ]] && ! kill -0 "\$owner" 2>/dev/null; then
+    rm -rf "$LOCK_HELD" "$LOCK_OWNER"
+    continue
+  fi
+  sleep 0.01
+done
+exit 1
 EOF
 REAL_STAT="$(command -v stat)"
 cat >"$STUBS/stat" <<EOF
@@ -222,6 +249,93 @@ legacy_dropin
 run_upgrade
 check_status "$?" 1 "ambiguous machine.conf blocks migration"
 check "$(mode)" "" "ambiguous machine.conf has no boot mode"
+
+# A portal transition arriving while the scriptlet restores disk evidence must
+# wait for that whole read-and-restore section, then remove the disk artifact.
+RACE_STUBS="$TMP/race-stubs"
+mkdir -p "$RACE_STUBS"
+cp "$STUBS/stat" "$RACE_STUBS/"
+RESTORE_REACHED="$TMP/restore-reached"
+ALLOW_RESTORE="$TMP/allow-restore"
+WRITER_STARTED="$TMP/writer-started"
+WRITER_WAITING="$TMP/writer-waiting"
+WRITER_COMPLETED="$TMP/writer-completed"
+REAL_INSTALL="$(command -v install)"
+cat >"$RACE_STUBS/install" <<EOF
+#!/bin/bash
+if [[ "\${*: -1}" == "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" ]]; then
+  touch "$RESTORE_REACHED"
+  while [[ ! -e "$ALLOW_RESTORE" ]]; do sleep 0.02; done
+fi
+exec "$REAL_INSTALL" "\$@"
+EOF
+chmod +x "$RACE_STUBS/install"
+cat >"$RACE_STUBS/flock" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" != -u && -e "$WRITER_STARTED" ]]; then
+  touch "$WRITER_WAITING"
+fi
+exec "$STUBS/bin/flock" "\$@"
+EOF
+chmod +x "$RACE_STUBS/flock"
+RACE_PATH="$RACE_STUBS:$STUBS/bin:$STUBS:$BASE_PATH"
+
+run_scriptlet_race() {
+  local machine_conf="$1" label="$2" upgrade_pid writer_pid upgrade_rc writer_rc writer_order
+  reset_case
+  rm -f "$RESTORE_REACHED" "$ALLOW_RESTORE" "$WRITER_STARTED" "$WRITER_WAITING" "$WRITER_COMPLETED"
+  rm -rf "$LOCK_HELD" "$LOCK_OWNER"
+  printf '%s' "$machine_conf" >"$CASE_ROOT/etc/omarchy-kids/machine.conf"
+  printf 'band=6-8\n' >"$CASE_ROOT/etc/omarchy-kids/kids/kid-ada.conf"
+  chmod 0644 "$CASE_ROOT/etc/omarchy-kids/machine.conf" "$CASE_ROOT/etc/omarchy-kids/kids/kid-ada.conf"
+  legacy_dropin
+  mkdir -p "$CASE_ROOT/run/omarchy-kids"
+  chmod 0755 "$CASE_ROOT/run/omarchy-kids"
+
+  PATH="$RACE_PATH" sh -c '. "$1"; pre_upgrade; rm -f "$2"; post_upgrade' sh \
+    "$INSTALL" "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" &
+  upgrade_pid=$!
+  for _ in {1..250}; do
+    [[ -e "$RESTORE_REACHED" ]] && break
+    sleep 0.02
+  done
+  check "$(test -e "$RESTORE_REACHED" && echo reached)" "reached" "$label: scriptlet reaches disk restoration"
+
+  (
+    set -e
+    PATH="$RACE_PATH"
+    export PATH
+    touch "$WRITER_STARTED"
+    "$BOOT_CONF" machine set boot portal >/dev/null
+    touch "$WRITER_COMPLETED"
+    rm -f "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+  ) &
+  writer_pid=$!
+  for _ in {1..250}; do
+    [[ -e "$WRITER_STARTED" ]] && break
+    sleep 0.02
+  done
+  for _ in {1..250}; do
+    [[ -e "$WRITER_WAITING" || -e "$WRITER_COMPLETED" ]] && break
+    sleep 0.02
+  done
+  writer_order=stalled
+  [[ -e "$WRITER_WAITING" ]] && writer_order=blocked
+  [[ -e "$WRITER_COMPLETED" ]] && writer_order=early
+  touch "$ALLOW_RESTORE"
+  wait "$upgrade_pid"
+  upgrade_rc=$?
+  wait "$writer_pid"
+  writer_rc=$?
+  check_status "$upgrade_rc" 0 "$label: scriptlet upgrade succeeds"
+  check_status "$writer_rc" 0 "$label: portal writer succeeds"
+  check "$writer_order" "blocked" "$label: scriptlet holds the lock through disk restoration"
+  check "$(mode)" "portal" "$label: later portal mode remains authoritative"
+  check "$(test ! -e "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo absent)" "absent" "$label: portal mode leaves no disk drop-in"
+}
+
+run_scriptlet_race $'parent=mark\nboot=disk\n' "existing disk mode race"
+run_scriptlet_race $'parent=mark\n' "first migration race"
 
 # post_remove remains harmless and does not erase transition-owned state.
 reset_case

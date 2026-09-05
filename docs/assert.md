@@ -1,6 +1,7 @@
 # Re-asserting locks: `omarchy-kids-assert`
 
-SPEC.md I-4, R-TRUST-5, R-BOOT-5, R-WEB-1, R-FND-2..6, §5.1.
+SPEC.md I-4, R-TRUST-5, R-BOOT-5, R-BOOTMODE-6, R-BOOTMODE-11,
+R-BOOTMODE-12, R-WEB-1, R-FND-2..6, §5.1.
 
 I-4 says every lock must be re-asserted after updates and verified at every kid login, and
 R-TRUST-5 names the two callers: the pacman hook and Omarchy's own post-update hook.
@@ -12,6 +13,31 @@ job belongs to `omarchy-kids-provision` (`docs/provision.md`), which is also whe
 this command calls (`lib/posture.sh`) is documented in full; this file only covers what
 `omarchy-kids-assert` checks, when, and what it does when a check fails.
 
+Before any check or repair, assert validates `boot=disk|portal` through the trusted reader in
+`lib/boot-mode.sh`. Missing, unsafe, duplicate, or invalid state exits `1` before mutation. Assert
+then repairs mode-independent locks.
+
+Before the boot section, assert waits up to five seconds for the root-owned
+`/run/omarchy-kids/boot-mode.lock`, reads the mode again while holding it, and keeps the lock through
+every UKI and Limine check and repair. A mode writer therefore cannot land between the read and a
+boot action. If the lock cannot be acquired, assert reports `skip boot-locks:unavailable`, performs
+no UKI or Limine access, and returns the result of its non-boot repairs. Portal mode reports
+`skip boot-locks:portal` and performs no boot access. With zero kids, assert checks `units`, prints
+the no-kids notice in normal output, and exits without a boot-lock status.
+
+Every supported mode writer must use the same lock. The current
+`omarchy-kids-conf machine set boot` writer does. Ticket #98's transition must acquire it before
+its first authoritative mode read or boot-artifact mutation and hold it through convergence, the
+final mode write, and readback. It must call the already-locked setter logic directly instead of
+starting a second `omarchy-kids-conf` process. A root process that edits `machine.conf` directly
+outside the supported command can bypass this contract, just as root can bypass the other locks.
+The package upgrade migrator also holds this lock through its mode read, any write and readback,
+and legacy drop-in restoration or removal.
+
+The lock FD remains open in child processes. If a boot repair leaves a descendant running after
+its direct command exits, that descendant keeps the critical section until it exits. This is
+intentional: another mode transition must not overlap work started by the protected repair.
+
 ## When it runs
 
 | Caller | How | Flags |
@@ -21,6 +47,12 @@ this command calls (`lib/posture.sh`) is documented in full; this file only cove
 | Omarchy's own post-update hook | `omarchy hook install post-update omarchy-kids-assert` (a line to add to that hook's config, not something this repo runs — see "Omarchy's post-update hook" below) | `--quiet` |
 | A parent, from the panel or a terminal | Directly | none, or `--dry-run` to preview |
 | `omarchy-kids-session`'s R-DESK-2 preflight | Does **not** call this command — it checks the same facts read-only, at login, and fails closed (full-screen "Ask a grown-up") rather than trying to fix anything mid-login | — |
+
+The five-second limit applies only while assert waits to enter the boot section. The pacman hook's
+total runtime is unbounded: non-boot repairs and disk-mode tools such as `mkinitcpio` have no
+timeout. This is deliberate because stopping a lock repair or initramfs rebuild midway can leave
+the transaction with stale enforcement or an incomplete boot artifact. Pacman therefore waits
+for those commands to finish or fail.
 
 ### Omarchy's post-update hook
 
@@ -38,8 +70,8 @@ hook alone already satisfies R-TRUST-5 for every package transaction, `omarchy u
 
 ## The lock list
 
-One line per lock, `<status> <lock-id>`, status one of `ok` / `fixed` / `FAIL` (`would-fix`
-under `--dry-run`, see below). Per-kid locks run once for every account under
+One line per lock, `<status> <lock-id>`, status one of `ok` / `fixed` / `FAIL` / `skip`
+(`would-fix` under `--dry-run`, see below). Per-kid locks run once for every account under
 `/etc/omarchy-kids/kids/*.conf`; machine-level locks run once per invocation, after every kid.
 
 ### Per kid (`<account>` from the profile filename)
@@ -71,21 +103,25 @@ under `--dry-run`, see below). Per-kid locks run once for every account under
 | `units` | The package's units are enabled: `omarchy-kids-boot-login`, its cleanup unit and `omarchy-kids-assert` in `multi-user.target.wants`, `omarchy-kids-authd.socket` and `omarchy-kids-wifid.socket` in `sockets.target.wants`, `omarchy-kids-time.timer` and `omarchy-kids-ask-collect.timer` in `timers.target.wants` (R-BOOT-3, R-SEC-2, R-WIFI-2 — issue #26 added the second socket; R-ASK-1..3 — issue #25 added the timer), the list itself shared with `bin/omarchy-kids-wizard`'s own Apply-time `enable --now` via `lib/kids.sh` (issue #46). **Runs even with zero kids provisioned** — unlike every other lock in this table — since it's machine-level, not per-kid: a fresh install before the first kid, or right after `omarchy-kids-remove` disables these again, still needs them back so the *next* wizard run's A2 (`docs/authd.md`) and Apply both work; without the first the owner's stock autologin also wins every boot | `systemctl enable` of the whole list, then (on a live system, not under `--root`) `systemctl start` of the sockets and timers |
 | `hyprland-configs` | Every `*.lua` under `/usr/share/omarchy-kids/hyprland` is byte-identical to its copy under `/etc/omarchy-kids/hyprland` (R-DESK-1) | `omarchy-kids-session --install-configs` |
 | `chromium-policy:<band>` | *Only for policy files that already exist* — `/etc/chromium/policies/managed/omarchy-kids-<band>.json` is mode `0640` (R-WEB-1) | `chmod 0640`; group ownership (`root:omarchy-kids-<band>`) is attempted best-effort and never decides ok/fixed/FAIL (see "Judgment calls") |
-| `boot-hook` | *Only if `/usr/lib/initcpio/hooks/omarchy-kids-unlock` is present* — the current UKI's initramfs contains the hook (R-BOOT-5), via `objcopy -O binary --only-section=.initrd <uki> img && lsinitcpio img \| grep omarchy-kids-unlock` | `mkinitcpio -P` |
-| `limine-snapshots` | *Only if `/etc/default/limine` exists* — while `boot.snapshot_entries` (`machine.conf`, docs/conf.md) is `hide` (the default), it holds `MAX_SNAPSHOT_ENTRIES=0`; while `show`, it holds no `MAX_SNAPSHOT_ENTRIES=0` line of ours (V6, issue #38) | Sets or replaces the line, remembering any previous value in a `# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=<old>` comment; `show` restores that value (or just drops our line if there was none). Then runs `limine-snapper-sync`, but only if that binary exists and this is a real run, not a scratch-tree test |
+| `boot-hook` | **Disk mode only.** If `/usr/lib/initcpio/hooks/omarchy-kids-unlock` is present, the current UKI's initramfs contains the hook (R-BOOT-5), via `objcopy -O binary --only-section=.initrd <uki> img && lsinitcpio img \| grep omarchy-kids-unlock` | `mkinitcpio -P` |
+| `limine-editor` | **Disk mode only.** Limine's editor is disabled when Limine is present (V6, issue #38) | Atomically sets `editor_enabled: no` in `/boot/limine.conf` |
+| `limine-snapshots` | **Disk mode only.** If `/etc/default/limine` exists, `boot.snapshot_entries` (`machine.conf`, docs/conf.md) selects whether Kids Mode hides snapshot entries (V6, issue #38) | Atomically sets or removes `MAX_SNAPSHOT_ENTRIES=0`, preserving the prior value, then runs `limine-snapper-sync` when installed on a real root |
+| `boot-locks:portal` | **Portal mode only.** States that assert deliberately did not inspect or repair UKI or Limine state (R-BOOTMODE-6) | None; reported as `skip`, never `ok` |
+| `boot-locks:unavailable` | The boot-mode transition lock failed its safety checks or was not available within five seconds | None; boot checks and repairs are skipped for this run and the line remains visible under `--quiet` |
 
 ## Exit codes
 
 - **0** — every lock is (or now is) fine, or nothing is provisioned.
-- **1** — at least one lock could not be fixed. One bad lock never stops the rest from being
-  checked; the exit code just reflects that something still needs a human.
+- **1** — the trusted boot mode is invalid or at least one selected lock could not be fixed. A busy
+  transition lock does not add a failure; it skips only the boot section. One bad non-boot lock
+  does not stop later checks.
 
-`--quiet` prints only `fixed`/`FAIL` lines (no `ok` lines, and no notice at all when nothing is
-provisioned — the pacman hook and the boot unit both use this). Without `--quiet`, an all-clear
-run still prints one `ok` line per lock, and a no-kids run prints one line explaining why it
-skipped everything else — after still asserting `units` (see above), which is machine-level, not
-per-kid, and runs either way. `--dry-run` reports what *would* change (`would-fix` instead of
-`fixed`) and writes nothing at all.
+`--quiet` prints `fixed`/`FAIL` lines and the exceptional `skip boot-locks:unavailable` line. It
+suppresses `ok`, the expected portal skip, and the no-kids notice; the pacman hook and boot unit
+both use it. Without `--quiet`, an all-clear run still prints one `ok` line per lock, and a no-kids
+run prints one line explaining why it skipped everything else — after still asserting `units`
+(see above), which is machine-level, not per-kid, and runs either way. `--dry-run` reports what
+*would* change (`would-fix` instead of `fixed`) and writes nothing at all.
 
 ## `file_stat` tries GNU `stat` first (issue #49 live fix)
 

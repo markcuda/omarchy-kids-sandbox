@@ -220,11 +220,12 @@ else
 fi
 
 if grep -qx 'BOOT_MODE_MACHINE_CONF=/etc/omarchy-kids/machine.conf' lib/boot-mode.sh &&
+  grep -qx 'BOOT_MODE_LOCK=/run/omarchy-kids/boot-mode.lock' lib/boot-mode.sh &&
   ! grep -q '^BOOT_MODE_ETC=' lib/boot-mode.sh &&
   ! grep -q 'OMARCHY_KIDS_' lib/boot-mode.sh; then
-  ok "trust boundary: boot-mode reads machine.conf from a fixed build-time path"
+  ok "trust boundary: boot-mode reads machine.conf and locks transitions at fixed build-time paths"
 else
-  bad "trust boundary: boot-mode has an environment-selected machine.conf path"
+  bad "trust boundary: boot-mode has an environment-selected authority or lock path"
 fi
 
 # =====================================================================

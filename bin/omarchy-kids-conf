@@ -79,6 +79,7 @@ Usage: $(basename "$0") <command> [args]
   slug <display name>        the kid- account-name slug for a display name
   machine get boot           print the trusted boot mode
   machine set boot <mode>    write the trusted boot mode (disk or portal)
+  machine migrate boot       migrate package-owned legacy boot state
   machine set parent <name>  write machine.conf's parent= (issue #46: the
                               wizard's Apply step, so omarchy-kids-authd and
                               omarchy-kids-provision both have a parent to
@@ -320,15 +321,95 @@ cmd_slug() {
   "$KIDS_PY" "$PYHELPER" slug "$@"
 }
 
+boot_migration_kids_dir() {
+  printf '%s/kids\n' "$(dirname "$BOOT_MODE_MACHINE_CONF")"
+}
+
+boot_migration_legacy_dropin() {
+  printf '%s/mkinitcpio.conf.d/omarchy_kids.conf\n' "$(dirname "$(dirname "$BOOT_MODE_MACHINE_CONF")")"
+}
+
+boot_migration_copy() {
+  printf '%s/legacy-boot.conf\n' "$(dirname "$BOOT_MODE_LOCK")"
+}
+
+boot_migration_evidence() {
+  local copy
+  copy="$(boot_migration_copy)"
+  [[ -f "$copy" && ! -L "$copy" ]] || return 1
+  grep -qF 'omarchy-kids-unlock' "$copy"
+}
+
+boot_migration_has_parent() {
+  awk -F= '$1 == "parent" && $2 != "" { found=1 } END { exit !found }' \
+    "$BOOT_MODE_MACHINE_CONF" 2>/dev/null
+}
+
+boot_migration_has_kid() {
+  find "$(boot_migration_kids_dir)" -maxdepth 1 -type f -name '*.conf' -print -quit 2>/dev/null | grep -q .
+}
+
+boot_migration_root_is_luks() {
+  local root_source
+  root_source="$(findmnt -no SOURCE / 2>/dev/null)" || return 1
+  case "$root_source" in
+    /dev/mapper/*)
+      command -v cryptsetup >/dev/null 2>&1 || return 1
+      cryptsetup status "${root_source#/dev/mapper/}" >/dev/null 2>&1
+      ;;
+    *)
+      command -v lsblk >/dev/null 2>&1 || return 1
+      lsblk -sno FSTYPE "$root_source" 2>/dev/null | grep -qx crypto_LUKS
+      ;;
+  esac
+}
+
+boot_migration_restore() {
+  local copy dropin
+  copy="$(boot_migration_copy)"
+  dropin="$(boot_migration_legacy_dropin)"
+  install -d -m 0755 "$(dirname "$dropin")" || return 1
+  install -m 0644 "$copy" "$dropin" || return 1
+  rm -f "$copy"
+}
+
+boot_migration_converge() {
+  local mode="$1" copy
+  copy="$(boot_migration_copy)"
+  if [[ "$mode" == disk ]] && boot_migration_evidence; then
+    boot_migration_restore
+  else
+    rm -f "$copy"
+  fi
+}
+
+boot_migration_run() {
+  local mode
+  if mode="$(boot_mode_get 2>/dev/null)"; then
+    boot_migration_converge "$mode"
+    return
+  fi
+
+  mode=portal
+  if boot_migration_has_parent && boot_migration_has_kid && boot_migration_root_is_luks &&
+    boot_migration_evidence; then
+    mode=disk
+  fi
+  boot_mode_set "$mode" || return 1
+  [[ "$(boot_mode_get 2>/dev/null || true)" == "$mode" ]] || return 1
+  boot_migration_converge "$mode"
+}
+
 # cmd_machine — machine.conf's trusted boot setting and parent key. The boot
-# setting is deliberately separate from later artifact transitions.
+# setter is separate from artifact transitions; package migration owns its
+# legacy artifact convergence as one locked operation.
 # Also makes sure the parent's own LUKS slot is recorded (docs/boot.md
 # step 5): without a "0=<parent>" line in luks-slots, a boot unlocked with
 # the parent's own disk password lands on the portal instead of their
 # desktop -- true on a fresh install and every time after "Remove Kids
 # Mode", since nothing else in this repo ever writes that line.
 cmd_machine() {
-  [[ $# -ge 1 ]] || die "usage: omarchy-kids-conf machine get|set ..."
+  [[ $# -ge 1 ]] || die "usage: omarchy-kids-conf machine get|set|migrate ..."
   local sub="$1"
   shift
   case "$sub" in
@@ -345,6 +426,9 @@ cmd_machine() {
         boot)
           [[ $# -eq 1 ]] || die "usage: omarchy-kids-conf machine set boot <disk|portal>"
           boot_mode_valid "$value" || die "invalid value for 'boot': must be disk or portal"
+          is_root || die "setting machine boot mode requires root" 1
+          boot_mode_lock_acquire || die "could not acquire the boot-mode transition lock" 1
+          trap boot_mode_lock_release EXIT
           boot_mode_set "$value" || exit $?
           ;;
         parent)
@@ -355,6 +439,14 @@ cmd_machine() {
         *) die "unknown machine key: '$key' (only 'boot' and 'parent' are supported)" ;;
       esac
       echo "machine: $key=$value"
+      ;;
+    migrate)
+      [[ $# -eq 1 && "$1" == boot ]] || die "usage: omarchy-kids-conf machine migrate boot"
+      is_root || die "migrating machine boot mode requires root" 1
+      boot_mode_lock_acquire || die "could not acquire the boot-mode transition lock" 1
+      trap boot_mode_lock_release EXIT
+      boot_migration_run || exit $?
+      echo "machine: boot=$(boot_mode_get)"
       ;;
     *) die "unknown machine subcommand: '$sub' (see --help)" ;;
   esac

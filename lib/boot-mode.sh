@@ -5,6 +5,10 @@
 # substitute them in a copied tree, never through the environment.
 
 BOOT_MODE_MACHINE_CONF=/etc/omarchy-kids/machine.conf
+# Every path that reads the mode to act on it, and every path that changes it, must hold this lock.
+# Descendants inherit its open FD, so the critical section lasts until the final descendant exits.
+BOOT_MODE_LOCK=/run/omarchy-kids/boot-mode.lock
+BOOT_MODE_LOCK_FD=9
 
 boot_mode_valid() {
   [[ "$1" == disk || "$1" == portal ]]
@@ -61,6 +65,48 @@ boot_mode_get() {
   boot_mode_dir_safe "$(dirname "$BOOT_MODE_MACHINE_CONF")" || return 1
   boot_mode_file_safe "$BOOT_MODE_MACHINE_CONF" || return 1
   boot_mode_scan "$BOOT_MODE_MACHINE_CONF" 0
+}
+
+boot_mode_lock_acquire() {
+  local wait_seconds="${1:-}" file="$BOOT_MODE_LOCK" dir
+  dir="$(dirname "$file")"
+
+  if [[ -e "$dir" || -L "$dir" ]]; then
+    boot_mode_dir_safe "$dir" || return 1
+  else
+    install -d -m 0755 "$dir" || return 1
+    chown root:root "$dir" || return 1
+    boot_mode_dir_safe "$dir" || return 1
+  fi
+
+  if [[ -e "$file" || -L "$file" ]]; then
+    [[ -f "$file" && ! -L "$file" ]] || return 1
+    [[ "$(file_stat u "$file")" == 0 ]] || return 1
+    [[ "$(file_stat G "$file")" == root ]] || return 1
+  else
+    (umask 077 && : >>"$file") || return 1
+    [[ "$(file_stat u "$file")" == 0 ]] || return 1
+    [[ "$(file_stat G "$file")" == root ]] || return 1
+  fi
+  chmod 0600 "$file" || return 1
+
+  exec 9>>"$file" || return 1
+  if [[ -n "$wait_seconds" ]]; then
+    flock -w "$wait_seconds" "$BOOT_MODE_LOCK_FD" || {
+      exec 9>&-
+      return 1
+    }
+  else
+    flock "$BOOT_MODE_LOCK_FD" || {
+      exec 9>&-
+      return 1
+    }
+  fi
+}
+
+boot_mode_lock_release() {
+  flock -u "$BOOT_MODE_LOCK_FD" 2>/dev/null || true
+  exec 9>&-
 }
 
 boot_mode_set() {

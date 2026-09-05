@@ -66,7 +66,7 @@ EOF
 # *copied* command, the one relocation seam a test may use: the same
 # build-time substitution PKGBUILD does at package time (KIDS_PY,
 # TEST_SOCKET_ROOT, omarchy-kids-web's SYSROOT, omarchy-kids-conf's SCHEMA, and
-# BOOT_MODE_MACHINE_CONF). Never an env override.
+# BOOT_MODE_MACHINE_CONF and BOOT_MODE_LOCK). Never an env override.
 kids_set_const() {
   local file="$1" name="$2" value="$3" tmp line
   tmp="$(mktemp)"

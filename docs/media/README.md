@@ -10,7 +10,7 @@ replaces one `<surface>-<theme>.png`; a failed capture leaves the previous file 
 | `launcher-<theme>.png` | The test kid's Level 1 launcher and clock. |
 | `exit-modal-<theme>.png` | The parent-password exit card over the kid desktop. |
 | `ask-<theme>.png` | The Ask a grown-up card for fifteen more minutes. |
-| `times-up-<theme>.png` | The root-triggered Time's Up card after its QML readiness check reports a rendered countdown. |
+| `times-up-<theme>.png` | The root-triggered Time's Up card after its QML readiness check and the captured PNG both confirm the countdown. |
 | `wifi-picker-<theme>.png` | The keyboard-driven Wi-Fi picker in helper mode. |
 | `plugins-shelf-<theme>.png` | The read-only More apps shelf for the test kid's band. |
 | `wizard-<theme>.png` | The parent wizard's Welcome screen in a floating terminal. |

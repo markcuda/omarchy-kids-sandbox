@@ -234,7 +234,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 capture() {
-  local surface="$1" theme="$2" name
+  local surface="$1" theme="$2" verifier="${3:-}" name
   name="$surface-$theme"
   rm -f "$STAGE_DIR/$name.png" || return 1
   shot "$name" || return 1
@@ -242,6 +242,11 @@ capture() {
     echo "media-driver: shot returned without $name.png" >&2
     return 1
   }
+  if [[ -n "$verifier" ]] && ! "$verifier" "$STAGE_DIR/$name.png"; then
+    echo "media-driver: $name.png does not show the required surface; refusing to release it" >&2
+    rm -f "$STAGE_DIR/$name.png"
+    return 1
+  fi
   mv -f "$STAGE_DIR/$name.png" "$MEDIA_DIR/$name.png" || return 1
   echo "saved docs/media/$name.png"
 }
@@ -291,6 +296,10 @@ wait_times_up_ready() {
   done
   echo "media-driver: Time's Up card and countdown did not report ready within ${deadline}s" >&2
   return 1
+}
+
+verify_times_up_image() {
+  "$SCRIPT_DIR/image-contains-text" "$1" "Time's up" "Finishing in"
 }
 
 prepare_kid() {
@@ -359,7 +368,7 @@ shoot_times_up() {
   vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q lights_out_weekend 00:01 >/dev/null" || return 1
   vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-time-ledger tick >/dev/null" || return 1
   wait_times_up_ready 45 || return 1
-  capture times-up "$theme"
+  capture times-up "$theme" verify_times_up_image
 }
 
 shoot_wifi_picker() {

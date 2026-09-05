@@ -32,7 +32,14 @@ make_fixture() {
   cp "$DIR/scripts/vm-driver-lock" "$root/scripts/vm-driver-lock"
   sed -i.bak "s#/tmp/omarchy-kids-vm-driver.lock#$root/vm-driver.lock#" "$root/scripts/vm-driver-lock"
   rm -f "$root/scripts/vm-driver-lock.bak"
-  chmod +x "$root/scripts/media-driver.sh" "$root/scripts/vm-driver-lock"
+  cat >"$root/scripts/image-contains-text" <<'EOF'
+#!/bin/bash
+: "${MEDIA_TEST_LOG:?}"
+printf 'image-contains-text %s\n' "$*" >>"$MEDIA_TEST_LOG"
+[[ "${MEDIA_TEST_TIMES_UP_IMAGE:-1}" == 1 ]]
+EOF
+  chmod +x "$root/scripts/media-driver.sh" "$root/scripts/vm-driver-lock" \
+    "$root/scripts/image-contains-text"
   cat >"$root/test/live/lib.sh" <<'EOF'
 LIVE_OWNER_PASSWORD=owner-password
 LIVE_OWNER_ACCOUNT=kid-test
@@ -348,6 +355,19 @@ else
 fi
 check_contains "$(cat "$DIR/share/time/timesup.qml")" "function timesUpReady(): bool" \
   "Time's Up exposes its rendered card and countdown readiness"
+
+ROOT13="$TMP/times-up-wrong-frame"
+make_fixture "$ROOT13"
+LOG13="$TMP/times-up-wrong-frame.log"
+MEDIA_TEST_LOG="$LOG13" MEDIA_TEST_TIMES_UP_IMAGE=0 \
+  "$ROOT13/scripts/media-driver.sh" --surface times-up tokyo-night >"$TMP/times-up-wrong-frame.out" 2>&1
+status=$?
+check "$status" "1" "a Time's Up frame without the card makes the run fail"
+[[ ! -e "$ROOT13/docs/media/times-up-tokyo-night.png" ]] &&
+  pass "an unverified Time's Up frame is never released" ||
+  fail_ "the driver released a Time's Up frame whose pixels were not verified"
+check_contains "$(cat "$LOG13")" "image-contains-text" \
+  "the captured Time's Up PNG is checked for the card and countdown text"
 
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck -S warning "$DIR/scripts/media-driver.sh" "$DIR/test/shell.d/media-driver-test.sh"; then

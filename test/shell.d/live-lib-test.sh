@@ -96,23 +96,33 @@ check "$kids" "$CSV" "theme.conf.user: reads back the complete two-kid list"
 check "$(portal_conf_accounts "$kids" "$parents")" $'kid-ada\nkid-cy\nkid-vm' \
   "theme.conf.user: both written kids and the parent survive readback"
 
-ROUNDTRIP_NAME='kid-ada "kid-cy" \kid-ada'
 OMARCHY_KIDS_ROOT="$TMP/roundtrip-root"
 OMARCHY_KIDS_HOME_ROOT="$TMP/roundtrip-home"
 export OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
-posture_write_portal_conf kid-vm \
-  "$(printf 'kid-ada\t%s\tfox' "$ROUNDTRIP_NAME")" \
-  "$(printf 'kid-cy\tkid-cy\towl')"
-ROUNDTRIP_CONF="$OMARCHY_KIDS_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
-conf="$(cat "$ROUNDTRIP_CONF")"
+ROUNDTRIP_NAMES=(
+  'Ada, Jr'
+  'Ada: Cy'
+  'Ada "Cy" \kid'
+  $'Ada\rCy'
+  $'Ada%2C, Cy: "kid" \\ \r'
+)
+for ROUNDTRIP_NAME in "${ROUNDTRIP_NAMES[@]}"; do
+  posture_write_portal_conf kid-vm \
+    "$(printf 'kid-ada\t%s\tfox' "$ROUNDTRIP_NAME")" \
+    "$(printf 'kid-cy\tCy\towl')"
+  ROUNDTRIP_CONF="$OMARCHY_KIDS_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
+  conf="$(cat "$ROUNDTRIP_CONF")"
+  kids="$(portal_conf_field "$conf" kids)"
+  check "$(portal_kid_name "$kids" kid-ada)" "$ROUNDTRIP_NAME" \
+    "theme.conf.user: adversarial display name survives writer-reader round trip"
+  check "$(portal_kid_name "$kids" kid-cy)" "Cy" \
+    "theme.conf.user: second kid survives adversarial-name readback"
+  check "$(portal_kid_count "$kids")" "2" \
+    "theme.conf.user: adversarial display name preserves both kids"
+done
 check "$(grep '^kids=' "$ROUNDTRIP_CONF")" \
-  'kids="kid-ada:kid-ada \"kid-cy\" \\kid-ada:fox,kid-cy:kid-cy:owl"' \
-  "theme.conf.user: writer uses QSettings escapes inside the quoted kid list"
-kids="$(portal_conf_field "$conf" kids)"
-check "$kids" "kid-ada:$ROUNDTRIP_NAME:fox,kid-cy:kid-cy:owl" \
-  "theme.conf.user: quote and backslash display name survives writer-reader round trip"
-check "$(portal_kid_count "$kids")" "2" \
-  "theme.conf.user: escaped display name preserves both kids after readback"
+  'kids="kid-ada:Ada%252C%2C Cy%3A \"kid\" \\ \r:fox,kid-cy:Cy:owl"' \
+  "theme.conf.user: payload encoding precedes exact QSettings escaping"
 unset OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
 check "$(portal_parse_tile_report 'qrc:/Main.qml: portal: 3 tiles (kids=2 parents=1)')" "3 2 1" \
   "portal_parse_tile_report: extracts the greeter's observed finalized counts"

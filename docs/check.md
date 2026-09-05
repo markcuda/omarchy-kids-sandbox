@@ -56,7 +56,7 @@ side-effect-free function.
 `no-sudo` (no entry in `/etc/sudoers`/`/etc/sudoers.d` — R-FND-3; WARN, not FAIL, if those files
 aren't readable here, e.g. not running as root), `band-group` (`omarchy-kids` plus the band group —
 reuses `groups_ok`), `home-noexec` (`findmnt`, live, not just `fstab` — reuses `mount_ok`), `gecos`
-(matches the profile's `name` — reuses `gecos_ok`, WARN if there's no `getent` on this box at all).
+(matches the safe passwd fallback — reuses `gecos_ok`, WARN if there's no `getent` on this box at all).
 
 ### Locks
 

@@ -123,18 +123,59 @@ boot_with() {
   return 1
 }
 
-# portal_conf_unquote VALUE — decodes the quote and backslash escaping that
-# QSettings removes before QML sees theme.conf.user values.
+# portal_conf_unquote VALUE — decodes the QSettings escapes that are present
+# in a quoted raw theme.conf.user value.
 portal_conf_unquote() {
-  local value="$1"
+  local value="$1" decoded="" ch hex out="" i=0
   case "$value" in
     \"*\")
       value="${value#\"}"
       value="${value%\"}"
-      value="${value//\\\"/\"}"
-      value="${value//\\\\/\\}"
       ;;
+    *) printf '%s\n' "$value"; return ;;
   esac
+  while ((i < ${#value})); do
+    ch="${value:i:1}"
+    i=$((i + 1))
+    if [[ "$ch" != $'\\' ]]; then
+      out+="$ch"
+      continue
+    fi
+    ((i < ${#value})) || break
+    ch="${value:i:1}"
+    i=$((i + 1))
+    case "$ch" in
+      0) ;;
+      a) out+=$'\a' ;;
+      b) out+=$'\b' ;;
+      f) out+=$'\f' ;;
+      n) out+=$'\n' ;;
+      r) out+=$'\r' ;;
+      t) out+=$'\t' ;;
+      v) out+=$'\v' ;;
+      '"' | $'\\') out+="$ch" ;;
+      x)
+        hex=""
+        while ((i < ${#value})) && [[ "${value:i:1}" =~ ^[0-9A-Fa-f]$ ]]; do
+          hex+="${value:i:1}"
+          i=$((i + 1))
+        done
+        [[ -n "$hex" ]] || continue
+        printf -v decoded '%b' "\\x$hex"
+        out+="$decoded"
+        ;;
+    esac
+  done
+  printf '%s\n' "$out"
+}
+
+# portal_conf_decode_field VALUE — reverses posture_portal_field_encode
+# after record and field splitting have already happened.
+portal_conf_decode_field() {
+  local value="$1"
+  value="${value//%3A/:}"
+  value="${value//%2C/,}"
+  value="${value//%25/%}"
   printf '%s\n' "$value"
 }
 
@@ -157,11 +198,32 @@ portal_kid_index() {
   IFS=$old_ifs
   for entry in "$@"; do
     a="${entry%%:*}"
+    a="$(portal_conf_decode_field "$a")"
     if [[ "$a" == "$acct" ]]; then
       echo "$i"
       return 0
     fi
     i=$((i + 1))
+  done
+  return 1
+}
+
+# portal_kid_name KIDS_CSV ACCOUNT — prints one decoded display name.
+portal_kid_name() {
+  local csv acct="$2" entry account rest name old_ifs=$IFS
+  csv="$(portal_conf_unquote "$1")"
+  IFS=','
+  # shellcheck disable=SC2086 # word-splitting on the record comma is the point
+  set -- $csv
+  IFS=$old_ifs
+  for entry in "$@"; do
+    account="$(portal_conf_decode_field "${entry%%:*}")"
+    rest="${entry#*:}"
+    name="${rest%%:*}"
+    if [[ "$account" == "$acct" ]]; then
+      portal_conf_decode_field "$name"
+      return 0
+    fi
   done
   return 1
 }
@@ -189,7 +251,7 @@ portal_conf_accounts() {
       IFS=',' read -ra entries <<<"$csv"
       IFS=$old_ifs
       for entry in "${entries[@]}"; do
-        [[ -n "$entry" ]] && printf '%s\n' "${entry%%:*}"
+        [[ -n "$entry" ]] && portal_conf_decode_field "${entry%%:*}"
       done
     done
   } | awk '!seen[$0]++'

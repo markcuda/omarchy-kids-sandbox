@@ -42,7 +42,7 @@ Usage: omarchy-kids-assert [--quiet] [--dry-run]
 Re-asserts every Kids Mode lock for every provisioned kid, and every
 machine-level lock, idempotently (SPEC.md I-4, R-TRUST-5): fstab bind
 lines and noexec mounts, pam_namespace lines, the AccountsService pin,
-the passwd GECOS display name, the SDDM face icon, group membership, each
+the passwd GECOS fallback, the SDDM face icon, group membership, each
 kid's own current Omarchy theme (issue #53), the polkit admin/deny rules,
 the SDDM portal theme selection and its theme.conf.user parent/avatar data
 (R-LOGIN, issue #39), pam_namespace on sddm and systemd-user, masked

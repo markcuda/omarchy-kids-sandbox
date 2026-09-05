@@ -261,6 +261,11 @@ status=$?
 check "$status" "75" "a second VM driver is refused while the shared lock is held"
 check_contains "$(cat "$TMP/contender.out")" "media-driver.sh" \
   "the lock refusal identifies the run holding the VM"
+if [[ "$(cat "$TMP/contender.out")" != *"nord"* ]]; then
+  pass "the lock refusal does not disclose driver arguments"
+else
+  fail_ "the lock refusal disclosed driver arguments"
+fi
 : >"$HOLD7.release"
 wait "$holder_pid"
 check "$(grep -c '^boot_with ' "$LOG7")" "1" "the refused driver never reaches boot_with"

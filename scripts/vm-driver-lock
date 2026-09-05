@@ -26,7 +26,7 @@ exec perl -MFcntl=:DEFAULT,:flock -MIO::Handle -MPOSIX=strftime -e '
   seek($lock, 0, 0);
   $lock->autoflush(1);
   print $lock "pid=$$ started=" . strftime("%Y-%m-%dT%H:%M:%SZ", gmtime) .
-    " command=" . join(" ", @ARGV) . "\n";
+    " command=$ARGV[0]\n";
   fcntl($lock, F_SETFD, 0)
     or die "vm-driver-lock: cannot retain $path across exec: $!\n";
   $^F = fileno($lock);

@@ -83,11 +83,11 @@ failed restore keeps the first saved value until a later cleanup restores it. SI
 run the same cleanup. Inspect the VM after SIGKILL, power loss, or any run whose final cleanup
 checks fail.
 
-The Time's Up shot waits on the running QML card's `timesUpReady` IPC result. That result stays
-false until the grace document is loaded, the card is visible, and its countdown has rendered a
-tick. The Mac then uses Vision text recognition on the captured PNG and requires both the card
-title and countdown label. A failed readiness or image check leaves the previous release image
-untouched.
+Every shot polls disposable frames until macOS Vision sees that surface's required text, then
+checks the separate release PNG for the same text before moving it into `docs/media/`. Time's Up
+also waits on the running QML card's `timesUpReady` IPC result. That result stays false until the
+grace document is loaded, the card is visible, and its countdown has rendered a tick. A failed
+readiness or release-image check leaves the previous image untouched.
 
 The driver does not offer `bar-module`. Omarchy 4.0.2's SDDM path cannot show the parent session
 while keeping the kid session live. The old capture stopped status updates, ended the kid session,

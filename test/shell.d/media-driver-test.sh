@@ -24,6 +24,11 @@ check_contains() {
     fail_ "$3 (missing '$2')"
   fi
 }
+check_file_contains() {
+  if grep -Fq "$2" "$1"; then pass "$3"; else
+    fail_ "$3 (missing '$2')"
+  fi
+}
 
 make_fixture() {
   local root="$1"
@@ -36,6 +41,9 @@ make_fixture() {
 #!/bin/bash
 : "${MEDIA_TEST_LOG:?}"
 printf 'image-contains-text %s\n' "$*" >>"$MEDIA_TEST_LOG"
+image_name="$(basename "$1")"
+[[ -z "${MEDIA_TEST_NEVER_RENDER:-}" || "$*" != *"$MEDIA_TEST_NEVER_RENDER"* ]] || exit 1
+[[ "${MEDIA_TEST_BAD_IMAGE:-}" != "$image_name" ]] || exit 1
 [[ "${MEDIA_TEST_TIMES_UP_IMAGE:-1}" == 1 ]]
 EOF
   chmod +x "$root/scripts/media-driver.sh" "$root/scripts/vm-driver-lock" \
@@ -130,6 +138,7 @@ vmroot() {
       ;;
     *"omarchy-kids-conf get kid-cy wifi"*) echo parent ;;
     *"omarchy-kids-conf get kid-cy band"*) echo 6-8 ;;
+    *"omarchy-kids-conf get kid-cy name"*) echo Cy ;;
   esac
 }
 EOF
@@ -154,6 +163,24 @@ for theme in tokyo-night catppuccin-latte; do
   done
 done
 log1="$(cat "$LOG1")"
+while IFS='|' read -r surface required; do
+  for theme in tokyo-night catppuccin-latte; do
+    check_file_contains "$LOG1" "/media-ready-$surface-$theme.png $required" \
+      "$surface waits for rendered text under $theme"
+    check_file_contains "$LOG1" "/$surface-$theme.png $required" \
+      "$surface verifies required text in the release PNG under $theme"
+  done
+done <<'EOF'
+portal|Cy
+launcher|GCompris
+exit-modal|Finish for Cy
+ask|Ask a grown-up 15 more minutes
+times-up|Time's up Finishing in
+wifi-picker|Wi-Fi Enter join
+plugins-shelf|More apps Pick one
+wizard|Welcome Begin
+panel|Kids Mode Add a kid
+EOF
 check_contains "$log1" "boot_with owner-password kid-test" "driver starts from a known owner boot"
 check_contains "$log1" "export OMARCHY_PATH=/usr/share/omarchy; /usr/bin/omarchy-theme-set tokyo-night" \
   "parent theme uses omarchy-theme-set with OMARCHY_PATH"
@@ -380,6 +407,26 @@ check "$status" "1" "a Time's Up frame without the card makes the run fail"
   fail_ "the driver released a Time's Up frame whose pixels were not verified"
 check_contains "$(cat "$LOG13")" "image-contains-text" \
   "the captured Time's Up PNG is checked for the card and countdown text"
+
+ROOT14="$TMP/ask-not-ready"
+make_fixture "$ROOT14"
+LOG14="$TMP/ask-not-ready.log"
+MEDIA_TEST_LOG="$LOG14" MEDIA_TEST_NEVER_RENDER="Ask a grown-up" \
+  "$ROOT14/scripts/media-driver.sh" --surface ask tokyo-night >"$TMP/ask-not-ready.out" 2>&1
+status=$?
+check "$status" "1" "an Ask card that never renders makes the run fail"
+[[ ! -e "$ROOT14/docs/media/ask-tokyo-night.png" ]] &&
+  pass "an unready Ask card is never released" || fail_ "the driver released an unready Ask card"
+
+ROOT15="$TMP/ask-wrong-frame"
+make_fixture "$ROOT15"
+LOG15="$TMP/ask-wrong-frame.log"
+MEDIA_TEST_LOG="$LOG15" MEDIA_TEST_BAD_IMAGE="ask-tokyo-night.png" \
+  "$ROOT15/scripts/media-driver.sh" --surface ask tokyo-night >"$TMP/ask-wrong-frame.out" 2>&1
+status=$?
+check "$status" "1" "an Ask release frame without the card makes the run fail"
+[[ ! -e "$ROOT15/docs/media/ask-tokyo-night.png" ]] &&
+  pass "an unverified Ask frame is never released" || fail_ "the driver released an unverified Ask frame"
 
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck -S warning "$DIR/scripts/media-driver.sh" "$DIR/test/shell.d/media-driver-test.sh"; then

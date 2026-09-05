@@ -76,6 +76,10 @@ cat >"$TOOLS/stat" <<EOF
 #!/bin/bash
 if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
 [[ "\${3:-}" != "$ETC/machine.conf" ]] || printf 'stat-machine\n' >>"$LOG"
+if [[ "\${3:-}" == "$ETC/machine.conf" && -e "$TMP/require-transition-lock" && ! -e "$TMP/transition-lock-held" ]]; then
+  printf 'stat-machine-without-lock\n' >>"$LOG"
+  exit 1
+fi
 if [[ "\${3:-}" == "$ETC/machine.conf" && -e "$TMP/fail-next-mode-read" ]]; then
   rm -f "$TMP/fail-next-mode-read"
   exit 1
@@ -102,6 +106,11 @@ EOF
 cat >"$TOOLS/flock" <<EOF
 #!/bin/bash
 printf 'flock %s\n' "\$*" >>"$LOG"
+if [[ "\${1:-}" == -u ]]; then
+  rm -f "$TMP/transition-lock-held"
+else
+  : >"$TMP/transition-lock-held"
+fi
 exit 0
 EOF
 cat >"$TOOLS/findmnt" <<'EOF'
@@ -339,16 +348,20 @@ check_eq "$?" 1 "a noninteractive disk transition without secrets fails"
 check_eq "$(grep -c '^cryptsetup luksAddKey ' "$LOG" 2>/dev/null || true)" 0 \
   "a noninteractive disk transition without secrets adds no slot"
 : >"$LOG"
+: >"$TMP/require-transition-lock"
 
 printf 'parentpass\nadapass\ncypass\n' |
   OMARCHY_KIDS_LUKS_DEVICE=/dev/hostile PATH="$PATH_VALUE" \
     "$CONF" machine set boot disk --secrets-stdin \
     >"$TMP/disk.out" 2>"$TMP/disk.error"
 status=$?
+rm -f "$TMP/require-transition-lock"
 transition_log="$(cat "$LOG")"
 check_eq "$status" 0 "portal to disk exits 0"
 check_eq "$(grep -c '^flock [0-9][0-9]*$' <<<"$transition_log")" 1 \
   "the transition acquires the shared boot-mode lock exactly once"
+check_eq "$(grep -c '^stat-machine-without-lock$' <<<"$transition_log")" 0 \
+  "the lock is held before the first mode read"
 check_eq "$(tail -2 <<<"$transition_log")" $'stat-machine\nflock -u 9' \
   "the lock stays held through final mode readback"
 if grep -qF /dev/hostile <<<"$transition_log"; then

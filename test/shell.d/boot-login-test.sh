@@ -26,6 +26,33 @@ check_file() {
   if [[ -f "$file" && "$(cat "$file")" == "$text" ]]; then pass "$label"; else fail "$label"; fi
 }
 
+record_boot_state() {
+  local root path relative mtime contents
+  for root in "$ETC" "$RUN_DIR" "$SDDM_DIR"; do
+    while IFS= read -r path; do
+      relative="${path#"$TMP"/}"
+      mtime="$(kids_file_mtime "$path")"
+      if [[ -d "$path" ]]; then
+        printf 'dir\t%s\t%s\n' "$relative" "$mtime"
+      elif [[ -f "$path" ]]; then
+        contents="$(od -An -v -tx1 "$path" | tr -d ' \n')"
+        printf 'file\t%s\t%s\t%s\n' "$relative" "$mtime" "$contents"
+      else
+        printf 'other\t%s\t%s\n' "$relative" "$mtime"
+      fi
+    done < <(find "$root" -print | sort)
+  done
+}
+
+pin_boot_state_mtimes() {
+  find "$ETC" "$RUN_DIR" "$SDDM_DIR" -exec touch -t 200001010000 {} +
+}
+
+check_state_unchanged() {
+  local before="$1" after="$2" label="$3"
+  if cmp -s "$before" "$after"; then pass "$label"; else fail "$label"; fi
+}
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
@@ -98,31 +125,35 @@ write_slot() {
 }
 
 printf '[Autologin]\nUser=mark\nSession=omarchy.desktop\n' >"$SDDM_DIR/10-omarchy-autologin.conf"
-cp "$SDDM_DIR/10-omarchy-autologin.conf" "$TMP/stock-autologin.before"
 
 # Portal mode does not create, replace, or clean any boot-login state.
 set_mode portal
 printf 'keep this drop-in\n' >"$DROPIN"
 printf 'keep this marker\n' >"$MARKER"
+pin_boot_state_mtimes
+record_boot_state >"$TMP/portal.before"
 run_boot_login >/dev/null 2>&1
 check_status "$?" 0 "portal mode exits 0"
-check_file "$DROPIN" "keep this drop-in" "portal mode leaves the Kids Mode drop-in byte-for-byte"
-check_file "$MARKER" "keep this marker" "portal mode leaves the cleanup marker byte-for-byte"
+record_boot_state >"$TMP/portal.after"
+check_state_unchanged "$TMP/portal.before" "$TMP/portal.after" \
+  "portal mode leaves every file, directory, mtime, and byte unchanged"
+record_boot_state >"$TMP/portal-cleanup.before"
 run_boot_login --cleanup >/dev/null 2>&1
 check_status "$?" 0 "portal cleanup exits 0"
-check_file "$DROPIN" "keep this drop-in" "portal cleanup writes nothing"
-cmp -s "$TMP/stock-autologin.before" "$SDDM_DIR/10-omarchy-autologin.conf" &&
-  pass "portal mode preserves stock autologin" || fail "portal mode changed stock autologin"
+record_boot_state >"$TMP/portal-cleanup.after"
+check_state_unchanged "$TMP/portal-cleanup.before" "$TMP/portal-cleanup.after" \
+  "portal cleanup leaves every file, directory, mtime, and byte unchanged"
 
 # In disk mode, no recorded slot is also a true no-op.
 set_mode disk
 rm -f "$DROPIN" "$MARKER" "$RUN_DIR/boot-slot"
+pin_boot_state_mtimes
+record_boot_state >"$TMP/missing-slot.before"
 run_boot_login >/dev/null 2>&1
 check_status "$?" 0 "missing boot-slot exits 0"
-[[ ! -e "$DROPIN" && ! -e "$MARKER" ]] &&
-  pass "missing boot-slot creates no drop-in or marker" || fail "missing boot-slot wrote state"
-cmp -s "$TMP/stock-autologin.before" "$SDDM_DIR/10-omarchy-autologin.conf" &&
-  pass "missing boot-slot preserves stock autologin" || fail "missing boot-slot changed stock autologin"
+record_boot_state >"$TMP/missing-slot.after"
+check_state_unchanged "$TMP/missing-slot.before" "$TMP/missing-slot.after" \
+  "missing boot-slot leaves every file, directory, mtime, and byte unchanged"
 
 cat >"$SLOTS_FILE" <<'EOF'
 0=mark

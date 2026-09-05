@@ -234,7 +234,9 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 capture() {
-  local surface="$1" theme="$2" verifier="${3:-}" name
+  local surface="$1" theme="$2" name
+  shift 2
+  (($#)) || return 1
   name="$surface-$theme"
   rm -f "$STAGE_DIR/$name.png" || return 1
   shot "$name" || return 1
@@ -242,13 +244,39 @@ capture() {
     echo "media-driver: shot returned without $name.png" >&2
     return 1
   }
-  if [[ -n "$verifier" ]] && ! "$verifier" "$STAGE_DIR/$name.png"; then
+  if ! "$SCRIPT_DIR/image-contains-text" "$STAGE_DIR/$name.png" "$@"; then
     echo "media-driver: $name.png does not show the required surface; refusing to release it" >&2
     rm -f "$STAGE_DIR/$name.png"
     return 1
   fi
   mv -f "$STAGE_DIR/$name.png" "$MEDIA_DIR/$name.png" || return 1
   echo "saved docs/media/$name.png"
+}
+
+wait_rendered_surface() {
+  local surface="$1" theme="$2" deadline="$3" waited=0 probe
+  shift 3
+  probe="media-ready-$surface-$theme"
+  while ((waited < deadline)); do
+    rm -f "$STAGE_DIR/$probe.png"
+    if shot "$probe" >/dev/null && [[ -s "$STAGE_DIR/$probe.png" ]] &&
+      "$SCRIPT_DIR/image-contains-text" "$STAGE_DIR/$probe.png" "$@"; then
+      rm -f "$STAGE_DIR/$probe.png"
+      return 0
+    fi
+    rm -f "$STAGE_DIR/$probe.png"
+    sleep 1
+    waited=$((waited + 1))
+  done
+  echo "media-driver: $surface did not render its required text within ${deadline}s" >&2
+  return 1
+}
+
+wait_and_capture() {
+  local surface="$1" theme="$2" deadline="$3"
+  shift 3
+  wait_rendered_surface "$surface" "$theme" "$deadline" "$@" || return 1
+  capture "$surface" "$theme" "$@"
 }
 
 wait_vm_process() {
@@ -298,10 +326,6 @@ wait_times_up_ready() {
   return 1
 }
 
-verify_times_up_image() {
-  "$SCRIPT_DIR/image-contains-text" "$1" "Time's up" "Finishing in"
-}
-
 prepare_kid() {
   portal_reset 45 || return 1
   portal_login "$LIVE_KID1_ACCOUNT" "$LIVE_KID1_PASSWORD" || return 1
@@ -316,26 +340,32 @@ prepare_owner() {
 }
 
 shoot_portal() {
-  local theme="$1"
+  local theme="$1" kid_q kid_name
   assert_greeter 30 || return 1
-  capture portal "$theme"
+  kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
+  kid_name="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q name")" || return 1
+  [[ -n "$kid_name" ]] || return 1
+  wait_and_capture portal "$theme" 30 "$kid_name"
 }
 
 shoot_launcher() {
   local theme="$1"
   prepare_kid || return 1
-  capture launcher "$theme"
+  wait_and_capture launcher "$theme" 30 "GCompris"
 }
 
 shoot_exit_modal() {
-  local theme="$1"
+  local theme="$1" kid_q kid_name
   prepare_kid || return 1
   for _ in 1 2 3; do
     qmp key meta_l >/dev/null || return 1
     sleep 0.25
   done
   wait_vm_process "$LIVE_KID1_ACCOUNT" exit-modal/shell.qml 15 || return 1
-  capture exit-modal "$theme"
+  kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
+  kid_name="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q name")" || return 1
+  [[ -n "$kid_name" ]] || return 1
+  wait_and_capture exit-modal "$theme" 30 "Finish for $kid_name"
 }
 
 shoot_ask() {
@@ -343,7 +373,7 @@ shoot_ask() {
   prepare_kid || return 1
   start_in_session "$LIVE_KID1_ACCOUNT" launcher/shell.qml "/usr/bin/omarchy-kids-ask time 15" || return 1
   wait_vm_process "$LIVE_KID1_ACCOUNT" ask/shell.qml 15 || return 1
-  capture ask "$theme"
+  wait_and_capture ask "$theme" 30 "Ask a grown-up" "15 more minutes"
 }
 
 shoot_times_up() {
@@ -368,7 +398,7 @@ shoot_times_up() {
   vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q lights_out_weekend 00:01 >/dev/null" || return 1
   vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-time-ledger tick >/dev/null" || return 1
   wait_times_up_ready 45 || return 1
-  capture times-up "$theme" verify_times_up_image
+  wait_and_capture times-up "$theme" 30 "Time's up" "Finishing in"
 }
 
 shoot_wifi_picker() {
@@ -385,7 +415,7 @@ shoot_wifi_picker() {
   vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q wifi helper >/dev/null" || return 1
   start_in_session "$LIVE_KID1_ACCOUNT" launcher/shell.qml "/usr/bin/omarchy-kids-wifi picker" || return 1
   wait_vm_process "$LIVE_KID1_ACCOUNT" wifi/shell.qml 15 || return 1
-  capture wifi-picker "$theme"
+  wait_and_capture wifi-picker "$theme" 30 "Wi-Fi" "Enter join"
 }
 
 shoot_plugins_shelf() {
@@ -398,7 +428,7 @@ shoot_plugins_shelf() {
   prepare_kid || return 1
   start_in_session "$LIVE_KID1_ACCOUNT" launcher/shell.qml "$command" || return 1
   wait_vm_process "$LIVE_KID1_ACCOUNT" plugins/shell.qml 15 || return 1
-  capture plugins-shelf "$theme"
+  wait_and_capture plugins-shelf "$theme" 30 "More apps" "Pick one"
 }
 
 shoot_wizard() {
@@ -406,7 +436,7 @@ shoot_wizard() {
   prepare_owner || return 1
   start_in_session "$LIVE_OWNER_ACCOUNT" omarchy-shell "/usr/bin/omarchy-launch-floating-terminal-with-presentation /usr/bin/omarchy-kids-wizard --dry-run" || return 1
   wait_vm_process "$LIVE_OWNER_ACCOUNT" omarchy-kids-wizard 15 || return 1
-  capture wizard "$theme"
+  wait_and_capture wizard "$theme" 30 "Welcome" "Begin"
 }
 
 shoot_panel() {
@@ -414,7 +444,7 @@ shoot_panel() {
   prepare_owner || return 1
   start_in_session "$LIVE_OWNER_ACCOUNT" omarchy-shell "/usr/bin/omarchy-launch-floating-terminal-with-presentation /usr/bin/omarchy-kids-panel --dry-run" || return 1
   wait_vm_process "$LIVE_OWNER_ACCOUNT" omarchy-kids-panel 15 || return 1
-  capture panel "$theme"
+  wait_and_capture panel "$theme" 30 "Kids Mode" "Add a kid"
 }
 
 run_surface() {

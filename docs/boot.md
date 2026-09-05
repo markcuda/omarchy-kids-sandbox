@@ -161,3 +161,11 @@ Boot-login accepts no path environment variables. It resolves `lib/` from its ow
 location and uses fixed `/run` and `/etc` paths. Tests copy the command and libraries, then
 substitute those constants in the copy. This keeps an empty-environment systemd run working
 without letting caller-controlled state choose boot files or code.
+
+## Shared mode-transition lock
+
+Ticket #93 owns the shared root-created mode-transition lock. Until this branch is rebased onto
+that producer, boot-login and check still read the trusted mode without holding the transition
+lock, so the review's read-then-act/report race remains open. After the rebase, boot-login's one
+mode-read/action boundary and check's one mode-read/section-dispatch boundary will hold that shared
+lock. This ticket does not add a second lock contract.

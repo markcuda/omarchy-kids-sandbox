@@ -134,12 +134,12 @@ MEDIA_TEST_LOG="$LOG1" MEDIA_TEST_WRONG_OUT="$WRONG_OUT" \
   "$ROOT1/scripts/media-driver.sh" >"$TMP/default.out" 2>&1
 status=$?
 check "$status" "0" "default run exits 0"
-check "$(find "$ROOT1/docs/media" -name '*.png' | wc -l | tr -d ' ')" "20" \
-  "default run writes ten surfaces under two themes"
+check "$(find "$ROOT1/docs/media" -name '*.png' | wc -l | tr -d ' ')" "18" \
+  "default run writes nine honest surfaces under two themes"
 check "$(find "$WRONG_OUT" -name '*.png' | wc -l | tr -d ' ')" "0" \
   "config.env's acceptance output cannot divert release pictures"
 for theme in tokyo-night catppuccin-latte; do
-  for surface in portal launcher exit-modal ask times-up wifi-picker plugins-shelf wizard panel bar-module; do
+  for surface in portal launcher exit-modal ask times-up wifi-picker plugins-shelf wizard panel; do
     [[ -s "$ROOT1/docs/media/$surface-$theme.png" ]] &&
       pass "$surface is captured under $theme" || fail_ "$surface is missing under $theme"
   done
@@ -163,13 +163,17 @@ else
 fi
 check_contains "$log1" "omarchy-theme-set original-owner" "parent theme is restored"
 check_contains "$log1" "omarchy-kids-conf set kid-cy theme original-kid" "kid theme is restored"
-check_contains "$log1" "portal_clean_exit kid-cy" "bar capture uses the shared clean-exit helper"
 bad_root_calls="$(grep '^vmroot ' "$LOG1" | grep -v '^vmroot env -i PATH=/usr/bin:/bin' || true)"
 check "$bad_root_calls" "" "driver-owned root commands work without inherited environment or HOME"
 if [[ "$log1" != *"omarchy-kids-bar enable"* ]]; then
   pass "driver never enables or rewrites the parent's bar"
 else
   fail_ "driver changed the parent's bar"
+fi
+if [[ "$log1" != *"systemctl stop omarchy-kids-time.timer"* ]]; then
+  pass "driver never freezes the live-status producer for a screenshot"
+else
+  fail_ "driver froze the live-status producer"
 fi
 
 ROOT2="$TMP/single"
@@ -212,15 +216,16 @@ check_contains "$log4" "omarchy-kids-conf set kid-cy lights_out 21:00" \
 check_contains "$log4" "omarchy-kids-conf set kid-cy lights_out_weekend 22:00" \
   "a partial Time's Up setup restores the weekend setting"
 
-ROOT5="$TMP/timer"
+ROOT5="$TMP/bar-rejected"
 make_fixture "$ROOT5"
-LOG5="$TMP/timer.log"
-MEDIA_TEST_LOG="$LOG5" MEDIA_TEST_FAIL_VMROOT="omarchy-kids-time-ledger tick" \
-  "$ROOT5/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/timer.out" 2>&1
+LOG5="$TMP/bar-rejected.log"
+: >"$LOG5"
+MEDIA_TEST_LOG="$LOG5" \
+  "$ROOT5/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/bar-rejected.out" 2>&1
 status=$?
-check "$status" "1" "a bar status-tick failure makes the run fail"
-check_contains "$(cat "$LOG5")" "systemctl start omarchy-kids-time.timer" \
-  "a failed bar capture restarts a timer it stopped"
+check "$status" "2" "the fabricated bar-module surface is rejected"
+check "$(wc -l <"$LOG5" | tr -d ' ')" "0" \
+  "a rejected bar capture calls no VM helper"
 
 ROOT6="$TMP/reject"
 make_fixture "$ROOT6"

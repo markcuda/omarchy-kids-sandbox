@@ -258,7 +258,8 @@ cp "$STUBS/stat" "$RACE_STUBS/"
 RESTORE_REACHED="$TMP/restore-reached"
 ALLOW_RESTORE="$TMP/allow-restore"
 WRITER_STARTED="$TMP/writer-started"
-WRITER_ACQUIRED="$TMP/writer-acquired"
+WRITER_WAITING="$TMP/writer-waiting"
+WRITER_COMPLETED="$TMP/writer-completed"
 REAL_INSTALL="$(command -v install)"
 cat >"$RACE_STUBS/install" <<EOF
 #!/bin/bash
@@ -269,12 +270,20 @@ fi
 exec "$REAL_INSTALL" "\$@"
 EOF
 chmod +x "$RACE_STUBS/install"
+cat >"$RACE_STUBS/flock" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" != -u && -e "$WRITER_STARTED" ]]; then
+  touch "$WRITER_WAITING"
+fi
+exec "$STUBS/bin/flock" "\$@"
+EOF
+chmod +x "$RACE_STUBS/flock"
 RACE_PATH="$RACE_STUBS:$STUBS/bin:$STUBS:$BASE_PATH"
 
 run_scriptlet_race() {
   local machine_conf="$1" label="$2" upgrade_pid writer_pid upgrade_rc writer_rc writer_order
   reset_case
-  rm -f "$RESTORE_REACHED" "$ALLOW_RESTORE" "$WRITER_STARTED" "$WRITER_ACQUIRED"
+  rm -f "$RESTORE_REACHED" "$ALLOW_RESTORE" "$WRITER_STARTED" "$WRITER_WAITING" "$WRITER_COMPLETED"
   rm -rf "$LOCK_HELD" "$LOCK_OWNER"
   printf '%s' "$machine_conf" >"$CASE_ROOT/etc/omarchy-kids/machine.conf"
   printf 'band=6-8\n' >"$CASE_ROOT/etc/omarchy-kids/kids/kid-ada.conf"
@@ -297,23 +306,22 @@ run_scriptlet_race() {
     PATH="$RACE_PATH"
     export PATH
     touch "$WRITER_STARTED"
-    exec 8>>"$CASE_ROOT/run/omarchy-kids/boot-mode.lock"
-    flock 8
-    touch "$WRITER_ACQUIRED"
-    printf 'parent=mark\nboot=portal\n' >"$CASE_ROOT/etc/omarchy-kids/.machine.conf.portal"
-    chmod 0644 "$CASE_ROOT/etc/omarchy-kids/.machine.conf.portal"
-    mv -f "$CASE_ROOT/etc/omarchy-kids/.machine.conf.portal" "$CASE_ROOT/etc/omarchy-kids/machine.conf"
+    "$BOOT_CONF" machine set boot portal >/dev/null
+    touch "$WRITER_COMPLETED"
     rm -f "$CASE_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
-    flock -u 8
   ) &
   writer_pid=$!
   for _ in {1..250}; do
     [[ -e "$WRITER_STARTED" ]] && break
     sleep 0.02
   done
-  sleep 0.1
-  writer_order=blocked
-  [[ -e "$WRITER_ACQUIRED" ]] && writer_order=early
+  for _ in {1..250}; do
+    [[ -e "$WRITER_WAITING" || -e "$WRITER_COMPLETED" ]] && break
+    sleep 0.02
+  done
+  writer_order=stalled
+  [[ -e "$WRITER_WAITING" ]] && writer_order=blocked
+  [[ -e "$WRITER_COMPLETED" ]] && writer_order=early
   touch "$ALLOW_RESTORE"
   wait "$upgrade_pid"
   upgrade_rc=$?

@@ -97,6 +97,10 @@ EOF
 REAL_MV="$(command -v mv)"
 cat >"$TOOLS/mv" <<EOF
 #!/bin/bash
+if [[ "\${*: -1}" == "$ETC/machine.conf" && -e "$TMP/fail-portal-mode-write" ]] &&
+  grep -qxF 'boot=portal' "\${@: -2:1}"; then
+  exit 1
+fi
 "$REAL_MV" "\$@" || exit 1
 if [[ "\${*: -1}" == "$ETC/boot-transition.recovery" && -e "$TMP/track-recovery-write" ]]; then
   printf 'rename-recovery\n' >>"$LOG"
@@ -570,6 +574,42 @@ check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
   "a failed setter readback removes the completed recovery record"
 check_eq "$(test ! -e "$TMP/arm-mode-readback-failure" && echo absent)" absent \
   "the readback fixture was consumed by the disk mode write"
+
+# If disk committed but restoring portal authority fails, rollback must stop
+# before it removes any artifact that keeps disk authority coherent.
+printf 'boot=portal\nparent=mark\n' >"$ETC/machine.conf"
+printf '0=parentpass\n' >"$SLOT_STATE"
+rm -f "$ETC/luks-slots" "$ETC/boot-transition.recovery" \
+  "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+printf 'present\n' >"$STATE"
+: >"$TMP/arm-mode-readback-failure"
+: >"$TMP/fail-portal-mode-write"
+: >"$LOG"
+printf 'parentpass\nadapass\n' |
+  PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
+    >/dev/null 2>"$TMP/authority-restore-failure.error"
+check_eq "$?" 1 "a failed authority restoration returns nonzero"
+check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" disk \
+  "a failed authority restoration leaves disk authoritative"
+check_eq "$(cat "$SLOT_STATE")" $'0=parentpass\n1=adapass' \
+  "a failed authority restoration leaves the added slot intact"
+check_eq "$(cat "$ETC/luks-slots")" $'0=mark\n1=kid-ada' \
+  "a failed authority restoration leaves the disk map intact"
+check_eq "$(test -f "$ETC/boot-transition.recovery" && echo present)" present \
+  "a failed authority restoration leaves the recovery record intact"
+check_eq "$(test -f "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo present)" present \
+  "a failed authority restoration leaves the active drop-in intact"
+check_eq "$(grep -c '^cryptsetup luksKillSlot ' "$LOG" 2>/dev/null || true)" 0 \
+  "a failed authority restoration stops before slot rollback"
+check_eq "$(cat "$TMP/authority-restore-failure.error")" \
+  'omarchy-kids-conf: could not confirm portal authority; rollback stopped with disk artifacts and the recovery record intact' \
+  "a failed authority restoration describes the half-done state"
+rm -f "$TMP/fail-portal-mode-write"
+PATH="$PATH_VALUE" "$CONF" machine set boot disk </dev/null \
+  >/dev/null 2>"$TMP/authority-restore-retry.error"
+check_eq "$?" 0 "a disk retry finishes after authority restoration failed"
+check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
+  "the disk retry removes the confirmed recovery record"
 
 printf 'name=Cy\npassword=set\n' >"$ETC/kids/kid-cy.conf"
 printf 'name=Dot\npassword=none\n' >"$ETC/kids/kid-dot.conf"

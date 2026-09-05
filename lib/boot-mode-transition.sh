@@ -581,7 +581,10 @@ boot_transition_limine_snapshots() {
 boot_transition_disk_abort() {
   local current="$1" mode_written="${2:-0}" failed=0
   if [[ "$current" == portal && "$mode_written" == 1 ]]; then
-    boot_mode_set portal || failed=1
+    if ! boot_mode_set portal; then
+      echo "omarchy-kids-conf: could not confirm portal authority; rollback stopped with disk artifacts and the recovery record intact" >&2
+      return 1
+    fi
   fi
   if [[ -e "$BOOT_TRANSITION_RECOVERY" || -L "$BOOT_TRANSITION_RECOVERY" ]]; then
     boot_transition_rollback_additions || failed=1

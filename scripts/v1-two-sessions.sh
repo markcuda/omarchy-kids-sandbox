@@ -4,6 +4,10 @@
 # typing on the console through QMP, and report what loginctl and the VTs show.
 # Usage: SSH_CFG=<path> scripts/v1-two-sessions.sh <second-user> <second-password> [shots-dir]
 set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${OMARCHY_KIDS_VM_DRIVER_LOCKED:-0}" != 1 ]]; then
+  exec "$SCRIPT_DIR/vm-driver-lock" "$0" "$@"
+fi
 CFG="${SSH_CFG:?set SSH_CFG}"
 U2="${1:?user}"
 P2="${2:?password}"

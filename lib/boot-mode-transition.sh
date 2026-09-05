@@ -881,7 +881,7 @@ boot_transition_portal() {
   [[ ! -e "$BOOT_TRANSITION_DROPIN" && ! -L "$BOOT_TRANSITION_DROPIN" ]] || return 1
   boot_transition_uki_has_hook && return 1
   hook_status=$?
-  [[ "$hook_status" -eq 1 || ("$hook_status" -eq 2 && "$current" != disk) ]] || return 1
+  [[ "$hook_status" -eq 1 ]] || return 1
   [[ "$(boot_mode_get 2>/dev/null || true)" == portal ]]
 }
 

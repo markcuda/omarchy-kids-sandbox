@@ -199,6 +199,9 @@ printf 'lsinitcpio %s\n' "\$*" >>"$LOG"
 [[ ! -e "$TMP/fail-lsinitcpio" ]] || exit 1
 [[ "\$(cat "$STATE")" != corrupt ]] || exit 1
 [[ "\$(cat "$STATE")" == present ]] && echo usr/lib/initcpio/hooks/omarchy-kids-unlock
+if [[ -e "$TMP/remove-uki-after-inspection" ]]; then
+  rm -f "$TMP/remove-uki-after-inspection" "$ROOT/boot/EFI/Linux/current.efi"
+fi
 exit 0
 EOF
 cat >"$TOOLS/limine-snapper-sync" <<EOF
@@ -304,6 +307,13 @@ PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/missing-uk
 check_eq "$?" 1 "portal never accepts a missing UKI as converged"
 check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
   "portal does not rebuild when there is no known-good UKI to preserve"
+
+printf 'known-good-image\n' >"$ROOT/boot/EFI/Linux/current.efi"
+printf 'absent\n' >"$STATE"
+: >"$TMP/remove-uki-after-inspection"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/vanished-uki.error"
+check_eq "$?" 1 "portal rejects a UKI that vanishes after initial inspection"
+printf 'known-good-image\n' >"$ROOT/boot/EFI/Linux/current.efi"
 
 printf 'boot=disk\nparent=mark\n' >"$ETC/machine.conf"
 printf 'active drop-in\n' >"$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"

@@ -157,8 +157,11 @@ a naming question — that needs a human to resolve the slot mapping by hand.
 
 `machine migrate boot` is package-internal. During an upgrade it holds the shared boot-mode lock
 while it selects or reads the mode, reads back any new value, and converges the captured legacy
-mkinitcpio drop-in. `machine set boot` changes only the setting; a full mode transition owns its
-boot artifacts separately.
+mkinitcpio drop-in. `machine set boot` holds that same lock from its first mode read through
+artifact convergence, the final setting write, and readback. `portal` removes the recorded kid
+slots and active hook, then rebuilds once when leaving disk mode. `disk` validates the LUKS root
+and secrets, adds missing kid slots, installs the package template, rebuilds and verifies the UKI,
+then writes `boot=disk` last. A failed portal-to-disk attempt rolls back slots it added.
 
 ## Band defaults
 
@@ -196,7 +199,11 @@ omarchy-kids-conf bands                      list bands with their label and blu
 omarchy-kids-conf band <band>                print one band's defaults
 omarchy-kids-conf slug <display name>        the kid- account-name slug for a display name (Appendix B.1)
 omarchy-kids-conf machine get boot           print the trusted machine boot mode
-omarchy-kids-conf machine set boot <mode>    set disk or portal, after validation
+omarchy-kids-conf machine set boot portal    converge portal mode without a secret prompt
+omarchy-kids-conf machine set boot disk      converge disk mode, prompting when secrets are needed
+omarchy-kids-conf machine set boot disk --secrets-stdin
+                                              read the disk passphrase, then each passworded kid's
+                                              password in byte-sorted account order, one line each
 omarchy-kids-conf machine set parent <name>  write machine.conf's parent= (issue #46),
                                               then record the parent's LUKS slot 0
 ```text

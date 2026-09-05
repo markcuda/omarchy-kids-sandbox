@@ -15,6 +15,8 @@ source "$LIB/conf.sh"
 source "$LIB/kids.sh"
 # shellcheck source=lib/boot-mode.sh
 source "$LIB/boot-mode.sh"
+# shellcheck source=lib/boot-mode-transition.sh
+source "$LIB/boot-mode-transition.sh"
 # theme_apply_for/theme_reload_if_live (issue #53, docs/theming.md).
 # shellcheck source=lib/theme.sh
 source "$LIB/theme.sh"
@@ -78,7 +80,8 @@ Usage: $(basename "$0") <command> [args]
   band <band>                print one band's defaults
   slug <display name>        the kid- account-name slug for a display name
   machine get boot           print the trusted boot mode
-  machine set boot <mode>    write the trusted boot mode (disk or portal)
+  machine set boot <mode>    converge the trusted boot mode (disk or portal)
+      [--secrets-stdin]       read disk and existing-kid secrets from stdin
   machine migrate boot       migrate package-owned legacy boot state
   machine set parent <name>  write machine.conf's parent= (issue #46: the
                               wizard's Apply step, so omarchy-kids-authd and
@@ -424,12 +427,20 @@ cmd_machine() {
       local value="$*"
       case "$key" in
         boot)
-          [[ $# -eq 1 ]] || die "usage: omarchy-kids-conf machine set boot <disk|portal>"
-          boot_mode_valid "$value" || die "invalid value for 'boot': must be disk or portal"
+          local mode="${1:-}" secrets_stdin=0
+          shift || true
+          if [[ "${1:-}" == --secrets-stdin ]]; then
+            secrets_stdin=1
+            shift
+          fi
+          [[ $# -eq 0 ]] || die "usage: omarchy-kids-conf machine set boot <disk|portal> [--secrets-stdin]"
+          boot_mode_valid "$mode" || die "invalid value for 'boot': must be disk or portal"
+          [[ "$mode" == disk || "$secrets_stdin" -eq 0 ]] || die "--secrets-stdin is only valid with boot disk"
           is_root || die "setting machine boot mode requires root" 1
           boot_mode_lock_acquire || die "could not acquire the boot-mode transition lock" 1
           trap boot_mode_lock_release EXIT
-          boot_mode_set "$value" || exit $?
+          boot_mode_transition "$mode" "$secrets_stdin" || exit $?
+          echo "machine: boot=$(boot_mode_get)"
           ;;
         parent)
           [[ -n "$value" && "$value" != *$'\n'* ]] || die "invalid value for 'parent': must be non-empty, single-line text"

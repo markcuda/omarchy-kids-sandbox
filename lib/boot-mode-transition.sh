@@ -1,0 +1,746 @@
+# shellcheck shell=bash
+# lib/boot-mode-transition.sh -- converges boot artifacts while the caller
+# holds lib/boot-mode.sh's one transition lock (R-BOOTMODE-3,4,9,10).
+
+# Fixed production paths. Tests substitute these in a copied library tree.
+BOOT_TRANSITION_KIDS_DIR=/etc/omarchy-kids/kids
+BOOT_TRANSITION_SLOTS_FILE=/etc/omarchy-kids/luks-slots
+BOOT_TRANSITION_TEMPLATE=/usr/share/omarchy-kids/boot/omarchy_kids.conf
+BOOT_TRANSITION_DROPIN=/etc/mkinitcpio.conf.d/omarchy_kids.conf
+BOOT_TRANSITION_UKI_DIR=/boot/EFI/Linux
+BOOT_TRANSITION_FINDMNT=/usr/bin/findmnt
+BOOT_TRANSITION_LSBLK=/usr/bin/lsblk
+BOOT_TRANSITION_CRYPTSETUP=/usr/bin/cryptsetup
+BOOT_TRANSITION_MKINITCPIO=/usr/bin/mkinitcpio
+BOOT_TRANSITION_LSINITCPIO=/usr/bin/lsinitcpio
+BOOT_TRANSITION_LIMINE_CONF=/boot/limine.conf
+BOOT_TRANSITION_LIMINE_DEFAULT=/etc/default/limine
+BOOT_TRANSITION_LIMINE_SYNC=/usr/bin/limine-snapper-sync
+BOOT_TRANSITION_LIMINE_MARKER='# omarchy-kids: was MAX_SNAPSHOT_ENTRIES='
+BOOT_TRANSITION_LIMINE_EDITOR_MARKER='# omarchy-kids: was editor_enabled='
+BOOT_TRANSITION_MKINITCPIO_CONF=/etc/mkinitcpio.conf
+BOOT_TRANSITION_MKINITCPIO_CONF_DIR=/etc/mkinitcpio.conf.d
+BOOT_TRANSITION_ENV=/usr/bin/env
+BOOT_TRANSITION_BASH=/bin/bash
+BOOT_TRANSITION_ADD_JOURNAL=/etc/omarchy-kids/boot-transition.adding
+BOOT_TRANSITION_SLOTS_BACKUP=/etc/omarchy-kids/luks-slots.transition-backup
+
+BOOT_TRANSITION_PASSWORD_KIDS=()
+BOOT_TRANSITION_MAP_ENTRIES=()
+BOOT_TRANSITION_MISSING_KIDS=()
+BOOT_TRANSITION_MISSING_SLOTS=()
+BOOT_TRANSITION_SECRETS=()
+BOOT_TRANSITION_PARENT=""
+BOOT_TRANSITION_DEVICE=""
+
+boot_transition_root_luks_device() {
+  local source tree path fstype
+  source="$("$BOOT_TRANSITION_FINDMNT" -nro SOURCE --target / 2>/dev/null)" || return 1
+  source="${source%%\[*}"
+  [[ "$source" == /dev/* ]] || return 1
+  tree="$("$BOOT_TRANSITION_LSBLK" -srno PATH,FSTYPE "$source" 2>/dev/null)" || return 1
+  while read -r path fstype; do
+    [[ "$fstype" == crypto_LUKS && "$path" == /dev/* ]] || continue
+    printf '%s\n' "$path"
+    return 0
+  done <<<"$tree"
+  return 1
+}
+
+boot_transition_occupied_slots() {
+  "$BOOT_TRANSITION_CRYPTSETUP" luksDump "$1" 2>/dev/null | sed -n \
+    -e 's/^[[:space:]]*\([0-9][0-9]*\):[[:space:]]*luks2[[:space:]]*$/\1/p' \
+    -e 's/^Key Slot \([0-9][0-9]*\): ENABLED[[:space:]]*$/\1/p' |
+    sort -n -u
+}
+
+boot_transition_config_safe() {
+  local path="$1" kind="$2" mode
+  [[ ! -L "$path" ]] || return 1
+  if [[ "$kind" == dir ]]; then [[ -d "$path" ]]; else [[ -f "$path" ]]; fi || return 1
+  [[ "$(file_stat u "$path")" == 0 && "$(file_stat G "$path")" == root ]] || return 1
+  mode="$(file_stat a "$path")"
+  [[ "$mode" =~ ^[0-7]{3,4}$ ]] || return 1
+  ((8#$mode & 022)) && return 1
+  return 0
+}
+
+boot_transition_hook_shape_supported() {
+  local configs=() file
+  if [[ -e "$BOOT_TRANSITION_MKINITCPIO_CONF" || -L "$BOOT_TRANSITION_MKINITCPIO_CONF" ]]; then
+    boot_transition_config_safe "$BOOT_TRANSITION_MKINITCPIO_CONF" file || return 1
+    configs+=("$BOOT_TRANSITION_MKINITCPIO_CONF")
+  fi
+  boot_transition_config_safe "$BOOT_TRANSITION_MKINITCPIO_CONF_DIR" dir || return 1
+  shopt -s nullglob
+  for file in "$BOOT_TRANSITION_MKINITCPIO_CONF_DIR"/*.conf; do
+    boot_transition_config_safe "$file" file || {
+      shopt -u nullglob
+      return 1
+    }
+    configs+=("$file")
+  done
+  shopt -u nullglob
+  ((${#configs[@]})) || return 1
+
+  "$BOOT_TRANSITION_ENV" -i PATH=/usr/bin:/bin "$BOOT_TRANSITION_BASH" \
+    --noprofile --norc -s -- "${configs[@]}" <<'EOF'
+set -uo pipefail
+for config in "$@"; do
+  source "$config"
+done
+has_encrypt=0
+for hook in "${HOOKS[@]-}"; do
+  [[ "$hook" == encrypt ]] && has_encrypt=1
+  [[ "$hook" == sd-encrypt ]] && exit 1
+done
+((has_encrypt))
+EOF
+}
+
+boot_transition_collect_kids() {
+  local file account password LC_ALL=C
+  BOOT_TRANSITION_PASSWORD_KIDS=()
+  BOOT_TRANSITION_PARENT="$(conf_get "$BOOT_MODE_MACHINE_CONF" parent 2>/dev/null || true)"
+  [[ "$BOOT_TRANSITION_PARENT" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || return 1
+  [[ -e "$BOOT_TRANSITION_KIDS_DIR" || -L "$BOOT_TRANSITION_KIDS_DIR" ]] || return 0
+  boot_transition_config_safe "$BOOT_TRANSITION_KIDS_DIR" dir || return 1
+  for file in "$BOOT_TRANSITION_KIDS_DIR"/*.conf; do
+    [[ -e "$file" ]] || continue
+    boot_transition_config_safe "$file" file || return 1
+    account="$(basename "$file" .conf)"
+    [[ "$account" =~ ^kid-[a-z0-9-]{1,28}$ ]] || return 1
+    password="$(conf_get "$file" password 2>/dev/null || true)"
+    [[ -n "$password" ]] || password="set"
+    [[ "$password" == set || "$password" == none ]] || return 1
+    [[ "$password" == none ]] || BOOT_TRANSITION_PASSWORD_KIDS+=("$account")
+  done
+}
+
+boot_transition_is_password_kid() {
+  is_in "$1" "${BOOT_TRANSITION_PASSWORD_KIDS[@]+"${BOOT_TRANSITION_PASSWORD_KIDS[@]}"}"
+}
+
+boot_transition_load_disk_map() {
+  local file="$BOOT_TRANSITION_SLOTS_FILE" line slot account session
+  local active seen_slots=" " seen_accounts=" " kid mapped kept=()
+  BOOT_TRANSITION_MAP_ENTRIES=()
+  BOOT_TRANSITION_MISSING_KIDS=()
+  if [[ -e "$file" || -L "$file" ]]; then
+    [[ -f "$file" && ! -L "$file" ]] || return 1
+    [[ "$(file_stat a "$file")" == 600 ]] || return 1
+    [[ "$(file_stat u "$file")" == 0 && "$(file_stat G "$file")" == root ]] || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      case "$line" in '' | '#'*) continue ;; esac
+      [[ "$line" =~ ^(0|[1-9][0-9]*)=([a-z_][a-z0-9_-]{0,31})(:([A-Za-z0-9._-]+))?$ ]] || return 1
+      slot="${BASH_REMATCH[1]}"
+      account="${BASH_REMATCH[2]}"
+      session="${BASH_REMATCH[4]:-}"
+      ((slot <= 31)) || return 1
+      [[ "$seen_slots" != *" $slot "* && "$seen_accounts" != *" $account "* ]] || return 1
+      seen_slots+="$slot "
+      seen_accounts+="$account "
+      if [[ "$slot" == 0 ]]; then
+        [[ "$account" == "$BOOT_TRANSITION_PARENT" ]] || return 1
+        continue
+      fi
+      boot_transition_is_password_kid "$account" || return 1
+      [[ -z "$session" || "$session" == omarchy-kids.desktop ]] || return 1
+      BOOT_TRANSITION_MAP_ENTRIES+=("$slot=$account")
+    done <"$file"
+  fi
+
+  active="$(boot_transition_occupied_slots "$BOOT_TRANSITION_DEVICE")" || return 1
+  grep -qxF 0 <<<"$active" || return 1
+  for line in "${BOOT_TRANSITION_MAP_ENTRIES[@]+"${BOOT_TRANSITION_MAP_ENTRIES[@]}"}"; do
+    slot="${line%%=*}"
+    grep -qxF "$slot" <<<"$active" && kept+=("$line")
+  done
+  BOOT_TRANSITION_MAP_ENTRIES=("${kept[@]+"${kept[@]}"}")
+  for kid in "${BOOT_TRANSITION_PASSWORD_KIDS[@]+"${BOOT_TRANSITION_PASSWORD_KIDS[@]}"}"; do
+    mapped=""
+    for line in "${BOOT_TRANSITION_MAP_ENTRIES[@]+"${BOOT_TRANSITION_MAP_ENTRIES[@]}"}"; do
+      [[ "${line#*=}" == "$kid" ]] || continue
+      slot="${line%%=*}"
+      if grep -qxF "$slot" <<<"$active"; then mapped="$slot"; else line=""; fi
+      break
+    done
+    [[ -n "$mapped" ]] || BOOT_TRANSITION_MISSING_KIDS+=("$kid")
+  done
+}
+
+boot_transition_slot_for_kid() {
+  local line
+  for line in "${BOOT_TRANSITION_MAP_ENTRIES[@]+"${BOOT_TRANSITION_MAP_ENTRIES[@]}"}"; do
+    [[ "${line#*=}" == "$1" ]] || continue
+    printf '%s\n' "${line%%=*}"
+    return 0
+  done
+  return 1
+}
+
+boot_transition_read_secrets() {
+  local from_stdin="$1" secret extra kid
+  BOOT_TRANSITION_SECRETS=()
+  if [[ "$from_stdin" == 1 ]]; then
+    for kid in parent "${BOOT_TRANSITION_PASSWORD_KIDS[@]+"${BOOT_TRANSITION_PASSWORD_KIDS[@]}"}"; do
+      secret=""
+      IFS= read -r secret || [[ -n "$secret" ]] || return 1
+      [[ -n "$secret" ]] || return 1
+      BOOT_TRANSITION_SECRETS+=("$secret")
+    done
+    extra=""
+    if IFS= read -r extra || [[ -n "$extra" ]]; then return 1; fi
+    return 0
+  fi
+
+  [[ -t 0 ]] || return 1
+  IFS= read -r -s -p 'Current disk passphrase: ' secret </dev/tty || return 130
+  printf '\n' >/dev/tty
+  [[ -n "$secret" ]] || return 1
+  BOOT_TRANSITION_SECRETS+=("$secret")
+  for kid in "${BOOT_TRANSITION_PASSWORD_KIDS[@]+"${BOOT_TRANSITION_PASSWORD_KIDS[@]}"}"; do
+    IFS= read -r -s -p "Current password for $kid: " secret </dev/tty || return 130
+    printf '\n' >/dev/tty
+    [[ -n "$secret" ]] || return 1
+    BOOT_TRANSITION_SECRETS+=("$secret")
+  done
+}
+
+boot_transition_secret_opens() {
+  local secret="$1" device="$2" slot="${3:-}"
+  if [[ -n "$slot" ]]; then
+    "$BOOT_TRANSITION_CRYPTSETUP" open --test-passphrase --key-file=/dev/fd/3 \
+      --key-slot "$slot" "$device" 3< <(printf '%s' "$secret") >/dev/null 2>&1
+  else
+    "$BOOT_TRANSITION_CRYPTSETUP" open --test-passphrase --key-file=/dev/fd/3 \
+      "$device" 3< <(printf '%s' "$secret") >/dev/null 2>&1
+  fi
+}
+
+boot_transition_validate_secrets() {
+  local index=1 kid slot
+  boot_transition_secret_opens "${BOOT_TRANSITION_SECRETS[0]}" "$BOOT_TRANSITION_DEVICE" || return 1
+  for kid in "${BOOT_TRANSITION_PASSWORD_KIDS[@]+"${BOOT_TRANSITION_PASSWORD_KIDS[@]}"}"; do
+    slot="$(boot_transition_slot_for_kid "$kid" 2>/dev/null || true)"
+    if [[ -n "$slot" ]]; then
+      boot_transition_secret_opens "${BOOT_TRANSITION_SECRETS[$index]}" "$BOOT_TRANSITION_DEVICE" "$slot" || return 1
+    elif boot_transition_secret_opens "${BOOT_TRANSITION_SECRETS[$index]}" "$BOOT_TRANSITION_DEVICE"; then
+      return 1
+    fi
+    index=$((index + 1))
+  done
+}
+
+boot_transition_fsync() {
+  "$KIDS_PY" -c 'import os, sys
+p = sys.argv[1]
+for target in (p, os.path.dirname(p)):
+    fd = os.open(target, os.O_RDONLY)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)' "$1"
+}
+
+boot_transition_secret_for_kid() {
+  local index=1 kid
+  for kid in "${BOOT_TRANSITION_PASSWORD_KIDS[@]+"${BOOT_TRANSITION_PASSWORD_KIDS[@]}"}"; do
+    if [[ "$kid" == "$1" ]]; then
+      printf '%s' "${BOOT_TRANSITION_SECRETS[$index]}"
+      return 0
+    fi
+    index=$((index + 1))
+  done
+  return 1
+}
+
+boot_transition_allocate_slots() {
+  local active slot kid found
+  active="$(boot_transition_occupied_slots "$BOOT_TRANSITION_DEVICE")" || return 1
+  BOOT_TRANSITION_MISSING_SLOTS=()
+  for kid in "${BOOT_TRANSITION_MISSING_KIDS[@]+"${BOOT_TRANSITION_MISSING_KIDS[@]}"}"; do
+    found=""
+    for slot in {1..31}; do
+      grep -qxF "$slot" <<<"$active" && continue
+      found="$slot"
+      active+=$'\n'"$slot"
+      break
+    done
+    [[ -n "$found" ]] || return 1
+    BOOT_TRANSITION_MISSING_SLOTS+=("$found=$kid")
+  done
+}
+
+boot_transition_write_state_file() {
+  local file="$1" mode="$2" tmp line
+  shift 2
+  tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")" || return 1
+  if (($#)); then
+    printf '%s\n' "$@" >"$tmp" || {
+      rm -f "$tmp"
+      return 1
+    }
+  else
+    : >"$tmp" || {
+      rm -f "$tmp"
+      return 1
+    }
+  fi
+  if ! chmod "$mode" "$tmp" || ! chown root:root "$tmp" || ! mv -f "$tmp" "$file"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  boot_transition_fsync "$file"
+}
+
+boot_transition_prepare_additions() {
+  local current="$1" prepared=0
+  [[ "$current" == portal || ${#BOOT_TRANSITION_MISSING_SLOTS[@]} -gt 0 ]] || return 0
+  [[ ! -e "$BOOT_TRANSITION_ADD_JOURNAL" && ! -L "$BOOT_TRANSITION_ADD_JOURNAL" ]] || return 1
+  [[ ! -e "$BOOT_TRANSITION_SLOTS_BACKUP" && ! -L "$BOOT_TRANSITION_SLOTS_BACKUP" ]] || return 1
+  if [[ -f "$BOOT_TRANSITION_SLOTS_FILE" && ! -L "$BOOT_TRANSITION_SLOTS_FILE" ]]; then
+    if cp -p "$BOOT_TRANSITION_SLOTS_FILE" "$BOOT_TRANSITION_SLOTS_BACKUP" &&
+      chmod 0600 "$BOOT_TRANSITION_SLOTS_BACKUP" &&
+      boot_transition_fsync "$BOOT_TRANSITION_SLOTS_BACKUP"; then
+      prepared=1
+    fi
+  else
+    boot_transition_write_state_file "$BOOT_TRANSITION_SLOTS_BACKUP" 0600 && prepared=1
+  fi
+  if [[ "$prepared" != 1 ]] || ! boot_transition_write_state_file \
+    "$BOOT_TRANSITION_ADD_JOURNAL" 0600 \
+    "${BOOT_TRANSITION_MISSING_SLOTS[@]+"${BOOT_TRANSITION_MISSING_SLOTS[@]}"}"; then
+    rm -f "$BOOT_TRANSITION_ADD_JOURNAL" "$BOOT_TRANSITION_SLOTS_BACKUP"
+    return 1
+  fi
+}
+
+boot_transition_recovery_files_safe() {
+  boot_transition_config_safe "$BOOT_TRANSITION_ADD_JOURNAL" file || return 1
+  boot_transition_config_safe "$BOOT_TRANSITION_SLOTS_BACKUP" file || return 1
+  [[ "$(file_stat a "$BOOT_TRANSITION_ADD_JOURNAL")" == 600 ]] || return 1
+  [[ "$(file_stat a "$BOOT_TRANSITION_SLOTS_BACKUP")" == 600 ]]
+}
+
+boot_transition_rollback_additions() {
+  local line slot active failed=0
+  boot_transition_recovery_files_safe || return 1
+  active="$(boot_transition_occupied_slots "$BOOT_TRANSITION_DEVICE")" || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^([1-9][0-9]*)=(kid-[a-z0-9-]{1,28})$ ]] || return 1
+    slot="${BASH_REMATCH[1]}"
+    ((slot <= 31)) || return 1
+    grep -qxF "$slot" <<<"$active" || continue
+    "$BOOT_TRANSITION_CRYPTSETUP" luksKillSlot --batch-mode \
+      "$BOOT_TRANSITION_DEVICE" "$slot" || failed=1
+  done <"$BOOT_TRANSITION_ADD_JOURNAL"
+  ((failed == 0)) || return 1
+
+  if [[ -s "$BOOT_TRANSITION_SLOTS_BACKUP" ]]; then
+    mv -f "$BOOT_TRANSITION_SLOTS_BACKUP" "$BOOT_TRANSITION_SLOTS_FILE" || return 1
+  else
+    rm -f "$BOOT_TRANSITION_SLOTS_FILE" "$BOOT_TRANSITION_SLOTS_BACKUP" || return 1
+  fi
+  rm -f "$BOOT_TRANSITION_ADD_JOURNAL"
+}
+
+boot_transition_recover_additions() {
+  local current="$1" line slot active
+  if [[ ! -e "$BOOT_TRANSITION_ADD_JOURNAL" && ! -L "$BOOT_TRANSITION_ADD_JOURNAL" &&
+    ! -e "$BOOT_TRANSITION_SLOTS_BACKUP" && ! -L "$BOOT_TRANSITION_SLOTS_BACKUP" ]]; then
+    return 0
+  fi
+  boot_transition_recovery_files_safe || return 1
+  if [[ "$current" == disk ]]; then
+    boot_transition_config_safe "$BOOT_TRANSITION_SLOTS_FILE" file || return 1
+    [[ "$(file_stat a "$BOOT_TRANSITION_SLOTS_FILE")" == 600 ]] || return 1
+    active="$(boot_transition_occupied_slots "$BOOT_TRANSITION_DEVICE")" || return 1
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" =~ ^([1-9][0-9]*)=(kid-[a-z0-9-]{1,28})$ ]] || return 1
+      slot="${BASH_REMATCH[1]}"
+      ((slot <= 31)) || return 1
+      grep -qxF "$line" "$BOOT_TRANSITION_SLOTS_FILE" || return 1
+      grep -qxF "$slot" <<<"$active" || return 1
+    done <"$BOOT_TRANSITION_ADD_JOURNAL"
+    rm -f "$BOOT_TRANSITION_ADD_JOURNAL" "$BOOT_TRANSITION_SLOTS_BACKUP"
+    return
+  fi
+  boot_transition_rollback_additions
+}
+
+boot_transition_add_slots() {
+  local line slot kid secret
+  for line in "${BOOT_TRANSITION_MISSING_SLOTS[@]+"${BOOT_TRANSITION_MISSING_SLOTS[@]}"}"; do
+    slot="${line%%=*}"
+    kid="${line#*=}"
+    secret="$(boot_transition_secret_for_kid "$kid")" || return 1
+    "$BOOT_TRANSITION_CRYPTSETUP" luksAddKey --batch-mode \
+      --key-file=/dev/fd/3 --key-slot "$slot" "$BOOT_TRANSITION_DEVICE" /dev/fd/4 \
+      3< <(printf '%s' "${BOOT_TRANSITION_SECRETS[0]}") \
+      4< <(printf '%s' "$secret") || return 1
+    boot_transition_secret_opens "$secret" "$BOOT_TRANSITION_DEVICE" "$slot" || return 1
+  done
+}
+
+boot_transition_write_disk_map() {
+  local entries=("${BOOT_TRANSITION_MAP_ENTRIES[@]+"${BOOT_TRANSITION_MAP_ENTRIES[@]}"}") desired
+  entries+=("${BOOT_TRANSITION_MISSING_SLOTS[@]+"${BOOT_TRANSITION_MISSING_SLOTS[@]}"}")
+  desired="$(printf '0=%s\n' "$BOOT_TRANSITION_PARENT"
+    ((${#entries[@]})) && printf '%s\n' "${entries[@]}")"
+  if [[ -f "$BOOT_TRANSITION_SLOTS_FILE" && ! -L "$BOOT_TRANSITION_SLOTS_FILE" ]] &&
+    [[ "$(cat "$BOOT_TRANSITION_SLOTS_FILE")" == "$desired" ]]; then
+    return 0
+  fi
+  boot_transition_write_state_file "$BOOT_TRANSITION_SLOTS_FILE" 0600 \
+    "0=$BOOT_TRANSITION_PARENT" "${entries[@]+"${entries[@]}"}"
+}
+
+boot_transition_install_dropin() {
+  local tmp
+  boot_transition_config_safe "$BOOT_TRANSITION_TEMPLATE" file || return 2
+  boot_transition_config_safe "$(dirname "$BOOT_TRANSITION_DROPIN")" dir || return 2
+  cmp -s "$BOOT_TRANSITION_TEMPLATE" "$BOOT_TRANSITION_DROPIN" && return 1
+  tmp="$(mktemp "$(dirname "$BOOT_TRANSITION_DROPIN")/.omarchy_kids.conf.XXXXXX")" || return 2
+  if ! cp "$BOOT_TRANSITION_TEMPLATE" "$tmp" || ! chmod 0644 "$tmp" ||
+    ! chown root:root "$tmp" || ! mv -f "$tmp" "$BOOT_TRANSITION_DROPIN"; then
+    rm -f "$tmp"
+    return 2
+  fi
+  boot_transition_fsync "$BOOT_TRANSITION_DROPIN" || return 2
+  return 0
+}
+
+boot_transition_limine_editor() {
+  local file="$BOOT_TRANSITION_LIMINE_CONF" marker old line tmp mode owner group
+  [[ -e "$file" || -L "$file" ]] || return 0
+  boot_transition_config_safe "$file" file || return 1
+  marker="$(grep -F "$BOOT_TRANSITION_LIMINE_EDITOR_MARKER" "$file" 2>/dev/null | tail -n1 || true)"
+  if [[ -n "$marker" ]]; then
+    old="${marker#"$BOOT_TRANSITION_LIMINE_EDITOR_MARKER"}"
+    [[ -z "$old" || "$old" == yes || "$old" == no ]] || return 1
+  else
+    grep -qE '^editor_enabled:[[:space:]]*no[[:space:]]*$' "$file" && return 0
+    line="$(grep -E '^editor_enabled:' "$file" | tail -n1 || true)"
+    if [[ -n "$line" ]]; then
+      [[ "$line" =~ ^editor_enabled:[[:space:]]*(yes|no)[[:space:]]*$ ]] || return 1
+      old="${BASH_REMATCH[1]}"
+    fi
+  fi
+  mode="$(file_stat a "$file")"
+  owner="$(file_stat u "$file")"
+  group="$(file_stat G "$file")"
+  tmp="$(mktemp "$(dirname "$file")/.limine.conf.XXXXXX")" || return 1
+  {
+    printf 'editor_enabled: no\n'
+    grep -vE "^editor_enabled:|^${BOOT_TRANSITION_LIMINE_EDITOR_MARKER}" "$file" || true
+    printf '%s%s\n' "$BOOT_TRANSITION_LIMINE_EDITOR_MARKER" "$old"
+  } >"$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+boot_transition_limine_snapshots() {
+  local file="$BOOT_TRANSITION_LIMINE_DEFAULT" old marker tmp mode owner group
+  [[ -e "$file" || -L "$file" ]] || return 0
+  boot_transition_config_safe "$file" file || return 1
+  marker="$(grep -F "$BOOT_TRANSITION_LIMINE_MARKER" "$file" 2>/dev/null | tail -n1 || true)"
+  if [[ -n "$marker" ]]; then
+    old="${marker#"$BOOT_TRANSITION_LIMINE_MARKER"}"
+    [[ -z "$old" || "$old" =~ ^[0-9]+$ ]] || return 1
+  else
+    old="$(grep -E '^MAX_SNAPSHOT_ENTRIES=' "$file" | tail -n1 || true)"
+    old="${old#MAX_SNAPSHOT_ENTRIES=}"
+    [[ -z "$old" || "$old" =~ ^[0-9]+$ ]] || return 1
+  fi
+  [[ -n "$marker" ]] && grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$file" && return 0
+  mode="$(file_stat a "$file")"
+  owner="$(file_stat u "$file")"
+  group="$(file_stat G "$file")"
+  tmp="$(mktemp "$(dirname "$file")/.limine.default.XXXXXX")" || return 1
+  {
+    grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${BOOT_TRANSITION_LIMINE_MARKER}" "$file" || true
+    printf '%s%s\n' "$BOOT_TRANSITION_LIMINE_MARKER" "$old"
+    printf 'MAX_SNAPSHOT_ENTRIES=0\n'
+  } >"$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  [[ ! -x "$BOOT_TRANSITION_LIMINE_SYNC" ]] || "$BOOT_TRANSITION_LIMINE_SYNC"
+}
+
+boot_transition_disk_abort() {
+  local current="$1" rebuilt="$2" mode_written="${3:-0}" failed=0
+  if [[ "$current" == portal && "$mode_written" == 1 ]]; then
+    boot_mode_set portal || failed=1
+  fi
+  if [[ -e "$BOOT_TRANSITION_ADD_JOURNAL" || -L "$BOOT_TRANSITION_ADD_JOURNAL" ]]; then
+    boot_transition_rollback_additions || failed=1
+  fi
+  if [[ "$current" == portal ]]; then
+    rm -f "$BOOT_TRANSITION_DROPIN" || failed=1
+    boot_transition_restore_limine_editor || failed=1
+    boot_transition_restore_limine || failed=1
+    if [[ "$rebuilt" == 1 ]]; then
+      "$BOOT_TRANSITION_MKINITCPIO" -P || failed=1
+    fi
+  fi
+  ((failed == 0)) || echo "omarchy-kids-conf: disk transition rollback needs repair" >&2
+  return 1
+}
+
+boot_transition_disk() {
+  local current="$1" from_stdin="$2" need_secrets=0 dropin_status rebuilt=0 mode_written=0
+  BOOT_TRANSITION_DEVICE="$(boot_transition_root_luks_device)" || return 1
+  boot_transition_hook_shape_supported || return 1
+  boot_transition_collect_kids || return 1
+  boot_transition_recover_additions "$current" || return 1
+  boot_transition_load_disk_map || return 1
+
+  [[ "$current" == portal || ${#BOOT_TRANSITION_MISSING_KIDS[@]} -gt 0 || "$from_stdin" == 1 ]] && need_secrets=1
+  if [[ "$need_secrets" == 1 ]]; then
+    boot_transition_read_secrets "$from_stdin" || return $?
+    boot_transition_validate_secrets || return 1
+  fi
+  boot_transition_allocate_slots || return 1
+  boot_transition_prepare_additions "$current" || return 1
+  if ! boot_transition_add_slots; then
+    boot_transition_disk_abort "$current" "$rebuilt"
+    return 1
+  fi
+  if ! boot_transition_write_disk_map; then
+    boot_transition_disk_abort "$current" "$rebuilt"
+    return 1
+  fi
+
+  if boot_transition_install_dropin; then
+    dropin_status=0
+  else
+    dropin_status=$?
+  fi
+  if [[ "$dropin_status" -eq 2 ]]; then
+    boot_transition_disk_abort "$current" "$rebuilt"
+    return 1
+  fi
+  if [[ "$current" == portal || "$dropin_status" -eq 0 ]]; then
+    rebuilt=1
+    if ! "$BOOT_TRANSITION_MKINITCPIO" -P; then
+      boot_transition_disk_abort "$current" "$rebuilt"
+      return 1
+    fi
+  else
+    boot_transition_uki_has_hook && dropin_status=0 || dropin_status=$?
+    if [[ "$dropin_status" -ne 0 ]]; then
+      rebuilt=1
+      if ! "$BOOT_TRANSITION_MKINITCPIO" -P; then
+        boot_transition_disk_abort "$current" "$rebuilt"
+        return 1
+      fi
+    fi
+  fi
+  if ! boot_transition_uki_has_hook; then
+    boot_transition_disk_abort "$current" "$rebuilt"
+    return 1
+  fi
+  if ! boot_transition_limine_editor || ! boot_transition_limine_snapshots; then
+    boot_transition_disk_abort "$current" "$rebuilt"
+    return 1
+  fi
+  if ! boot_mode_set disk; then
+    boot_transition_disk_abort "$current" "$rebuilt" "$mode_written"
+    return 1
+  fi
+  mode_written=1
+  if [[ "$(boot_mode_get 2>/dev/null || true)" != disk ]]; then
+    boot_transition_disk_abort "$current" "$rebuilt" "$mode_written"
+    return 1
+  fi
+  rm -f "$BOOT_TRANSITION_ADD_JOURNAL" "$BOOT_TRANSITION_SLOTS_BACKUP" || return 1
+  return 0
+}
+
+boot_transition_remove_kid_slots() {
+  local file="$BOOT_TRANSITION_SLOTS_FILE" line slot account session
+  local device active seen_slots=" " seen_accounts=" " entries=()
+  [[ -e "$file" || -L "$file" ]] || return 0
+  [[ -f "$file" && ! -L "$file" ]] || return 1
+  [[ "$(file_stat a "$file")" == 600 ]] || return 1
+  [[ "$(file_stat u "$file")" == 0 && "$(file_stat G "$file")" == root ]] || return 1
+
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in '' | '#'*) continue ;; esac
+    [[ "$line" =~ ^(0|[1-9][0-9]*)=([a-z_][a-z0-9_-]{0,31})(:([A-Za-z0-9._-]+))?$ ]] || return 1
+    slot="${BASH_REMATCH[1]}"
+    account="${BASH_REMATCH[2]}"
+    session="${BASH_REMATCH[4]:-}"
+    ((slot <= 31)) || return 1
+    [[ "$seen_slots" != *" $slot "* && "$seen_accounts" != *" $account "* ]] || return 1
+    seen_slots+="$slot "
+    seen_accounts+="$account "
+    if [[ "$slot" == 0 ]]; then
+      [[ "$account" != kid-* ]] || return 1
+      continue
+    fi
+    [[ "$account" =~ ^kid-[a-z0-9-]{1,28}$ ]] || return 1
+    [[ -z "$session" || "$session" == omarchy-kids.desktop ]] || return 1
+    entries+=("$slot=$account")
+  done <"$file"
+
+  if ((${#entries[@]})); then
+    device="$(boot_transition_root_luks_device)" || return 1
+    active="$(boot_transition_occupied_slots "$device")" || return 1
+    for line in "${entries[@]}"; do
+      slot="${line%%=*}"
+      grep -qxF "$slot" <<<"$active" || continue
+      "$BOOT_TRANSITION_CRYPTSETUP" luksKillSlot --batch-mode "$device" "$slot" || return 1
+    done
+  fi
+  rm -f "$file"
+}
+
+boot_transition_restore_limine() {
+  local file="$BOOT_TRANSITION_LIMINE_DEFAULT" old tmp mode owner group
+  [[ -e "$file" || -L "$file" ]] || return 0
+  [[ -f "$file" && ! -L "$file" ]] || return 1
+  old="$(grep -F "$BOOT_TRANSITION_LIMINE_MARKER" "$file" 2>/dev/null | tail -n1 || true)"
+  [[ -n "$old" ]] || return 0
+  old="${old#"$BOOT_TRANSITION_LIMINE_MARKER"}"
+  [[ -z "$old" || "$old" =~ ^[0-9]+$ ]] || return 1
+  mode="$(file_stat a "$file")"
+  owner="$(file_stat u "$file")"
+  group="$(file_stat G "$file")"
+  [[ -n "$mode" && "$owner" == 0 && "$group" == root ]] || return 1
+  tmp="$(mktemp "$(dirname "$file")/.limine.default.XXXXXX")" || return 1
+  {
+    grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${BOOT_TRANSITION_LIMINE_MARKER}" "$file" || true
+    [[ -z "$old" ]] || printf 'MAX_SNAPSHOT_ENTRIES=%s\n' "$old"
+  } >"$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  [[ ! -x "$BOOT_TRANSITION_LIMINE_SYNC" ]] || "$BOOT_TRANSITION_LIMINE_SYNC"
+}
+
+boot_transition_restore_limine_editor() {
+  local file="$BOOT_TRANSITION_LIMINE_CONF" marker old tmp mode owner group
+  [[ -e "$file" || -L "$file" ]] || return 0
+  boot_transition_config_safe "$file" file || return 1
+  marker="$(grep -F "$BOOT_TRANSITION_LIMINE_EDITOR_MARKER" "$file" 2>/dev/null | tail -n1 || true)"
+  [[ -n "$marker" ]] || return 0
+  old="${marker#"$BOOT_TRANSITION_LIMINE_EDITOR_MARKER"}"
+  [[ -z "$old" || "$old" == yes || "$old" == no ]] || return 1
+  mode="$(file_stat a "$file")"
+  owner="$(file_stat u "$file")"
+  group="$(file_stat G "$file")"
+  tmp="$(mktemp "$(dirname "$file")/.limine.conf.XXXXXX")" || return 1
+  {
+    grep -vE "^editor_enabled:|^${BOOT_TRANSITION_LIMINE_EDITOR_MARKER}" "$file" || true
+    [[ -z "$old" ]] || printf 'editor_enabled: %s\n' "$old"
+  } >"$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+    rm -f "$tmp"
+    return 1
+  fi
+}
+
+boot_transition_current_uki() {
+  local file LC_ALL=C
+  for file in "$BOOT_TRANSITION_UKI_DIR"/*.efi; do
+    [[ -f "$file" ]] || continue
+    printf '%s\n' "$file"
+    return 0
+  done
+  return 1
+}
+
+boot_transition_current_mode() {
+  local mode
+  if mode="$(boot_mode_get 2>/dev/null)"; then
+    printf '%s\n' "$mode"
+    return 0
+  fi
+  boot_mode_dir_safe "$(dirname "$BOOT_MODE_MACHINE_CONF")" || return 1
+  if [[ -e "$BOOT_MODE_MACHINE_CONF" || -L "$BOOT_MODE_MACHINE_CONF" ]]; then
+    boot_mode_file_safe "$BOOT_MODE_MACHINE_CONF" || return 1
+    boot_mode_scan "$BOOT_MODE_MACHINE_CONF" 1 >/dev/null || return 1
+  fi
+  printf 'missing\n'
+}
+
+boot_transition_uki_has_hook() {
+  local uki listing
+  uki="$(boot_transition_current_uki)" || return 2
+  listing="$("$BOOT_TRANSITION_LSINITCPIO" -a "$uki" 2>/dev/null)" || return 3
+  grep -q 'omarchy-kids-unlock' <<<"$listing"
+}
+
+boot_transition_portal() {
+  local current="$1" rebuild=0 hook_status
+  if [[ "$current" == disk || "$current" == missing ]]; then
+    boot_mode_set portal || return 1
+    [[ "$current" == disk ]] && rebuild=1
+  fi
+
+  if [[ -e "$BOOT_TRANSITION_ADD_JOURNAL" || -L "$BOOT_TRANSITION_ADD_JOURNAL" ||
+    -e "$BOOT_TRANSITION_SLOTS_BACKUP" || -L "$BOOT_TRANSITION_SLOTS_BACKUP" ]]; then
+    BOOT_TRANSITION_DEVICE="$(boot_transition_root_luks_device)" || return 1
+    boot_transition_recover_additions "$current" || return 1
+  fi
+  boot_transition_remove_kid_slots || return 1
+  boot_transition_restore_limine_editor || return 1
+  boot_transition_restore_limine || return 1
+
+  [[ ! -e "$BOOT_TRANSITION_DROPIN" && ! -L "$BOOT_TRANSITION_DROPIN" ]] || rebuild=1
+  boot_transition_uki_has_hook && hook_status=0 || hook_status=$?
+  [[ "$hook_status" -ne 3 ]] || return 1
+  [[ "$hook_status" -eq 0 ]] && rebuild=1
+
+  if [[ "$rebuild" -eq 1 ]]; then
+    rm -f "$BOOT_TRANSITION_DROPIN" || return 1
+    "$BOOT_TRANSITION_MKINITCPIO" -P || return 1
+  fi
+
+  [[ ! -e "$BOOT_TRANSITION_DROPIN" && ! -L "$BOOT_TRANSITION_DROPIN" ]] || return 1
+  boot_transition_uki_has_hook && return 1
+  hook_status=$?
+  [[ "$hook_status" -eq 1 || ("$hook_status" -eq 2 && "$current" != disk) ]] || return 1
+  [[ "$(boot_mode_get 2>/dev/null || true)" == portal ]]
+}
+
+boot_mode_transition() {
+  local requested="$1" from_stdin="${2:-0}" current status
+  current="$(boot_transition_current_mode)" || return 1
+  case "$requested" in
+    portal) boot_transition_portal "$current" ;;
+    disk)
+      if [[ "$current" == missing ]]; then
+        boot_mode_set portal || return 1
+        current=portal
+      fi
+      if boot_transition_disk "$current" "$from_stdin"; then
+        status=0
+      else
+        status=$?
+      fi
+      BOOT_TRANSITION_SECRETS=()
+      return "$status"
+      ;;
+    *) return 2 ;;
+  esac
+}

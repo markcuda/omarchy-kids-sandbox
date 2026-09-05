@@ -517,6 +517,13 @@ rm -f "$BOOT_TREE/lib"
 cp -a "$DIR/lib" "$BOOT_TREE/lib"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$BOOT_ETC/machine.conf"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_LOCK "$BOOT_LOCK"
+# This section owns a transition stub so it can isolate the trusted setter.
+# boot-mode-test.sh exercises the real artifact convergence path.
+cat >"$BOOT_TREE/lib/boot-mode-transition.sh" <<'EOF'
+boot_mode_transition() {
+  boot_mode_set "$1"
+}
+EOF
 BOOT_CONF="$BOOT_TREE/bin/omarchy-kids-conf"
 kids_id_stub "$BOOT_STUBS" mark 0
 REAL_STAT="$(command -v stat)"
@@ -588,12 +595,8 @@ PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot disk >/dev/null
 check "$?" 0 "machine set boot disk: preserves existing machine keys"
 check "$(cat "$BOOT_ETC/machine.conf")" $'parent=mark\nboot=disk' "machine set boot disk: replaces one boot key"
 
-BOOT_ARTIFACT="$TMP/etc/mkinitcpio.conf.d/omarchy_kids.conf"
-mkdir -p "$(dirname "$BOOT_ARTIFACT")"
-printf 'untouched\n' >"$BOOT_ARTIFACT"
-artifact_before="$(cat "$BOOT_ARTIFACT")"
 PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot portal >/dev/null
-check "$(cat "$BOOT_ARTIFACT")" "$artifact_before" "machine set boot: changes no boot artifact"
+check "$?" 0 "machine set boot portal: an idempotent setter call exits 0"
 
 PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot nope >/dev/null 2>&1
 check_status "$?" 2 "machine set boot: values outside disk|portal exit 2"

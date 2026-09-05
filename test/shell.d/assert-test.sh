@@ -99,6 +99,12 @@ rm -f "$TREE/lib"
 cp -a "$ROOT_DIR/lib" "$TREE/lib"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$ETC/machine.conf"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_LOCK "$BOOT_MODE_LOCK"
+# This file tests lock serialization, not transition artifacts.
+cat >"$TREE/lib/boot-mode-transition.sh" <<'EOF'
+boot_mode_transition() {
+  boot_mode_set "$1"
+}
+EOF
 BIN="$TREE/bin/omarchy-kids-assert"
 CONF="$TREE/bin/omarchy-kids-conf"
 

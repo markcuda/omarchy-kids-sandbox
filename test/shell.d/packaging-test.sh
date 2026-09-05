@@ -101,6 +101,12 @@ kids_set_const "$INSTALL" _omarchy_kids_migration_copy "$CASE_ROOT/run/omarchy-k
 kids_set_const "$INSTALL" _omarchy_kids_conf_bin "$BOOT_CONF"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$CASE_ROOT/etc/omarchy-kids/machine.conf"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_LOCK "$CASE_ROOT/run/omarchy-kids/boot-mode.lock"
+# Migration races isolate the shared lock; boot-mode-test owns convergence.
+cat >"$BOOT_TREE/lib/boot-mode-transition.sh" <<'EOF'
+boot_mode_transition() {
+  boot_mode_set "$1"
+}
+EOF
 kids_id_stub "$STUBS" mark 0
 kids_stub "$STUBS" groupadd <<'EOF'
 #!/bin/bash

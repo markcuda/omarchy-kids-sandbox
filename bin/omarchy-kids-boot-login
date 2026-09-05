@@ -26,8 +26,8 @@ usage() {
 Usage: $(basename "$0") [--cleanup] [--help]
 
 In trusted boot=disk mode, writes $DROPIN for a valid recorded LUKS slot.
-A mapped kid selects omarchy-kids.desktop; any other mapped account selects
-the stock omarchy.desktop session. A valid unmapped slot selects the portal.
+A mapped provisioned kid selects omarchy-kids.desktop; the parent recorded
+in machine.conf selects omarchy.desktop. Any unknown account selects the portal.
 
 In boot=portal mode, or when boot-slot is absent, this command writes nothing.
 Invalid mode also writes nothing and exits 0 so early boot stays available.
@@ -55,19 +55,45 @@ root_file_safe() {
   [[ "$(file_stat G "$file")" == root ]]
 }
 
+valid_account() {
+  [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,30}[$]?$ ]]
+}
+
+trusted_parent() {
+  local line key value parent="" count=0
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    case "$line" in
+      '' | '#'*) continue ;;
+    esac
+    key="${line%%=*}"
+    [[ "$key" == parent ]] || continue
+    value="${line#*=}"
+    count=$((count + 1))
+    parent="$value"
+  done <"$BOOT_MODE_MACHINE_CONF"
+  [[ "$count" -eq 1 ]] || return 1
+  valid_account "$parent" || return 1
+  printf '%s\n' "$parent"
+}
+
 session_for() {
-  if [[ -f "$BOOT_LOGIN_KIDS_DIR/$1.conf" && ! -L "$BOOT_LOGIN_KIDS_DIR/$1.conf" ]]; then
-    printf '%s\n' omarchy-kids.desktop
-  else
+  local account="$1" parent profile
+  parent="$(trusted_parent 2>/dev/null || true)"
+  if [[ -n "$parent" && "$account" == "$parent" ]]; then
     printf '%s\n' omarchy.desktop
+    return 0
   fi
+
+  root_dir_safe "$BOOT_LOGIN_KIDS_DIR" || return 1
+  profile="$BOOT_LOGIN_KIDS_DIR/$account.conf"
+  root_file_safe "$profile" 644 || return 1
+  printf '%s\n' omarchy-kids.desktop
 }
 
 # lookup_slot SLOT prints "account session", returns 3 when unmapped,
 # and returns 1 when any slot-map line is malformed or duplicated.
 lookup_slot() {
   local slot="$1" line key value account session found="" seen_slots="|" seen_accounts="|"
-  local account_re='^[a-z_][a-z0-9_-]{0,30}[$]?$'
   local session_re='^[A-Za-z0-9_.@+-]+$'
 
   [[ -e "$BOOT_LOGIN_SLOTS_FILE" || -L "$BOOT_LOGIN_SLOTS_FILE" ]] || return 3
@@ -90,15 +116,14 @@ lookup_slot() {
       session="${value#*:}"
       [[ -n "$session" ]] || return 1
     fi
-    [[ "$account" =~ $account_re ]] || return 1
+    valid_account "$account" || return 1
     [[ -z "$session" || "$session" =~ $session_re ]] || return 1
     [[ "$seen_slots" != *"|$key|"* && "$seen_accounts" != *"|$account|"* ]] || return 1
     seen_slots+="$key|"
     seen_accounts+="$account|"
 
     [[ "$key" == "$slot" ]] || continue
-    [[ -n "$session" ]] || session="$(session_for "$account")"
-    [[ "$session" == *.desktop ]] || session="${session}.desktop"
+    session="$(session_for "$account")" || return 1
     found="$account $session"
   done <"$BOOT_LOGIN_SLOTS_FILE"
 

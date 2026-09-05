@@ -60,15 +60,17 @@ fail-safe list, how to verify the hook is actually in the image, and how to remo
 
 ### `luks-slots` format
 
-One mapping per line, `slot=account` or `slot=account:session`. Blank lines and `#` comments
-are ignored; no whitespace around `=` or `:`. Duplicate slots or accounts invalidate the map.
-When no `:session` is given, a regular profile under `/etc/omarchy-kids/kids/` selects
-`omarchy-kids.desktop`; every other mapped account selects `omarchy.desktop`. Example:
+One mapping per line, `slot=account` or the legacy `slot=account:session`. Blank lines and `#`
+comments are ignored; no whitespace around `=` or `:`. Duplicate slots or accounts invalidate
+the map. Boot-login parses and validates a legacy session suffix but never trusts it to choose a
+session. The parent recorded in trusted `machine.conf` selects `omarchy.desktop`; an account with
+a root-owned `0644` profile under the root-owned kids directory selects `omarchy-kids.desktop`.
+Anything else is an invalid mapping and selects the portal. Example:
 
 ```text
 0=mark
 2=kid-ada
-3=kid-ben:omarchy
+3=kid-ben
 ```text
 
 ## Fail-safe list (I-9: never a machine that will not boot)
@@ -86,8 +88,9 @@ run exactly as it always has — whenever:
 
 `omarchy-kids-boot-login.service` runs on every boot. Portal mode and a missing `boot-slot` change
 nothing, so Omarchy's stock autologin remains byte-for-byte. An unrecognized numeric slot writes
-an empty `User=`, showing the portal rather than guessing. Unsafe or malformed disk input also
-tries that safe override, returns 1 for diagnosis, and cannot block SDDM startup.
+an empty `User=`, showing the portal rather than guessing. A mapped account with no trusted parent
+or kid role, unsafe input, or malformed input also tries that safe override, returns 1 for
+diagnosis, and cannot block SDDM startup.
 
 `omarchy-kids-boot-login` itself never writes the passphrase anywhere; it only ever sees a slot
 *number*. The helper (`omarchy-kids-open`) never writes the passphrase anywhere either — it goes
@@ -142,17 +145,15 @@ Every real boot would silently end up with the hook never added — exactly the 
 exists to rule out. Naming it `omarchy_kids.conf` sorts it immediately after
 `omarchy_hooks.conf`, which is what R-BOOT-2 actually needs to work. `test/shell.d/mkinitcpio-conf-test.sh`
 and this section are the record of why.
-## `boot-login` decides by the registry, not the username (2026-09-03)
 
-`session_for` used to be `case "$1" in kid-*)`. `lib/posture.sh` already documents that exact
-heuristic failing live: a VM whose owner was named `kid-test` had the owner's own portal tile
-misclassified as a kid -- and the portal was fixed to read the profile registry while this path
-was not (review §1.6). Here the consequence is worse than a wrong avatar: an owner account whose
-name happens to start with `kid-` unlocks with their own passphrase and is autologged straight
-into a root-owned kiosk session. `session_for` now asks whether
-`/etc/omarchy-kids/kids/<account>.conf` exists, the same source of truth `omarchy-kids-assert`,
-`-ask` and `-time-ledger` already use. `test/shell.d/boot-login-test.sh` proves an unprovisioned
-`kid-test` gets the stock session while `kid-ada` gets the kid session.
+## `boot-login` decides by trusted role, not the map (2026-09-04)
+
+The slot map records which account unlocked the disk. It does not authorize a session. Boot-login
+derives that from package-owned records: the exact `parent=` account in trusted `machine.conf`
+gets the stock session, and an account with a trusted provisioned profile gets the kid session.
+An explicit `:omarchy` suffix cannot send a kid to the stock session or bless an unknown account.
+`test/shell.d/boot-login-test.sh` proves both cases and gives the stock-session case a fixture whose
+recorded parent really is `kid-test`.
 
 ## Fixed root paths
 

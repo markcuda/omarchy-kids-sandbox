@@ -87,7 +87,8 @@ run_boot_login() {
 }
 
 set_mode() {
-  printf 'parent=mark\nboot=%s\n' "$1" >"$ETC/machine.conf"
+  local mode="$1" parent="${2:-mark}"
+  printf 'parent=%s\nboot=%s\n' "$parent" "$mode" >"$ETC/machine.conf"
   chmod 0644 "$ETC/machine.conf"
 }
 
@@ -125,7 +126,7 @@ cmp -s "$TMP/stock-autologin.before" "$SDDM_DIR/10-omarchy-autologin.conf" &&
 
 cat >"$SLOTS_FILE" <<'EOF'
 0=mark
-2=kid-ada
+2=kid-ada:omarchy
 3=kid-ben:omarchy
 4=kid-test
 EOF
@@ -134,7 +135,8 @@ chmod 0600 "$SLOTS_FILE"
 write_slot 2
 run_boot_login >/dev/null 2>&1
 check_status "$?" 0 "mapped kid slot exits 0"
-check_file "$DROPIN" $'[Autologin]\nUser=kid-ada\nSession=omarchy-kids.desktop' "mapped kid slot selects the kid session"
+check_file "$DROPIN" $'[Autologin]\nUser=kid-ada\nSession=omarchy-kids.desktop' \
+  "a mapped kid gets the kid session even when the map names the stock session"
 [[ -f "$MARKER" ]] && pass "mapped slot records cleanup ownership" || fail "mapped slot omitted its cleanup marker"
 run_boot_login --cleanup >/dev/null 2>&1
 [[ ! -e "$DROPIN" && ! -e "$MARKER" ]] &&
@@ -147,13 +149,32 @@ run_boot_login --cleanup >/dev/null 2>&1
 
 write_slot 4
 run_boot_login >/dev/null 2>&1
-check_file "$DROPIN" $'[Autologin]\nUser=kid-test\nSession=omarchy.desktop' "an unprovisioned kid-* account keeps the stock session"
+check_status "$?" 1 "an account with no trusted role returns 1"
+check_file "$DROPIN" $'[Autologin]\nUser=' "an account with no trusted role goes to the portal"
 run_boot_login --cleanup >/dev/null 2>&1
 
 write_slot 3
 run_boot_login >/dev/null 2>&1
-check_file "$DROPIN" $'[Autologin]\nUser=kid-ben\nSession=omarchy.desktop' "an explicit session is normalized and selected"
+check_status "$?" 1 "an explicit stock session cannot bless an unknown account"
+check_file "$DROPIN" $'[Autologin]\nUser=' "an explicit stock session for an unknown account goes to the portal"
 run_boot_login --cleanup >/dev/null 2>&1
+
+chmod 0666 "$KIDS_DIR/kid-ada.conf"
+write_slot 2
+run_boot_login >/dev/null 2>&1
+check_status "$?" 1 "a user-writable kid profile cannot authorize a kid session"
+check_file "$DROPIN" $'[Autologin]\nUser=' "an unsafe kid profile goes to the portal"
+run_boot_login --cleanup >/dev/null 2>&1
+chmod 0644 "$KIDS_DIR/kid-ada.conf"
+
+set_mode disk kid-test
+write_slot 4
+run_boot_login >/dev/null 2>&1
+check_status "$?" 0 "the recorded parent account exits 0"
+check_file "$DROPIN" $'[Autologin]\nUser=kid-test\nSession=omarchy.desktop' \
+  "the recorded parent account gets the stock session regardless of its name"
+run_boot_login --cleanup >/dev/null 2>&1
+set_mode disk
 
 # A valid but unmapped slot deliberately suppresses stock autologin.
 write_slot 9

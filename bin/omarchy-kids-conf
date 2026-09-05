@@ -71,7 +71,9 @@ usage() {
 Usage: $(basename "$0") <command> [args]
 
   get <kid> <key>          effective value: override, else band, else default
+  source <kid> <key>       print override, band, or default
   set <kid> <key> <value>  write an override
+  unset <kid> <key>        clear one override and inherit its default
   show <kid>                every key, its value, and where it came from
   reset <kid>                clear overrides except band/name/avatar/password/onboarded
   bands                      list bands with their label and blurb
@@ -247,6 +249,24 @@ cmd_get() {
   printf '%s\n' "$value"
 }
 
+cmd_source() {
+  local kid="${1:?omarchy-kids-conf source <kid> <key>}" key="${2:?omarchy-kids-conf source <kid> <key>}"
+  local profile row type required source group label editor validator enum min max reset
+  is_valid_key "$key" || die "unknown key: '$key' (see docs/conf.md)"
+  profile="$(profile_file "$kid")"
+  if conf_get "$profile" "$key" >/dev/null; then
+    echo override
+    return 0
+  fi
+  row="$(schema_row "$key")"
+  IFS='|' read -r key type required source group label editor validator enum min max reset <<<"$row"
+  case "$source" in
+    band | pack) echo band ;;
+    global | parent-theme) echo default ;;
+    *) die "kid '$kid' has no '$key' override or inherited value" ;;
+  esac
+}
+
 cmd_set() {
   local kid="${1:?omarchy-kids-conf set <kid> <key> <value>}" key="${2:?omarchy-kids-conf set <kid> <key> <value>}"
   shift 2 || true
@@ -266,6 +286,31 @@ cmd_set() {
   fi
   manifest_follow_profile "$kid"
   echo "$kid: $key=$value"
+}
+
+cmd_unset() {
+  local kid="${1:?omarchy-kids-conf unset <kid> <key>}" key="${2:?omarchy-kids-conf unset <kid> <key>}"
+  local profile row type required source group label editor validator enum min max reset
+  local parent_home inherited_theme
+  is_valid_key "$key" || die "unknown key: '$key' (see docs/conf.md)"
+  profile="$(profile_file "$kid")"
+  [[ -e "$profile" ]] || die "kid '$kid' has no profile ($profile)"
+  row="$(schema_row "$key")"
+  IFS='|' read -r key type required source group label editor validator enum min max reset <<<"$row"
+  [[ "$source" != none ]] || die "cannot unset required key '$key': it has no inherited value"
+
+  if [[ "$key" == theme ]]; then
+    parent_home="$(parent_home_dir "$MACHINE_CONF")" || die "cannot unset theme: no parent is recorded"
+    inherited_theme="$(THEME_KIDS_HOME="$parent_home" theme_current_name)"
+    [[ -n "$inherited_theme" ]] || die "cannot unset theme: the parent has no current theme"
+    validate_value theme "$inherited_theme"
+    theme_apply_for "$kid" "$inherited_theme" || die "could not apply inherited theme '$inherited_theme' for '$kid'"
+  fi
+
+  conf_del "$profile" "$key"
+  [[ "$key" != theme ]] || theme_reload_if_live "$kid"
+  manifest_follow_profile "$kid"
+  echo "$kid: $key inherits its default"
 }
 
 # manifest_follow_profile KID -- on a provisioned box the manifest must match the profile, or the
@@ -375,9 +420,17 @@ main() {
       shift
       cmd_get "$@"
       ;;
+    source)
+      shift
+      cmd_source "$@"
+      ;;
     set)
       shift
       cmd_set "$@"
+      ;;
+    unset)
+      shift
+      cmd_unset "$@"
       ;;
     show)
       shift

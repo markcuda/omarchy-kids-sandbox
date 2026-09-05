@@ -184,7 +184,9 @@ rewrite its build-time constant in a copied command tree.
 
 ```text
 omarchy-kids-conf get <kid> <key>          effective value: override, else band, else default
+omarchy-kids-conf source <kid> <key>       print override, band, or default
 omarchy-kids-conf set <kid> <key> <value>  write an override (validated against the table above)
+omarchy-kids-conf unset <kid> <key>        clear one override and inherit its default
 omarchy-kids-conf show <kid>                every key, its value, and where it came from
 omarchy-kids-conf reset <kid>                clear overrides except band/name/avatar/theme/password/onboarded
 omarchy-kids-conf bands                      list bands with their label and blurb
@@ -197,7 +199,9 @@ omarchy-kids-conf machine set parent <name>  write machine.conf's parent= (issue
 ```text
 
 `set` refuses a key that isn't in Appendix B, and a value that doesn't match the key's format, with
-exit 2 and a one-line reason on stderr. `get` on an unknown key also exits 2. `get` on `name`,
+exit 2 and a one-line reason on stderr. `source` exposes the same source labels as `show`. `unset`
+refuses identity keys with no inherited value. Clearing `theme` first applies the parent's current
+theme to the kid's home, then removes the override. `get` on an unknown key also exits 2. `get` on `name`,
 `avatar`, `band`, or `theme` with no override set exits 2, naming the missing key.
 
 ## Examples

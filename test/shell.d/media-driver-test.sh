@@ -80,6 +80,18 @@ vmroot() {
     return 1
   fi
   case "$*" in
+    *"omarchy-kids-conf source kid-cy theme"*)
+      if [[ "${MEDIA_TEST_INHERITED:-0}" == 1 ]]; then echo default; else echo override; fi
+      ;;
+    *"omarchy-kids-conf source kid-cy lights_out_weekend"*)
+      if [[ "${MEDIA_TEST_INHERITED:-0}" == 1 ]]; then echo band; else echo override; fi
+      ;;
+    *"omarchy-kids-conf source kid-cy lights_out"*)
+      if [[ "${MEDIA_TEST_INHERITED:-0}" == 1 ]]; then echo band; else echo override; fi
+      ;;
+    *"omarchy-kids-conf source kid-cy wifi"*)
+      if [[ "${MEDIA_TEST_INHERITED:-0}" == 1 ]]; then echo band; else echo override; fi
+      ;;
     *"omarchy-kids-conf get kid-cy lights_out_weekend"*) echo 22:00 ;;
     *"omarchy-kids-conf get kid-cy theme"*) echo original-kid ;;
     *"omarchy-kids-conf get kid-cy lights_out"*) echo 21:00 ;;
@@ -251,6 +263,27 @@ check_contains "$log9" "assert_no_session kid-cy" \
   "assert-failure cleanup confirms the kid session is closed"
 check_contains "$log9" "assert_no_session kid-test" \
   "assert-failure cleanup confirms the owner session is closed"
+
+ROOT10="$TMP/inherited"
+make_fixture "$ROOT10"
+LOG10="$TMP/inherited.log"
+MEDIA_TEST_LOG="$LOG10" MEDIA_TEST_INHERITED=1 \
+  "$ROOT10/scripts/media-driver.sh" tokyo-night >"$TMP/inherited.out" 2>&1
+status=$?
+check "$status" "0" "a run with inherited kid settings exits 0"
+log10="$(cat "$LOG10")"
+for key in theme lights_out lights_out_weekend wifi; do
+  check_contains "$log10" "omarchy-kids-conf unset kid-cy $key" \
+    "an inherited $key value is restored by clearing its temporary override"
+done
+if [[ "$log10" != *"omarchy-kids-conf set kid-cy theme original-kid"* &&
+  "$log10" != *"omarchy-kids-conf set kid-cy lights_out 21:00"* &&
+  "$log10" != *"omarchy-kids-conf set kid-cy lights_out_weekend 22:00"* &&
+  "$log10" != *"omarchy-kids-conf set kid-cy wifi parent"* ]]; then
+  pass "inherited values are never pinned as explicit overrides"
+else
+  fail_ "an inherited value was pinned as an explicit override"
+fi
 
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck -S warning "$DIR/scripts/media-driver.sh" "$DIR/test/shell.d/media-driver-test.sh"; then

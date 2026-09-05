@@ -268,6 +268,16 @@ check "$("$CONF" get kid-ada allowlist)" \
 
 "$CONF" set kid-ada level 2 >/dev/null
 check "$("$CONF" get kid-ada level)" "2" "get: an override wins over the band default"
+check "$("$CONF" source kid-ada level)" "override" "source: reports an explicit override"
+check "$("$CONF" source kid-ada wifi)" "band" "source: reports an inherited band value"
+check "$("$CONF" source kid-ada onboarded)" "default" "source: reports an inherited global default"
+
+"$CONF" unset kid-ada level >/dev/null
+check "$("$CONF" source kid-ada level)" "band" "unset: removes one override"
+check "$("$CONF" get kid-ada level)" "1" "unset: exposes the band value again"
+"$CONF" unset kid-ada name >/dev/null 2>&1
+check_status "$?" 2 "unset: refuses a required key with no inherited value"
+"$CONF" set kid-ada level 2 >/dev/null
 
 # --- set: validation -------------------------------------------------------
 
@@ -356,14 +366,26 @@ check "$(cat "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/
 # put kid-ada back on tokyo-night for the rest of this file's fixtures
 "$CONF" set kid-ada theme tokyo-night >/dev/null
 
-# get-with-no-override still behaves like name/avatar/band (theme joined
-# the schema's required metadata, docs/conf.md) -- a second fixture that's never had
-# `theme` set at all.
-"$CONF" set kid-notheme name Notheme >/dev/null
-"$CONF" set kid-notheme avatar fox >/dev/null
-"$CONF" set kid-notheme band 6-8 >/dev/null
-"$CONF" get kid-notheme theme >/dev/null 2>&1
+# A missing theme override still reports the parent-theme source even though
+# `get` retains the required-profile failure used by provisioning.
+"$CONF" set kid-ben name Ben >/dev/null
+"$CONF" set kid-ben avatar fox >/dev/null
+"$CONF" set kid-ben band 6-8 >/dev/null
+check "$("$CONF" source kid-ben theme)" "default" \
+  "source: a missing theme override reports the parent-theme default"
+"$CONF" get kid-ben theme >/dev/null 2>&1
 check_status "$?" 2 "get: theme with no override at all exits 2, same as name/avatar/band"
+
+mkdir -p "$OMARCHY_KIDS_HOME_ROOT/home/kid-test/.local/state/omarchy/current"
+printf 'tokyo-night\n' >"$OMARCHY_KIDS_HOME_ROOT/home/kid-test/.local/state/omarchy/current/theme.name"
+printf 'parent=kid-test\n' >"$ETC/machine.conf"
+"$CONF" unset kid-ada theme >/dev/null
+check "$(grep -c '^theme=' "$ETC/kids/kid-ada.conf")" "0" \
+  "unset theme: removes the explicit override"
+check "$(cat "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada/.local/state/omarchy/current/theme.name")" "tokyo-night" \
+  "unset theme: applies the parent's inherited theme to the kid's home"
+"$CONF" set kid-ada theme tokyo-night >/dev/null
+rm -f "$ETC/machine.conf"
 
 # --- show: source column ----------------------------------------------------
 # Match on the key at the start of the line and the source at the end,

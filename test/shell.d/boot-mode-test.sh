@@ -110,6 +110,14 @@ if [[ "\${*: -1}" == "$ETC/machine.conf" && -e "$TMP/arm-mode-readback-failure" 
   : >"$TMP/fail-next-mode-read"
 fi
 EOF
+REAL_RM="$(command -v rm)"
+cat >"$TOOLS/rm" <<EOF
+#!/bin/bash
+for arg in "\$@"; do
+  [[ "\$arg" != "$ETC/boot-transition.recovery" ]] || printf 'remove-recovery\n' >>"$LOG"
+done
+exec "$REAL_RM" "\$@"
+EOF
 REAL_PY="$(command -v python3)"
 cat >"$TOOLS/python3" <<EOF
 #!/bin/bash
@@ -673,6 +681,23 @@ check_eq "$(cat "$SLOT_STATE")" $'0=parentpass\n1=adapass\n2=cypass' \
 check_eq "$(test -f "$ETC/boot-transition.recovery" && echo present)" present \
   "the pending retry keeps its durable recovery record"
 printf 'present\n' >"$STATE"
+: >"$LOG"
+printf 'parentpass\nadapass\n' |
+  PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
+    >/dev/null 2>"$TMP/disk-retry-missing-secret.error"
+check_eq "$?" 1 "a portal-authority disk retry still requires every secret"
+check_eq "$(cat "$SLOT_STATE")" '0=parentpass' \
+  "a portal-authority retry rolls back pending kid slots before reading secrets"
+check_eq "$(test ! -e "$ETC/luks-slots" && echo absent)" absent \
+  "a failed portal-authority retry restores the prior absent map"
+check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
+  "a portal-authority retry removes recovery only after rollback completes"
+check_eq "$(grep -E '^(cryptsetup luksKillSlot --batch-mode /dev/fake0 [12]|remove-recovery)$' "$LOG")" \
+  $'cryptsetup luksKillSlot --batch-mode /dev/fake0 1\ncryptsetup luksKillSlot --batch-mode /dev/fake0 2\nremove-recovery' \
+  "trusted portal authority orders slot rollback before recovery removal"
+check_eq "$(grep -c '^cryptsetup luksAddKey ' "$LOG" 2>/dev/null || true)" 0 \
+  "failed secret collection adds no replacement slot"
+: >"$LOG"
 printf 'parentpass\nadapass\ncypass\n' |
   PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
     >/dev/null 2>"$TMP/interrupted-rebuild-retry.error"

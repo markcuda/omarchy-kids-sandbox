@@ -413,12 +413,12 @@ boot_transition_rollback_additions() {
 }
 
 boot_transition_recover_additions() {
-  local requested="$1" line slot active committed=0
+  local authority="$1" line slot active committed=0
   if [[ ! -e "$BOOT_TRANSITION_RECOVERY" && ! -L "$BOOT_TRANSITION_RECOVERY" ]]; then
     return 0
   fi
   boot_transition_parse_recovery || return 1
-  if [[ "$requested" == disk ]] &&
+  if [[ "$authority" == disk ]] &&
     boot_transition_config_safe "$BOOT_TRANSITION_SLOTS_FILE" file &&
     [[ "$(file_stat a "$BOOT_TRANSITION_SLOTS_FILE")" == 600 ]]; then
     active="$(boot_transition_occupied_slots "$BOOT_TRANSITION_DEVICE")" || return 1
@@ -608,7 +608,7 @@ boot_transition_disk() {
     return 1
   fi
   boot_transition_collect_kids || return 1
-  boot_transition_recover_additions disk || return 1
+  boot_transition_recover_additions "$current" || return 1
   boot_transition_load_disk_map || return 1
 
   [[ "$current" == portal || ${#BOOT_TRANSITION_MISSING_KIDS[@]} -gt 0 || "$from_stdin" == 1 ]] && need_secrets=1

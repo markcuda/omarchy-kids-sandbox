@@ -173,7 +173,8 @@ only after `limine-snapper-sync` succeeds; a retry synchronizes again while that
 Before adding a slot it atomically writes one root-only recovery
 record containing the prior map and the planned additions. Portal authority rolls those additions
 back. Disk authority removes a fully committed record, but rolls back an incomplete one before
-retrying. If a failed disk commit cannot restore or confirm portal authority, rollback stops
+retrying. Recovery uses the trusted current setting, never the requested direction. If a failed
+disk commit cannot restore or confirm portal authority, rollback stops
 before removing disk artifacts and reports that half-done state. A disk retry confirms the map
 and slots, then removes the recovery record. Neither requested direction can be stranded by a
 partially completed addition.

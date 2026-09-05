@@ -47,14 +47,19 @@ accountsservice_ok() {
 }
 accountsservice_fix() { posture_write_accountsservice "$1" "$2"; }
 
-# gecos (issue #39): passwd's GECOS field, which SDDM reads for realName.
+# gecos (issue #39): passwd's representable display-name fallback.
 gecos_ok() {
-  local account="$1" name="$2" current
+  local account="$1" name="$2" current expected
   command -v getent >/dev/null 2>&1 || return 2 # no way to read the field back
   current="$(getent passwd "$account" 2>/dev/null | cut -d: -f5)"
-  [[ "$current" == "$name" ]]
+  expected="$(gecos_name_for_display "$name")"
+  [[ "$current" == "$expected" ]]
 }
-gecos_fix() { usermod -c "$2" "$1"; }
+gecos_fix() {
+  local name
+  name="$(gecos_name_for_display "$2")"
+  usermod -c "$name" "$1"
+}
 
 # face (issue #39): the file SDDM's UserModel actually reads for the
 # avatar, not AccountsService's Icon= (docs/portal.md's "Avatars").

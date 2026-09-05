@@ -168,6 +168,10 @@ picks all of it up in the one pass it already makes:
 | `errorColor` | `theme_color error` |
 | `fontFamily` | `theme_font` |
 
+`lib/posture.sh` QSettings-encodes every value before it writes the file. This matters for
+`fontFamily`: fontconfig may return a family containing a comma, which must stay one quoted scalar
+instead of becoming a QSettings list.
+
 `lib/posture.sh`'s `posture_theme_conf_lines PARENT` resolves all nine, with `THEME_KIDS_HOME` set
 to the *parent's* `$HOME` (`posture_parent_home`, a real `getent passwd` lookup — the account
 already exists by the time posture writes anything) — not root's, since posture code runs as root

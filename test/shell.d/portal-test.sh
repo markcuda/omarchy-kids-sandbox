@@ -75,6 +75,7 @@ fi
 # --- Main.qml ----------------------------------------------------------------
 
 MAIN_QML="$THEME_DIR/Main.qml"
+PORTAL_JS="$THEME_DIR/PortalConfig.js"
 if [[ -f "$MAIN_QML" ]]; then
   pass "share/sddm-theme/Main.qml exists"
 
@@ -162,10 +163,48 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
   else
     fail "Main.qml admits inherited portalKids properties"
   fi
+  if [[ -f "$PORTAL_JS" ]] && grep -qF 'decodeURIComponent(String(value))' "$PORTAL_JS" &&
+    grep -qF 'PortalConfig.parsePortalConfig' "$MAIN_QML"; then
+    pass "Main.qml uses the shared delimiter-safe portal parser"
+  else
+    fail "Main.qml does not use the delimiter-safe PortalConfig parser"
+  fi
+  if command -v node >/dev/null 2>&1 && [[ -f "$PORTAL_JS" ]]; then
+    if node - "$PORTAL_JS" <<'NODE'; then
+const fs = require("fs")
+const vm = require("vm")
+const source = fs.readFileSync(process.argv[2], "utf8").replace(/^\.pragma library\s*/, "")
+const portal = {}
+vm.runInNewContext(source, portal)
+const cases = [
+  ["Ada, Jr", "Ada%2C Jr"],
+  ["Ada: Cy", "Ada%3A Cy"],
+  ['Ada "Cy" \\kid', 'Ada "Cy" \\kid'],
+  ["Ada\rCy", "Ada\rCy"],
+  ['Ada%2C, Cy: "kid" \\ \r', 'Ada%252C%2C Cy%3A "kid" \\ \r']
+]
+for (const [name, encoded] of cases) {
+  const result = portal.parsePortalConfig("mark", "mark", `kid-ada:${encoded}:fox,kid-cy:Cy:owl`)
+  if (result.kids["kid-ada"].name !== name || result.kids["kid-cy"].name !== "Cy") process.exit(1)
+}
+NODE
+      pass "PortalConfig parser restores every adversarial name with two kids present"
+    else
+      fail "PortalConfig parser did not restore every adversarial name"
+    fi
+  fi
   if grep -qF '!root.hasPortalKid(name)' "$MAIN_QML"; then
     pass "Main.qml gives profiled-kid membership precedence over parent membership"
   else
     fail "Main.qml can classify an account in both allowlists as a parent"
+  fi
+  display_fn="$(sed -n '/function displayNameFor/,/^    }/p' "$MAIN_QML")"
+  portal_name_line="$(grep -nF 'return portalEntry.name' <<<"$display_fn" | cut -d: -f1)"
+  real_name_line="$(grep -nF 'return realName' <<<"$display_fn" | cut -d: -f1)"
+  if [[ -n "$portal_name_line" && -n "$real_name_line" && "$portal_name_line" -lt "$real_name_line" ]]; then
+    pass "Main.qml prefers the exact portal display name over the GECOS fallback"
+  else
+    fail "Main.qml lets the GECOS fallback override the exact portal display name"
   fi
   if command -v node >/dev/null 2>&1 && node -e '
     const kids = {}
@@ -280,6 +319,8 @@ export PATH="$BASE_PATH"
 trap 'rm -rf "$TMP"' EXIT
 # shellcheck source=lib/conf.sh
 source "$ROOT/lib/conf.sh"
+# shellcheck source=lib/kids.sh
+source "$ROOT/lib/kids.sh"
 # shellcheck source=lib/posture.sh
 source "$ROOT/lib/posture.sh"
 
@@ -319,8 +360,8 @@ if [[ -f "$PORTAL_CONF" ]]; then
   }
   check "$(grep -c '^\[General\]$' "$PORTAL_CONF")" "1" "theme.conf.user: [General] section"
   check "$(grep -c '^parent=mark$' "$PORTAL_CONF")" "1" "theme.conf.user: parent=mark"
-  check "$(grep -c '^parents=mark$' "$PORTAL_CONF")" "1" "theme.conf.user: parents allowlist includes the recorded parent"
-  check "$(grep -c '^kids=kid-ada:Ada Lovelace:fox,kid-cy:Cy:owl$' "$PORTAL_CONF")" "1" \
+  check "$(grep -c '^parents="mark"$' "$PORTAL_CONF")" "1" "theme.conf.user: parents allowlist includes the recorded parent"
+  check "$(grep -c '^kids="kid-ada:Ada Lovelace:fox,kid-cy:Cy:owl"$' "$PORTAL_CONF")" "1" \
     "theme.conf.user: kids= line has both kids in order"
   mode="$(kids_file_mode "$PORTAL_CONF")"
   check "$mode" "644" "theme.conf.user: mode 0644"
@@ -335,6 +376,26 @@ if [[ -f "$PORTAL_CONF" ]]; then
 else
   fail "posture_write_portal_conf did not write $PORTAL_CONF"
 fi
+
+check "$(posture_qsettings_value plain)" "plain" "QSettings: plain values stay unquoted"
+check "$(posture_qsettings_value 'comma,value')" '"comma,value"' "QSettings: comma-bearing values are quoted"
+check "$(posture_qsettings_value 'semicolon;value')" '"semicolon;value"' "QSettings: semicolon-bearing values are quoted"
+check "$(posture_qsettings_value 'equals=value')" '"equals=value"' "QSettings: equals-bearing values are quoted"
+check "$(posture_qsettings_value ' leading')" '" leading"' "QSettings: leading whitespace is quoted"
+check "$(posture_qsettings_value 'trailing ')" '"trailing "' "QSettings: trailing whitespace is quoted"
+check "$(posture_qsettings_value 'quote"slash\kid-ada')" 'quote\"slash\\kid-ada' \
+  "QSettings: quotes and backslashes are escaped"
+check "$(posture_qsettings_value $'carriage\rreturn')" 'carriage\rreturn' \
+  "QSettings: carriage returns use Qt's named escape"
+check "$(posture_qsettings_value $'\a\b\f\n\r\t\v')" '\a\b\f\n\r\t\v' \
+  "QSettings: every named Qt control escape is exact"
+check "$(posture_qsettings_value $'control\x01a')" 'control\x1\x61' \
+  "QSettings: other controls and following hex digits use Qt's unambiguous escapes"
+check "$(posture_qsettings_value plain always)" '"plain"' "QSettings: list values can be quoted unconditionally"
+check "$(gecos_name_for_display 'Ada: Cy')" "" \
+  "GECOS: colon-bearing display names use an empty fallback"
+check "$(gecos_name_for_display 'Ada, Jr')" "Ada, Jr" \
+  "GECOS: representable display names stay exact"
 
 # A removed profile may leave its Unix account and home on disk by design; the
 # producer must omit it so the consumer cannot render a stale tile.
@@ -356,7 +417,7 @@ EOF
 chmod +x "$GETENT_STUB"
 PATH="$TMP:$BASE_PATH"
 posture_write_portal_conf mark "$(printf 'kid-cy\tCy\towl')"
-check "$(grep -c '^parents=mark,parent-helper,wheel-helper$' "$PORTAL_CONF")" "1" \
+check "$(grep -c '^parents="mark,parent-helper,wheel-helper"$' "$PORTAL_CONF")" "1" \
   "theme.conf.user: parents allowlist includes valid members of both parent groups"
 PATH="$BASE_PATH"
 unset OMARCHY_KIDS_ROOT
@@ -373,7 +434,15 @@ unset OMARCHY_KIDS_ROOT
 
 OMARCHY_KIDS_ROOT="$TMP/root2b"
 OMARCHY_KIDS_HOME_ROOT="$TMP/homeroot-empty"
-export OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
+FONT_STUBS="$TMP/font-stubs"
+mkdir -p "$FONT_STUBS"
+cat >"$FONT_STUBS/fc-match" <<'EOF'
+#!/bin/bash
+printf '%s' 'Mono, Serif'
+EOF
+chmod +x "$FONT_STUBS/fc-match"
+PATH="$FONT_STUBS:$BASE_PATH"
+export OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT PATH
 posture_write_portal_conf mark \
   "$(printf 'kid-ada\tAda Lovelace\tfox')"
 PORTAL_CONF2="$OMARCHY_KIDS_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
@@ -388,16 +457,14 @@ if [[ -f "$PORTAL_CONF2" ]]; then
   check "$(grep -c '^textColor=#ffffff$' "$PORTAL_CONF2")" "1" "theme.conf.user: textColor falls back"
   check "$(grep -c '^mutedTextColor=#9aa5ce$' "$PORTAL_CONF2")" "1" "theme.conf.user: mutedTextColor falls back"
   check "$(grep -c '^errorColor=#f7768e$' "$PORTAL_CONF2")" "1" "theme.conf.user: errorColor falls back"
-  # Not a specific value: theme_font resolves through the real fc-match
-  # if this machine happens to have one on PATH (test/shell.d/theme-
-  # test.sh already covers theme_font's own fallback in isolation) --
-  # this check is only that posture_theme_conf_lines actually emits the
-  # ninth key at all.
-  check "$(grep -c '^fontFamily=.' "$PORTAL_CONF2")" "1" "theme.conf.user: fontFamily key is present"
+  check "$(grep -c '^fontFamily="Mono, Serif"$' "$PORTAL_CONF2")" "1" \
+    "theme.conf.user: comma-bearing fontFamily is quoted"
 else
   fail "posture_write_portal_conf did not write $PORTAL_CONF2"
 fi
 unset OMARCHY_KIDS_ROOT OMARCHY_KIDS_HOME_ROOT
+PATH="$BASE_PATH"
+export PATH
 
 # --- lib/posture.sh: theme.conf.user's colors actually follow the
 # parent's real theme, not just the fallback (docs/theming.md) -- a
@@ -534,15 +601,14 @@ done
 rule="$(posture_polkit_admin_rule_text mark)"
 check_contains "$rule" 'return ["unix-user:mark"];' "S9: an ordinary parent name still writes the rule"
 
-# S10: a kid whose display name carries a separator is left off the
-# greeter rather than shifting somebody else's tile.
+# S10: payload delimiters are encoded before the full value receives its
+# separate QSettings encoding.
 conf="$(posture_portal_conf_text mark \
   "$(printf 'kid-ada\tAda\tfox')" \
-  "$(printf 'kid-bo\tBo:Evil,kid-cy\towl')" \
+  "$(printf 'kid-dot\tDot:Cy,kid-ada\towl')" \
   "$(printf 'kid-cy\tCy\tbear')" 2>/dev/null)"
-check_contains "$conf" "kids=kid-ada:Ada:fox,kid-cy:Cy:bear" \
-  "S10: a name containing ':' or ',' is dropped, and the other tiles keep their own avatars"
-check_not_contains "$conf" "Evil" "S10: the separator-carrying name never reaches theme.conf.user"
+check_contains "$conf" 'kids="kid-ada:Ada:fox,kid-dot:Dot%3ACy%2Ckid-ada:owl,kid-cy:Cy:bear"' \
+  "S10: colon and comma are payload-encoded without shifting the next tile"
 
 unset OMARCHY_KIDS_ROOT
 

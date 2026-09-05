@@ -136,6 +136,15 @@ acct="${@: -1}"
 [[ -f "__LOG__/account-$acct" ]] && exit 0
 exit 1
 '
+# Keep portal parent membership independent of the machine running this test.
+# shellcheck disable=SC2016
+stub getent '
+if [[ "$1" == "group" && "$2" == "omarchy-parents" ]]; then
+    printf "%s\n" "omarchy-parents:x:990:mark,parent-helper"
+elif [[ "$1" == "group" && "$2" == "wheel" ]]; then
+    printf "%s\n" "wheel:x:10:parent-helper,wheel-helper"
+fi
+'
 # userdel [-r] <acct>: drops the account marker; -r also wipes the home,
 # matching real userdel -r semantics -- home_present (the script under
 # test) sees it gone afterward, same as a real machine would.
@@ -285,10 +294,8 @@ echo "a drawing" >"$HOMEROOT/home/kid-ada/drawing.txt"
 touch "$LOG/mounted-kid-ada"
 touch "$LOG/account-kid-ada"
 
-# the parent's own home -- no real `getent` in a plain bash script (even
-# on this macOS dev box: confirmed it's a zsh-only shell function, not on
-# PATH for a script run with `bash`), so parent_home_dir() falls back to
-# this same $HOMEROOT prefix every other path in this file already uses.
+# The getent fixture has no passwd entry, so parent_home_dir() falls back
+# to this same $HOMEROOT prefix every other path in this file already uses.
 mkdir -p "$HOMEROOT/home/mark"
 
 # mark is a member of omarchy-parents already (issue #45 item 3's
@@ -457,10 +464,15 @@ check_status "$out" "sddm-theme" "removed" "sddm-theme removed"
   pass "sddm theme drop-in removed"
 
 check_status "$out" "portal-conf" "removed" "portal-conf removed"
-check_not_contains "$(cat "$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user" 2>/dev/null)" "kid-ada" \
+PORTAL_CONF="$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
+check_not_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kid-ada" \
   "portal-conf: theme.conf.user no longer names kid-ada"
-check_contains "$(cat "$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user" 2>/dev/null)" "parent=mark" \
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "parent=mark" \
   "portal-conf: theme.conf.user still names the parent"
+check_eq "$(grep '^parents=' "$PORTAL_CONF" 2>/dev/null)" 'parents="mark,parent-helper,wheel-helper"' \
+  "portal-conf: quoted parent allowlist survives removal"
+check_eq "$(grep '^kids=' "$PORTAL_CONF" 2>/dev/null)" 'kids=""' \
+  "portal-conf: quoted kid allowlist is empty after removal"
 
 check_status "$out" "parent-unlock:sddm" "removed" "parent-unlock:sddm removed"
 check_eq "$(grep -c 'parent-unlock verifier' "$SCRATCH_ROOT/etc/pam.d/sddm")" "0" "pam.d/sddm: parent-unlock marker gone"

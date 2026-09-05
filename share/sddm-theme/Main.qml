@@ -4,6 +4,7 @@
 
 import QtQuick 2.0
 import Qt5Compat.GraphicalEffects
+import "PortalConfig.js" as PortalConfig
 
 Rectangle {
     id: root
@@ -28,39 +29,13 @@ Rectangle {
     // docs/portal.md) -- no XHR, no file:// URL. A property, not an
     // inline call, so it runs once before any Repeater delegate's
     // Component.onCompleted needs it. config.kids' format
-    // (lib/posture.sh's posture_portal_conf_text) is
-    // "<account>:<name>:<avatar>,<account>:<name>:<avatar>,...".
+    // (lib/posture.sh's posture_portal_conf_text) percent-encodes each
+    // field before joining "account:name:avatar" records.
     function parsePortalConfig() {
-        var result = { parent: "", parents: {}, kids: {}, loaded: false }
-        try {
-            var parentVal = config.parent ? String(config.parent) : ""
-            var parentsVal = config.parents ? String(config.parents) : ""
-            var kidsVal = config.kids ? String(config.kids) : ""
-            if (parentVal.length > 0 || parentsVal.length > 0 || kidsVal.length > 0) {
-                result.parent = parentVal
-                if (parentVal.length > 0) result.parents[parentVal] = true
-                if (parentsVal.length > 0) {
-                    var parentEntries = parentsVal.split(",")
-                    for (var p = 0; p < parentEntries.length; p++) {
-                        if (parentEntries[p].length > 0) result.parents[parentEntries[p]] = true
-                    }
-                }
-                if (kidsVal.length > 0) {
-                    var entries = kidsVal.split(",")
-                    for (var i = 0; i < entries.length; i++) {
-                        var parts = entries[i].split(":")
-                        if (parts.length === 3 && parts[0].length > 0) {
-                            result.kids[parts[0]] = { name: parts[1], avatar: parts[2] }
-                        }
-                    }
-                }
-                result.loaded = true
-            }
-        } catch (e) {
-            // Missing or malformed config leaves both allowlists empty, so
-            // no regular-account model row is admitted to the portal.
-        }
-        return result
+        return PortalConfig.parsePortalConfig(
+            config.parent ? String(config.parent) : "",
+            config.parents ? String(config.parents) : "",
+            config.kids ? String(config.kids) : "")
     }
     readonly property var portalData: root.parsePortalConfig()
     readonly property string portalParent: portalData.parent
@@ -81,16 +56,12 @@ Rectangle {
     function isPortalUser(name) {
         return root.hasPortalKid(name) || root.isParentAccount(name)
     }
-    // displayNameFor: realName (the passwd GECOS field, set once by
-    // `omarchy-kids-provision`'s `usermod -c`, docs/provision.md) wins if
-    // set; else config.kids' own per-account name (set from the same
-    // profile, so this only ever differs from realName if GECOS drifted
-    // or a box predates issue #39's `usermod -c` call); else the account
-    // name with "kid-" stripped and the first letter capitalized.
+    // displayNameFor: config.kids carries the exact root-owned profile name.
+    // passwd GECOS is a fallback for old configs and representable names.
     function displayNameFor(name, realName) {
-        if (realName && realName.length > 0) return realName
         var portalEntry = root.hasPortalKid(name) ? root.portalKids[String(name)] : undefined
         if (portalEntry && portalEntry.name && portalEntry.name.length > 0) return portalEntry.name
+        if (realName && realName.length > 0) return realName
         var base = isKidName(name) ? String(name).slice(4) : String(name)
         return base.length > 0 ? base.charAt(0).toUpperCase() + base.slice(1) : base
     }

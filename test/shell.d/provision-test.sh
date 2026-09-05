@@ -330,7 +330,7 @@ fi
 
 PORTAL_CONF="$SCRATCH_ROOT/usr/share/sddm/themes/omarchy-kids/theme.conf.user"
 check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "parent=mark" "theme.conf.user: parent is the machine owner"
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kids=$SLUG:Ada Lovelace:fox" "theme.conf.user: $SLUG's name and avatar"
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kids=\"$SLUG:Ada Lovelace:fox\"" "theme.conf.user: $SLUG's name and avatar"
 
 check_contains "$argv" "mount --bind $OMARCHY_KIDS_HOME_ROOT/home/$SLUG $OMARCHY_KIDS_HOME_ROOT/home/$SLUG" "add: bind mount created before the noexec remount"
 check_contains "$argv" "runuser -l $SLUG -c omarchy-provision-user --first-install" "add: omarchy-provision-user --first-install runs as the kid via runuser"
@@ -386,10 +386,9 @@ check_eq "$(grep -c "$SLUG-2\$" "$NSCONF")" "2" "namespace.conf gained exactly 2
 check_eq "$(grep -c "^0=mark:omarchy.desktop\$" "$ETC/luks-slots")" "1" \
   "luks-slots still has exactly one slot-0 line after a second add"
 
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG:Ada Lovelace:fox" \
-  "theme.conf.user: gained the second kid too ($SLUG's entry still present)"
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG-2:Ada Lovelace:bear" \
-  "theme.conf.user: $SLUG-2's name and avatar"
+check_eq "$(grep '^kids=' "$PORTAL_CONF" 2>/dev/null)" \
+  "kids=\"$SLUG:Ada Lovelace:fox,$SLUG-2:Ada Lovelace:bear\"" \
+  "theme.conf.user: the quoted list holds both kids in order"
 
 # --- add: --no-password only for band 3-5 --------------------------------
 
@@ -476,8 +475,8 @@ check_contains "$argv6" "userdel $SLUG" "remove: userdel called"
 
 check_not_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG:Ada Lovelace" \
   "theme.conf.user: $SLUG's entry is gone after remove"
-check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "$SLUG-2:Ada Lovelace:bear" \
-  "theme.conf.user: $SLUG-2's entry survives $SLUG's removal"
+check_contains "$(cat "$PORTAL_CONF" 2>/dev/null)" "kids=\"$SLUG-2:Ada Lovelace:bear," \
+  "theme.conf.user: $SLUG-2's quoted entry survives $SLUG's removal"
 
 [[ -e "$FACE_ICON" ]] && fail "SDDM face icon for $SLUG should be removed" ||
   pass "SDDM face icon for $SLUG removed"
@@ -543,12 +542,24 @@ else
   pass "add: luksAddKey never ran for a password that already unlocks the disk"
 fi
 
-# --- review S10: a display name carrying a field separator is refused ------
+# --- review S10: encoded portal delimiters are valid display-name text ------
 
-for bad in $'Ada\tLovelace' 'Ada:Lovelace' 'Ada,Lovelace'; do
+for accepted in 'Ada:Lovelace' 'Ada,Lovelace' $'Ada\rLovelace' \
+  $'Ada%2C, Lovelace: "kid" \\ \r'; do
+  outb="$(DRY_RUN=1 "$BIN" add "$accepted" --band 3-5 --avatar fox --no-password 2>&1)"
+  st=$?
+  check_eq "$st" 0 "add: delimiter/control-bearing display-name text is accepted"
+  check_not_contains "$outb" "may not contain" "add: accepted display-name text reaches the preview"
+  if [[ "$accepted" == *:* ]]; then
+    check_contains "$outb" "usermod -c ''" \
+      "add: colon-bearing names use an empty passwd GECOS fallback"
+  fi
+done
+
+for bad in $'Ada\tLovelace' $'Ada\nLovelace'; do
   outb="$(printf 'somepassword\n' | "$BIN" add "$bad" --band 6-8 --avatar fox --password-stdin 2>&1)"
   st=$?
-  check_eq "$st" 2 "add: a display name containing a portal/GECOS separator is refused"
+  check_eq "$st" 2 "add: a display name containing a record-line separator is refused"
   check_contains "$outb" "may not contain" "add: the refusal explains which characters are out"
 done
 

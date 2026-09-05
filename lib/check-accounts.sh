@@ -39,9 +39,9 @@ account_gecos_check() { # account_gecos_check ACCOUNT NAME
     return
   fi
   if gecos_ok "$acct" "$name"; then
-    add_result Accounts "account:$acct:gecos" pass "$acct's GECOS field matches its profile name ($name)"
+    add_result Accounts "account:$acct:gecos" pass "$acct's GECOS field matches the safe passwd fallback"
   else
-    add_result Accounts "account:$acct:gecos" fail "$acct's GECOS field doesn't match its profile name ($name) — the greeter would show the wrong name"
+    add_result Accounts "account:$acct:gecos" fail "$acct's GECOS field doesn't match the safe passwd fallback"
   fi
 }
 

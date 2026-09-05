@@ -366,6 +366,63 @@ posture_remove_sddm_theme_dropin() {
 # restart needed. Root-owned 0644, rewritten in full on every add/remove.
 # Full design, the design this replaced, and the live-VM finding: docs/portal.md.
 
+# posture_qsettings_value VALUE [always] — matches QSettings' INI string
+# encoder. Lists pass "always" to keep scalar type.
+posture_qsettings_value() {
+  local value="$1" quote="${2:-auto}" encoded="" ch escaped
+  local i code escape_next=0 needs_quotes=0
+  for ((i = 0; i < ${#value}; i++)); do
+    ch="${value:i:1}"
+    [[ "$ch" == ';' || "$ch" == ',' || "$ch" == '=' ]] && needs_quotes=1
+    if ((escape_next)) && [[ "$ch" =~ ^[0-9A-Fa-f]$ ]]; then
+      printf -v code '%d' "'$ch"
+      printf -v escaped '\\x%x' "$code"
+      encoded+="$escaped"
+      continue
+    fi
+    escape_next=0
+    case "$ch" in
+      $'\a') encoded+='\a' ;;
+      $'\b') encoded+='\b' ;;
+      $'\f') encoded+='\f' ;;
+      $'\n') encoded+='\n' ;;
+      $'\r') encoded+='\r' ;;
+      $'\t') encoded+='\t' ;;
+      $'\v') encoded+='\v' ;;
+      '"' | $'\\') encoded+="\\$ch" ;;
+      *)
+        printf -v code '%d' "'$ch"
+        if ((code <= 0x1f)); then
+          printf -v escaped '\\x%x' "$code"
+          encoded+="$escaped"
+          escape_next=1
+        else
+          encoded+="$ch"
+        fi
+        ;;
+    esac
+  done
+  if [[ "$quote" == always || "$needs_quotes" == 1 || "$encoded" == ' '* || "$encoded" == *' ' ]]; then
+    printf '"%s"' "$encoded"
+  else
+    printf '%s' "$encoded"
+  fi
+}
+
+posture_qsettings_line() {
+  printf '%s=%s\n' "$1" "$(posture_qsettings_value "$2" "${3:-auto}")"
+}
+
+# posture_portal_field_encode VALUE — protects the three delimiters in one
+# kids= field before QSettings encodes the completed scalar value.
+posture_portal_field_encode() {
+  local value="$1"
+  value="${value//%/%25}"
+  value="${value//,/%2C}"
+  value="${value//:/%3A}"
+  printf '%s' "$value"
+}
+
 # posture_parent_home PARENT — thin name for lib/theme.sh's
 # account_home (AGENTS.md: no duplicated helpers).
 posture_parent_home() { account_home "$1"; }
@@ -378,15 +435,15 @@ posture_theme_conf_lines() {
   (
     THEME_KIDS_HOME="$(posture_parent_home "$parent")"
     export THEME_KIDS_HOME
-    printf 'backgroundColor=%s\n' "$(theme_color background)"
-    printf 'tileColor=%s\n' "$(theme_color surface)"
-    printf 'tileHighlightColor=%s\n' "$(theme_color highlight)"
-    printf 'parentTileColor=%s\n' "$(theme_color surface_muted)"
-    printf 'accentColor=%s\n' "$(theme_color accent)"
-    printf 'textColor=%s\n' "$(theme_color foreground)"
-    printf 'mutedTextColor=%s\n' "$(theme_color muted)"
-    printf 'errorColor=%s\n' "$(theme_color error)"
-    printf 'fontFamily=%s\n' "$(theme_font)"
+    posture_qsettings_line backgroundColor "$(theme_color background)"
+    posture_qsettings_line tileColor "$(theme_color surface)"
+    posture_qsettings_line tileHighlightColor "$(theme_color highlight)"
+    posture_qsettings_line parentTileColor "$(theme_color surface_muted)"
+    posture_qsettings_line accentColor "$(theme_color accent)"
+    posture_qsettings_line textColor "$(theme_color foreground)"
+    posture_qsettings_line mutedTextColor "$(theme_color muted)"
+    posture_qsettings_line errorColor "$(theme_color error)"
+    posture_qsettings_line fontFamily "$(theme_font)"
   )
 }
 
@@ -419,6 +476,7 @@ posture_portal_parent_accounts() {
 # color/font keys, same [General] section (docs/portal.md, docs/theming.md).
 posture_portal_conf_text() {
   local parent="$1" kids_field="" sep="" entry account name avatar parents_field
+  local encoded_account encoded_name encoded_avatar
   shift
   posture_valid_account "$parent" || {
     echo "lib/posture.sh: refusing to write theme.conf.user for an unusable parent name '$parent'" >&2
@@ -426,21 +484,17 @@ posture_portal_conf_text() {
   }
   for entry in "$@"; do
     IFS=$'\t' read -r account name avatar <<<"$entry"
-    # review S10, docs/portal.md: skip rather than corrupt the greeter.
-    if [[ "$name" == *:* || "$name" == *,* ]]; then
-      echo "lib/posture.sh: '$account' has a display name containing ':' or ','; left off the greeter" >&2
-      continue
-    fi
-    kids_field="${kids_field}${sep}${account}:${name}:${avatar}"
+    encoded_account="$(posture_portal_field_encode "$account")"
+    encoded_name="$(posture_portal_field_encode "$name")"
+    encoded_avatar="$(posture_portal_field_encode "$avatar")"
+    kids_field="${kids_field}${sep}${encoded_account}:${encoded_name}:${encoded_avatar}"
     sep=","
   done
   parents_field="$(posture_portal_parent_accounts "$parent")"
-  cat <<EOF
-[General]
-parent=$parent
-parents=$parents_field
-kids=$kids_field
-EOF
+  printf '[General]\n'
+  posture_qsettings_line parent "$parent"
+  posture_qsettings_line parents "$parents_field" always
+  posture_qsettings_line kids "$kids_field" always
   posture_theme_conf_lines "$parent"
 }
 

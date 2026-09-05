@@ -4,6 +4,10 @@
 # then boot the default entry and type the disk password.
 # Usage: SSH_CFG=<path> scripts/v6-limine.sh <disk-password> [shots-dir]
 set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${OMARCHY_KIDS_VM_DRIVER_LOCKED:-0}" != 1 ]]; then
+  exec "$SCRIPT_DIR/vm-driver-lock" "$0" "$@"
+fi
 CFG="${SSH_CFG:?set SSH_CFG}"
 PW="${1:?disk password}"
 OUT="${2:-/tmp}"

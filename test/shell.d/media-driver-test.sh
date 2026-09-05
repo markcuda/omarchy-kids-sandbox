@@ -264,6 +264,13 @@ check_contains "$(cat "$TMP/contender.out")" "media-driver.sh" \
 : >"$HOLD7.release"
 wait "$holder_pid"
 check "$(grep -c '^boot_with ' "$LOG7")" "1" "the refused driver never reaches boot_with"
+for driver in v1-two-sessions.sh v6-limine.sh; do
+  if grep -q 'exec .*vm-driver-lock' "$DIR/scripts/$driver"; then
+    pass "$driver takes the shared VM lock"
+  else
+    fail_ "$driver can bypass the shared VM lock"
+  fi
+done
 
 ROOT8="$TMP/theme-read-failure"
 make_fixture "$ROOT8"

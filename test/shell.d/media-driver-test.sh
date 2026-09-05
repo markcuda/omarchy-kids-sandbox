@@ -30,6 +30,8 @@ make_fixture() {
   mkdir -p "$root/scripts" "$root/test/live" "$root/docs/media"
   cp "$DIR/scripts/media-driver.sh" "$root/scripts/media-driver.sh"
   cp "$DIR/scripts/vm-driver-lock" "$root/scripts/vm-driver-lock"
+  sed -i.bak "s#/tmp/omarchy-kids-vm-driver.lock#$root/vm-driver.lock#" "$root/scripts/vm-driver-lock"
+  rm -f "$root/scripts/vm-driver-lock.bak"
   chmod +x "$root/scripts/media-driver.sh" "$root/scripts/vm-driver-lock"
   cat >"$root/test/live/lib.sh" <<'EOF'
 LIVE_OWNER_PASSWORD=owner-password

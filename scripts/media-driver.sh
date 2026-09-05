@@ -276,6 +276,30 @@ start_in_session() {
   vmroot "env -i PATH=/usr/bin:/bin /bin/bash -c $payload_q"
 }
 
+run_in_session() {
+  local account="$1" process_pattern="$2" command="$3"
+  local account_q pattern_q command_q payload payload_q
+  account_q="$(shell_quote "$account")"
+  pattern_q="$(shell_quote "$process_pattern")"
+  command_q="$(shell_quote "$command")"
+  payload="acct=$account_q; pid=\$(pgrep -u \"\$acct\" -f $pattern_q | head -1); [ -n \"\$pid\" ] || exit 1; home=\$(getent passwd \"\$acct\" | cut -d: -f6); [ -n \"\$home\" ] || exit 1; env_args=(\"HOME=\$home\" \"USER=\$acct\" \"LOGNAME=\$acct\" \"OMARCHY_PATH=/usr/share/omarchy\"); for v in WAYLAND_DISPLAY XDG_RUNTIME_DIR HYPRLAND_INSTANCE_SIGNATURE XDG_SESSION_ID DBUS_SESSION_BUS_ADDRESS; do value=\$(tr '\\0' '\\n' <\"/proc/\$pid/environ\" | sed -n \"s/^\$v=//p\" | head -1); [ -z \"\$value\" ] || env_args+=(\"\$v=\$value\"); done; runuser -u \"\$acct\" -- env \"\${env_args[@]}\" /bin/bash -c $command_q"
+  payload_q="$(shell_quote "$payload")"
+  vmroot "env -i PATH=/usr/bin:/bin /bin/bash -c $payload_q"
+}
+
+wait_times_up_ready() {
+  local waited=0 deadline="${1:-45}" ready
+  while ((waited < deadline)); do
+    ready="$(run_in_session "$LIVE_KID1_ACCOUNT" launcher/shell.qml \
+      "/usr/bin/qs -p /usr/share/omarchy-kids/time/timesup.qml ipc call media timesUpReady" 2>/dev/null || true)"
+    [[ "$ready" == true ]] && return 0
+    sleep 1
+    waited=$((waited + 1))
+  done
+  echo "media-driver: Time's Up card and countdown did not report ready within ${deadline}s" >&2
+  return 1
+}
+
 prepare_kid() {
   portal_reset 45 || return 1
   portal_login "$LIVE_KID1_ACCOUNT" "$LIVE_KID1_PASSWORD" || return 1
@@ -341,7 +365,7 @@ shoot_times_up() {
   LIGHTS_OUT_WEEKEND_DIRTY=1
   vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q lights_out_weekend 00:01 >/dev/null" || return 1
   vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-time-ledger tick >/dev/null" || return 1
-  wait_vm_process "$LIVE_KID1_ACCOUNT" time/timesup.qml 30 || return 1
+  wait_times_up_ready 45 || return 1
   capture times-up "$theme"
 }
 

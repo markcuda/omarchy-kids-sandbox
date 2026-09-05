@@ -84,6 +84,10 @@ bar must already be enabled: the driver refuses that shot instead of changing th
 configuration. SIGINT and SIGTERM run the same cleanup. Inspect the VM after SIGKILL, power loss,
 or any run whose final cleanup checks fail.
 
+The Time's Up shot waits on the running QML card's `timesUpReady` IPC result. That result stays
+false until the grace document is loaded, the card is visible, and its countdown has rendered a
+tick. A timeout fails the surface without replacing its previous image.
+
 The driver does not record the three walkthrough videos in docs/GOAL.md item 3. Those remain a
 separate gate-runner recording step using QMP frames and ffmpeg.
 

@@ -67,6 +67,12 @@ cmd_add() {
     [[ "$optional" == "true" ]] || die "add: --no-password is only allowed for band 3-5"
   fi
 
+  local boot_mode device=""
+  boot_mode="$(read_boot_mode)"
+  if [[ "$boot_mode" == portal ]] &&
+    { ((parent_pw_stdin)) || [[ -n "$parent_pw_fd" || -n "$luks_device" ]]; }; then
+    die "add: LUKS options are not available in portal mode"
+  fi
   local base_account account group gecos_name
   base_account="$("$CONF_BIN" slug "$display")"
   account="$(unique_account "$base_account")"
@@ -88,6 +94,30 @@ cmd_add() {
     fi
   elif [[ -n "$parent_pw_fd" ]]; then
     IFS= read -r parent_password <&"$parent_pw_fd" || die "add: could not read the parent password from fd $parent_pw_fd"
+  fi
+  if [[ "$boot_mode" == disk ]] && ((want_password)); then
+    device="$(detect_luks_device "$luks_device")" ||
+      die "add: disk mode needs a LUKS root; pass --luks-device if auto-detection failed" 1
+    [[ -n "$parent_password" ]] ||
+      die "add: disk mode needs the parent passphrase via --parent-password-stdin or --parent-password-fd"
+  fi
+
+  local parent
+  parent="$(read_parent)"
+  [[ -n "$parent" ]] || die "cannot find 'parent=' in $MACHINE_CONF; run machine setup before provisioning a kid"
+
+  # R-SEC-4: a passworded disk profile never exists without its key slot.
+  if [[ "$boot_mode" == disk ]] && ((want_password)); then
+    # Never through `run`: its preview would print both secrets.
+    if [[ "$DRY_RUN" == "0" ]]; then
+      add_luks_slot "$account" "$device" \
+        3< <(printf '%s\n' "$kid_password") \
+        4< <(printf '%s\n' "$parent_password")
+    else
+      printf '  [dry-run]'
+      printf ' %q' add_luks_slot "$account" "$device"
+      printf ' <secret> <secret>\n'
+    fi
   fi
 
   echo "Adding kid '$display' as $account (band $band)"
@@ -121,9 +151,6 @@ cmd_add() {
   run "$CONF_BIN" set "$account" onboarded no
 
   # R-FND-3, R-FND-4: polkit admin identity + denies.
-  local parent
-  parent="$(read_parent)"
-  [[ -n "$parent" ]] || die "cannot find 'parent=' in $MACHINE_CONF; run machine setup before provisioning a kid"
   run posture_write_polkit_admin_rule "$parent"
   run posture_write_polkit_deny_rule
 
@@ -145,25 +172,6 @@ cmd_add() {
   # Soft-fails: the lock screen's PAM stack may not exist yet on this box.
   ensure_parent_unlock_soft sddm
   ensure_parent_unlock_soft "$(posture_parent_unlock_lock_stack)"
-
-  # R-SEC-4: a LUKS key slot, only when there's a password and a device.
-  if ((want_password)); then
-    local device=""
-    if device="$(detect_luks_device "$luks_device")"; then
-      [[ -n "$parent_password" ]] || die "add: found a LUKS device ($device) but no parent password; pass --parent-password-stdin or --parent-password-fd"
-      # Never through `run`: its preview would print both secrets
-      # (review S6, docs/provision.md). Own DRY_RUN preview instead.
-      if [[ "$DRY_RUN" == "0" ]]; then
-        add_luks_slot "$account" "$device" \
-          3< <(printf '%s\n' "$kid_password") \
-          4< <(printf '%s\n' "$parent_password")
-      else
-        printf '  [dry-run]'
-        printf ' %q' add_luks_slot "$account" "$device"
-        printf ' <secret> <secret>\n'
-      fi
-    fi
-  fi
 
   # R-LOGIN-3: pin the kid session, no session picker.
   run posture_write_accountsservice "$account" "$avatar"
@@ -222,15 +230,6 @@ cmd_add() {
   echo "Done: $account"
 }
 
-# luks_occupied_slots DEVICE — occupied slots, sorted, handling both
-# LUKS2's and LUKS1's luksDump spellings.
-luks_occupied_slots() {
-  cryptsetup luksDump "$1" 2>/dev/null | sed -n \
-    -e 's/^[[:space:]]*\([0-9][0-9]*\):[[:space:]]*luks2[[:space:]]*$/\1/p' \
-    -e 's/^Key Slot \([0-9][0-9]*\): ENABLED[[:space:]]*$/\1/p' |
-    sort -n -u
-}
-
 # add_luks_slot ACCOUNT DEVICE — kid's passphrase on fd 3, parent's on fd
 # 4, never argv, never through `run` (review S6, docs/provision.md).
 add_luks_slot() {
@@ -239,6 +238,7 @@ add_luks_slot() {
   IFS= read -r kid_password <&3 || true
   IFS= read -r parent_password <&4 || true
   [[ -n "$kid_password" && -n "$parent_password" ]] || die "add: add_luks_slot needs both passphrases on fds 3 and 4"
+  luks_lock_acquire "$SLOTS_FILE" || die "add: could not lock $SLOTS_FILE for LUKS slot addition" 1
 
   if cryptsetup open --test-passphrase --key-file=<(printf '%s' "$kid_password") "$device" >/dev/null 2>&1; then
     die "add: that password already unlocks $device; pick a different one for $account"
@@ -262,6 +262,12 @@ add_luks_slot() {
     entries+=("$line")
   done < <(luks_slots_kid_entries "$SLOTS_FILE")
   entries+=("$slot=$account")
-  posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]}"
+  if ! posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]}"; then
+    if cryptsetup luksKillSlot --batch-mode --key-file=<(printf '%s' "$parent_password") "$device" "$slot"; then
+      die "add: could not record LUKS slot $slot for $account; the new slot was rolled back" 1
+    fi
+    die "add: could not record or roll back LUKS slot $slot for $account; remove that slot by hand" 1
+  fi
   echo "  LUKS slot $slot added for $account"
+  luks_lock_release
 }

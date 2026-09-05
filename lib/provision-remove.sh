@@ -3,13 +3,17 @@
 # Sourced by the dispatcher; not meant to be executed directly. docs/provision.md.
 
 cmd_remove() {
-  local account="" keep_home=0
+  local account="" keep_home=0 luks_device=""
 
   while (($#)); do
     case "$1" in
       --keep-home)
         keep_home=1
         shift
+        ;;
+      --luks-device)
+        luks_device="${2:?--luks-device needs a value}"
+        shift 2
         ;;
       -h | --help)
         usage
@@ -25,6 +29,11 @@ cmd_remove() {
   done
 
   [[ -n "$account" ]] || die "remove: needs an account"
+  local boot_mode
+  boot_mode="$(read_boot_mode)"
+  if [[ "$boot_mode" == portal && -n "$luks_device" ]]; then
+    die "remove: --luks-device is not available in portal mode"
+  fi
   local profile="$KIDS_DIR/$account.conf"
   [[ -e "$profile" ]] || die "remove: no such kid account '$account' (no profile at $profile)"
 
@@ -34,26 +43,28 @@ cmd_remove() {
 
   echo "Removing kid $account"
 
-  # R-SEC-4: kill the LUKS slot by number, then rewrite luks-slots.
-  local slot
+  # R-SEC-4: portal mode cannot prove a recorded key is gone. Disk mode
+  # journals the slot before killing it, then completes or resumes the map.
+  local slot="" device="" intent="" intent_file
   slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
-  if [[ -n "$slot" ]]; then
-    local device=""
-    if device="$(detect_luks_device "")"; then
-      run cryptsetup luksKillSlot --batch-mode "$device" "$slot"
+  intent_file="$(luks_removal_intent_file "$SLOTS_FILE" "$account")"
+  if [[ -e "$intent_file" ]]; then
+    intent="$(luks_read_removal_intent "$SLOTS_FILE" "$account")" ||
+      die "remove: invalid LUKS removal intent at $intent_file; repair it before retrying" 1
+    slot="${intent%% *}"
+  fi
+  if [[ "$boot_mode" == portal && -n "$slot" ]]; then
+    die "remove: portal mode cannot verify recorded LUKS slot $slot for $account; remove the slot in disk mode first" 1
+  fi
+  if [[ "$boot_mode" == disk && -n "$slot" ]]; then
+    device="$(detect_luks_device "$luks_device")" ||
+      die "remove: disk mode cannot find the LUKS root for slot $slot" 1
+    if [[ "$DRY_RUN" == "0" ]]; then
+      luks_remove_account_slot "$SLOTS_FILE" "$account" "$device" ||
+        die "remove: LUKS slot removal did not finish for $account" 1
     else
-      echo "warning: no LUKS device found; slot $slot for $account was not killed on disk (luks-slots is rewritten anyway)" >&2
+      run luks_remove_account_slot "$SLOTS_FILE" "$account" "$device"
     fi
-    local parent_line entries=() line acct
-    parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
-    while IFS= read -r line; do
-      [[ -z "$line" ]] && continue
-      acct="${line#*=}"
-      acct="${acct%%:*}"
-      [[ "$acct" == "$account" ]] && continue
-      entries+=("$line")
-    done < <(luks_slots_kid_entries "$SLOTS_FILE")
-    run posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}"
   fi
 
   # R-FND-2a
@@ -78,7 +89,6 @@ cmd_remove() {
   run posture_remove_fstab_line "$account"
 
   # Appendix B
-  run rm -f "$profile"
   run launcher_map_remove "$account"
   run session_manifest_remove "$account"
 
@@ -91,6 +101,8 @@ cmd_remove() {
     run install -d -m 0755 "$parent_home/Kids Mode"
     run mv "$(home_dir_for "$account")" "$dest"
   fi
+  # Keep the profile as the retry record until the account and home are done.
+  run rm -f "$profile"
 
   echo "Done: $account removed"
   echo "(groups, console masks, and the polkit rules stay until Remove Kids Mode -- SPEC.md R-FND-6)"

@@ -170,7 +170,8 @@ then writes `boot=disk` last. Limine snapshot suppression has a separate complet
 only after `limine-snapper-sync` succeeds; a retry synchronizes again while that marker is absent.
 Before adding a slot it atomically writes one root-only recovery
 record containing the prior map and the planned additions. Portal authority rolls those additions
-back; disk authority verifies the committed slots and map before removing the same record.
+back. Disk authority removes a fully committed record, but rolls back an incomplete one before
+retrying. Neither requested direction can be stranded by a partially completed addition.
 
 ## Band defaults
 

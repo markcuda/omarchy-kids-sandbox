@@ -48,6 +48,7 @@ rm -f "$TREE/lib"
 cp -a "$DIR/lib" "$TREE/lib"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$ETC/machine.conf"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_LOCK "$ROOT/run/omarchy-kids/boot-mode.lock"
+kids_set_const "$TREE/lib/kids.sh" KIDS_PY "$TOOLS/python3"
 
 if [[ -f "$TREE/lib/boot-mode-transition.sh" ]]; then
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_KIDS_DIR "$ETC/kids"
@@ -98,10 +99,23 @@ REAL_MV="$(command -v mv)"
 cat >"$TOOLS/mv" <<EOF
 #!/bin/bash
 "$REAL_MV" "\$@" || exit 1
+if [[ "\${*: -1}" == "$ETC/boot-transition.recovery" && -e "$TMP/track-recovery-write" ]]; then
+  printf 'rename-recovery\n' >>"$LOG"
+fi
 if [[ "\${*: -1}" == "$ETC/machine.conf" && -e "$TMP/arm-mode-readback-failure" ]]; then
   rm -f "$TMP/arm-mode-readback-failure"
   : >"$TMP/fail-next-mode-read"
 fi
+EOF
+REAL_PY="$(command -v python3)"
+cat >"$TOOLS/python3" <<EOF
+#!/bin/bash
+target="\${*: -1}"
+if [[ "\${1:-}" == -c && "\${2:-}" == *os.fsync* && -e "$TMP/track-recovery-write" &&
+  "\$target" == "$ETC"/.boot-transition.recovery.* ]]; then
+  printf 'fsync-recovery-temp\n' >>"$LOG"
+fi
+exec "$REAL_PY" "\$@"
 EOF
 cat >"$TOOLS/flock" <<EOF
 #!/bin/bash
@@ -359,19 +373,23 @@ check_eq "$(grep -c '^cryptsetup luksAddKey ' "$LOG" 2>/dev/null || true)" 0 \
   "a noninteractive disk transition without secrets adds no slot"
 : >"$LOG"
 : >"$TMP/require-transition-lock"
+: >"$TMP/track-recovery-write"
 
 printf 'parentpass\nadapass\ncypass\n' |
   OMARCHY_KIDS_LUKS_DEVICE=/dev/hostile PATH="$PATH_VALUE" \
     "$CONF" machine set boot disk --secrets-stdin \
     >"$TMP/disk.out" 2>"$TMP/disk.error"
 status=$?
-rm -f "$TMP/require-transition-lock"
+rm -f "$TMP/require-transition-lock" "$TMP/track-recovery-write"
 transition_log="$(cat "$LOG")"
 check_eq "$status" 0 "portal to disk exits 0"
 check_eq "$(grep -c '^flock [0-9][0-9]*$' <<<"$transition_log")" 1 \
   "the transition acquires the shared boot-mode lock exactly once"
 check_eq "$(grep -c '^stat-machine-without-lock$' <<<"$transition_log")" 0 \
   "the lock is held before the first mode read"
+check_eq "$(grep -E '^(fsync-recovery-temp|rename-recovery)$' <<<"$transition_log")" \
+  $'fsync-recovery-temp\nrename-recovery' \
+  "the recovery record is fsynced before its atomic rename"
 check_eq "$(tail -2 <<<"$transition_log")" $'stat-machine\nflock -u 9' \
   "the lock stays held through final mode readback"
 if grep -qF /dev/hostile <<<"$transition_log"; then
@@ -628,6 +646,32 @@ check_eq "$(grep -c '^cryptsetup luksAddKey ' "$LOG" 2>/dev/null || true)" 0 \
   "disk recovery does not add an already committed slot"
 check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
   "disk recovery removes the confirmed single record"
+
+# An incomplete recovery record created while disk was already authoritative
+# must roll back for both a disk retry and an opposite portal request.
+printf 'version=1\nmap=present\nbefore=0=mark\nbefore=1=kid-ada\nbefore=2=kid-cy\nadd=3=kid-test\n' \
+  >"$ETC/boot-transition.recovery"
+chmod 0600 "$ETC/boot-transition.recovery"
+printf '3=stalepass\n' >>"$SLOT_STATE"
+PATH="$PATH_VALUE" "$CONF" machine set boot disk </dev/null \
+  >/dev/null 2>"$TMP/incomplete-disk-recovery.error"
+check_eq "$?" 0 "disk retries an incomplete disk-mode recovery record"
+check_eq "$(grep -c '^3=' "$SLOT_STATE" 2>/dev/null || true)" 0 \
+  "disk retry rolls back the incomplete addition"
+check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
+  "disk retry removes the incomplete recovery record"
+
+printf 'version=1\nmap=present\nbefore=0=mark\nbefore=1=kid-ada\nbefore=2=kid-cy\nadd=3=kid-test\n' \
+  >"$ETC/boot-transition.recovery"
+chmod 0600 "$ETC/boot-transition.recovery"
+printf '3=stalepass\n' >>"$SLOT_STATE"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null \
+  2>"$TMP/incomplete-portal-recovery.error"
+check_eq "$?" 0 "portal recovers an incomplete disk-mode recovery record"
+check_eq "$(cat "$SLOT_STATE")" '0=parentpass' \
+  "portal removes every kid slot after rolling back the incomplete addition"
+check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
+  "portal removes the incomplete recovery record"
 
 # One recovery record is sufficient after an interrupted addition, including
 # when the next request chooses the opposite, portal direction.

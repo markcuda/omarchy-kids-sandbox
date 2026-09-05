@@ -307,11 +307,12 @@ boot_transition_write_state_file() {
       return 1
     }
   fi
-  if ! chmod "$mode" "$tmp" || ! chown root:root "$tmp" || ! mv -f "$tmp" "$file"; then
+  if ! chmod "$mode" "$tmp" || ! chown root:root "$tmp" ||
+    ! boot_transition_fsync "$tmp" || ! mv -f "$tmp" "$file"; then
     rm -f "$tmp"
     return 1
   fi
-  boot_transition_fsync "$file"
+  boot_transition_fsync_dir "$(dirname "$file")"
 }
 
 boot_transition_prepare_additions() {
@@ -414,22 +415,28 @@ boot_transition_rollback_additions() {
 }
 
 boot_transition_recover_additions() {
-  local current="$1" line slot active
+  local requested="$1" line slot active committed=0
   if [[ ! -e "$BOOT_TRANSITION_RECOVERY" && ! -L "$BOOT_TRANSITION_RECOVERY" ]]; then
     return 0
   fi
   boot_transition_parse_recovery || return 1
-  if [[ "$current" == disk ]]; then
-    boot_transition_config_safe "$BOOT_TRANSITION_SLOTS_FILE" file || return 1
-    [[ "$(file_stat a "$BOOT_TRANSITION_SLOTS_FILE")" == 600 ]] || return 1
+  if [[ "$requested" == disk ]] &&
+    boot_transition_config_safe "$BOOT_TRANSITION_SLOTS_FILE" file &&
+    [[ "$(file_stat a "$BOOT_TRANSITION_SLOTS_FILE")" == 600 ]]; then
     active="$(boot_transition_occupied_slots "$BOOT_TRANSITION_DEVICE")" || return 1
+    committed=1
     for line in "${BOOT_TRANSITION_RECOVERY_ADDITIONS[@]+"${BOOT_TRANSITION_RECOVERY_ADDITIONS[@]}"}"; do
       slot="${line%%=*}"
-      grep -qxF "$line" "$BOOT_TRANSITION_SLOTS_FILE" || return 1
-      grep -qxF "$slot" <<<"$active" || return 1
+      if ! grep -qxF "$line" "$BOOT_TRANSITION_SLOTS_FILE" ||
+        ! grep -qxF "$slot" <<<"$active"; then
+        committed=0
+        break
+      fi
     done
-    boot_transition_remove_recovery
-    return $?
+    if [[ "$committed" == 1 ]]; then
+      boot_transition_remove_recovery
+      return $?
+    fi
   fi
   boot_transition_rollback_additions
 }
@@ -592,7 +599,7 @@ boot_transition_disk() {
   BOOT_TRANSITION_DEVICE="$(boot_transition_root_luks_device)" || return 1
   boot_transition_hook_shape_supported || return 1
   boot_transition_collect_kids || return 1
-  boot_transition_recover_additions "$current" || return 1
+  boot_transition_recover_additions disk || return 1
   boot_transition_load_disk_map || return 1
 
   [[ "$current" == portal || ${#BOOT_TRANSITION_MISSING_KIDS[@]} -gt 0 || "$from_stdin" == 1 ]] && need_secrets=1
@@ -849,7 +856,7 @@ boot_transition_portal() {
 
   if [[ -e "$BOOT_TRANSITION_RECOVERY" || -L "$BOOT_TRANSITION_RECOVERY" ]]; then
     BOOT_TRANSITION_DEVICE="$(boot_transition_root_luks_device)" || return 1
-    boot_transition_recover_additions "$current" || return 1
+    boot_transition_recover_additions portal || return 1
   fi
   boot_transition_remove_kid_slots || return 1
   boot_transition_restore_limine_editor || return 1

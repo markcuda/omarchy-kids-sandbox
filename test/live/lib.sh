@@ -132,7 +132,10 @@ portal_conf_unquote() {
       value="${value#\"}"
       value="${value%\"}"
       ;;
-    *) printf '%s\n' "$value"; return ;;
+    *)
+      printf '%s\n' "$value"
+      return
+      ;;
   esac
   while ((i < ${#value})); do
     ch="${value:i:1}"

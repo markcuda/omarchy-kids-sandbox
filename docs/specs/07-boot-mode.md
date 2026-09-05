@@ -27,7 +27,7 @@ Mode changes serialize on a root-created lock under `/run/omarchy-kids/`. A succ
 
 Disk mode requires a LUKS root and the supported `encrypt` mkinitcpio path. A passworded kid has one active LUKS slot and one validated mapping in `/etc/omarchy-kids/luks-slots`; a no-password kid has neither. Provision add and remove add or kill that kid's slot. Secrets travel on stdin or already-open file descriptors, never argv, disk, environment, or logs.
 
-The package ships the initcpio hook and the `omarchy_kids.conf` template under `/usr`, but only the disk transition installs the template at `/etc/mkinitcpio.conf.d/omarchy_kids.conf`. It then runs one `mkinitcpio -P`, verifies that the current UKI contains `omarchy-kids-unlock`, and refreshes the existing Limine integration where present. Assert may repair these disk-mode artifacts and the current Limine locks.
+The package ships the initcpio hook and the `omarchy_kids.conf` template under `/usr`, but only the disk transition installs the template at `/etc/mkinitcpio.conf.d/omarchy_kids.conf`. The transition never rebuilds the one Limine-referenced UKI in place. It tells the parent to run `sudo mkinitcpio -P`, states the power-loss risk, returns nonzero, and verifies the hook on the next run. Assert may repair disk-mode artifacts and the current Limine locks after disk authority has committed.
 
 At boot, a valid recorded slot and mapping create the temporary Kids Mode SDDM autologin drop-in. A kid slot selects `omarchy-kids.desktop`; the recorded parent slot selects the stock Omarchy session. A present but invalid or unmapped slot fails closed to the portal. If `/run/omarchy-kids/boot-slot` does not exist, boot-login writes nothing and preserves the stock SDDM autologin configuration. Cleanup removes only a drop-in that boot-login created on that boot.
 
@@ -51,11 +51,11 @@ Apply writes `parent=` and converges `boot=` before it provisions the first kid.
 
 ### Mode transitions
 
-`portal` to `disk` validates the LUKS root and all required secrets before changing boot artifacts. It securely prompts for the current disk passphrase and, in deterministic account order, each existing passworded kid's current password. It refuses duplicate kid passwords and any new kid password that already unlocks an existing disk slot before adding a slot. Before adding a slot it atomically writes one root-only recovery record containing the prior map state and every planned addition. Portal authority rolls those additions back. Disk authority deletes a fully committed record, but rolls back an incomplete one before retrying. It adds and verifies every missing kid slot, writes the slot map, installs the mkinitcpio drop-in, rebuilds once, verifies the UKI, updates Limine where present, and writes `boot=disk` last. A failure keeps `boot=portal`, rolls back slots added by that attempt, and does not report success.
+`portal` to `disk` validates the LUKS root and all required secrets before changing boot artifacts. It securely prompts for the current disk passphrase and, in deterministic account order, each existing passworded kid's current password. It refuses duplicate kid passwords and any new kid password that already unlocks an existing disk slot before adding a slot. Before adding a slot it atomically writes one root-only recovery record containing the prior map state and every planned addition. Portal authority rolls those additions back. Disk authority deletes a fully committed record, but rolls back an incomplete one before retrying. It adds and verifies every missing kid slot, writes the slot map, installs the mkinitcpio drop-in, and updates Limine. If the current UKI lacks the hook, it leaves the UKI untouched, keeps `boot=portal` and the recovery record, and returns nonzero with the manual rebuild instruction. A retry verifies the rebuilt UKI before writing `boot=disk` last. Any other failure keeps `boot=portal`, rolls back additions made by that attempt, and does not report success.
 
 Limine's saved prior value records ownership, not completion. Disk convergence writes its completion marker only after `limine-snapper-sync` succeeds. A power cut or failed synchronization therefore leaves completion absent, and the next disk convergence synchronizes again before it can succeed.
 
-`disk` to `portal` first requires an inspectable current UKI, then writes `boot=portal` so concurrent assert and boot-login become no-ops for disk behavior. It kills every recorded kid slot, removes the slot map, restores only Kids Mode-owned Limine state, and copies the known-good UKI before removing the mkinitcpio drop-in. It runs exactly one `mkinitcpio -P` and verifies that the hook is absent from the rebuilt UKI. A failed or unverifiable rebuild restores the saved image. Failure returns nonzero and leaves portal as the authoritative safe mode; rerunning the same command resumes convergence.
+`disk` to `portal` first requires an inspectable current UKI, then writes `boot=portal` so concurrent assert and boot-login become no-ops for disk behavior. It kills every recorded kid slot, removes the slot map, restores only Kids Mode-owned Limine state, and removes the mkinitcpio drop-in. It never rebuilds the only bootable UKI. While that UKI still contains the hook, it returns nonzero and tells the parent to run `sudo mkinitcpio -P`, warning that power loss during that command can leave the computer unable to start. Rerunning the transition after the manual rebuild verifies that the hook is absent before reporting success.
 
 Per-kid removal in disk mode kills only that kid's slot and does not rebuild the UKI. Per-kid removal in portal mode requires the portal invariants and never touches LUKS. Full Remove Kids Mode reads the mode before changing anything: disk mode removes all disk artifacts with one final rebuild; portal mode removes no LUKS, UKI, or Limine state. An invalid or missing mode blocks provision, assert, and removal before mutation. Boot-login is the early-boot exception: it makes no change and exits 0.
 
@@ -70,7 +70,7 @@ Per-kid removal in disk mode kills only that kid's slot and does not rebuild the
 - R-BOOTMODE-7: Wizard parent authentication uses PAM/authd and rejects a wrong candidate even when sudo is passwordless.
 - R-BOOTMODE-8: Step 2 is the only parent-password prompt; Apply and every later wizard operation either use its established noninteractive authorization or fail without prompting.
 - R-BOOTMODE-9: Switching portal to disk converges the disk path for every existing passworded kid and rolls back additions on failure.
-- R-BOOTMODE-10: Switching disk to portal removes all kid slots and the active hook, restores Kids Mode-owned Limine state, and rebuilds the UKI exactly once.
+- R-BOOTMODE-10: Switching disk to portal removes all kid slots and the active hook, restores Kids Mode-owned Limine state, and never rebuilds the UKI inside the transition. It reports the manual rebuild and its power-loss risk, then verifies the result on retry.
 - R-BOOTMODE-11: Provision add/remove, assert, boot-login, full removal, and the pacman-hook path branch only on the trusted setting and preserve mode-specific invariants.
 - R-BOOTMODE-12: Invalid or incomplete configuration never guesses a mode, never blocks early boot, and never reports a partially completed transition as success.
 
@@ -83,7 +83,7 @@ The public commands are:
 - `sudo omarchy-kids-conf machine set boot disk --secrets-stdin` is the noninteractive form used by the wizard. Stdin contains the current disk passphrase, then one password for each existing passworded kid in byte-sorted account order, one line each, and EOF. Missing or extra lines fail before mutation.
 - `sudo omarchy-kids-conf machine set boot portal` converges portal mode. It asks for no disk passphrase.
 
-`machine get boot` exits `0` on a valid value and `1` with no stdout for missing, unsafe, or invalid state. `machine set` exits `0` only after readback and mode checks pass, `1` for authorization, prerequisite, secret, or transition failure, `2` for bad syntax or a value outside `disk|portal`, and `130` when an interactive secret prompt is cancelled. Noninteractive callers that would require an unprovided secret fail with `1`; they never open `/dev/tty` unexpectedly.
+`machine get boot` exits `0` on a valid value and `1` with no stdout for missing, unsafe, or invalid state. `machine set` exits `0` only after readback and mode checks pass, `1` for authorization, prerequisite, secret, transition failure, or a pending manual UKI rebuild, `2` for bad syntax or a value outside `disk|portal`, and `130` when an interactive secret prompt is cancelled. Noninteractive callers that would require an unprovided secret fail with `1`; they never open `/dev/tty` unexpectedly.
 
 `machine.conf` adds one key:
 
@@ -103,7 +103,7 @@ On upgrade, a one-time root migration writes `boot=disk` only when `machine.conf
 
 A legacy installation selected as disk keeps its slots and current boot behavior, then assert validates it. One selected as portal runs the portal convergence path before the new pacman hook can report success. Migration does not claim success until `machine get boot`, the mode-specific check set, and file ownership pass. A missing or ambiguous legacy state fails closed with instructions to run one of the two explicit `machine set boot` commands; boot-login still leaves the stock path untouched.
 
-Switching later is supported in both directions and is idempotent. Portal to disk collects fresh secrets because Kids Mode does not store passwords. Disk to portal removes the slots before declaring convergence and performs one UKI rebuild regardless of kid count. Removing one kid after either migration follows the selected mode, not the presence of stale files.
+Switching later is supported in both directions and is idempotent. Portal to disk collects fresh secrets because Kids Mode does not store passwords. Either direction may stop once with the manual UKI rebuild instruction; the transition itself never invokes that rebuild. Removing one kid after either migration follows the selected mode, not the presence of stale files.
 
 ## Tests
 
@@ -114,13 +114,13 @@ Unit tests run through `test/all` and use copied trees and stubbed fixed binarie
 - `test/shell.d/wizard-test.sh` covers R-BOOTMODE-7: a wrong candidate fails when the sudo stub is passwordless, while the PAM/authd result alone decides success.
 - `test/shell.d/wizard-test.sh` also covers R-BOOTMODE-8 in a pseudo-terminal: authd accepts step 2, Apply completes with one parent-password prompt in the transcript, no sudo prompt, and no password in output or the setup log.
 
-`test/shell.d/conf-test.sh` covers ownership, mode, atomic writes, duplicate and invalid values, exact stdout and exit codes, non-root writes, idempotence, and missing-mode behavior. `test/shell.d/boot-mode-test.sh` covers both transitions, secret order, rollback, one rebuild, UKI verification, existing kids, no-password kids, stale artifacts, and interruption recovery. Provision, remove, check, packaging, and trust-boundary tests prove every named consumer uses the shared fixed-path reader and the package does not own the active drop-in.
+`test/shell.d/conf-test.sh` covers ownership, mode, atomic writes, duplicate and invalid values, exact stdout and exit codes, non-root writes, idempotence, and missing-mode behavior. `test/shell.d/boot-mode-test.sh` covers both transitions, secret order, rollback, zero transition-owned rebuilds, UKI verification, existing kids, no-password kids, stale artifacts, and interruption recovery. Provision, remove, check, packaging, and trust-boundary tests prove every named consumer uses the shared fixed-path reader and the package does not own the active drop-in.
 
 The disk VM scenario extends `test/live/10-cold-boot-kid.sh`. On a fresh LUKS VM it selects disk, provisions `kid-ada`, verifies the slot and UKI, cold-boots with the kid password into the kid desktop, cold-boots with the parent disk passphrase into the stock parent session, and captures the selected desktop. This proves the disk prompt, recorded slot, mapping, session selection, and fail-safe stock fallback as one chain.
 
 The portal VM scenario extends `test/live/30-portal-login-and-finish.sh`. It records hashes and mtimes for the UKI, Limine files, and stock SDDM autologin, selects portal over SSH, provisions `kid-ada`, runs assert, performs an unrelated pacman transaction, and proves all recorded boot files stayed unchanged and no kid slot exists. After a normal boot unlock, it logs the kid in from the portal and captures the desktop. This proves safe remote administration, pacman-hook isolation, stock autologin preservation, and portal-only kid entry.
 
-Each mode scenario finishes by switching to the other mode and back. Disk to portal must show all kid slots absent and one rebuild. Portal to disk must show slots for every existing passworded kid and a working cold boot. VM snapshots restore the fixture between destructive cases; these commands never run on the development Mac or the Air's real disk.
+Each mode scenario finishes by switching to the other mode and back. Each switch stops for the parent to run the printed rebuild command, then its retry verifies the image. Disk to portal must show all kid slots absent; portal to disk must show slots for every existing passworded kid and a working cold boot. VM snapshots restore the fixture between destructive cases; these commands never run on the development Mac or the Air's real disk.
 
 ## Tickets
 
@@ -153,7 +153,7 @@ Ordered so the portal-mode consumers land before the transition machinery: the A
    - Satisfies: R-BOOTMODE-2, R-BOOTMODE-8
 7. **Build idempotent mode transitions and package the inactive template**
    - Files: `lib/boot-mode-transition.sh`, `bin/omarchy-kids-conf`, `test/shell.d/boot-mode-test.sh`
-   - Acceptance: Both directions converge existing profiles, portal to disk rolls back failed additions, disk to portal rebuilds exactly once.
+   - Acceptance: Both directions converge existing profiles, portal to disk rolls back failed additions, neither transition rebuilds the UKI, and a retry verifies the parent's manual rebuild.
    - Satisfies: R-BOOTMODE-3, R-BOOTMODE-4, R-BOOTMODE-9, R-BOOTMODE-10
 8. **Prove both modes in the VM**
    - Files: `test/live/10-cold-boot-kid.sh`, `test/live/30-portal-login-and-finish.sh`, `docs/install.md`

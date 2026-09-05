@@ -80,7 +80,8 @@ Usage: $(basename "$0") <command> [args]
   band <band>                print one band's defaults
   slug <display name>        the kid- account-name slug for a display name
   machine get boot           print the trusted boot mode
-  machine set boot <mode>    converge the trusted boot mode (disk or portal)
+  machine set boot <mode>    converge boot state; if the UKI must change, prints
+                              the manual rebuild command and returns nonzero
       [--secrets-stdin]       read disk and existing-kid secrets from stdin
   machine migrate boot       migrate package-owned legacy boot state
   machine set parent <name>  write machine.conf's parent= (issue #46: the

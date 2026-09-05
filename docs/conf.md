@@ -160,13 +160,15 @@ while it selects or reads the mode, reads back any new value, and converges the 
 mkinitcpio drop-in. `machine set boot` holds that same lock from its first mode read through
 artifact convergence, the final setting write, and readback. The setter fsyncs the replacement
 before its atomic rename and fsyncs the containing directory after it; rollback knows whether the
-rename committed even when that setter's readback fails. `portal` removes the recorded kid
-slots and active hook, then rebuilds once when leaving disk mode. Before that removal it verifies
-and copies the current UKI. A missing or unreadable image stops the transition without mutation;
-a failed or unverifiable rebuild restores the saved image. `disk` validates the LUKS root
-and secrets, refuses a kid password already used by another child or disk slot, adds missing kid
-slots, installs the package template, rebuilds and verifies the UKI,
-then writes `boot=disk` last. Limine snapshot suppression has a separate completion marker written
+rename committed even when that setter's readback fails. `portal` removes the recorded kid slots,
+active drop-in, and owned Limine state after making portal authoritative. `disk` validates the
+LUKS root and secrets, refuses a kid password already used by another child or disk slot, adds
+missing kid slots, installs the package template, and updates Limine. Neither transition rebuilds
+the one Limine-referenced UKI in place. When a rebuild is needed, the command leaves the current
+UKI untouched, prints `sudo mkinitcpio -P` with its power-loss risk, and returns nonzero. The
+parent runs that command and retries the Boot choice; the retry verifies the image before
+reporting success or writing `boot=disk`. A missing or unreadable image stops before mutation.
+Limine snapshot suppression has a separate completion marker written
 only after `limine-snapper-sync` succeeds; a retry synchronizes again while that marker is absent.
 Before adding a slot it atomically writes one root-only recovery
 record containing the prior map and the planned additions. Portal authority rolls those additions

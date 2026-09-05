@@ -11,7 +11,6 @@ BOOT_TRANSITION_UKI_DIR=/boot/EFI/Linux
 BOOT_TRANSITION_FINDMNT=/usr/bin/findmnt
 BOOT_TRANSITION_LSBLK=/usr/bin/lsblk
 BOOT_TRANSITION_CRYPTSETUP=/usr/bin/cryptsetup
-BOOT_TRANSITION_MKINITCPIO=/usr/bin/mkinitcpio
 BOOT_TRANSITION_LSINITCPIO=/usr/bin/lsinitcpio
 BOOT_TRANSITION_LIMINE_CONF=/boot/limine.conf
 BOOT_TRANSITION_LIMINE_DEFAULT=/etc/default/limine
@@ -23,7 +22,6 @@ BOOT_TRANSITION_MKINITCPIO_CONF=/etc/mkinitcpio.conf
 BOOT_TRANSITION_MKINITCPIO_CONF_DIR=/etc/mkinitcpio.conf.d
 BOOT_TRANSITION_ENV=/usr/bin/env
 BOOT_TRANSITION_BASH=/bin/bash
-BOOT_TRANSITION_UKI_BACKUP_SUFFIX=.omarchy-kids-transition-backup
 BOOT_TRANSITION_RECOVERY=/etc/omarchy-kids/boot-transition.recovery
 
 BOOT_TRANSITION_PASSWORD_KIDS=()
@@ -581,7 +579,7 @@ boot_transition_limine_snapshots() {
 }
 
 boot_transition_disk_abort() {
-  local current="$1" rebuilt="$2" mode_written="${3:-0}" failed=0
+  local current="$1" mode_written="${2:-0}" failed=0
   if [[ "$current" == portal && "$mode_written" == 1 ]]; then
     boot_mode_set portal || failed=1
   fi
@@ -592,18 +590,20 @@ boot_transition_disk_abort() {
     rm -f "$BOOT_TRANSITION_DROPIN" || failed=1
     boot_transition_restore_limine_editor || failed=1
     boot_transition_restore_limine || failed=1
-    if [[ "$rebuilt" == 1 ]]; then
-      "$BOOT_TRANSITION_MKINITCPIO" -P || failed=1
-    fi
   fi
   ((failed == 0)) || echo "omarchy-kids-conf: disk transition rollback needs repair" >&2
   return 1
 }
 
 boot_transition_disk() {
-  local current="$1" from_stdin="$2" need_secrets=0 dropin_status rebuilt=0 mode_written=0
+  local current="$1" from_stdin="$2" need_secrets=0 dropin_status hook_status mode_written=0
   BOOT_TRANSITION_DEVICE="$(boot_transition_root_luks_device)" || return 1
   boot_transition_hook_shape_supported || return 1
+  boot_transition_uki_has_hook && hook_status=0 || hook_status=$?
+  if [[ "$hook_status" -eq 2 || "$hook_status" -eq 3 ]]; then
+    echo "omarchy-kids-conf: refusing disk transition without an inspectable current UKI" >&2
+    return 1
+  fi
   boot_transition_collect_kids || return 1
   boot_transition_recover_additions disk || return 1
   boot_transition_load_disk_map || return 1
@@ -616,11 +616,11 @@ boot_transition_disk() {
   boot_transition_allocate_slots || return 1
   boot_transition_prepare_additions "$current" || return 1
   if ! boot_transition_add_slots; then
-    boot_transition_disk_abort "$current" "$rebuilt"
+    boot_transition_disk_abort "$current"
     return 1
   fi
   if ! boot_transition_write_disk_map; then
-    boot_transition_disk_abort "$current" "$rebuilt"
+    boot_transition_disk_abort "$current"
     return 1
   fi
 
@@ -630,41 +630,27 @@ boot_transition_disk() {
     dropin_status=$?
   fi
   if [[ "$dropin_status" -eq 2 ]]; then
-    boot_transition_disk_abort "$current" "$rebuilt"
-    return 1
-  fi
-  if [[ "$current" == portal || "$dropin_status" -eq 0 ]]; then
-    rebuilt=1
-    if ! "$BOOT_TRANSITION_MKINITCPIO" -P; then
-      boot_transition_disk_abort "$current" "$rebuilt"
-      return 1
-    fi
-  else
-    boot_transition_uki_has_hook && dropin_status=0 || dropin_status=$?
-    if [[ "$dropin_status" -ne 0 ]]; then
-      rebuilt=1
-      if ! "$BOOT_TRANSITION_MKINITCPIO" -P; then
-        boot_transition_disk_abort "$current" "$rebuilt"
-        return 1
-      fi
-    fi
-  fi
-  if ! boot_transition_uki_has_hook; then
-    boot_transition_disk_abort "$current" "$rebuilt"
+    boot_transition_disk_abort "$current"
     return 1
   fi
   if ! boot_transition_limine_editor || ! boot_transition_limine_snapshots; then
-    boot_transition_disk_abort "$current" "$rebuilt"
+    boot_transition_disk_abort "$current"
     return 1
   fi
+  boot_transition_uki_has_hook && hook_status=0 || hook_status=$?
+  if [[ "$hook_status" -eq 1 ]]; then
+    boot_transition_rebuild_needed
+    return 1
+  fi
+  [[ "$hook_status" -eq 0 ]] || return 1
   if ! boot_mode_set disk; then
     mode_written="$BOOT_MODE_SET_COMMITTED"
-    boot_transition_disk_abort "$current" "$rebuilt" "$mode_written"
+    boot_transition_disk_abort "$current" "$mode_written"
     return 1
   fi
   mode_written="$BOOT_MODE_SET_COMMITTED"
   if [[ "$(boot_mode_get 2>/dev/null || true)" != disk ]]; then
-    boot_transition_disk_abort "$current" "$rebuilt" "$mode_written"
+    boot_transition_disk_abort "$current" "$mode_written"
     return 1
   fi
   if [[ -e "$BOOT_TRANSITION_RECOVERY" || -L "$BOOT_TRANSITION_RECOVERY" ]]; then
@@ -779,52 +765,6 @@ boot_transition_current_uki() {
   return 1
 }
 
-boot_transition_recover_uki_backup() {
-  local backup uki status
-  for backup in "$BOOT_TRANSITION_UKI_DIR"/*.efi"$BOOT_TRANSITION_UKI_BACKUP_SUFFIX"; do
-    [[ -e "$backup" || -L "$backup" ]] || continue
-    boot_transition_config_safe "$backup" file || return 1
-    uki="${backup%"$BOOT_TRANSITION_UKI_BACKUP_SUFFIX"}"
-    if [[ -f "$uki" && ! -L "$uki" ]]; then
-      "$BOOT_TRANSITION_LSINITCPIO" -a "$uki" >/dev/null 2>&1 && status=0 || status=$?
-    else
-      status=1
-    fi
-    if [[ "$status" -eq 0 ]]; then
-      rm -f "$backup" || return 1
-      boot_transition_fsync_dir "$BOOT_TRANSITION_UKI_DIR" || return 1
-    else
-      mv -f "$backup" "$uki" || return 1
-      boot_transition_fsync "$uki" || return 1
-    fi
-  done
-}
-
-boot_transition_backup_uki() {
-  local uki="$1" backup="${1}${BOOT_TRANSITION_UKI_BACKUP_SUFFIX}" tmp
-  boot_transition_config_safe "$uki" file || return 1
-  [[ ! -e "$backup" && ! -L "$backup" ]] || return 1
-  tmp="$(mktemp "${backup}.tmp.XXXXXX")" || return 1
-  if ! cp -p "$uki" "$tmp" || ! boot_transition_fsync "$tmp" || ! mv -f "$tmp" "$backup"; then
-    rm -f "$tmp"
-    return 1
-  fi
-  boot_transition_fsync_dir "$BOOT_TRANSITION_UKI_DIR"
-}
-
-boot_transition_restore_uki_backup() {
-  local uki="$1" backup="${1}${BOOT_TRANSITION_UKI_BACKUP_SUFFIX}"
-  boot_transition_config_safe "$backup" file || return 1
-  mv -f "$backup" "$uki" || return 1
-  boot_transition_fsync "$uki"
-}
-
-boot_transition_remove_uki_backup() {
-  local backup="${1}${BOOT_TRANSITION_UKI_BACKUP_SUFFIX}"
-  rm -f "$backup" || return 1
-  boot_transition_fsync_dir "$BOOT_TRANSITION_UKI_DIR"
-}
-
 boot_transition_current_mode() {
   local mode
   if mode="$(boot_mode_get 2>/dev/null)"; then
@@ -846,9 +786,13 @@ boot_transition_uki_has_hook() {
   grep -q 'omarchy-kids-unlock' <<<"$listing"
 }
 
+boot_transition_rebuild_needed() {
+  echo "omarchy-kids-conf: run 'sudo mkinitcpio -P' to finish changing boot mode. A power loss while it runs can leave this computer unable to start. Then retry this Boot choice." >&2
+  return 1
+}
+
 boot_transition_portal() {
-  local current="$1" rebuild=0 hook_status uki
-  boot_transition_recover_uki_backup || return 1
+  local current="$1" hook_status uki
   uki="$(boot_transition_current_uki)" || {
     echo "omarchy-kids-conf: refusing portal transition without a current UKI" >&2
     return 1
@@ -861,7 +805,6 @@ boot_transition_portal() {
 
   if [[ "$current" == disk || "$current" == missing ]]; then
     boot_mode_set portal || return 1
-    [[ "$current" == disk ]] && rebuild=1
   fi
 
   if [[ -e "$BOOT_TRANSITION_RECOVERY" || -L "$BOOT_TRANSITION_RECOVERY" ]]; then
@@ -871,33 +814,14 @@ boot_transition_portal() {
   boot_transition_remove_kid_slots || return 1
   boot_transition_restore_limine_editor || return 1
   boot_transition_restore_limine || return 1
+  rm -f "$BOOT_TRANSITION_DROPIN" || return 1
+  boot_transition_fsync_dir "$(dirname "$BOOT_TRANSITION_DROPIN")" || return 1
 
-  [[ ! -e "$BOOT_TRANSITION_DROPIN" && ! -L "$BOOT_TRANSITION_DROPIN" ]] || rebuild=1
-  [[ "$hook_status" -eq 0 ]] && rebuild=1
-
-  if [[ "$rebuild" -eq 1 ]]; then
-    boot_transition_backup_uki "$uki" || return 1
-    if ! rm -f "$BOOT_TRANSITION_DROPIN"; then
-      boot_transition_remove_uki_backup "$uki" || true
-      return 1
-    fi
-    if ! "$BOOT_TRANSITION_MKINITCPIO" -P; then
-      boot_transition_restore_uki_backup "$uki" ||
-        echo "omarchy-kids-conf: failed to restore the known-good UKI" >&2
-      return 1
-    fi
-    boot_transition_uki_has_hook && hook_status=0 || hook_status=$?
-    if [[ "$hook_status" -ne 1 ]]; then
-      boot_transition_restore_uki_backup "$uki" ||
-        echo "omarchy-kids-conf: failed to restore the known-good UKI" >&2
-      return 1
-    fi
-    boot_transition_remove_uki_backup "$uki" || return 1
+  boot_transition_uki_has_hook && hook_status=0 || hook_status=$?
+  if [[ "$hook_status" -eq 0 ]]; then
+    boot_transition_rebuild_needed
+    return 1
   fi
-
-  [[ ! -e "$BOOT_TRANSITION_DROPIN" && ! -L "$BOOT_TRANSITION_DROPIN" ]] || return 1
-  boot_transition_uki_has_hook && return 1
-  hook_status=$?
   [[ "$hook_status" -eq 1 ]] || return 1
   [[ "$(boot_mode_get 2>/dev/null || true)" == portal ]]
 }

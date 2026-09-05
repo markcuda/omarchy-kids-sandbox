@@ -59,7 +59,6 @@ if [[ -f "$TREE/lib/boot-mode-transition.sh" ]]; then
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_FINDMNT "$TOOLS/findmnt"
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_LSBLK "$TOOLS/lsblk"
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_CRYPTSETUP "$TOOLS/cryptsetup"
-  kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_MKINITCPIO "$TOOLS/mkinitcpio"
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_LSINITCPIO "$TOOLS/lsinitcpio"
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_LIMINE_CONF "$ROOT/boot/limine.conf"
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_LIMINE_DEFAULT "$ROOT/etc/default/limine"
@@ -243,8 +242,8 @@ status=$?
 check_eq "$status" 0 "portal convergence exits 0"
 check_eq "$(test ! -e "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo absent)" absent \
   "portal convergence removes a stale active drop-in"
-check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 1 \
-  "portal convergence rebuilds once when the active hook may be stale"
+check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 0 \
+  "portal convergence never rebuilds an already hook-free UKI"
 check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
   "portal remains authoritative after convergence"
 
@@ -263,7 +262,7 @@ printf '# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=10\nMAX_SNAPSHOT_ENTRIES=0\n' \
 
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/disk-to-portal.error"
 status=$?
-check_eq "$status" 0 "disk to portal exits 0"
+check_eq "$status" 1 "disk to portal waits for the parent to rebuild the UKI"
 check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
   "disk to portal leaves portal authoritative"
 check_eq "$(cat "$SLOT_STATE")" '0=parentpass' \
@@ -272,11 +271,12 @@ check_eq "$(test ! -e "$ETC/luks-slots" && echo absent)" absent \
   "disk to portal removes the slot map"
 check_eq "$(test ! -e "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo absent)" absent \
   "disk to portal removes the active drop-in"
-check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 1 \
-  "disk to portal rebuilds exactly once"
-check_eq "$(cat "$STATE")" absent "disk to portal rebuild removes the hook"
-check_eq "$(test ! -e "$ROOT/boot/EFI/Linux/current.efi.omarchy-kids-transition-backup" && echo absent)" absent \
-  "disk to portal removes the verified UKI backup"
+check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 0 \
+  "disk to portal never rebuilds the only bootable UKI"
+check_eq "$(cat "$STATE")" present "disk to portal leaves the bootable UKI untouched"
+check_eq "$(cat "$TMP/disk-to-portal.error")" \
+  "omarchy-kids-conf: run 'sudo mkinitcpio -P' to finish changing boot mode. A power loss while it runs can leave this computer unable to start. Then retry this Boot choice." \
+  "disk to portal gives the parent one command and states its risk"
 check_eq "$(cat "$ROOT/etc/default/limine")" 'MAX_SNAPSHOT_ENTRIES=10' \
   "disk to portal restores only the recorded Limine snapshot value"
 check_eq "$(grep -c '^limine-snapper-sync$' "$LOG" 2>/dev/null || true)" 1 \
@@ -289,16 +289,17 @@ else
   pass "disk to portal never kills the parent slot"
 fi
 
+printf 'absent\n' >"$STATE"
 : >"$LOG"
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/portal-again.error"
-check_eq "$?" 0 "a converged portal rerun exits 0"
+check_eq "$?" 0 "portal converges after the parent rebuilds the UKI"
 check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
   "a converged portal rerun does not rebuild"
 check_eq "$(grep -c '^cryptsetup ' "$LOG" 2>/dev/null || true)" 0 \
   "a converged portal rerun does not inspect or mutate LUKS"
 
-# Portal never starts destructive convergence without an inspected image,
-# and restores that known-good image when the replacement cannot be verified.
+# Portal never invokes the in-place rebuild, even when that rebuild would
+# damage the only UKI. The parent performs it outside the transition.
 printf 'boot=disk\nparent=mark\n' >"$ETC/machine.conf"
 printf '0=mark\n' >"$ETC/luks-slots"
 chmod 0600 "$ETC/luks-slots"
@@ -309,26 +310,17 @@ printf 'known-good-image\n' >"$ROOT/boot/EFI/Linux/current.efi"
 : >"$TMP/corrupt-uki-after-rebuild"
 : >"$LOG"
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/corrupt-rebuild.error"
-check_eq "$?" 1 "portal rejects a rebuilt UKI that cannot be inspected"
+check_eq "$?" 1 "portal waits instead of running an unsafe in-place rebuild"
 check_eq "$(cat "$ROOT/boot/EFI/Linux/current.efi")" 'known-good-image' \
-  "portal restores the known-good UKI when replacement verification fails"
+  "portal leaves the known-good UKI byte-for-byte"
 check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
-  "a restored UKI remains under portal authority"
-
-rm -f "$ROOT/boot/EFI/Linux/current.efi"
-printf 'known-good-image\n' \
-  >"$ROOT/boot/EFI/Linux/current.efi.omarchy-kids-transition-backup"
-chmod 0644 "$ROOT/boot/EFI/Linux/current.efi.omarchy-kids-transition-backup"
-printf 'present\n' >"$STATE"
-: >"$LOG"
-PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/backup-recovery.error"
-check_eq "$?" 0 "portal retry recovers a UKI backup left by an interruption"
-check_eq "$(test -f "$ROOT/boot/EFI/Linux/current.efi" && echo present)" present \
-  "portal retry restores the saved UKI before rebuilding"
-check_eq "$(test ! -e "$ROOT/boot/EFI/Linux/current.efi.omarchy-kids-transition-backup" && echo absent)" absent \
-  "portal retry removes the recovered UKI backup after verification"
-check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 1 \
-  "portal retry rebuilds once after restoring the interrupted image"
+  "the pending manual rebuild remains under portal authority"
+check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
+  "the transition never calls the corrupting rebuild stub"
+rm -f "$TMP/corrupt-uki-after-rebuild"
+printf 'absent\n' >"$STATE"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/corrupt-rebuild-retry.error"
+check_eq "$?" 0 "portal verifies the parent's later rebuild"
 
 rm -f "$ROOT/boot/EFI/Linux/current.efi"
 : >"$LOG"
@@ -366,8 +358,8 @@ PATH="$PATH_VALUE" "$CONF" machine set boot portal --secrets-stdin \
   >/dev/null 2>"$TMP/portal-secrets.error"
 check_eq "$?" 2 "portal rejects the disk-only secrets option"
 
-# Portal to disk validates all secrets first, adds passworded kids in
-# byte order, installs the package template, rebuilds once, and writes disk last.
+# Portal to disk validates all secrets first, converges every non-UKI artifact,
+# then waits for the parent to rebuild before a retry may write disk authority.
 printf 'boot=portal\nparent=mark\n' >"$ETC/machine.conf"
 printf 'name=Ada\npassword=set\n' >"$ETC/kids/kid-ada.conf"
 printf 'name=Cy\npassword=set\n' >"$ETC/kids/kid-cy.conf"
@@ -397,7 +389,7 @@ printf 'parentpass\nadapass\ncypass\n' |
 status=$?
 rm -f "$TMP/require-transition-lock" "$TMP/track-recovery-write"
 transition_log="$(cat "$LOG")"
-check_eq "$status" 0 "portal to disk exits 0"
+check_eq "$status" 1 "portal to disk waits for the parent to rebuild the UKI"
 check_eq "$(grep -c '^flock [0-9][0-9]*$' <<<"$transition_log")" 1 \
   "the transition acquires the shared boot-mode lock exactly once"
 check_eq "$(grep -c '^stat-machine-without-lock$' <<<"$transition_log")" 0 \
@@ -405,15 +397,15 @@ check_eq "$(grep -c '^stat-machine-without-lock$' <<<"$transition_log")" 0 \
 check_eq "$(grep -E '^(fsync-recovery-temp|rename-recovery)$' <<<"$transition_log")" \
   $'fsync-recovery-temp\nrename-recovery' \
   "the recovery record is fsynced before its atomic rename"
-check_eq "$(tail -2 <<<"$transition_log")" $'stat-machine\nflock -u 9' \
-  "the lock stays held through final mode readback"
+check_eq "$(tail -1 <<<"$transition_log")" 'flock -u 9' \
+  "the lock stays held until the pending transition returns"
 if grep -qF /dev/hostile <<<"$transition_log"; then
   bad "an environment variable selected the transition device"
 else
   pass "the transition ignores an environment-selected LUKS device"
 fi
-check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" disk \
-  "portal to disk writes disk only after convergence"
+check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
+  "portal remains authoritative until the manual rebuild is verified"
 check_eq "$(cat "$SLOT_STATE")" $'0=parentpass\n1=adapass\n2=cypass' \
   "portal to disk assigns kid slots in byte-sorted account order"
 check_eq "$(cat "$ETC/luks-slots")" $'0=mark\n1=kid-ada\n2=kid-cy' \
@@ -423,9 +415,14 @@ if cmp -s "$DIR/share/boot/omarchy_kids.conf" "$ROOT/etc/mkinitcpio.conf.d/omarc
 else
   bad "portal to disk did not install the package-owned template"
 fi
-check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 1 \
-  "portal to disk rebuilds exactly once"
-check_eq "$(cat "$STATE")" present "portal to disk verifies a UKI with the hook"
+check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 0 \
+  "portal to disk never rebuilds the only bootable UKI"
+check_eq "$(cat "$STATE")" absent "portal to disk leaves the bootable UKI untouched"
+check_eq "$(test -f "$ETC/boot-transition.recovery" && echo present)" present \
+  "portal authority keeps the recovery record while the rebuild is pending"
+check_eq "$(cat "$TMP/disk.error")" \
+  "omarchy-kids-conf: run 'sudo mkinitcpio -P' to finish changing boot mode. A power loss while it runs can leave this computer unable to start. Then retry this Boot choice." \
+  "portal to disk gives the parent one command and states its risk"
 check_eq "$(head -1 "$ROOT/boot/limine.conf")" 'editor_enabled: no' \
   "portal to disk disables the Limine editor"
 check_eq "$(grep -c '^# omarchy-kids: was editor_enabled=yes$' "$ROOT/boot/limine.conf")" 1 \
@@ -440,6 +437,17 @@ if grep -qE 'parentpass|adapass|cypass' "$TMP/disk.out" "$TMP/disk.error" "$LOG"
 else
   pass "portal to disk exposes no secret in output or argv"
 fi
+
+printf 'present\n' >"$STATE"
+: >"$LOG"
+printf 'parentpass\nadapass\ncypass\n' |
+  PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
+    >/dev/null 2>"$TMP/disk-retry.error"
+check_eq "$?" 0 "portal to disk converges after the parent rebuilds the UKI"
+check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" disk \
+  "portal to disk writes disk only after verifying the manual rebuild"
+check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
+  "the post-rebuild retry does not rebuild the UKI"
 
 # A cut or failure after writing MAX_SNAPSHOT_ENTRIES=0 cannot look complete.
 printf '# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=10\nMAX_SNAPSHOT_ENTRIES=0\n' \
@@ -540,43 +548,11 @@ check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
 check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
   "a slot-add failure keeps portal authoritative"
 
-: >"$TMP/fail-mkinitcpio-once"
-: >"$LOG"
-printf 'parentpass\nadapass\ncypass\n' |
-  PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
-    >/dev/null 2>"$TMP/rebuild-failure.error"
-status=$?
-check_eq "$status" 1 "a failed disk rebuild returns nonzero"
-check_eq "$(cat "$SLOT_STATE")" '0=parentpass' \
-  "a failed disk rebuild rolls back every added slot"
-check_eq "$(test ! -e "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo absent)" absent \
-  "a failed disk rebuild removes the active template"
-check_eq "$(cat "$STATE")" absent \
-  "a failed disk rebuild performs a portal cleanup rebuild"
-check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 2 \
-  "a partial failed rebuild is followed by one cleanup rebuild"
-check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
-  "a failed disk rebuild keeps portal authoritative"
-
-# Even with no kids, portal-to-disk records the prior map before replacing it.
-rm -f "$ETC/kids"/*.conf "$ETC/luks-slots" "$ETC/boot-transition.recovery" \
-  "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
-printf '0=parentpass\n' >"$SLOT_STATE"
-printf 'absent\n' >"$STATE"
-: >"$TMP/fail-mkinitcpio-once"
-printf 'parentpass\n' |
-  PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
-    >/dev/null 2>"$TMP/no-kids-failure.error"
-check_eq "$?" 1 "a zero-kid disk rebuild failure returns nonzero"
-check_eq "$(test ! -e "$ETC/luks-slots" && echo absent)" absent \
-  "a zero-kid disk rebuild failure restores the absent portal map"
-check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
-  "a zero-kid disk rebuild failure keeps portal authoritative"
-
 # If the setter's own readback fails after committing disk, restore portal too.
+rm -f "$ETC/kids"/*.conf
 printf 'name=Ada\npassword=set\n' >"$ETC/kids/kid-ada.conf"
 chmod 0644 "$ETC/kids/kid-ada.conf"
-printf 'absent\n' >"$STATE"
+printf 'present\n' >"$STATE"
 : >"$TMP/arm-mode-readback-failure"
 printf 'parentpass\nadapass\n' |
   PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
@@ -590,6 +566,10 @@ check_eq "$(test ! -e "$ETC/luks-slots" && echo absent)" absent \
   "a failed setter readback after the disk commit restores the prior map"
 check_eq "$(grep -c '^editor_enabled: yes$' "$ROOT/boot/limine.conf")" 1 \
   "a failed setter readback after the disk commit restores the Limine editor"
+check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
+  "a failed setter readback removes the completed recovery record"
+check_eq "$(test ! -e "$TMP/arm-mode-readback-failure" && echo absent)" absent \
+  "the readback fixture was consumed by the disk mode write"
 
 printf 'name=Cy\npassword=set\n' >"$ETC/kids/kid-cy.conf"
 printf 'name=Dot\npassword=none\n' >"$ETC/kids/kid-dot.conf"
@@ -612,6 +592,8 @@ check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
   "a failed slot removal has already made portal authoritative"
 check_eq "$(cat "$SLOT_STATE")" $'0=parentpass\n5=cypass' \
   "a failed slot removal preserves the unremoved slot"
+check_eq "$(grep -c '^cryptsetup luksKillSlot --batch-mode /dev/fake0 3$' "$LOG" 2>/dev/null || true)" 1 \
+  "a failed slot removal attempted the earlier slot"
 check_eq "$(cat "$ETC/luks-slots")" $'0=mark\n3=kid-ada\n5=kid-cy' \
   "a failed slot removal preserves the full retry map"
 check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
@@ -620,13 +602,16 @@ check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
 rm -f "$TMP/fail-kill-5"
 : >"$LOG"
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/kill-retry.error"
-check_eq "$?" 0 "portal retry resumes after a slot-removal failure"
+check_eq "$?" 1 "portal retry removes the remaining slot and waits for the rebuild"
 check_eq "$(cat "$SLOT_STATE")" '0=parentpass' \
   "portal retry removes the remaining slot without touching slot 0"
 check_eq "$(test ! -e "$ETC/luks-slots" && echo absent)" absent \
   "portal retry removes the completed retry map"
-check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 1 \
-  "portal retry rebuilds exactly once after slot removal completes"
+check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 0 \
+  "portal retry leaves the UKI untouched after slot removal completes"
+printf 'absent\n' >"$STATE"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/kill-rebuild-retry.error"
+check_eq "$?" 0 "portal verifies the parent's rebuild after slot removal"
 
 # An interrupted portal-to-disk attempt has one durable recovery record.
 # The next run first rolls that attempt back, then starts a fresh convergence.
@@ -642,11 +627,18 @@ printf 'parentpass\nadapass\ncypass\n' |
   PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
     >/dev/null 2>"$TMP/interrupted.error"
 status=$?
-check_eq "$status" 0 "a portal-to-disk retry recovers an interrupted attempt"
+check_eq "$status" 1 "an interrupted portal-to-disk retry waits for the rebuild"
 check_eq "$(cat "$SLOT_STATE")" $'0=parentpass\n1=adapass\n2=cypass' \
   "the retry removes the interrupted slot before assigning the fresh ordered slots"
+check_eq "$(test -f "$ETC/boot-transition.recovery" && echo present)" present \
+  "the pending retry keeps its durable recovery record"
+printf 'present\n' >"$STATE"
+printf 'parentpass\nadapass\ncypass\n' |
+  PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
+    >/dev/null 2>"$TMP/interrupted-rebuild-retry.error"
+check_eq "$?" 0 "the interrupted retry converges after the parent rebuilds"
 check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
-  "the successful retry clears its durable recovery record"
+  "the successful post-rebuild retry clears its durable recovery record"
 
 # If disk was committed before record cleanup, a same-direction retry confirms
 # the recorded slots and map before removing the one stale record.
@@ -682,11 +674,15 @@ chmod 0600 "$ETC/boot-transition.recovery"
 printf '3=stalepass\n' >>"$SLOT_STATE"
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null \
   2>"$TMP/incomplete-portal-recovery.error"
-check_eq "$?" 0 "portal recovers an incomplete disk-mode recovery record"
+check_eq "$?" 1 "portal recovers the record and waits for the manual rebuild"
 check_eq "$(cat "$SLOT_STATE")" '0=parentpass' \
   "portal removes every kid slot after rolling back the incomplete addition"
 check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
   "portal removes the incomplete recovery record"
+printf 'absent\n' >"$STATE"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null \
+  2>"$TMP/incomplete-portal-rebuild-retry.error"
+check_eq "$?" 0 "portal verifies the rebuild after recovering the record"
 
 # One recovery record is sufficient after an interrupted addition, including
 # when the next request chooses the opposite, portal direction.
@@ -715,14 +711,22 @@ printf 'absent\n' >"$STATE"
 printf 'parentpass\n' |
   PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
     >/dev/null 2>"$TMP/absent-marker-disk.error"
-check_eq "$?" 0 "disk convergence records an absent Limine snapshot setting"
+check_eq "$?" 1 "disk records an absent Limine setting before the manual rebuild"
 check_eq "$(cat "$ROOT/etc/default/limine")" \
   $'KEEP=yes\n# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=\nMAX_SNAPSHOT_ENTRIES=0\n# omarchy-kids: snapshot sync complete' \
   "disk records that the Limine snapshot setting was absent"
+printf 'present\n' >"$STATE"
+printf 'parentpass\n' |
+  PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
+    >/dev/null 2>"$TMP/absent-marker-disk-retry.error"
+check_eq "$?" 0 "disk verifies the rebuild with the absent Limine setting recorded"
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/absent-marker-portal.error"
-check_eq "$?" 0 "portal convergence restores an absent Limine snapshot setting"
+check_eq "$?" 1 "portal restores the absent setting before the manual rebuild"
 check_eq "$(cat "$ROOT/etc/default/limine")" 'KEEP=yes' \
   "portal removes the snapshot setting that disk introduced"
+printf 'absent\n' >"$STATE"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/absent-marker-portal-retry.error"
+check_eq "$?" 0 "portal verifies the rebuild after restoring the absent setting"
 
 # The installed root path must not depend on HOME or other ambient values.
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/env-reset.error"

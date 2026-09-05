@@ -72,14 +72,15 @@ to start and names the PID and command holding the lock. Drafting agents do not 
 driver. It boots the owner, records both current themes, sets the
 owner through `omarchy-theme-set` with `OMARCHY_PATH=/usr/share/omarchy`, sets the test kid through
 the governed `omarchy-kids-conf` theme writer, runs `omarchy-kids-assert`, and restarts SDDM before
-the portal shot. Its EXIT trap restores both themes and refreshes SDDM again.
+the portal shot. Its EXIT trap restores changed state, restarts SDDM even when the assert step
+fails, verifies both test accounts have no seat session, and confirms the greeter.
 
 Time's Up and Wi-Fi need temporary test-kid settings. The driver records and restores both
 weekday/weekend lights-out values and the Wi-Fi mode even after a failed capture. For the bar shot
 it briefly stops the time timer after publishing a live status row, then restarts it. The parent
 bar must already be enabled: the driver refuses that shot instead of changing the parent's bar
-configuration. SIGINT and SIGTERM run the same cleanup; SIGKILL or a power loss cannot run shell
-cleanup, so inspect those settings before another scenario after either event.
+configuration. SIGINT and SIGTERM run the same cleanup. Inspect the VM after SIGKILL, power loss,
+or any run whose final cleanup checks fail.
 
 The driver does not record the three walkthrough videos in docs/GOAL.md item 3. Those remain a
 separate gate-runner recording step using QMP frames and ffmpeg.

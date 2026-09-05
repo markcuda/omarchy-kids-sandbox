@@ -110,9 +110,11 @@ apply_kid_theme() {
 }
 
 refresh_portal() {
-  vmroot "env -i PATH=/usr/bin:/bin OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-kids-assert >/dev/null" || return 1
-  vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl restart sddm" || return 1
-  assert_greeter 60
+  local failed=0
+  vmroot "env -i PATH=/usr/bin:/bin OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-kids-assert >/dev/null" || failed=1
+  vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl restart sddm" || failed=1
+  assert_greeter 60 || failed=1
+  return "$failed"
 }
 
 restore_themes() {
@@ -127,11 +129,33 @@ restore_themes() {
     echo "media-driver: could not restore $LIVE_KID1_ACCOUNT theme '$ORIGINAL_KID_THEME'" >&2
     failed=1
   }
-  refresh_portal || {
-    echo "media-driver: could not refresh the restored portal theme" >&2
+  ((failed)) || THEME_DIRTY=0
+  return "$failed"
+}
+
+settle_at_greeter() {
+  local failed=0
+  echo "Closing sessions and confirming the greeter"
+  vmroot "env -i PATH=/usr/bin:/bin OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-kids-assert >/dev/null" || {
+    echo "media-driver: omarchy-kids-assert failed during cleanup" >&2
     failed=1
   }
-  ((failed)) || THEME_DIRTY=0
+  vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl restart sddm" || {
+    echo "media-driver: could not restart SDDM during cleanup" >&2
+    failed=1
+  }
+  assert_no_session "$LIVE_KID1_ACCOUNT" 60 || {
+    echo "media-driver: $LIVE_KID1_ACCOUNT still has a seat session after cleanup" >&2
+    failed=1
+  }
+  assert_no_session "$LIVE_OWNER_ACCOUNT" 60 || {
+    echo "media-driver: $LIVE_OWNER_ACCOUNT still has a seat session after cleanup" >&2
+    failed=1
+  }
+  assert_greeter 60 || {
+    echo "media-driver: cleanup could not confirm the SDDM greeter" >&2
+    failed=1
+  }
   return "$failed"
 }
 
@@ -170,6 +194,7 @@ cleanup() {
   trap - EXIT INT TERM
   if ! restore_transient_state; then status=1; fi
   if ! restore_themes; then status=1; fi
+  if ! settle_at_greeter; then status=1; fi
   rm -rf "$STAGE_DIR"
   exit "$status"
 }

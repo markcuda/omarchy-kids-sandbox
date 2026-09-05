@@ -55,6 +55,7 @@ wait_kid_ready() { log "wait_kid_ready $*"; }
 portal_reset() { log "portal_reset $*"; }
 portal_clean_exit() { log "portal_clean_exit $*"; }
 assert_greeter() { log "assert_greeter $*"; }
+assert_no_session() { log "assert_no_session $*"; }
 qmp() { log "qmp $*"; }
 shot() {
   local name="$1"
@@ -65,6 +66,9 @@ shot() {
 }
 vm() {
   log "vm $*"
+  if [[ -n "${MEDIA_TEST_FAIL_VM:-}" && "$*" == *"$MEDIA_TEST_FAIL_VM"* ]]; then
+    return 1
+  fi
   case "$*" in
     *omarchy-theme-current*) echo original-owner ;;
     *omarchy-kids-bar\ status*) echo enabled ;;
@@ -210,6 +214,43 @@ check_contains "$(cat "$TMP/contender.out")" "media-driver.sh" \
 : >"$HOLD7.release"
 wait "$holder_pid"
 check "$(grep -c '^boot_with ' "$LOG7")" "1" "the refused driver never reaches boot_with"
+
+ROOT8="$TMP/theme-read-failure"
+make_fixture "$ROOT8"
+LOG8="$TMP/theme-read-failure.log"
+MEDIA_TEST_LOG="$LOG8" MEDIA_TEST_FAIL_VM="omarchy-theme-current" \
+  "$ROOT8/scripts/media-driver.sh" --surface ask nord >"$TMP/theme-read-failure.out" 2>&1
+status=$?
+check "$status" "1" "an owner-theme read failure makes the run fail"
+log8="$(cat "$LOG8")"
+check_contains "$log8" "systemctl restart sddm" \
+  "a theme-read failure still restarts SDDM during cleanup"
+check_contains "$log8" "assert_no_session kid-cy" \
+  "cleanup confirms the kid session is closed"
+check_contains "$log8" "assert_no_session kid-test" \
+  "cleanup confirms the owner session is closed"
+check_contains "$log8" "assert_greeter 60" \
+  "cleanup confirms the greeter after a theme-read failure"
+
+ROOT9="$TMP/assert-failure"
+make_fixture "$ROOT9"
+LOG9="$TMP/assert-failure.log"
+MEDIA_TEST_LOG="$LOG9" MEDIA_TEST_FAIL_VMROOT="omarchy-kids-assert" \
+  "$ROOT9/scripts/media-driver.sh" --surface portal nord >"$TMP/assert-failure.out" 2>&1
+status=$?
+check "$status" "1" "an assert failure makes the run fail"
+log9="$(cat "$LOG9")"
+assert_line="$(grep -n 'omarchy-kids-assert' "$LOG9" | tail -1 | cut -d: -f1)"
+restart_line="$(grep -n 'systemctl restart sddm' "$LOG9" | tail -1 | cut -d: -f1)"
+if [[ -n "$assert_line" && -n "$restart_line" ]] && ((assert_line < restart_line)); then
+  pass "cleanup restarts SDDM even when the preceding assert fails"
+else
+  fail_ "assert failure prevented the cleanup SDDM restart"
+fi
+check_contains "$log9" "assert_no_session kid-cy" \
+  "assert-failure cleanup confirms the kid session is closed"
+check_contains "$log9" "assert_no_session kid-test" \
+  "assert-failure cleanup confirms the owner session is closed"
 
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck -S warning "$DIR/scripts/media-driver.sh" "$DIR/test/shell.d/media-driver-test.sh"; then

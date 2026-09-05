@@ -77,7 +77,8 @@ fails, verifies both test accounts have no seat session, and confirms the greete
 
 Time's Up and Wi-Fi need temporary test-kid settings. The driver records whether each theme,
 weekday/weekend lights-out value, and Wi-Fi mode is an override. Cleanup restores an override with
-`set` and an inherited value with `unset`, so a run never pins a band or parent-theme default. For the bar shot
+`set` and an inherited value with `unset`, so a run never pins a band or parent-theme default. A
+failed restore keeps the first saved value until a later cleanup restores it. For the bar shot
 it briefly stops the time timer after publishing a live status row, then restarts it. The parent
 bar must already be enabled: the driver refuses that shot instead of changing the parent's bar
 configuration. SIGINT and SIGTERM run the same cleanup. Inspect the VM after SIGKILL, power loss,

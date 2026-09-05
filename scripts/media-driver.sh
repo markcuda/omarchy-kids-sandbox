@@ -323,13 +323,17 @@ shoot_ask() {
 shoot_times_up() {
   local theme="$1" kid_q
   kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
-  ORIGINAL_LIGHTS_OUT_SOURCE="$(kid_setting_source lights_out)" || return 1
-  if [[ "$ORIGINAL_LIGHTS_OUT_SOURCE" == override ]]; then
-    ORIGINAL_LIGHTS_OUT="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q lights_out")" || return 1
+  if ((!LIGHTS_OUT_DIRTY)); then
+    ORIGINAL_LIGHTS_OUT_SOURCE="$(kid_setting_source lights_out)" || return 1
+    if [[ "$ORIGINAL_LIGHTS_OUT_SOURCE" == override ]]; then
+      ORIGINAL_LIGHTS_OUT="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q lights_out")" || return 1
+    fi
   fi
-  ORIGINAL_LIGHTS_OUT_WEEKEND_SOURCE="$(kid_setting_source lights_out_weekend)" || return 1
-  if [[ "$ORIGINAL_LIGHTS_OUT_WEEKEND_SOURCE" == override ]]; then
-    ORIGINAL_LIGHTS_OUT_WEEKEND="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q lights_out_weekend")" || return 1
+  if ((!LIGHTS_OUT_WEEKEND_DIRTY)); then
+    ORIGINAL_LIGHTS_OUT_WEEKEND_SOURCE="$(kid_setting_source lights_out_weekend)" || return 1
+    if [[ "$ORIGINAL_LIGHTS_OUT_WEEKEND_SOURCE" == override ]]; then
+      ORIGINAL_LIGHTS_OUT_WEEKEND="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q lights_out_weekend")" || return 1
+    fi
   fi
   prepare_kid || return 1
   LIGHTS_OUT_DIRTY=1
@@ -344,9 +348,11 @@ shoot_times_up() {
 shoot_wifi_picker() {
   local theme="$1" kid_q
   kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
-  ORIGINAL_WIFI_SOURCE="$(kid_setting_source wifi)" || return 1
-  if [[ "$ORIGINAL_WIFI_SOURCE" == override ]]; then
-    ORIGINAL_WIFI="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q wifi")" || return 1
+  if ((!WIFI_DIRTY)); then
+    ORIGINAL_WIFI_SOURCE="$(kid_setting_source wifi)" || return 1
+    if [[ "$ORIGINAL_WIFI_SOURCE" == override ]]; then
+      ORIGINAL_WIFI="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q wifi")" || return 1
+    fi
   fi
   prepare_kid || return 1
   WIFI_DIRTY=1

@@ -613,10 +613,11 @@ boot_transition_disk() {
     return 1
   fi
   if ! boot_mode_set disk; then
+    mode_written="$BOOT_MODE_SET_COMMITTED"
     boot_transition_disk_abort "$current" "$rebuilt" "$mode_written"
     return 1
   fi
-  mode_written=1
+  mode_written="$BOOT_MODE_SET_COMMITTED"
   if [[ "$(boot_mode_get 2>/dev/null || true)" != disk ]]; then
     boot_transition_disk_abort "$current" "$rebuilt" "$mode_written"
     return 1

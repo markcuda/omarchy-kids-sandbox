@@ -76,15 +76,9 @@ cat >"$TOOLS/stat" <<EOF
 #!/bin/bash
 if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
 [[ "\${3:-}" != "$ETC/machine.conf" ]] || printf 'stat-machine\n' >>"$LOG"
-if [[ "\${3:-}" == "$ETC/machine.conf" && -e "$TMP/fail-after-mode-write" ]]; then
-  count=0
-  [[ ! -f "$TMP/mode-readback-count" ]] || read -r count <"$TMP/mode-readback-count"
-  count=\$((count + 1))
-  printf '%s\n' "\$count" >"$TMP/mode-readback-count"
-  if [[ "\$count" -eq 4 ]]; then
-    rm -f "$TMP/fail-after-mode-write"
-    exit 1
-  fi
+if [[ "\${3:-}" == "$ETC/machine.conf" && -e "$TMP/fail-next-mode-read" ]]; then
+  rm -f "$TMP/fail-next-mode-read"
+  exit 1
 fi
 case "\${2:-}" in
   %u) echo 0 ;;
@@ -101,8 +95,8 @@ cat >"$TOOLS/mv" <<EOF
 #!/bin/bash
 "$REAL_MV" "\$@" || exit 1
 if [[ "\${*: -1}" == "$ETC/machine.conf" && -e "$TMP/arm-mode-readback-failure" ]]; then
-  rm -f "$TMP/arm-mode-readback-failure" "$TMP/mode-readback-count"
-  : >"$TMP/fail-after-mode-write"
+  rm -f "$TMP/arm-mode-readback-failure"
+  : >"$TMP/fail-next-mode-read"
 fi
 EOF
 cat >"$TOOLS/flock" <<EOF
@@ -477,7 +471,7 @@ check_eq "$(test ! -e "$ETC/luks-slots" && echo absent)" absent \
 check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
   "a zero-kid disk rebuild failure keeps portal authoritative"
 
-# If the mode cannot be read back after the disk write, restore portal too.
+# If the setter's own readback fails after committing disk, restore portal too.
 printf 'name=Ada\npassword=set\n' >"$ETC/kids/kid-ada.conf"
 chmod 0644 "$ETC/kids/kid-ada.conf"
 printf 'absent\n' >"$STATE"
@@ -485,15 +479,15 @@ printf 'absent\n' >"$STATE"
 printf 'parentpass\nadapass\n' |
   PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
     >/dev/null 2>"$TMP/readback-failure.error"
-check_eq "$?" 1 "a failed final disk-mode readback returns nonzero"
+check_eq "$?" 1 "a failed setter readback after the disk commit returns nonzero"
 check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
-  "a failed final disk-mode readback restores portal authority"
+  "a failed setter readback after the disk commit restores portal authority"
 check_eq "$(cat "$SLOT_STATE")" '0=parentpass' \
-  "a failed final disk-mode readback rolls back the added slot"
+  "a failed setter readback after the disk commit rolls back the added slot"
 check_eq "$(test ! -e "$ETC/luks-slots" && echo absent)" absent \
-  "a failed final disk-mode readback restores the prior map"
+  "a failed setter readback after the disk commit restores the prior map"
 check_eq "$(grep -c '^editor_enabled: yes$' "$ROOT/boot/limine.conf")" 1 \
-  "a failed final disk-mode readback restores the Limine editor"
+  "a failed setter readback after the disk commit restores the Limine editor"
 
 printf 'name=Cy\npassword=set\n' >"$ETC/kids/kid-cy.conf"
 printf 'name=Dot\npassword=none\n' >"$ETC/kids/kid-dot.conf"

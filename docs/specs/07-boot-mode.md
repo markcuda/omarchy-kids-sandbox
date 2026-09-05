@@ -17,7 +17,7 @@ This choice must make Kids Mode safe to install and administer over SSH on an en
 
 ### Authority and convergence
 
-`/etc/omarchy-kids/machine.conf` is the sole authority. It contains exactly one `boot=disk` or `boot=portal` line alongside the existing machine keys. The file is a regular file owned by `root:root`, mode `0644`, and is replaced atomically. A shared installed reader rejects a symlink, wrong owner, group/world write permission, duplicate `boot` keys, a missing key after migration, or any other value.
+`/etc/omarchy-kids/machine.conf` is the sole authority. It contains exactly one `boot=disk` or `boot=portal` line alongside the existing machine keys. The file is a regular file owned by `root:root`, mode `0644`, and is replaced atomically. The setter fsyncs the replacement before rename and the containing directory afterward, and reports whether rename committed even if durability or readback then fails. A shared installed reader rejects a symlink, wrong owner, group/world write permission, duplicate `boot` keys, a missing key after migration, or any other value.
 
 Every root path resolves that reader and its transition helper from its own installed location. The path to `machine.conf`, the LUKS device, the slots map, mkinitcpio, the UKI, Limine, and boot-login files cannot come from an environment variable. Tests rewrite build-time constants in a copied command tree. The pacman hook delegates the read to `omarchy-kids-assert`; it has no separate mode detector.
 

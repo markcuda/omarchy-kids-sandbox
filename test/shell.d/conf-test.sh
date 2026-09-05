@@ -517,6 +517,7 @@ rm -f "$BOOT_TREE/lib"
 cp -a "$DIR/lib" "$BOOT_TREE/lib"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$BOOT_ETC/machine.conf"
 kids_set_const "$BOOT_TREE/lib/boot-mode.sh" BOOT_MODE_LOCK "$BOOT_LOCK"
+kids_set_const "$BOOT_TREE/lib/kids.sh" KIDS_PY "$BOOT_STUBS/python3"
 # This section owns a transition stub so it can isolate the trusted setter.
 # boot-mode-test.sh exercises the real artifact convergence path.
 cat >"$BOOT_TREE/lib/boot-mode-transition.sh" <<'EOF'
@@ -527,6 +528,9 @@ EOF
 BOOT_CONF="$BOOT_TREE/bin/omarchy-kids-conf"
 kids_id_stub "$BOOT_STUBS" mark 0
 REAL_STAT="$(command -v stat)"
+REAL_PY="$(command -v python3)"
+REAL_MV="$(command -v mv)"
+WRITE_LOG="$TMP/machine-write.log"
 cat >"$BOOT_STUBS/stat" <<EOF
 #!/bin/bash
 if [[ "\${1:-}" == --version ]]; then exec "$REAL_STAT" "\$@"; fi
@@ -567,12 +571,29 @@ cat >"$BOOT_STUBS/chown" <<'EOF'
 #!/bin/bash
 exit 0
 EOF
+cat >"$BOOT_STUBS/python3" <<EOF
+#!/bin/bash
+if [[ "\${1:-}" == -c && "\${2:-}" == *os.fsync* ]]; then
+  target=""
+  for arg in "\$@"; do target="\$arg"; done
+  printf 'fsync %s\n' "\$target" >>"$WRITE_LOG"
+fi
+exec "$REAL_PY" "\$@"
+EOF
+cat >"$BOOT_STUBS/mv" <<EOF
+#!/bin/bash
+target=""
+for arg in "\$@"; do target="\$arg"; done
+printf 'rename %s\n' "\$target" >>"$WRITE_LOG"
+exec "$REAL_MV" "\$@"
+EOF
 cat >"$BOOT_STUBS/flock" <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >> "$TMP/conf-flock.log"
 exit 0
 EOF
-chmod +x "$BOOT_STUBS/stat" "$BOOT_STUBS/chown" "$BOOT_STUBS/flock"
+chmod +x "$BOOT_STUBS/stat" "$BOOT_STUBS/chown" "$BOOT_STUBS/python3" \
+  "$BOOT_STUBS/mv" "$BOOT_STUBS/flock"
 BOOT_BASE="$(kids_base_path "$TMP/boot-base")"
 BOOT_PATH="$BOOT_STUBS:$BOOT_BASE"
 
@@ -580,6 +601,7 @@ out="$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot 2>/dev/null)"
 check_status "$?" 1 "machine get boot: missing mode exits 1"
 check "$out" "" "machine get boot: missing mode has no stdout"
 
+: >"$WRITE_LOG"
 PATH="$BOOT_PATH" "$BOOT_CONF" machine set boot portal >/dev/null
 check "$?" 0 "machine set boot portal: root write exits 0"
 check "$(test -f "$BOOT_LOCK" && echo present)" "present" "machine set boot: creates the shared lock file"
@@ -588,6 +610,9 @@ check "$(head -1 "$TMP/conf-flock.log" | grep -E '^[0-9]+$' >/dev/null && echo l
 check "$(cat "$BOOT_ETC/machine.conf")" "boot=portal" "machine set boot portal: writes the exact enum"
 check "$(PATH="$BOOT_PATH" "$BOOT_CONF" machine get boot)" "portal" "machine get boot: prints exactly portal"
 check "$(kids_file_mode "$BOOT_ETC/machine.conf")" "644" "boot machine.conf is mode 0644"
+write_order="$(sed -E "s#fsync $BOOT_ETC/\.machine\.conf\.[^[:space:]]+#fsync TEMP#" "$WRITE_LOG")"
+check "$write_order" "$(printf 'fsync TEMP\nrename %s\nfsync %s' "$BOOT_ETC/machine.conf" "$BOOT_ETC")" \
+  "machine set boot: fsyncs the replacement before rename and the directory after"
 
 printf 'parent=mark\nboot=portal\n' >"$BOOT_ETC/machine.conf"
 chmod 0644 "$BOOT_ETC/machine.conf"

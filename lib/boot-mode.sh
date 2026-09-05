@@ -9,6 +9,9 @@ BOOT_MODE_MACHINE_CONF=/etc/omarchy-kids/machine.conf
 # Descendants inherit its open FD, so the critical section lasts until the final descendant exits.
 BOOT_MODE_LOCK=/run/omarchy-kids/boot-mode.lock
 BOOT_MODE_LOCK_FD=9
+# A caller can distinguish a pre-rename failure from a committed write whose
+# directory fsync or readback failed.
+BOOT_MODE_SET_COMMITTED=0
 
 boot_mode_valid() {
   [[ "$1" == disk || "$1" == portal ]]
@@ -109,8 +112,18 @@ boot_mode_lock_release() {
   exec 9>&-
 }
 
+boot_mode_fsync() {
+  "$KIDS_PY" -c 'import os, sys
+fd = os.open(sys.argv[1], os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)' "$1"
+}
+
 boot_mode_set() {
   local requested="$1" file="$BOOT_MODE_MACHINE_CONF" dir tmp line key replaced=0
+  BOOT_MODE_SET_COMMITTED=0
   boot_mode_valid "$requested" || return 2
   is_root || {
     echo "omarchy-kids-conf: setting machine boot mode requires root" >&2
@@ -163,9 +176,16 @@ boot_mode_set() {
     return 1
   fi
 
-  if ! chmod 0644 "$tmp" || ! chown root:root "$tmp" || ! mv -f "$tmp" "$file"; then
+  if ! chmod 0644 "$tmp" || ! chown root:root "$tmp" || ! boot_mode_fsync "$tmp"; then
     rm -f "$tmp"
     return 1
   fi
+  if ! mv -f "$tmp" "$file"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  # shellcheck disable=SC2034 # boot-mode-transition.sh reads this sourced-library result.
+  BOOT_MODE_SET_COMMITTED=1
+  boot_mode_fsync "$dir" || return 1
   [[ "$(boot_mode_get 2>/dev/null || true)" == "$requested" ]]
 }

@@ -18,9 +18,13 @@ THEMES_SAVED=0
 THEME_DIRTY=0
 ORIGINAL_OWNER_THEME=""
 ORIGINAL_KID_THEME=""
+ORIGINAL_KID_THEME_SOURCE=""
 ORIGINAL_LIGHTS_OUT=""
+ORIGINAL_LIGHTS_OUT_SOURCE=""
 ORIGINAL_LIGHTS_OUT_WEEKEND=""
+ORIGINAL_LIGHTS_OUT_WEEKEND_SOURCE=""
 ORIGINAL_WIFI=""
+ORIGINAL_WIFI_SOURCE=""
 LIGHTS_OUT_DIRTY=0
 LIGHTS_OUT_WEEKEND_DIRTY=0
 WIFI_DIRTY=0
@@ -109,6 +113,21 @@ apply_kid_theme() {
   vmroot "env -i PATH=/usr/bin:/bin OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-kids-conf set $kid_q theme $theme_q >/dev/null"
 }
 
+unset_kid_setting() {
+  local kid_q key_q
+  kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
+  key_q="$(shell_quote "$1")"
+  vmroot "env -i PATH=/usr/bin:/bin OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-kids-conf unset $kid_q $key_q >/dev/null"
+}
+
+kid_setting_source() {
+  local kid_q key_q source
+  kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
+  key_q="$(shell_quote "$1")"
+  source="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf source $kid_q $key_q")" || return 1
+  case "$source" in override | band | default) printf '%s\n' "$source" ;; *) return 1 ;; esac
+}
+
 refresh_portal() {
   local failed=0
   vmroot "env -i PATH=/usr/bin:/bin OMARCHY_PATH=/usr/share/omarchy /usr/bin/omarchy-kids-assert >/dev/null" || failed=1
@@ -125,10 +144,17 @@ restore_themes() {
     echo "media-driver: could not restore owner theme '$ORIGINAL_OWNER_THEME'" >&2
     failed=1
   }
-  apply_kid_theme "$ORIGINAL_KID_THEME" || {
-    echo "media-driver: could not restore $LIVE_KID1_ACCOUNT theme '$ORIGINAL_KID_THEME'" >&2
-    failed=1
-  }
+  if [[ "$ORIGINAL_KID_THEME_SOURCE" == override ]]; then
+    apply_kid_theme "$ORIGINAL_KID_THEME" || {
+      echo "media-driver: could not restore $LIVE_KID1_ACCOUNT theme '$ORIGINAL_KID_THEME'" >&2
+      failed=1
+    }
+  else
+    unset_kid_setting theme || {
+      echo "media-driver: could not restore $LIVE_KID1_ACCOUNT's inherited theme" >&2
+      failed=1
+    }
+  fi
   ((failed)) || THEME_DIRTY=0
   return "$failed"
 }
@@ -163,14 +189,22 @@ restore_transient_state() {
   local failed=0 kid_q value_q retick=0
   kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
   if ((LIGHTS_OUT_DIRTY)); then
-    value_q="$(shell_quote "$ORIGINAL_LIGHTS_OUT")"
-    vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q lights_out $value_q >/dev/null" &&
+    if [[ "$ORIGINAL_LIGHTS_OUT_SOURCE" == override ]]; then
+      value_q="$(shell_quote "$ORIGINAL_LIGHTS_OUT")"
+      vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q lights_out $value_q >/dev/null"
+    else
+      unset_kid_setting lights_out
+    fi &&
       LIGHTS_OUT_DIRTY=0 || failed=1
     retick=1
   fi
   if ((LIGHTS_OUT_WEEKEND_DIRTY)); then
-    value_q="$(shell_quote "$ORIGINAL_LIGHTS_OUT_WEEKEND")"
-    vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q lights_out_weekend $value_q >/dev/null" &&
+    if [[ "$ORIGINAL_LIGHTS_OUT_WEEKEND_SOURCE" == override ]]; then
+      value_q="$(shell_quote "$ORIGINAL_LIGHTS_OUT_WEEKEND")"
+      vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q lights_out_weekend $value_q >/dev/null"
+    else
+      unset_kid_setting lights_out_weekend
+    fi &&
       LIGHTS_OUT_WEEKEND_DIRTY=0 || failed=1
     retick=1
   fi
@@ -178,8 +212,12 @@ restore_transient_state() {
     vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-time-ledger tick >/dev/null" || failed=1
   fi
   if ((WIFI_DIRTY)); then
-    value_q="$(shell_quote "$ORIGINAL_WIFI")"
-    vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q wifi $value_q >/dev/null" &&
+    if [[ "$ORIGINAL_WIFI_SOURCE" == override ]]; then
+      value_q="$(shell_quote "$ORIGINAL_WIFI")"
+      vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q wifi $value_q >/dev/null"
+    else
+      unset_kid_setting wifi
+    fi &&
       WIFI_DIRTY=0 || failed=1
   fi
   if ((TIME_TIMER_STOPPED)); then
@@ -285,8 +323,14 @@ shoot_ask() {
 shoot_times_up() {
   local theme="$1" kid_q
   kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
-  ORIGINAL_LIGHTS_OUT="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q lights_out")" || return 1
-  ORIGINAL_LIGHTS_OUT_WEEKEND="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q lights_out_weekend")" || return 1
+  ORIGINAL_LIGHTS_OUT_SOURCE="$(kid_setting_source lights_out)" || return 1
+  if [[ "$ORIGINAL_LIGHTS_OUT_SOURCE" == override ]]; then
+    ORIGINAL_LIGHTS_OUT="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q lights_out")" || return 1
+  fi
+  ORIGINAL_LIGHTS_OUT_WEEKEND_SOURCE="$(kid_setting_source lights_out_weekend)" || return 1
+  if [[ "$ORIGINAL_LIGHTS_OUT_WEEKEND_SOURCE" == override ]]; then
+    ORIGINAL_LIGHTS_OUT_WEEKEND="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q lights_out_weekend")" || return 1
+  fi
   prepare_kid || return 1
   LIGHTS_OUT_DIRTY=1
   vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q lights_out 00:01 >/dev/null" || return 1
@@ -300,7 +344,10 @@ shoot_times_up() {
 shoot_wifi_picker() {
   local theme="$1" kid_q
   kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
-  ORIGINAL_WIFI="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q wifi")" || return 1
+  ORIGINAL_WIFI_SOURCE="$(kid_setting_source wifi)" || return 1
+  if [[ "$ORIGINAL_WIFI_SOURCE" == override ]]; then
+    ORIGINAL_WIFI="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $kid_q wifi")" || return 1
+  fi
   prepare_kid || return 1
   WIFI_DIRTY=1
   vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf set $kid_q wifi helper >/dev/null" || return 1
@@ -372,10 +419,13 @@ run_surface() {
 boot_with "$LIVE_OWNER_PASSWORD" "$LIVE_OWNER_ACCOUNT" || die "owner boot failed"
 ORIGINAL_OWNER_THEME="$(vm "export OMARCHY_PATH=/usr/share/omarchy; /usr/bin/omarchy-theme-current")" ||
   die "could not read the owner's current theme"
-ORIGINAL_KID_THEME="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $(shell_quote "$LIVE_KID1_ACCOUNT") theme")" ||
-  die "could not read $LIVE_KID1_ACCOUNT's current theme"
-[[ -n "$ORIGINAL_OWNER_THEME" && -n "$ORIGINAL_KID_THEME" ]] ||
-  die "both current themes must be known before capture"
+ORIGINAL_KID_THEME_SOURCE="$(kid_setting_source theme)" ||
+  die "could not read $LIVE_KID1_ACCOUNT's theme source"
+if [[ "$ORIGINAL_KID_THEME_SOURCE" == override ]]; then
+  ORIGINAL_KID_THEME="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-conf get $(shell_quote "$LIVE_KID1_ACCOUNT") theme")" ||
+    die "could not read $LIVE_KID1_ACCOUNT's current theme"
+fi
+[[ -n "$ORIGINAL_OWNER_THEME" ]] || die "the owner's current theme must be known before capture"
 THEMES_SAVED=1
 
 for theme in "${THEMES[@]}"; do

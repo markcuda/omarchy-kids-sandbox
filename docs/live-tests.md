@@ -75,8 +75,9 @@ the governed `omarchy-kids-conf` theme writer, runs `omarchy-kids-assert`, and r
 the portal shot. Its EXIT trap restores changed state, restarts SDDM even when the assert step
 fails, verifies both test accounts have no seat session, and confirms the greeter.
 
-Time's Up and Wi-Fi need temporary test-kid settings. The driver records and restores both
-weekday/weekend lights-out values and the Wi-Fi mode even after a failed capture. For the bar shot
+Time's Up and Wi-Fi need temporary test-kid settings. The driver records whether each theme,
+weekday/weekend lights-out value, and Wi-Fi mode is an override. Cleanup restores an override with
+`set` and an inherited value with `unset`, so a run never pins a band or parent-theme default. For the bar shot
 it briefly stops the time timer after publishing a live status row, then restarts it. The parent
 bar must already be enabled: the driver refuses that shot instead of changing the parent's bar
 configuration. SIGINT and SIGTERM run the same cleanup. Inspect the VM after SIGKILL, power loss,

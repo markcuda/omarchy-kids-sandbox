@@ -511,10 +511,12 @@ boot_transition_limine_editor() {
     rm -f "$tmp"
     return 1
   }
-  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" ||
+    ! boot_transition_fsync "$tmp" || ! mv -f "$tmp" "$file"; then
     rm -f "$tmp"
     return 1
   fi
+  boot_transition_fsync_dir "$(dirname "$file")"
 }
 
 boot_transition_limine_snapshots() {
@@ -552,11 +554,12 @@ boot_transition_limine_snapshots() {
     rm -f "$tmp"
     return 1
   }
-  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" ||
+    ! boot_transition_fsync "$tmp" || ! mv -f "$tmp" "$file"; then
     rm -f "$tmp"
     return 1
   fi
-  boot_transition_fsync "$file" || return 1
+  boot_transition_fsync_dir "$(dirname "$file")" || return 1
   [[ ! -x "$BOOT_TRANSITION_LIMINE_SYNC" ]] || "$BOOT_TRANSITION_LIMINE_SYNC" || return 1
 
   tmp="$(mktemp "$(dirname "$file")/.limine.default.XXXXXX")" || return 1
@@ -567,11 +570,12 @@ boot_transition_limine_snapshots() {
     rm -f "$tmp"
     return 1
   }
-  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" ||
+    ! boot_transition_fsync "$tmp" || ! mv -f "$tmp" "$file"; then
     rm -f "$tmp"
     return 1
   fi
-  boot_transition_fsync "$file"
+  boot_transition_fsync_dir "$(dirname "$file")"
 }
 
 boot_transition_disk_abort() {
@@ -727,10 +731,12 @@ boot_transition_restore_limine() {
     rm -f "$tmp"
     return 1
   }
-  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" ||
+    ! boot_transition_fsync "$tmp" || ! mv -f "$tmp" "$file"; then
     rm -f "$tmp"
     return 1
   fi
+  boot_transition_fsync_dir "$(dirname "$file")" || return 1
   [[ ! -x "$BOOT_TRANSITION_LIMINE_SYNC" ]] || "$BOOT_TRANSITION_LIMINE_SYNC"
 }
 
@@ -753,10 +759,12 @@ boot_transition_restore_limine_editor() {
     rm -f "$tmp"
     return 1
   }
-  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" ||
+    ! boot_transition_fsync "$tmp" || ! mv -f "$tmp" "$file"; then
     rm -f "$tmp"
     return 1
   fi
+  boot_transition_fsync_dir "$(dirname "$file")"
 }
 
 boot_transition_current_uki() {

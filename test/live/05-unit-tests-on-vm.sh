@@ -56,7 +56,10 @@ else
 fi
 
 if ((ready)); then
-  vm "cd $REMOTE_DIR && bash test/all" >"$LOG" 2>&1
+  # -j 1: the VM is the correctness gate and must be deterministic. It has two cores, and running
+  # two test files at once there let one suite's daemon collide with another's (wifi-test,
+  # 2026-09-05), which the Mac's parallel pass exists to avoid paying for. Speed belongs on the Mac.
+  vm "cd $REMOTE_DIR && bash test/all -j 1" >"$LOG" 2>&1
   status=$?
   echo "test/all output: $LOG"
   if ((status == 0)); then

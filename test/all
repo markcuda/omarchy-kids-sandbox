@@ -43,8 +43,8 @@ done
 cores="$( (nproc || sysctl -n hw.ncpu) 2>/dev/null)"
 [[ "$cores" =~ ^[0-9]+$ ]] || cores=2
 : "${jobs_wanted:=$((cores / 4))}" # a quarter: several drafting agents run their own suite here
-[[ "$jobs_wanted" =~ ^[0-9]+$ ]] && ((jobs_wanted > 0)) || jobs_wanted=2
-((jobs_wanted < 2)) && jobs_wanted=1
+[[ "$jobs_wanted" =~ ^[0-9]+$ ]] || jobs_wanted=1
+((jobs_wanted < 1)) && jobs_wanted=1 # a two-core box rounds to zero; serial is the right answer there
 
 files=(test/shell.d/*-test.sh)
 out_dir="$(mktemp -d "${TMPDIR:-/tmp}/omarchy-kids-suite.XXXXXX")" || exit 1
@@ -58,6 +58,9 @@ for t in "${files[@]}"; do
   {
     bash "$t" >"$out_dir/$i.out" 2>&1
     echo $? >"$out_dir/$i.status"
+    # Progress on stderr only: stdout stays the ordered, comparable record. A run with no output
+    # for ten minutes is indistinguishable from a hung one.
+    echo "  done $(basename "$t") ($(ls "$out_dir"/*.status 2>/dev/null | wc -l | tr -d ' ')/${#files[@]})" >&2
   } &
   i=$((i + 1))
 done

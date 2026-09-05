@@ -542,12 +542,24 @@ else
   pass "add: luksAddKey never ran for a password that already unlocks the disk"
 fi
 
-# --- review S10: a display name carrying a field separator is refused ------
+# --- review S10: encoded portal delimiters are valid display-name text ------
 
-for bad in $'Ada\tLovelace' 'Ada:Lovelace' 'Ada,Lovelace'; do
+for accepted in 'Ada:Lovelace' 'Ada,Lovelace' $'Ada\rLovelace' \
+  $'Ada%2C, Lovelace: "kid" \\ \r'; do
+  outb="$(DRY_RUN=1 "$BIN" add "$accepted" --band 3-5 --avatar fox --no-password 2>&1)"
+  st=$?
+  check_eq "$st" 0 "add: delimiter/control-bearing display-name text is accepted"
+  check_not_contains "$outb" "may not contain" "add: accepted display-name text reaches the preview"
+  if [[ "$accepted" == *:* ]]; then
+    check_contains "$outb" "usermod -c ''" \
+      "add: colon-bearing names use an empty passwd GECOS fallback"
+  fi
+done
+
+for bad in $'Ada\tLovelace' $'Ada\nLovelace'; do
   outb="$(printf 'somepassword\n' | "$BIN" add "$bad" --band 6-8 --avatar fox --password-stdin 2>&1)"
   st=$?
-  check_eq "$st" 2 "add: a display name containing a portal/GECOS separator is refused"
+  check_eq "$st" 2 "add: a display name containing a record-line separator is refused"
   check_contains "$outb" "may not contain" "add: the refusal explains which characters are out"
 done
 

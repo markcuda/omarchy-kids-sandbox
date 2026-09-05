@@ -18,7 +18,7 @@ of Omarchy's own files (I-7).
 | `lib/posture.sh`: `posture_write_sddm_theme_dropin` / `posture_remove_sddm_theme_dropin` | Writes/removes `/etc/sddm.conf.d/zz-omarchy-kids-theme.conf` (`[Theme]` `Current=omarchy-kids`) |
 | `lib/posture.sh`: `posture_write_portal_conf` | Writes `/usr/share/sddm/themes/omarchy-kids/theme.conf.user` (root-owned 0644) — SDDM's own theme config override, read automatically, issue #39. It carries the profiled `kids=` list, the recorded parent plus `omarchy-parents`/`wheel` members in `parents=`, and nine color/font keys resolved from the parent's own current Omarchy theme (`lib/theme.sh`) — see `docs/theming.md` |
 | `lib/posture.sh`: `posture_write_face_icon` / `posture_remove_face_icon` | Copies the chosen avatar SVG to `/usr/share/sddm/faces/<account>.face.icon` (root-owned 0644) — the file SDDM's `UserModel` actually reads for the avatar, issue #39 |
-| `omarchy-kids-provision`: `usermod -c "<display name>"` | Sets the passwd GECOS field so the greeter's `realName` role shows the kid's name, issue #39 |
+| `omarchy-kids-provision`: `usermod -c "<fallback>"` | Sets a passwd GECOS fallback when the display name is representable there, issue #39 |
 
 Installed by the package to `/usr/share/sddm/themes/omarchy-kids/` (PKGBUILD's `package()`) —
 **not** under `/usr/share/omarchy-kids/`, even though `share/sddm-theme/` also gets swept into
@@ -54,13 +54,12 @@ bare account suffix (`ada`, `cy`) instead of the profile's display name; the par
 distinguished when the machine's *owner* account happened to be named `kid-vm` (a VM test
 fixture); and avatars never rendered, always falling back to the letter-circle.
 
-**Display name.** SDDM's `UserModel` reads its `realName` role from the passwd GECOS field
-(`getpwnam(3)`'s `pw_gecos`), not from AccountsService — so `omarchy-kids-provision add` now runs
-`usermod -c "<display name>" <account>` (chfn's non-interactive equivalent: no PAM prompt, no
-argv password beyond the name itself) right after the account is created. `Main.qml`'s
-`displayNameFor()` prefers `realName` first, then falls back to `theme.conf.user`'s own per-account
-name (below), then the account name with `kid-` stripped and the first letter capitalized.
-Re-asserted as the `gecos:<account>` lock (`docs/assert.md`).
+**Display name.** `Main.qml`'s `displayNameFor()` reads the exact name from the root-owned
+`theme.conf.user` profile first. SDDM's passwd GECOS `realName` role is only a fallback for old
+configs. `omarchy-kids-provision add` keeps that fallback exact when possible. Because `:` is a
+passwd field delimiter, colon-bearing names use an empty GECOS field instead. The account-name
+fallback remains last. The `gecos:<account>` lock re-asserts this safe representation
+(`docs/assert.md`).
 
 **Parent detection.** `omarchy-kids-provision add`/`remove` write
 `/usr/share/sddm/themes/omarchy-kids/theme.conf.user` (root-owned 0644, rewritten in full every
@@ -76,11 +75,11 @@ parents="mark"
 kids="kid-ada:Ada Lovelace:fox"
 ```
 
-The `parents` and `kids` keys stay quoted. QSettings treats an unquoted value with a comma as a
-list, which SDDM does not pass into the theme's property map. `lib/posture.sh` escapes `\` and `"`
-in every value before writing it, quotes values containing `,`, `;`, `=`, or edge whitespace, and
-quotes both account lists unconditionally. QSettings removes that encoding before QML reads the
-value. The shell acceptance-harness reader applies the same decoding when it reads this file.
+The `parents` and `kids` keys stay quoted. Each `kids` record field first percent-encodes `%`, `,`,
+and `:` so names remain lossless inside the comma/colon payload. QSettings then applies the INI
+file layer: named escapes for standard controls, hexadecimal escapes for other C0 controls, and
+escaping for `\` and `"`. QSettings removes the outer layer before QML; `PortalConfig.js` removes
+the field encoding after splitting. The shell acceptance-harness reader reverses the same layers.
 
 An **earlier version of this fix** wrote a separate `/etc/omarchy-kids/portal.json` and had
 `Main.qml` read it with a synchronous `XMLHttpRequest("file:///etc/omarchy-kids/portal.json")`.
@@ -103,9 +102,9 @@ extra process environment, and no `systemctl restart` needed beyond whatever a n
 `config.parent`, `config.parents`, and `config.kids` through the exact same `config`
 `QQmlPropertyMap` its own colors already come through (`ThemeConfig::setTo()`/`GreeterApp.cpp`'s
 `setContextProperty("config", ...)`, same citation the top of this file already rests on), parses
-`config.kids`' `<account>:<name>:<avatar>,...` value and the comma-separated `config.parents`
-allowlist. Only those two allowlists may produce tiles; a stale Unix account is intentionally
-invisible. Both are re-asserted together as the `portal-conf` lock (`docs/assert.md`).
+`config.kids`' percent-encoded `<account>:<name>:<avatar>,...` value and the comma-separated
+`config.parents` allowlist. Only those two allowlists may produce tiles; a stale Unix account is
+intentionally invisible. Both are re-asserted together as the `portal-conf` lock (`docs/assert.md`).
 
 After the user model is finalized, `Main.qml` writes one `console.error` line to stderr in the
 form `portal: N tiles (kids=K parents=P)`. Scenario 30 reads that finalized count from the SDDM
@@ -200,7 +199,7 @@ least one kid is provisioned (`docs/provision.md`):
    ssh vm 'cat /etc/sddm.conf.d/zz-omarchy-kids-theme.conf'
    ssh vm 'cat /usr/share/sddm/themes/omarchy-kids/theme.conf.user'               # portal-conf
    ssh vm 'ls -l /usr/share/sddm/faces/kid-<slug>.face.icon'                      # face:<account>
-   ssh vm 'getent passwd kid-<slug> | cut -d: -f5'                                # gecos: should be the display name
+   ssh vm 'getent passwd kid-<slug> | cut -d: -f5'                                # display name, or empty when it contains a colon
    ssh vm 'printf "omarchy\n" | sudo -S -p "" omarchy-kids-assert'
    # expect "ok      sddm-theme", "ok      portal-conf", "ok      face:<account>", "ok      gecos:<account>"
    # (or "fixed" the first time)
@@ -317,12 +316,9 @@ quote or a `]` either breaks the admin rule outright -- polkit then falls back t
 **root's** password rather than the parent's, which is the opposite of R-FND-3 -- or injects
 JavaScript into the highest-value file on the box (review S9). `lib/posture.sh` now has one
 `posture_valid_account` predicate, and both that writer and `posture_portal_conf_text` refuse to
-produce anything for a name that fails it. Separately, a kid display name containing `:` or `,`
-would shift every later tile in `theme.conf.user`'s `kids=` field onto the wrong account and
-avatar (review S10); `omarchy-kids-provision add` rejects such a name at the one entry point
-that accepts it, and `posture_portal_conf_text` leaves an already-written profile with such a
-name off the greeter rather than corrupting the whole field. `test/shell.d/portal-test.sh`
-covers both.
+produce anything for a name that fails it. Kid display names may contain `:` and `,`: the payload
+encoding keeps them from shifting later records, and the QSettings layer preserves quotes,
+backslashes, and controls in the file itself. `test/shell.d/portal-test.sh` covers both layers.
 
 ## SDDM face-icon resolution forensics (moved from `lib/posture.sh`, issue #49)
 

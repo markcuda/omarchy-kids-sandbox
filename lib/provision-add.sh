@@ -52,9 +52,7 @@ cmd_add() {
   done
 
   [[ -n "$display" ]] || die "add: needs a display name"
-  # R-LOGIN / review S10: refused here, once, at the only entry point --
-  # docs/provision.md's "Secrets and LUKS slots" section has the why.
-  valid_display_name "$display" || die "add: display name may not contain a tab, newline, ':' or ',' and must be 1-64 characters"
+  valid_display_name "$display" || die "add: display name may not contain a tab or newline and must be 1-64 characters"
   [[ -n "$band" ]] || die "add: needs --band"
   is_valid_band "$band" || die "add: unknown band '$band' (must be one of ${VALID_BANDS[*]})"
   if ((want_password && no_password)); then
@@ -69,10 +67,11 @@ cmd_add() {
     [[ "$optional" == "true" ]] || die "add: --no-password is only allowed for band 3-5"
   fi
 
-  local base_account account group
+  local base_account account group gecos_name
   base_account="$("$CONF_BIN" slug "$display")"
   account="$(unique_account "$base_account")"
   group="$(group_for_band "$band")"
+  gecos_name="$(gecos_name_for_display "$display")"
 
   local kid_password="" parent_password=""
   if ((want_password)); then
@@ -105,10 +104,9 @@ cmd_add() {
     printf '%s:%s\n' "$account" "$kid_password" | run chpasswd
   fi
 
-  # R-LOGIN, issue #39: the greeter's tile name comes from passwd's GECOS
-  # field, not AccountsService (docs/portal.md) -- usermod -c, not a
-  # posture_* writer. Re-asserted as the "gecos:<account>" lock.
-  run usermod -c "$display" "$account"
+  # R-LOGIN, issue #39: keep a GECOS fallback where passwd(5) can carry it.
+  # The root-owned portal profile is the exact display-name source.
+  run usermod -c "$gecos_name" "$account"
 
   # R-FND-2: home bind-mounted nosuid,nodev,noexec (must exist before remount).
   run posture_add_fstab_line "$account"

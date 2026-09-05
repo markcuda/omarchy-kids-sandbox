@@ -25,6 +25,14 @@ run() {
   fi
 }
 
+# passwd(5) reserves colon as a field delimiter. The portal profile keeps
+# the exact display name; GECOS is only a fallback for representable names.
+gecos_name_for_display() {
+  local name="$1"
+  [[ "$name" == *:* ]] && return 0
+  printf '%s' "$name"
+}
+
 # VALID_BANDS -- Appendix B's four age bands, in order, declared once
 # (previously six duplicated copies, where `13+` vs `13plus` had drifted).
 # shellcheck disable=SC2034 # read by the sourcing command, not here

@@ -159,7 +159,9 @@ a naming question — that needs a human to resolve the slot mapping by hand.
 while it selects or reads the mode, reads back any new value, and converges the captured legacy
 mkinitcpio drop-in. `machine set boot` holds that same lock from its first mode read through
 artifact convergence, the final setting write, and readback. `portal` removes the recorded kid
-slots and active hook, then rebuilds once when leaving disk mode. `disk` validates the LUKS root
+slots and active hook, then rebuilds once when leaving disk mode. Before that removal it verifies
+and copies the current UKI. A missing or unreadable image stops the transition without mutation;
+a failed or unverifiable rebuild restores the saved image. `disk` validates the LUKS root
 and secrets, adds missing kid slots, installs the package template, rebuilds and verifies the UKI,
 then writes `boot=disk` last. A failed portal-to-disk attempt rolls back slots it added.
 

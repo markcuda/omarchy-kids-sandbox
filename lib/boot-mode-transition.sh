@@ -22,6 +22,7 @@ BOOT_TRANSITION_MKINITCPIO_CONF=/etc/mkinitcpio.conf
 BOOT_TRANSITION_MKINITCPIO_CONF_DIR=/etc/mkinitcpio.conf.d
 BOOT_TRANSITION_ENV=/usr/bin/env
 BOOT_TRANSITION_BASH=/bin/bash
+BOOT_TRANSITION_UKI_BACKUP_SUFFIX=.omarchy-kids-transition-backup
 BOOT_TRANSITION_ADD_JOURNAL=/etc/omarchy-kids/boot-transition.adding
 BOOT_TRANSITION_SLOTS_BACKUP=/etc/omarchy-kids/luks-slots.transition-backup
 
@@ -241,6 +242,15 @@ for target in (p, os.path.dirname(p)):
         os.fsync(fd)
     finally:
         os.close(fd)' "$1"
+}
+
+boot_transition_fsync_dir() {
+  "$KIDS_PY" -c 'import os, sys
+fd = os.open(sys.argv[1], os.O_RDONLY)
+try:
+    os.fsync(fd)
+finally:
+    os.close(fd)' "$1"
 }
 
 boot_transition_secret_for_kid() {
@@ -669,6 +679,52 @@ boot_transition_current_uki() {
   return 1
 }
 
+boot_transition_recover_uki_backup() {
+  local backup uki status
+  for backup in "$BOOT_TRANSITION_UKI_DIR"/*.efi"$BOOT_TRANSITION_UKI_BACKUP_SUFFIX"; do
+    [[ -e "$backup" || -L "$backup" ]] || continue
+    boot_transition_config_safe "$backup" file || return 1
+    uki="${backup%"$BOOT_TRANSITION_UKI_BACKUP_SUFFIX"}"
+    if [[ -f "$uki" && ! -L "$uki" ]]; then
+      "$BOOT_TRANSITION_LSINITCPIO" -a "$uki" >/dev/null 2>&1 && status=0 || status=$?
+    else
+      status=1
+    fi
+    if [[ "$status" -eq 0 ]]; then
+      rm -f "$backup" || return 1
+      boot_transition_fsync_dir "$BOOT_TRANSITION_UKI_DIR" || return 1
+    else
+      mv -f "$backup" "$uki" || return 1
+      boot_transition_fsync "$uki" || return 1
+    fi
+  done
+}
+
+boot_transition_backup_uki() {
+  local uki="$1" backup="${1}${BOOT_TRANSITION_UKI_BACKUP_SUFFIX}" tmp
+  boot_transition_config_safe "$uki" file || return 1
+  [[ ! -e "$backup" && ! -L "$backup" ]] || return 1
+  tmp="$(mktemp "${backup}.tmp.XXXXXX")" || return 1
+  if ! cp -p "$uki" "$tmp" || ! boot_transition_fsync "$tmp" || ! mv -f "$tmp" "$backup"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  boot_transition_fsync_dir "$BOOT_TRANSITION_UKI_DIR"
+}
+
+boot_transition_restore_uki_backup() {
+  local uki="$1" backup="${1}${BOOT_TRANSITION_UKI_BACKUP_SUFFIX}"
+  boot_transition_config_safe "$backup" file || return 1
+  mv -f "$backup" "$uki" || return 1
+  boot_transition_fsync "$uki"
+}
+
+boot_transition_remove_uki_backup() {
+  local backup="${1}${BOOT_TRANSITION_UKI_BACKUP_SUFFIX}"
+  rm -f "$backup" || return 1
+  boot_transition_fsync_dir "$BOOT_TRANSITION_UKI_DIR"
+}
+
 boot_transition_current_mode() {
   local mode
   if mode="$(boot_mode_get 2>/dev/null)"; then
@@ -691,7 +747,18 @@ boot_transition_uki_has_hook() {
 }
 
 boot_transition_portal() {
-  local current="$1" rebuild=0 hook_status
+  local current="$1" rebuild=0 hook_status uki
+  boot_transition_recover_uki_backup || return 1
+  uki="$(boot_transition_current_uki)" || {
+    echo "omarchy-kids-conf: refusing portal transition without a current UKI" >&2
+    return 1
+  }
+  boot_transition_uki_has_hook && hook_status=0 || hook_status=$?
+  if [[ "$hook_status" -eq 2 || "$hook_status" -eq 3 ]]; then
+    echo "omarchy-kids-conf: refusing portal transition without an inspectable current UKI" >&2
+    return 1
+  fi
+
   if [[ "$current" == disk || "$current" == missing ]]; then
     boot_mode_set portal || return 1
     [[ "$current" == disk ]] && rebuild=1
@@ -707,13 +774,26 @@ boot_transition_portal() {
   boot_transition_restore_limine || return 1
 
   [[ ! -e "$BOOT_TRANSITION_DROPIN" && ! -L "$BOOT_TRANSITION_DROPIN" ]] || rebuild=1
-  boot_transition_uki_has_hook && hook_status=0 || hook_status=$?
-  [[ "$hook_status" -ne 3 ]] || return 1
   [[ "$hook_status" -eq 0 ]] && rebuild=1
 
   if [[ "$rebuild" -eq 1 ]]; then
-    rm -f "$BOOT_TRANSITION_DROPIN" || return 1
-    "$BOOT_TRANSITION_MKINITCPIO" -P || return 1
+    boot_transition_backup_uki "$uki" || return 1
+    if ! rm -f "$BOOT_TRANSITION_DROPIN"; then
+      boot_transition_remove_uki_backup "$uki" || true
+      return 1
+    fi
+    if ! "$BOOT_TRANSITION_MKINITCPIO" -P; then
+      boot_transition_restore_uki_backup "$uki" ||
+        echo "omarchy-kids-conf: failed to restore the known-good UKI" >&2
+      return 1
+    fi
+    boot_transition_uki_has_hook && hook_status=0 || hook_status=$?
+    if [[ "$hook_status" -ne 1 ]]; then
+      boot_transition_restore_uki_backup "$uki" ||
+        echo "omarchy-kids-conf: failed to restore the known-good UKI" >&2
+      return 1
+    fi
+    boot_transition_remove_uki_backup "$uki" || return 1
   fi
 
   [[ ! -e "$BOOT_TRANSITION_DROPIN" && ! -L "$BOOT_TRANSITION_DROPIN" ]] || return 1

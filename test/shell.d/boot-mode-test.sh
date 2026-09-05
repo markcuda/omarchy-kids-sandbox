@@ -185,11 +185,17 @@ if [[ -e "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" ]]; then
 else
   printf 'absent\n' >"$STATE"
 fi
+if [[ -e "$TMP/corrupt-uki-after-rebuild" ]]; then
+  rm -f "$TMP/corrupt-uki-after-rebuild"
+  printf 'damaged\n' >"$ROOT/boot/EFI/Linux/current.efi"
+  printf 'corrupt\n' >"$STATE"
+fi
 EOF
 cat >"$TOOLS/lsinitcpio" <<EOF
 #!/bin/bash
 printf 'lsinitcpio %s\n' "\$*" >>"$LOG"
 [[ ! -e "$TMP/fail-lsinitcpio" ]] || exit 1
+[[ "\$(cat "$STATE")" != corrupt ]] || exit 1
 [[ "\$(cat "$STATE")" == present ]] && echo usr/lib/initcpio/hooks/omarchy-kids-unlock
 exit 0
 EOF
@@ -243,6 +249,8 @@ check_eq "$(test ! -e "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo ab
 check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 1 \
   "disk to portal rebuilds exactly once"
 check_eq "$(cat "$STATE")" absent "disk to portal rebuild removes the hook"
+check_eq "$(test ! -e "$ROOT/boot/EFI/Linux/current.efi.omarchy-kids-transition-backup" && echo absent)" absent \
+  "disk to portal removes the verified UKI backup"
 check_eq "$(cat "$ROOT/etc/default/limine")" 'MAX_SNAPSHOT_ENTRIES=10' \
   "disk to portal restores only the recorded Limine snapshot value"
 check_eq "$(grep -c '^limine-snapper-sync$' "$LOG" 2>/dev/null || true)" 1 \
@@ -262,6 +270,46 @@ check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
   "a converged portal rerun does not rebuild"
 check_eq "$(grep -c '^cryptsetup ' "$LOG" 2>/dev/null || true)" 0 \
   "a converged portal rerun does not inspect or mutate LUKS"
+
+# Portal never starts destructive convergence without an inspected image,
+# and restores that known-good image when the replacement cannot be verified.
+printf 'boot=disk\nparent=mark\n' >"$ETC/machine.conf"
+printf '0=mark\n' >"$ETC/luks-slots"
+chmod 0600 "$ETC/luks-slots"
+printf '0=parentpass\n' >"$SLOT_STATE"
+printf 'active drop-in\n' >"$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+printf 'present\n' >"$STATE"
+printf 'known-good-image\n' >"$ROOT/boot/EFI/Linux/current.efi"
+: >"$TMP/corrupt-uki-after-rebuild"
+: >"$LOG"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/corrupt-rebuild.error"
+check_eq "$?" 1 "portal rejects a rebuilt UKI that cannot be inspected"
+check_eq "$(cat "$ROOT/boot/EFI/Linux/current.efi")" 'known-good-image' \
+  "portal restores the known-good UKI when replacement verification fails"
+check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
+  "a restored UKI remains under portal authority"
+
+rm -f "$ROOT/boot/EFI/Linux/current.efi"
+: >"$LOG"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/missing-uki.error"
+check_eq "$?" 1 "portal never accepts a missing UKI as converged"
+check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
+  "portal does not rebuild when there is no known-good UKI to preserve"
+
+printf 'boot=disk\nparent=mark\n' >"$ETC/machine.conf"
+printf 'active drop-in\n' >"$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+printf 'known-good-image\n' >"$ROOT/boot/EFI/Linux/current.efi"
+: >"$TMP/fail-lsinitcpio"
+: >"$LOG"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/unreadable-uki.error"
+check_eq "$?" 1 "portal refuses an unreadable current UKI before mutation"
+check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" disk \
+  "an unreadable current UKI leaves disk authority unchanged"
+check_eq "$(test -f "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo present)" present \
+  "an unreadable current UKI leaves the active drop-in unchanged"
+rm -f "$TMP/fail-lsinitcpio"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/unreadable-reset.error"
+
 : >"$TMP/fail-lsinitcpio"
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/portal-inspect.error"
 check_eq "$?" 1 "portal does not claim convergence when UKI inspection fails"

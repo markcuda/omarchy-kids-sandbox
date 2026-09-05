@@ -85,6 +85,9 @@ vmroot() {
     return 1
   fi
   case "$*" in
+    *timesUpReady*)
+      [[ "${MEDIA_TEST_TIMES_UP_READY:-1}" == 1 ]] && echo true || echo false
+      ;;
     *"omarchy-kids-conf source kid-cy theme"*)
       if [[ "${MEDIA_TEST_INHERITED:-0}" == 1 ]]; then echo default; else echo override; fi
       ;;
@@ -322,6 +325,22 @@ check "$(cat "$STATE11/lights_out")" "21:00" \
   "a later theme restores the true original weekday value"
 check "$(cat "$STATE11/lights_out_weekend")" "22:00" \
   "a later theme keeps the true original weekend value"
+
+ROOT12="$TMP/times-up-not-ready"
+make_fixture "$ROOT12"
+LOG12="$TMP/times-up-not-ready.log"
+MEDIA_TEST_LOG="$LOG12" MEDIA_TEST_TIMES_UP_READY=0 \
+  "$ROOT12/scripts/media-driver.sh" --surface times-up tokyo-night >"$TMP/times-up-not-ready.out" 2>&1
+status=$?
+check "$status" "1" "a Time's Up card that never renders makes the run fail"
+log12="$(cat "$LOG12")"
+if [[ "$log12" != *"shot times-up-tokyo-night"* ]]; then
+  pass "an unready Time's Up card is never photographed"
+else
+  fail_ "the driver photographed Time's Up without a rendered-card signal"
+fi
+check_contains "$(cat "$DIR/share/time/timesup.qml")" "function timesUpReady(): bool" \
+  "Time's Up exposes its rendered card and countdown readiness"
 
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck -S warning "$DIR/scripts/media-driver.sh" "$DIR/test/shell.d/media-driver-test.sh"; then

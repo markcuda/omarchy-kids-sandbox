@@ -67,8 +67,7 @@ if [[ -f "$TREE/lib/boot-mode-transition.sh" ]]; then
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_MKINITCPIO_CONF_DIR "$ROOT/etc/mkinitcpio.conf.d"
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_ENV "$TOOLS/env"
   kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_BASH "$TOOLS/bash"
-  kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_ADD_JOURNAL "$ETC/boot-transition.adding"
-  kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_SLOTS_BACKUP "$ETC/luks-slots.transition-backup"
+  kids_set_const "$TREE/lib/boot-mode-transition.sh" BOOT_TRANSITION_RECOVERY "$ETC/boot-transition.recovery"
 fi
 
 kids_id_stub "$TOOLS" mark 0
@@ -403,8 +402,8 @@ check_eq "$(grep -c '^editor_enabled: yes$' "$ROOT/boot/limine.conf")" 1 \
   "portal restores the Limine editor value changed by disk mode"
 printf '0=parentpass\n' >"$SLOT_STATE"
 printf 'absent\n' >"$STATE"
-rm -f "$ETC/luks-slots" "$ETC/boot-transition.adding" \
-  "$ETC/luks-slots.transition-backup" "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+rm -f "$ETC/luks-slots" "$ETC/boot-transition.recovery" \
+  "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 
 : >"$LOG"
 printf 'parentpass\nadapass\n' |
@@ -436,9 +435,8 @@ check_eq "$(cat "$SLOT_STATE")" '0=parentpass' \
   "a later slot-add failure rolls back an earlier addition"
 check_eq "$(test ! -e "$ETC/luks-slots" && echo absent)" absent \
   "a slot-add failure restores the absent portal map"
-check_eq "$(test ! -e "$ETC/boot-transition.adding" && \
-  test ! -e "$ETC/luks-slots.transition-backup" && echo absent)" absent \
-  "a completed rollback removes its recovery records"
+check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
+  "a completed rollback removes its recovery record"
 check_eq "$(test ! -e "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf" && echo absent)" absent \
   "a slot-add failure leaves the active template absent"
 check_eq "$(grep -c '^mkinitcpio ' "$LOG" 2>/dev/null || true)" 0 \
@@ -465,8 +463,8 @@ check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
   "a failed disk rebuild keeps portal authoritative"
 
 # Even with no kids, portal-to-disk records the prior map before replacing it.
-rm -f "$ETC/kids"/*.conf "$ETC/luks-slots" "$ETC/boot-transition.adding" \
-  "$ETC/luks-slots.transition-backup" "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+rm -f "$ETC/kids"/*.conf "$ETC/luks-slots" "$ETC/boot-transition.recovery" \
+  "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 printf '0=parentpass\n' >"$SLOT_STATE"
 printf 'absent\n' >"$STATE"
 : >"$TMP/fail-mkinitcpio-once"
@@ -534,14 +532,14 @@ check_eq "$(test ! -e "$ETC/luks-slots" && echo absent)" absent \
 check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 1 \
   "portal retry rebuilds exactly once after slot removal completes"
 
-# An interrupted portal-to-disk attempt has a durable plan and map backup.
+# An interrupted portal-to-disk attempt has one durable recovery record.
 # The next run first rolls that attempt back, then starts a fresh convergence.
 printf 'boot=portal\nparent=mark\n' >"$ETC/machine.conf"
 printf '0=parentpass\n1=adapass\n' >"$SLOT_STATE"
 rm -f "$ETC/luks-slots" "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
-: >"$ETC/luks-slots.transition-backup"
-printf '1=kid-ada\n2=kid-cy\n' >"$ETC/boot-transition.adding"
-chmod 0600 "$ETC/luks-slots.transition-backup" "$ETC/boot-transition.adding"
+printf 'version=1\nmap=absent\nadd=1=kid-ada\nadd=2=kid-cy\n' \
+  >"$ETC/boot-transition.recovery"
+chmod 0600 "$ETC/boot-transition.recovery"
 printf 'absent\n' >"$STATE"
 : >"$LOG"
 printf 'parentpass\nadapass\ncypass\n' |
@@ -551,9 +549,39 @@ status=$?
 check_eq "$status" 0 "a portal-to-disk retry recovers an interrupted attempt"
 check_eq "$(cat "$SLOT_STATE")" $'0=parentpass\n1=adapass\n2=cypass' \
   "the retry removes the interrupted slot before assigning the fresh ordered slots"
-check_eq "$(test ! -e "$ETC/boot-transition.adding" && \
-  test ! -e "$ETC/luks-slots.transition-backup" && echo absent)" absent \
-  "the successful retry clears its durable recovery records"
+check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
+  "the successful retry clears its durable recovery record"
+
+# If disk was committed before record cleanup, a same-direction retry confirms
+# the recorded slots and map before removing the one stale record.
+printf 'version=1\nmap=absent\nadd=1=kid-ada\nadd=2=kid-cy\n' \
+  >"$ETC/boot-transition.recovery"
+chmod 0600 "$ETC/boot-transition.recovery"
+: >"$LOG"
+PATH="$PATH_VALUE" "$CONF" machine set boot disk </dev/null \
+  >/dev/null 2>"$TMP/committed-recovery.error"
+check_eq "$?" 0 "disk confirms a committed single recovery record"
+check_eq "$(grep -c '^cryptsetup luksAddKey ' "$LOG" 2>/dev/null || true)" 0 \
+  "disk recovery does not add an already committed slot"
+check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
+  "disk recovery removes the confirmed single record"
+
+# One recovery record is sufficient after an interrupted addition, including
+# when the next request chooses the opposite, portal direction.
+printf 'boot=portal\nparent=mark\n' >"$ETC/machine.conf"
+printf '0=parentpass\n1=adapass\n' >"$SLOT_STATE"
+rm -f "$ETC/luks-slots" "$ETC/boot-transition.recovery" \
+  "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+printf 'version=1\nmap=absent\nadd=1=kid-ada\nadd=2=kid-cy\n' \
+  >"$ETC/boot-transition.recovery"
+chmod 0600 "$ETC/boot-transition.recovery"
+printf 'absent\n' >"$STATE"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/single-recovery.error"
+check_eq "$?" 0 "portal recovers from the single interrupted-addition record"
+check_eq "$(cat "$SLOT_STATE")" '0=parentpass' \
+  "portal recovery removes the slot named by the single record"
+check_eq "$(test ! -e "$ETC/boot-transition.recovery" && echo absent)" absent \
+  "portal recovery removes the completed single record"
 
 # Disk records a previously absent Limine setting so portal removes only
 # the snapshot state introduced by the transition.

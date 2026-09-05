@@ -23,14 +23,16 @@ BOOT_TRANSITION_MKINITCPIO_CONF_DIR=/etc/mkinitcpio.conf.d
 BOOT_TRANSITION_ENV=/usr/bin/env
 BOOT_TRANSITION_BASH=/bin/bash
 BOOT_TRANSITION_UKI_BACKUP_SUFFIX=.omarchy-kids-transition-backup
-BOOT_TRANSITION_ADD_JOURNAL=/etc/omarchy-kids/boot-transition.adding
-BOOT_TRANSITION_SLOTS_BACKUP=/etc/omarchy-kids/luks-slots.transition-backup
+BOOT_TRANSITION_RECOVERY=/etc/omarchy-kids/boot-transition.recovery
 
 BOOT_TRANSITION_PASSWORD_KIDS=()
 BOOT_TRANSITION_MAP_ENTRIES=()
 BOOT_TRANSITION_MISSING_KIDS=()
 BOOT_TRANSITION_MISSING_SLOTS=()
 BOOT_TRANSITION_SECRETS=()
+BOOT_TRANSITION_RECOVERY_MAP=""
+BOOT_TRANSITION_RECOVERY_BEFORE=()
+BOOT_TRANSITION_RECOVERY_ADDITIONS=()
 BOOT_TRANSITION_PARENT=""
 BOOT_TRANSITION_DEVICE=""
 
@@ -305,76 +307,121 @@ boot_transition_write_state_file() {
 }
 
 boot_transition_prepare_additions() {
-  local current="$1" prepared=0
+  local current="$1" line record=("version=1")
   [[ "$current" == portal || ${#BOOT_TRANSITION_MISSING_SLOTS[@]} -gt 0 ]] || return 0
-  [[ ! -e "$BOOT_TRANSITION_ADD_JOURNAL" && ! -L "$BOOT_TRANSITION_ADD_JOURNAL" ]] || return 1
-  [[ ! -e "$BOOT_TRANSITION_SLOTS_BACKUP" && ! -L "$BOOT_TRANSITION_SLOTS_BACKUP" ]] || return 1
+  [[ ! -e "$BOOT_TRANSITION_RECOVERY" && ! -L "$BOOT_TRANSITION_RECOVERY" ]] || return 1
   if [[ -f "$BOOT_TRANSITION_SLOTS_FILE" && ! -L "$BOOT_TRANSITION_SLOTS_FILE" ]]; then
-    if cp -p "$BOOT_TRANSITION_SLOTS_FILE" "$BOOT_TRANSITION_SLOTS_BACKUP" &&
-      chmod 0600 "$BOOT_TRANSITION_SLOTS_BACKUP" &&
-      boot_transition_fsync "$BOOT_TRANSITION_SLOTS_BACKUP"; then
-      prepared=1
-    fi
+    record+=("map=present")
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      case "$line" in '' | '#'*) continue ;; esac
+      record+=("before=$line")
+    done <"$BOOT_TRANSITION_SLOTS_FILE"
   else
-    boot_transition_write_state_file "$BOOT_TRANSITION_SLOTS_BACKUP" 0600 && prepared=1
+    record+=("map=absent")
   fi
-  if [[ "$prepared" != 1 ]] || ! boot_transition_write_state_file \
-    "$BOOT_TRANSITION_ADD_JOURNAL" 0600 \
-    "${BOOT_TRANSITION_MISSING_SLOTS[@]+"${BOOT_TRANSITION_MISSING_SLOTS[@]}"}"; then
-    rm -f "$BOOT_TRANSITION_ADD_JOURNAL" "$BOOT_TRANSITION_SLOTS_BACKUP"
-    return 1
-  fi
+  for line in "${BOOT_TRANSITION_MISSING_SLOTS[@]+"${BOOT_TRANSITION_MISSING_SLOTS[@]}"}"; do
+    record+=("add=$line")
+  done
+  boot_transition_write_state_file "$BOOT_TRANSITION_RECOVERY" 0600 "${record[@]}"
 }
 
-boot_transition_recovery_files_safe() {
-  boot_transition_config_safe "$BOOT_TRANSITION_ADD_JOURNAL" file || return 1
-  boot_transition_config_safe "$BOOT_TRANSITION_SLOTS_BACKUP" file || return 1
-  [[ "$(file_stat a "$BOOT_TRANSITION_ADD_JOURNAL")" == 600 ]] || return 1
-  [[ "$(file_stat a "$BOOT_TRANSITION_SLOTS_BACKUP")" == 600 ]]
+boot_transition_parse_recovery() {
+  local line value line_number=0 map_count=0 before_slots=" " before_accounts=" "
+  local add_slots=" " add_accounts=" " slot account
+  BOOT_TRANSITION_RECOVERY_MAP=""
+  BOOT_TRANSITION_RECOVERY_BEFORE=()
+  BOOT_TRANSITION_RECOVERY_ADDITIONS=()
+  boot_transition_config_safe "$BOOT_TRANSITION_RECOVERY" file || return 1
+  [[ "$(file_stat a "$BOOT_TRANSITION_RECOVERY")" == 600 ]] || return 1
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line_number=$((line_number + 1))
+    if [[ "$line_number" -eq 1 ]]; then
+      [[ "$line" == version=1 ]] || return 1
+      continue
+    fi
+    case "$line" in
+      map=present | map=absent)
+        map_count=$((map_count + 1))
+        [[ "$map_count" -eq 1 ]] || return 1
+        BOOT_TRANSITION_RECOVERY_MAP="${line#map=}"
+        ;;
+      before=*)
+        [[ "$map_count" -eq 1 ]] || return 1
+        value="${line#before=}"
+        [[ "$value" =~ ^(0|[1-9][0-9]*)=([a-z_][a-z0-9_-]{0,31})(:([A-Za-z0-9._-]+))?$ ]] || return 1
+        slot="${BASH_REMATCH[1]}"
+        account="${BASH_REMATCH[2]}"
+        ((slot <= 31)) || return 1
+        [[ "$before_slots" != *" $slot "* && "$before_accounts" != *" $account "* ]] || return 1
+        [[ "$add_slots" != *" $slot "* ]] || return 1
+        before_slots+="$slot "
+        before_accounts+="$account "
+        BOOT_TRANSITION_RECOVERY_BEFORE+=("$value")
+        ;;
+      add=*)
+        [[ "$map_count" -eq 1 ]] || return 1
+        value="${line#add=}"
+        [[ "$value" =~ ^([1-9][0-9]*)=(kid-[a-z0-9-]{1,28})$ ]] || return 1
+        slot="${BASH_REMATCH[1]}"
+        account="${BASH_REMATCH[2]}"
+        ((slot <= 31)) || return 1
+        [[ "$add_slots" != *" $slot "* && "$add_accounts" != *" $account "* ]] || return 1
+        [[ "$before_slots" != *" $slot "* ]] || return 1
+        add_slots+="$slot "
+        add_accounts+="$account "
+        BOOT_TRANSITION_RECOVERY_ADDITIONS+=("$value")
+        ;;
+      *) return 1 ;;
+    esac
+  done <"$BOOT_TRANSITION_RECOVERY"
+  [[ "$line_number" -ge 2 && "$map_count" -eq 1 ]] || return 1
+  [[ "$BOOT_TRANSITION_RECOVERY_MAP" == present || ${#BOOT_TRANSITION_RECOVERY_BEFORE[@]} -eq 0 ]]
+}
+
+boot_transition_remove_recovery() {
+  rm -f "$BOOT_TRANSITION_RECOVERY" || return 1
+  boot_transition_fsync_dir "$(dirname "$BOOT_TRANSITION_RECOVERY")"
 }
 
 boot_transition_rollback_additions() {
   local line slot active failed=0
-  boot_transition_recovery_files_safe || return 1
+  boot_transition_parse_recovery || return 1
   active="$(boot_transition_occupied_slots "$BOOT_TRANSITION_DEVICE")" || return 1
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ "$line" =~ ^([1-9][0-9]*)=(kid-[a-z0-9-]{1,28})$ ]] || return 1
-    slot="${BASH_REMATCH[1]}"
-    ((slot <= 31)) || return 1
+  for line in "${BOOT_TRANSITION_RECOVERY_ADDITIONS[@]+"${BOOT_TRANSITION_RECOVERY_ADDITIONS[@]}"}"; do
+    slot="${line%%=*}"
     grep -qxF "$slot" <<<"$active" || continue
     "$BOOT_TRANSITION_CRYPTSETUP" luksKillSlot --batch-mode \
       "$BOOT_TRANSITION_DEVICE" "$slot" || failed=1
-  done <"$BOOT_TRANSITION_ADD_JOURNAL"
+  done
   ((failed == 0)) || return 1
 
-  if [[ -s "$BOOT_TRANSITION_SLOTS_BACKUP" ]]; then
-    mv -f "$BOOT_TRANSITION_SLOTS_BACKUP" "$BOOT_TRANSITION_SLOTS_FILE" || return 1
+  if [[ "$BOOT_TRANSITION_RECOVERY_MAP" == present ]]; then
+    boot_transition_write_state_file "$BOOT_TRANSITION_SLOTS_FILE" 0600 \
+      "${BOOT_TRANSITION_RECOVERY_BEFORE[@]+"${BOOT_TRANSITION_RECOVERY_BEFORE[@]}"}" || return 1
   else
-    rm -f "$BOOT_TRANSITION_SLOTS_FILE" "$BOOT_TRANSITION_SLOTS_BACKUP" || return 1
+    rm -f "$BOOT_TRANSITION_SLOTS_FILE" || return 1
+    boot_transition_fsync_dir "$(dirname "$BOOT_TRANSITION_SLOTS_FILE")" || return 1
   fi
-  rm -f "$BOOT_TRANSITION_ADD_JOURNAL"
+  boot_transition_remove_recovery
 }
 
 boot_transition_recover_additions() {
   local current="$1" line slot active
-  if [[ ! -e "$BOOT_TRANSITION_ADD_JOURNAL" && ! -L "$BOOT_TRANSITION_ADD_JOURNAL" &&
-    ! -e "$BOOT_TRANSITION_SLOTS_BACKUP" && ! -L "$BOOT_TRANSITION_SLOTS_BACKUP" ]]; then
+  if [[ ! -e "$BOOT_TRANSITION_RECOVERY" && ! -L "$BOOT_TRANSITION_RECOVERY" ]]; then
     return 0
   fi
-  boot_transition_recovery_files_safe || return 1
+  boot_transition_parse_recovery || return 1
   if [[ "$current" == disk ]]; then
     boot_transition_config_safe "$BOOT_TRANSITION_SLOTS_FILE" file || return 1
     [[ "$(file_stat a "$BOOT_TRANSITION_SLOTS_FILE")" == 600 ]] || return 1
     active="$(boot_transition_occupied_slots "$BOOT_TRANSITION_DEVICE")" || return 1
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      [[ "$line" =~ ^([1-9][0-9]*)=(kid-[a-z0-9-]{1,28})$ ]] || return 1
-      slot="${BASH_REMATCH[1]}"
-      ((slot <= 31)) || return 1
+    for line in "${BOOT_TRANSITION_RECOVERY_ADDITIONS[@]+"${BOOT_TRANSITION_RECOVERY_ADDITIONS[@]}"}"; do
+      slot="${line%%=*}"
       grep -qxF "$line" "$BOOT_TRANSITION_SLOTS_FILE" || return 1
       grep -qxF "$slot" <<<"$active" || return 1
-    done <"$BOOT_TRANSITION_ADD_JOURNAL"
-    rm -f "$BOOT_TRANSITION_ADD_JOURNAL" "$BOOT_TRANSITION_SLOTS_BACKUP"
-    return
+    done
+    boot_transition_remove_recovery
+    return $?
   fi
   boot_transition_rollback_additions
 }
@@ -493,7 +540,7 @@ boot_transition_disk_abort() {
   if [[ "$current" == portal && "$mode_written" == 1 ]]; then
     boot_mode_set portal || failed=1
   fi
-  if [[ -e "$BOOT_TRANSITION_ADD_JOURNAL" || -L "$BOOT_TRANSITION_ADD_JOURNAL" ]]; then
+  if [[ -e "$BOOT_TRANSITION_RECOVERY" || -L "$BOOT_TRANSITION_RECOVERY" ]]; then
     boot_transition_rollback_additions || failed=1
   fi
   if [[ "$current" == portal ]]; then
@@ -574,7 +621,9 @@ boot_transition_disk() {
     boot_transition_disk_abort "$current" "$rebuilt" "$mode_written"
     return 1
   fi
-  rm -f "$BOOT_TRANSITION_ADD_JOURNAL" "$BOOT_TRANSITION_SLOTS_BACKUP" || return 1
+  if [[ -e "$BOOT_TRANSITION_RECOVERY" || -L "$BOOT_TRANSITION_RECOVERY" ]]; then
+    boot_transition_remove_recovery || return 1
+  fi
   return 0
 }
 
@@ -764,8 +813,7 @@ boot_transition_portal() {
     [[ "$current" == disk ]] && rebuild=1
   fi
 
-  if [[ -e "$BOOT_TRANSITION_ADD_JOURNAL" || -L "$BOOT_TRANSITION_ADD_JOURNAL" ||
-    -e "$BOOT_TRANSITION_SLOTS_BACKUP" || -L "$BOOT_TRANSITION_SLOTS_BACKUP" ]]; then
+  if [[ -e "$BOOT_TRANSITION_RECOVERY" || -L "$BOOT_TRANSITION_RECOVERY" ]]; then
     BOOT_TRANSITION_DEVICE="$(boot_transition_root_luks_device)" || return 1
     boot_transition_recover_additions "$current" || return 1
   fi

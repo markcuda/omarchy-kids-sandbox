@@ -428,6 +428,24 @@ rm -f "$ETC/luks-slots" "$ETC/boot-transition.recovery" \
   "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 
 : >"$LOG"
+printf 'parentpass\nsharedpass\nsharedpass\n' |
+  PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
+    >/dev/null 2>"$TMP/shared-kid-secret.error"
+check_eq "$?" 1 "two kids cannot share one disk password"
+check_eq "$(grep -c '^cryptsetup luksAddKey ' "$LOG" 2>/dev/null || true)" 0 \
+  "a shared kid password fails before any slot is added"
+check_eq "$(cat "$TMP/shared-kid-secret.error")" \
+  'omarchy-kids-conf: password for kid-cy is already in use by another child' \
+  "a shared kid password tells the parent why it was refused"
+if [[ "$(PATH="$PATH_VALUE" "$CONF" machine get boot 2>/dev/null || true)" == disk ]]; then
+  PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/shared-kid-reset.error"
+fi
+printf '0=parentpass\n' >"$SLOT_STATE"
+printf 'absent\n' >"$STATE"
+rm -f "$ETC/luks-slots" "$ETC/boot-transition.recovery" \
+  "$ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
+
+: >"$LOG"
 printf 'parentpass\nadapass\n' |
   PATH="$PATH_VALUE" "$CONF" machine set boot disk --secrets-stdin \
     >/dev/null 2>"$TMP/missing.error"

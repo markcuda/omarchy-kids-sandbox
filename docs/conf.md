@@ -164,7 +164,8 @@ rename committed even when that setter's readback fails. `portal` removes the re
 slots and active hook, then rebuilds once when leaving disk mode. Before that removal it verifies
 and copies the current UKI. A missing or unreadable image stops the transition without mutation;
 a failed or unverifiable rebuild restores the saved image. `disk` validates the LUKS root
-and secrets, adds missing kid slots, installs the package template, rebuilds and verifies the UKI,
+and secrets, refuses a kid password already used by another child or disk slot, adds missing kid
+slots, installs the package template, rebuilds and verifies the UKI,
 then writes `boot=disk` last. Limine snapshot suppression has a separate completion marker written
 only after `limine-snapper-sync` succeeds; a retry synchronizes again while that marker is absent.
 Before adding a slot it atomically writes one root-only recovery

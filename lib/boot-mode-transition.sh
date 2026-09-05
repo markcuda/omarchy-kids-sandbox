@@ -223,13 +223,20 @@ boot_transition_secret_opens() {
 }
 
 boot_transition_validate_secrets() {
-  local index=1 kid slot
+  local index=1 kid slot prior_index
   boot_transition_secret_opens "${BOOT_TRANSITION_SECRETS[0]}" "$BOOT_TRANSITION_DEVICE" || return 1
   for kid in "${BOOT_TRANSITION_PASSWORD_KIDS[@]+"${BOOT_TRANSITION_PASSWORD_KIDS[@]}"}"; do
+    for ((prior_index = 1; prior_index < index; prior_index++)); do
+      if [[ "${BOOT_TRANSITION_SECRETS[$index]}" == "${BOOT_TRANSITION_SECRETS[$prior_index]}" ]]; then
+        echo "omarchy-kids-conf: password for $kid is already in use by another child" >&2
+        return 1
+      fi
+    done
     slot="$(boot_transition_slot_for_kid "$kid" 2>/dev/null || true)"
     if [[ -n "$slot" ]]; then
       boot_transition_secret_opens "${BOOT_TRANSITION_SECRETS[$index]}" "$BOOT_TRANSITION_DEVICE" "$slot" || return 1
     elif boot_transition_secret_opens "${BOOT_TRANSITION_SECRETS[$index]}" "$BOOT_TRANSITION_DEVICE"; then
+      echo "omarchy-kids-conf: password for $kid already unlocks an existing disk slot" >&2
       return 1
     fi
     index=$((index + 1))

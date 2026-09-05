@@ -16,6 +16,9 @@ set -uo pipefail
 
 LIVE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIVE_REPO_ROOT="$(cd "$LIVE_LIB_DIR/../.." && pwd)"
+if [[ "${OMARCHY_KIDS_VM_DRIVER_LOCKED:-0}" != 1 ]]; then
+  exec "$LIVE_REPO_ROOT/scripts/vm-driver-lock" "$0" "$@"
+fi
 
 # --- config: env vars, optionally loaded from a sibling config.env (gitignored;
 # config.env.example is the checked-in template) — a CI job can just export every LIVE_* var

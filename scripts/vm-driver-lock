@@ -1,0 +1,35 @@
+#!/bin/bash
+# Hold the one fixed lock shared by every test-VM driver.
+set -euo pipefail
+
+(($#)) || {
+  echo "vm-driver-lock: needs a driver command" >&2
+  exit 2
+}
+
+exec perl -MFcntl=:DEFAULT,:flock -MIO::Handle -MPOSIX=strftime -e '
+  my $path = "/tmp/omarchy-kids-vm-driver.lock";
+  sysopen(my $lock, $path, O_RDWR | O_CREAT | O_NOFOLLOW, 0600)
+    or die "vm-driver-lock: cannot open $path: $!\n";
+  my @stat = stat($lock);
+  die "vm-driver-lock: $path is not a regular file owned by this user\n"
+    unless -f $lock && $stat[4] == $<;
+  unless (flock($lock, LOCK_EX | LOCK_NB)) {
+    seek($lock, 0, 0);
+    local $/;
+    my $owner = <$lock> // "unknown run";
+    $owner =~ s/\s+\z//;
+    print STDERR "vm-driver-lock: shared VM is already in use by $owner\n";
+    exit 75;
+  }
+  truncate($lock, 0) or die "vm-driver-lock: cannot truncate $path: $!\n";
+  seek($lock, 0, 0);
+  $lock->autoflush(1);
+  print $lock "pid=$$ started=" . strftime("%Y-%m-%dT%H:%M:%SZ", gmtime) .
+    " command=" . join(" ", @ARGV) . "\n";
+  fcntl($lock, F_SETFD, 0)
+    or die "vm-driver-lock: cannot retain $path across exec: $!\n";
+  $^F = fileno($lock);
+  $ENV{"OMARCHY_KIDS_VM_DRIVER_LOCKED"} = "1";
+  exec @ARGV or die "vm-driver-lock: cannot run $ARGV[0]: $!\n";
+' -- "$@"

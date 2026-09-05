@@ -29,7 +29,8 @@ make_fixture() {
   local root="$1"
   mkdir -p "$root/scripts" "$root/test/live" "$root/docs/media"
   cp "$DIR/scripts/media-driver.sh" "$root/scripts/media-driver.sh"
-  chmod +x "$root/scripts/media-driver.sh"
+  cp "$DIR/scripts/vm-driver-lock" "$root/scripts/vm-driver-lock"
+  chmod +x "$root/scripts/media-driver.sh" "$root/scripts/vm-driver-lock"
   cat >"$root/test/live/lib.sh" <<'EOF'
 LIVE_OWNER_PASSWORD=owner-password
 LIVE_OWNER_ACCOUNT=kid-test
@@ -42,7 +43,13 @@ if [[ -n "${MEDIA_TEST_WRONG_OUT:-}" ]]; then
 fi
 log() { printf '%s\n' "$*" >>"$MEDIA_TEST_LOG"; }
 sleep() { :; }
-boot_with() { log "boot_with $*"; }
+boot_with() {
+  log "boot_with $*"
+  if [[ -n "${MEDIA_TEST_HOLD:-}" ]]; then
+    : >"$MEDIA_TEST_HOLD.ready"
+    while [[ ! -e "$MEDIA_TEST_HOLD.release" ]]; do /bin/sleep 0.01; done
+  fi
+}
 portal_login() { log "portal_login $*"; }
 wait_kid_ready() { log "wait_kid_ready $*"; }
 portal_reset() { log "portal_reset $*"; }
@@ -183,6 +190,26 @@ MEDIA_TEST_LOG="$LOG6" "$ROOT6/scripts/media-driver.sh" 'bad;theme' >"$TMP/rejec
 status=$?
 check "$status" "2" "unsafe theme names are rejected before driving the VM"
 check "$(wc -l <"$LOG6" | tr -d ' ')" "0" "rejected input calls no VM helper"
+
+ROOT7="$TMP/locked"
+make_fixture "$ROOT7"
+LOG7="$TMP/locked.log"
+HOLD7="$TMP/driver-lock"
+MEDIA_TEST_LOG="$LOG7" MEDIA_TEST_HOLD="$HOLD7" \
+  "$ROOT7/scripts/media-driver.sh" --surface ask nord >"$TMP/holder.out" 2>&1 &
+holder_pid=$!
+for _ in {1..100}; do
+  [[ -e "$HOLD7.ready" ]] && break
+  /bin/sleep 0.01
+done
+MEDIA_TEST_LOG="$LOG7" "$ROOT7/scripts/media-driver.sh" --surface ask nord >"$TMP/contender.out" 2>&1
+status=$?
+check "$status" "75" "a second VM driver is refused while the shared lock is held"
+check_contains "$(cat "$TMP/contender.out")" "media-driver.sh" \
+  "the lock refusal identifies the run holding the VM"
+: >"$HOLD7.release"
+wait "$holder_pid"
+check "$(grep -c '^boot_with ' "$LOG7")" "1" "the refused driver never reaches boot_with"
 
 if command -v shellcheck >/dev/null 2>&1; then
   if shellcheck -S warning "$DIR/scripts/media-driver.sh" "$DIR/test/shell.d/media-driver-test.sh"; then

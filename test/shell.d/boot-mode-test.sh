@@ -316,6 +316,21 @@ check_eq "$(PATH="$PATH_VALUE" "$CONF" machine get boot)" portal \
   "a restored UKI remains under portal authority"
 
 rm -f "$ROOT/boot/EFI/Linux/current.efi"
+printf 'known-good-image\n' \
+  >"$ROOT/boot/EFI/Linux/current.efi.omarchy-kids-transition-backup"
+chmod 0644 "$ROOT/boot/EFI/Linux/current.efi.omarchy-kids-transition-backup"
+printf 'present\n' >"$STATE"
+: >"$LOG"
+PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/backup-recovery.error"
+check_eq "$?" 0 "portal retry recovers a UKI backup left by an interruption"
+check_eq "$(test -f "$ROOT/boot/EFI/Linux/current.efi" && echo present)" present \
+  "portal retry restores the saved UKI before rebuilding"
+check_eq "$(test ! -e "$ROOT/boot/EFI/Linux/current.efi.omarchy-kids-transition-backup" && echo absent)" absent \
+  "portal retry removes the recovered UKI backup after verification"
+check_eq "$(grep -c '^mkinitcpio -P$' "$LOG" 2>/dev/null || true)" 1 \
+  "portal retry rebuilds once after restoring the interrupted image"
+
+rm -f "$ROOT/boot/EFI/Linux/current.efi"
 : >"$LOG"
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/missing-uki.error"
 check_eq "$?" 1 "portal never accepts a missing UKI as converged"

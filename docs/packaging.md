@@ -35,7 +35,9 @@ and kid on a LUKS root with that legacy drop-in evidence, and chooses portal oth
 the result through the trusted configuration command, reads it back, and restores the captured
 drop-in only for disk mode. This preserves existing disk boots while making unconfigured,
 unencrypted, or incomplete installations fail safe to portal mode as ownership of the active
-drop-in moves from the package to the disk transition.
+drop-in moves from the package to the disk transition. The scriptlet delegates that decision to
+`omarchy-kids-conf machine migrate boot`. It holds the shared boot-mode lock across the mode read,
+any initial mode write and readback, and restoration or removal of the captured drop-in.
 
 ## AUR readiness (issue #32, R-BUILD-2)
 

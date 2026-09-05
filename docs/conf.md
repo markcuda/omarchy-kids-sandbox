@@ -155,6 +155,11 @@ a naming question — that needs a human to resolve the slot mapping by hand.
 | `boot` | `disk` `portal` | *(migration or explicit choice)* | The machine startup path. Read and validated only by `omarchy-kids-conf machine get boot` through `lib/boot-mode.sh` from the fixed `/etc/omarchy-kids/machine.conf` path (R-BOOTMODE-1). |
 | `boot.snapshot_entries` | `hide` `show` | `hide` | `omarchy-kids-assert`'s `limine-snapshots` lock (docs/assert.md, issue #38): while `hide` and any kid exists, `/etc/default/limine`'s `MAX_SNAPSHOT_ENTRIES=0` hides Snapper's boot-menu entries, so a kid with a disk password can't pick a pre-Kids-Mode snapshot from Limine's menu and land on the parent's desktop. `show` restores the value `MAX_SNAPSHOT_ENTRIES` held before we touched it. The parent's own rollback path stays `snapper rollback` from the running system. |
 
+`machine migrate boot` is package-internal. During an upgrade it holds the shared boot-mode lock
+while it selects or reads the mode, reads back any new value, and converges the captured legacy
+mkinitcpio drop-in. `machine set boot` changes only the setting; a full mode transition owns its
+boot artifacts separately.
+
 ## Band defaults
 
 | Band | Level | Web | Budget / lights-out | Weekend lights-out | Wi-Fi | Terminal | Password |

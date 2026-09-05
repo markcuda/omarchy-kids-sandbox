@@ -6,6 +6,7 @@
 
 BOOT_MODE_MACHINE_CONF=/etc/omarchy-kids/machine.conf
 # Every path that reads the mode to act on it, and every path that changes it, must hold this lock.
+# Descendants inherit its open FD, so the critical section lasts until the final descendant exits.
 BOOT_MODE_LOCK=/run/omarchy-kids/boot-mode.lock
 BOOT_MODE_LOCK_FD=9
 

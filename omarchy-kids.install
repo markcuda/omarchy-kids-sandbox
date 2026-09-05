@@ -20,40 +20,9 @@ _omarchy_kids_daemon_reload() {
   fi
 }
 
-_omarchy_kids_machine_conf="/etc/omarchy-kids/machine.conf"
-_omarchy_kids_kids_dir="/etc/omarchy-kids/kids"
 _omarchy_kids_legacy_dropin="/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 _omarchy_kids_migration_copy="/run/omarchy-kids/legacy-boot.conf"
 _omarchy_kids_conf_bin="/usr/bin/omarchy-kids-conf"
-
-_omarchy_kids_legacy_boot_evidence() {
-  [ -f "$_omarchy_kids_migration_copy" ] || return 1
-  [ ! -L "$_omarchy_kids_migration_copy" ] || return 1
-  grep -qF 'omarchy-kids-unlock' "$_omarchy_kids_migration_copy"
-}
-
-_omarchy_kids_has_parent() {
-  awk -F= '$1 == "parent" && $2 != "" { found=1 } END { exit !found }' \
-    "$_omarchy_kids_machine_conf" 2>/dev/null
-}
-
-_omarchy_kids_has_kid() {
-  find "$_omarchy_kids_kids_dir" -maxdepth 1 -type f -name '*.conf' -print -quit 2>/dev/null | grep -q .
-}
-
-_omarchy_kids_root_is_luks() {
-  _omarchy_kids_root_source="$(findmnt -no SOURCE / 2>/dev/null)" || return 1
-  case "$_omarchy_kids_root_source" in
-    /dev/mapper/*)
-      command -v cryptsetup >/dev/null 2>&1 || return 1
-      cryptsetup status "${_omarchy_kids_root_source#/dev/mapper/}" >/dev/null 2>&1
-      ;;
-    *)
-      command -v lsblk >/dev/null 2>&1 || return 1
-      lsblk -sno FSTYPE "$_omarchy_kids_root_source" 2>/dev/null | grep -qx crypto_LUKS
-      ;;
-  esac
-}
 
 _omarchy_kids_capture_legacy_boot() {
   rm -f "$_omarchy_kids_migration_copy"
@@ -64,43 +33,9 @@ _omarchy_kids_capture_legacy_boot() {
   fi
 }
 
-_omarchy_kids_restore_legacy_boot() {
-  _omarchy_kids_legacy_dir="$(dirname "$_omarchy_kids_legacy_dropin")"
-  install -d -m 0755 "$_omarchy_kids_legacy_dir" || return 1
-  install -m 0644 "$_omarchy_kids_migration_copy" "$_omarchy_kids_legacy_dropin" || return 1
-  rm -f "$_omarchy_kids_migration_copy"
-}
-
 _omarchy_kids_migrate_boot_mode() {
-  # The installed reader is the only validator; migration never parses boot keys itself.
-  if _omarchy_kids_mode="$("$_omarchy_kids_conf_bin" machine get boot 2>/dev/null)"; then
-    case "$_omarchy_kids_mode" in
-      disk)
-        if _omarchy_kids_legacy_boot_evidence; then
-          _omarchy_kids_restore_legacy_boot || return 1
-        else
-          rm -f "$_omarchy_kids_migration_copy"
-        fi
-        ;;
-      portal) rm -f "$_omarchy_kids_migration_copy" ;;
-      *) return 1 ;;
-    esac
-    return 0
-  fi
-
-  mode=portal
-  if _omarchy_kids_has_parent && _omarchy_kids_has_kid && _omarchy_kids_root_is_luks &&
-    _omarchy_kids_legacy_boot_evidence; then
-    mode=disk
-  fi
-  "$_omarchy_kids_conf_bin" machine set boot "$mode" >/dev/null || return 1
-  _omarchy_kids_mode="$("$_omarchy_kids_conf_bin" machine get boot 2>/dev/null)" || return 1
-  [ "$_omarchy_kids_mode" = "$mode" ] || return 1
-  if [ "$mode" = disk ] && _omarchy_kids_legacy_boot_evidence; then
-    _omarchy_kids_restore_legacy_boot || return 1
-  else
-    rm -f "$_omarchy_kids_migration_copy"
-  fi
+  # The installed command owns validation and the complete locked migration.
+  "$_omarchy_kids_conf_bin" machine migrate boot >/dev/null
 }
 
 pre_upgrade() {

@@ -31,6 +31,12 @@ its first authoritative mode read or boot-artifact mutation and hold it through 
 final mode write, and readback. It must call the already-locked setter logic directly instead of
 starting a second `omarchy-kids-conf` process. A root process that edits `machine.conf` directly
 outside the supported command can bypass this contract, just as root can bypass the other locks.
+The package upgrade migrator also holds this lock through its mode read, any write and readback,
+and legacy drop-in restoration or removal.
+
+The lock FD remains open in child processes. If a boot repair leaves a descendant running after
+its direct command exits, that descendant keeps the critical section until it exits. This is
+intentional: another mode transition must not overlap work started by the protected repair.
 
 ## When it runs
 
@@ -41,6 +47,12 @@ outside the supported command can bypass this contract, just as root can bypass 
 | Omarchy's own post-update hook | `omarchy hook install post-update omarchy-kids-assert` (a line to add to that hook's config, not something this repo runs — see "Omarchy's post-update hook" below) | `--quiet` |
 | A parent, from the panel or a terminal | Directly | none, or `--dry-run` to preview |
 | `omarchy-kids-session`'s R-DESK-2 preflight | Does **not** call this command — it checks the same facts read-only, at login, and fails closed (full-screen "Ask a grown-up") rather than trying to fix anything mid-login | — |
+
+The five-second limit applies only while assert waits to enter the boot section. The pacman hook's
+total runtime is unbounded: non-boot repairs and disk-mode tools such as `mkinitcpio` have no
+timeout. This is deliberate because stopping a lock repair or initramfs rebuild midway can leave
+the transaction with stale enforcement or an incomplete boot artifact. Pacman therefore waits
+for those commands to finish or fail.
 
 ### Omarchy's post-update hook
 

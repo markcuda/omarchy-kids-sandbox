@@ -458,8 +458,10 @@ boot_transition_add_slots() {
 boot_transition_write_disk_map() {
   local entries=("${BOOT_TRANSITION_MAP_ENTRIES[@]+"${BOOT_TRANSITION_MAP_ENTRIES[@]}"}") desired
   entries+=("${BOOT_TRANSITION_MISSING_SLOTS[@]+"${BOOT_TRANSITION_MISSING_SLOTS[@]}"}")
-  desired="$(printf '0=%s\n' "$BOOT_TRANSITION_PARENT"
-    ((${#entries[@]})) && printf '%s\n' "${entries[@]}")"
+  desired="$(
+    printf '0=%s\n' "$BOOT_TRANSITION_PARENT"
+    ((${#entries[@]})) && printf '%s\n' "${entries[@]}"
+  )"
   if [[ -f "$BOOT_TRANSITION_SLOTS_FILE" && ! -L "$BOOT_TRANSITION_SLOTS_FILE" ]] &&
     [[ "$(cat "$BOOT_TRANSITION_SLOTS_FILE")" == "$desired" ]]; then
     return 0

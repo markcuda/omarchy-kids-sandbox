@@ -165,7 +165,9 @@ slots and active hook, then rebuilds once when leaving disk mode. Before that re
 and copies the current UKI. A missing or unreadable image stops the transition without mutation;
 a failed or unverifiable rebuild restores the saved image. `disk` validates the LUKS root
 and secrets, adds missing kid slots, installs the package template, rebuilds and verifies the UKI,
-then writes `boot=disk` last. Before adding a slot it atomically writes one root-only recovery
+then writes `boot=disk` last. Limine snapshot suppression has a separate completion marker written
+only after `limine-snapper-sync` succeeds; a retry synchronizes again while that marker is absent.
+Before adding a slot it atomically writes one root-only recovery
 record containing the prior map and the planned additions. Portal authority rolls those additions
 back; disk authority verifies the committed slots and map before removing the same record.
 

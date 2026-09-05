@@ -195,6 +195,13 @@ EOF
 cat >"$TOOLS/limine-snapper-sync" <<EOF
 #!/bin/bash
 printf 'limine-snapper-sync\n' >>"$LOG"
+if grep -qxF '# omarchy-kids: snapshot sync complete' "$ROOT/etc/default/limine"; then
+  printf 'sync-saw-complete-marker\n' >>"$LOG"
+fi
+if [[ -e "$TMP/fail-limine-sync-once" ]]; then
+  rm -f "$TMP/fail-limine-sync-once"
+  exit 1
+fi
 exit 0
 EOF
 chmod +x "$TOOLS"/*
@@ -368,13 +375,34 @@ check_eq "$(head -1 "$ROOT/boot/limine.conf")" 'editor_enabled: no' \
 check_eq "$(grep -c '^# omarchy-kids: was editor_enabled=yes$' "$ROOT/boot/limine.conf")" 1 \
   "portal to disk records the Limine editor value it owns"
 check_eq "$(cat "$ROOT/etc/default/limine")" \
-  $'# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=10\nMAX_SNAPSHOT_ENTRIES=0' \
+  $'# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=10\nMAX_SNAPSHOT_ENTRIES=0\n# omarchy-kids: snapshot sync complete' \
   "portal to disk records and hides Limine snapshot entries"
+check_eq "$(grep -c '^sync-saw-complete-marker$' "$LOG" 2>/dev/null || true)" 0 \
+  "Limine synchronization runs before its completion marker is present"
 if grep -qE 'parentpass|adapass|cypass' "$TMP/disk.out" "$TMP/disk.error" "$LOG"; then
   bad "portal to disk exposed a secret in output or argv"
 else
   pass "portal to disk exposes no secret in output or argv"
 fi
+
+# A cut or failure after writing MAX_SNAPSHOT_ENTRIES=0 cannot look complete.
+printf '# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=10\nMAX_SNAPSHOT_ENTRIES=0\n' \
+  >"$ROOT/etc/default/limine"
+: >"$TMP/fail-limine-sync-once"
+: >"$LOG"
+PATH="$PATH_VALUE" "$CONF" machine set boot disk </dev/null \
+  >/dev/null 2>"$TMP/limine-sync-failure.error"
+check_eq "$?" 1 "disk reports an interrupted Limine synchronization"
+check_eq "$(grep -c '^# omarchy-kids: snapshot sync complete$' "$ROOT/etc/default/limine" 2>/dev/null || true)" 0 \
+  "a failed Limine synchronization leaves no completion marker"
+: >"$LOG"
+PATH="$PATH_VALUE" "$CONF" machine set boot disk </dev/null \
+  >/dev/null 2>"$TMP/limine-sync-retry.error"
+check_eq "$?" 0 "disk retries an incomplete Limine synchronization"
+check_eq "$(grep -c '^limine-snapper-sync$' "$LOG" 2>/dev/null || true)" 1 \
+  "the retry synchronizes Limine instead of trusting the ownership marker"
+check_eq "$(grep -c '^# omarchy-kids: snapshot sync complete$' "$ROOT/etc/default/limine")" 1 \
+  "the retry writes completion only after synchronization succeeds"
 
 : >"$LOG"
 PATH="$PATH_VALUE" "$CONF" machine set boot disk </dev/null \
@@ -589,7 +617,7 @@ printf 'parentpass\n' |
     >/dev/null 2>"$TMP/absent-marker-disk.error"
 check_eq "$?" 0 "disk convergence records an absent Limine snapshot setting"
 check_eq "$(cat "$ROOT/etc/default/limine")" \
-  $'KEEP=yes\n# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=\nMAX_SNAPSHOT_ENTRIES=0' \
+  $'KEEP=yes\n# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=\nMAX_SNAPSHOT_ENTRIES=0\n# omarchy-kids: snapshot sync complete' \
   "disk records that the Limine snapshot setting was absent"
 PATH="$PATH_VALUE" "$CONF" machine set boot portal >/dev/null 2>"$TMP/absent-marker-portal.error"
 check_eq "$?" 0 "portal convergence restores an absent Limine snapshot setting"

@@ -17,6 +17,7 @@ BOOT_TRANSITION_LIMINE_CONF=/boot/limine.conf
 BOOT_TRANSITION_LIMINE_DEFAULT=/etc/default/limine
 BOOT_TRANSITION_LIMINE_SYNC=/usr/bin/limine-snapper-sync
 BOOT_TRANSITION_LIMINE_MARKER='# omarchy-kids: was MAX_SNAPSHOT_ENTRIES='
+BOOT_TRANSITION_LIMINE_SYNCED_MARKER='# omarchy-kids: snapshot sync complete'
 BOOT_TRANSITION_LIMINE_EDITOR_MARKER='# omarchy-kids: was editor_enabled='
 BOOT_TRANSITION_MKINITCPIO_CONF=/etc/mkinitcpio.conf
 BOOT_TRANSITION_MKINITCPIO_CONF_DIR=/etc/mkinitcpio.conf.d
@@ -504,8 +505,13 @@ boot_transition_limine_editor() {
 
 boot_transition_limine_snapshots() {
   local file="$BOOT_TRANSITION_LIMINE_DEFAULT" old marker tmp mode owner group
+  local marker_count synced_count
   [[ -e "$file" || -L "$file" ]] || return 0
   boot_transition_config_safe "$file" file || return 1
+  marker_count="$(grep -cF "$BOOT_TRANSITION_LIMINE_MARKER" "$file" 2>/dev/null || true)"
+  synced_count="$(grep -cxF "$BOOT_TRANSITION_LIMINE_SYNCED_MARKER" "$file" 2>/dev/null || true)"
+  [[ "$marker_count" =~ ^[01]$ && "$synced_count" =~ ^[01]$ ]] || return 1
+  ((synced_count == 0 || marker_count == 1)) || return 1
   marker="$(grep -F "$BOOT_TRANSITION_LIMINE_MARKER" "$file" 2>/dev/null | tail -n1 || true)"
   if [[ -n "$marker" ]]; then
     old="${marker#"$BOOT_TRANSITION_LIMINE_MARKER"}"
@@ -515,13 +521,17 @@ boot_transition_limine_snapshots() {
     old="${old#MAX_SNAPSHOT_ENTRIES=}"
     [[ -z "$old" || "$old" =~ ^[0-9]+$ ]] || return 1
   fi
-  [[ -n "$marker" ]] && grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$file" && return 0
+  if [[ -n "$marker" ]] && grep -qxF 'MAX_SNAPSHOT_ENTRIES=0' "$file" &&
+    ((synced_count == 1)); then
+    return 0
+  fi
   mode="$(file_stat a "$file")"
   owner="$(file_stat u "$file")"
   group="$(file_stat G "$file")"
   tmp="$(mktemp "$(dirname "$file")/.limine.default.XXXXXX")" || return 1
   {
-    grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${BOOT_TRANSITION_LIMINE_MARKER}" "$file" || true
+    grep -vF "$BOOT_TRANSITION_LIMINE_SYNCED_MARKER" "$file" |
+      grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${BOOT_TRANSITION_LIMINE_MARKER}" || true
     printf '%s%s\n' "$BOOT_TRANSITION_LIMINE_MARKER" "$old"
     printf 'MAX_SNAPSHOT_ENTRIES=0\n'
   } >"$tmp" || {
@@ -532,7 +542,22 @@ boot_transition_limine_snapshots() {
     rm -f "$tmp"
     return 1
   fi
-  [[ ! -x "$BOOT_TRANSITION_LIMINE_SYNC" ]] || "$BOOT_TRANSITION_LIMINE_SYNC"
+  boot_transition_fsync "$file" || return 1
+  [[ ! -x "$BOOT_TRANSITION_LIMINE_SYNC" ]] || "$BOOT_TRANSITION_LIMINE_SYNC" || return 1
+
+  tmp="$(mktemp "$(dirname "$file")/.limine.default.XXXXXX")" || return 1
+  {
+    grep -vxF "$BOOT_TRANSITION_LIMINE_SYNCED_MARKER" "$file" || true
+    printf '%s\n' "$BOOT_TRANSITION_LIMINE_SYNCED_MARKER"
+  } >"$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  if ! chmod "$mode" "$tmp" || ! chown "$owner:$group" "$tmp" || ! mv -f "$tmp" "$file"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  boot_transition_fsync "$file"
 }
 
 boot_transition_disk_abort() {
@@ -681,7 +706,8 @@ boot_transition_restore_limine() {
   [[ -n "$mode" && "$owner" == 0 && "$group" == root ]] || return 1
   tmp="$(mktemp "$(dirname "$file")/.limine.default.XXXXXX")" || return 1
   {
-    grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${BOOT_TRANSITION_LIMINE_MARKER}" "$file" || true
+    grep -vF "$BOOT_TRANSITION_LIMINE_SYNCED_MARKER" "$file" |
+      grep -vE "^MAX_SNAPSHOT_ENTRIES=|^${BOOT_TRANSITION_LIMINE_MARKER}" || true
     [[ -z "$old" ]] || printf 'MAX_SNAPSHOT_ENTRIES=%s\n' "$old"
   } >"$tmp" || {
     rm -f "$tmp"

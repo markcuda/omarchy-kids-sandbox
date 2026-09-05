@@ -67,8 +67,9 @@ With no theme arguments it captures every surface under `tokyo-night` and
 copy cannot replace a good image. A failed surface prints `FAILED`, the driver tries the next
 surface, and the run exits 1 after the pass.
 
-Run one VM driver at a time. Never start this beside a numbered scenario or `test/live/all`.
-Drafting agents do not run it. The driver boots the owner, records both current themes, sets the
+Every VM driver takes `/tmp/omarchy-kids-vm-driver.lock` through `flock`. A second driver refuses
+to start and names the PID and command holding the lock. Drafting agents do not run the media
+driver. It boots the owner, records both current themes, sets the
 owner through `omarchy-theme-set` with `OMARCHY_PATH=/usr/share/omarchy`, sets the test kid through
 the governed `omarchy-kids-conf` theme writer, runs `omarchy-kids-assert`, and restarts SDDM before
 the portal shot. Its EXIT trap restores both themes and refreshes SDDM again.

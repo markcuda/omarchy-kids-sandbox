@@ -6,6 +6,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [[ "${OMARCHY_KIDS_VM_DRIVER_LOCKED:-0}" != 1 ]]; then
+  exec "$SCRIPT_DIR/vm-driver-lock" "$0" "$@"
+fi
 MEDIA_DIR="$REPO_ROOT/docs/media"
 SURFACES=(portal launcher exit-modal ask times-up wifi-picker plugins-shelf wizard panel bar-module)
 THEMES=()
@@ -36,9 +39,10 @@ docs/media/<surface>-<theme>.png.
                   bar-module.
   -h, --help      Show this help.
 
-Run this alone. It boots and drives the shared VM, changes the owner and test
-kid themes for the run, restarts SDDM, then restores both themes. The bar
-widget must already be enabled; this script never changes the parent's bar.
+The shared VM lock refuses a second driver and names the active run. This
+driver changes the owner and test-kid themes, restarts SDDM, then restores
+both themes. The bar widget must already be enabled; this script never changes
+the parent's bar.
 EOF
 }
 

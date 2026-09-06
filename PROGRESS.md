@@ -31,6 +31,14 @@ not the images alone. No real Wi-Fi join or real credential was used. The previe
 PID `1223702` was absent, and Tokyo Night was restored. The eleven earlier #143 frames remain
 masking/navigation evidence, distinct from this delivery preflight.
 
+#148 source `8294246` passed watched Air fixture preflight in the same process, PID `1230897`.
+Network-specific "Joined" feedback remained visible after refresh for protected and open
+fixtures in both themes. Failed scans replaced success with an error in both themes; manual
+retry cleared the message in Catppuccin Latte. The seven [inspected frames](docs/media/dogfood/media-gallery.md#148-air-joined-feedback-preflight)
+show client feedback from an owned backend, with no real Wi-Fi join. The preview closed, its
+process was absent, and Tokyo Night was restored. This candidate is separate from media
+`bcf8b42`; its ordered full gates and installed-live acceptance remain pending.
+
 #137 code at `37aaddb` is HOLD on four review findings, with corrections in progress and no
 full gate yet. The tested screen-time enforcement correction is merged through PR #146 at `f362102`; merged-main checks are running.
 #98/#109 remains a human ship decision. The [media gallery](docs/media/dogfood/media-gallery.md)

@@ -1,6 +1,18 @@
 # Loop report, night of 2026-09-02
 
-## Latest checkpoint, September 6: Wi-Fi delivery preflight passes
+## Latest checkpoint, September 6: Wi-Fi joined feedback preflight passes
+
+Exact #148 source `8294246` ran in watched Air process `1230897` with an owned fixture backend.
+Protected and open results kept their network-specific "Joined" message after the list refreshed
+in both themes. A failed scan replaced success with an error in both themes. Manual retry
+cleared the message in Catppuccin Latte. The seven [inspected frames](media/dogfood/media-gallery.md#148-air-joined-feedback-preflight)
+record this client feedback; no real network join or real credential was used. The preview
+closed, its process was absent, and Tokyo Night was restored.
+
+#148 remains separate from media candidate `bcf8b42`. Its ordered full gates and named
+installed-live acceptance have not run. Earlier checkpoints below retain their original scope.
+
+## Earlier checkpoint, September 6: Wi-Fi delivery preflight passes
 
 Exact #145 source `451ffa7` ran in a watched Air Quickshell process (`1223702`) with an owned
 fixture backend. The first protected attempt delivered the expected harmless password line

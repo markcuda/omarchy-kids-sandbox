@@ -1,5 +1,32 @@
 # Loop report, night of 2026-09-02
 
+## Latest checkpoint, September 6: Wi-Fi delivery blocks integration
+
+#136 remains merged and fully post-gated at `f28a461`; its settled empty-scan receipts do not
+claim a Wi-Fi join. #138/#139's final recovery integration `6592b15` is independently approved
+and backed up, with its full gate pending. Candidate `e343d22` combines that recovery, current
+main, reviewed #140 bar reload, and reviewed #143 Wi-Fi guidance. Its strict settled-state
+media assertions pass focused tests. Integration review and gating are now HOLD on
+[#145](https://github.com/markcuda/omarchy-kids-sandbox/issues/145).
+
+A watched Air Quickshell 0.3.1 run from exact #143 source `eaa8cd1`, with only three client paths
+redirected to an owned fixture backend, displayed harmless typed text as password bullets.
+After Enter, the backend recorded a join invocation but its three-second stdin read reported
+`password-input missing`. The [inspected image](media/dogfood/wifi-password-delivery-tokyo-night-air.png)
+shows the masked field and “Couldn't join.” This is a fixture delivery failure, with no real
+network action or real credential. The QML writes only when stdinEnabled changes while the
+process is already running, but beginJoin enables stdin before starting it; #145 tracks the
+separate correction and required real-process stdin/EOF proof.
+
+The eleven earlier #143 frames still prove their observed masking, navigation, pointer and
+keyboard retry, and busy behavior; they do not prove password delivery. The later preview
+closed, `/proc/1221202` was absent, and Tokyo Night was restored. Named installed Wi-Fi and
+same-process bar status-update proofs remain pending, as do the combined full gates.
+
+#137 code at `5ddb269` is held for a pre-04:00 edge case; its author is correcting it and no
+full gate has run. #98/#109 still requires a human ship decision. The sections below retain
+historical results and the queue state at each earlier checkpoint.
+
 Written for Mark at the end of the autonomous loop. Everything below happened on the test
 laptop's QEMU VM (`docs/vm.md`), never on the laptop's own account, and nothing left the two
 machines except pushes to this repo and issue comments.

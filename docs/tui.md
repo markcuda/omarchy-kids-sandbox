@@ -31,84 +31,51 @@ tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
 `SHOW_OMY` is `1` on Welcome and Done, `0` everywhere else — pass an empty `OMY_LINE` when it's
 `0`, since it's never shown.
 
-## Two ways to render a screen: plain and card (issue #50)
+## Two ways to render a screen: plain and native interactive
 
-`tui_header` (and every `tui_screen_*` function, which all call it) lays those pieces out one of
-two ways, decided once per call by `_tui_card_mode`:
+Every `tui_screen_*` function chooses one of two render paths:
 
 - **plain** — the original, non-clearing render: one bordered `gum style` box holding "Kids Mode",
   the step counter, and the title; nothing is cleared; every screen just prints after the last one.
   This is what every test in `test/shell.d/tui-test.sh` parses, and it's what runs whenever
   `OMARCHY_KIDS_TUI_ANSWERS` is set (an answers file is driving the screen — there's no terminal to
   clear) or `OMARCHY_KIDS_TUI_PLAIN=1` is set explicitly.
-- **card** — a real terminal, neither of those set: clears the screen at every step (`_tui_clear`,
-  the same external `clear` `omarchy-provision-owner`'s `clear_logo` calls at v4.0.2) and draws one
-  closed, centered, width-bounded card holding *everything* — the step line, the title, Omy, and any
-  body text — with the screen's own chooser/input/confirm rendered below it, at the same left
-  indent. Issue #50's fix, in three live-screenshot passes: the first showed the wizard never
-  clearing (Welcome, the password screen, and the name screen all stacking down the terminal) and
-  printing every `tui_screen_choose` list twice (once by hand, once by `gum choose` itself); the
-  second showed the card holding *only* the title, with the step line, Omy, and the body sitting
-  above it outside the card; the third — after a hand-drawn, per-row-colored border replaced the
-  single `gum style --border rounded` call to get everything into one card — showed *that* border
-  broken in real use, right edges landing in different columns row to row and the box never visibly
-  closing. This is that single `gum style --border rounded` call again, now over the *whole* text
-  block (step line through body) rather than just the title, which is what actually renders a
-  reliable, always-closed box.
+- **native interactive** — a real terminal, neither of those set: clears once before each Gum
+  widget and gives Gum the semantic step line, title, Omy copy, body, validation error, and footer
+  as its native header or prompt. Gum owns the complete waiting screen, so its renderer can clear
+  and redraw that copy when the terminal sends a resize event. The interactive path uses fixed
+  widget padding rather than a margin calculated from the old terminal width.
 
 Nothing about the *data* a screen passes changes between the two — a caller never knows or cares
-which one is rendering. Only `lib/tui.sh` itself branches on `_tui_card_mode`.
+which one is rendering. Only `lib/tui.sh` branches on the render path.
 
-### A screen's facts belong in the card
+### A screen's facts belong in the render data
 
-Card mode clears the terminal at every step, so anything a caller prints *before* a screen is
-wiped before it can be read. That is what review §3.1 found in the parent panel: every panel
-screen echoed its facts — the kid's band and minutes, the allow list, the whole Data screen —
-and then drew a menu over them, so on a real terminal the parent saw a menu and no facts (file
-mode, which never clears, is what the tests and the live SSH run had used).
+Cleared render paths own the screen copy, so anything a caller prints *before* a screen is not part
+of the rendered result. That is what review §3.1 found in the parent panel: every panel screen
+echoed its facts and then drew a menu over them, so on a real terminal the parent saw a menu and no
+facts.
 
 So a caller never echoes: `tui_screen_choose` takes an optional `BODY_ARRAYNAME` (its ninth
-argument) exactly like `tui_screen_confirm`'s sixth, and the lines render under the title —
-inside the card in card mode, right under the header box in plain mode, in both cases in the
-theme's own colours, before the choices.
+argument) exactly like `tui_screen_confirm`'s sixth, and the lines render under the title in native
+interactive mode or right under the header in plain mode.
 
-### The card, roughly
+### The native interactive screen, roughly
 
 ```text
-    ╭──────────────────────────────────────────╮
-    │  Kids Mode · Step 3 of 15                 │
-    │  What can Ada see on the web?              │
-    │                                             │
-    ╰──────────────────────────────────────────╯
-      1) Only sites you choose — A short list you can grow.
+    Kids Mode · Step 3 of 15
+    What can Ada see on the web?
+
+    1) Only sites you choose — A short list you can grow.
     > 2) Filtered open web — Adult content blocked, safe search on.
 
     Enter continue · Esc back · Ctrl+C leave (nothing changes)
 ```
 
-One `_tui_style --border rounded --padding "1 2"` call over every line — the step line, the title,
-Omy's glyph and voice line (Welcome/Done only), then any body text — so the box always closes
-itself; there's no separate top/bottom-rule step to get out of sync with the content. The tradeoff:
-`gum style` applies one color to its whole box, and confirmed directly (not assumed) — gum strips
-any ANSI a caller pre-bakes into a line before handing it a second `gum style` call — so a card
-can't actually mix a muted step line with a bold title and an accent Omy line the way an earlier
-pass tried; this picks one readable foreground for the whole card instead (the theme's error color
-instead, border included, when `tui_screen_input`'s validator just failed).
-
-gum has no widget that draws *inside* another one, so the chooser/input/confirm a screen shows next
-isn't literally nested in the card — it renders directly below, with no header/prompt text of its
-own (nothing to repeat — the title's already in the card), no keybind help line of its own either
-(`_tui_measure`'s `GUM_CHOOSE_SHOW_HELP`/`GUM_INPUT_SHOW_HELP`/`GUM_CONFIRM_SHOW_HELP=false` — the
-screen prints its own help line in the readable foreground color before the blocking widget waits, using the same
-wording it always did), and the
-same left indent as the card's own text (`GUM_CHOOSE_PADDING`/`GUM_INPUT_PADDING`/
-`GUM_CONFIRM_PADDING`, the same measure-then-pad-every-widget trick `omarchy-provision-owner`'s
-`measure_terminal` uses at v4.0.2).
-
-Width is `min(72, terminal width − 4)`, centered — never wider than 72 columns even on a very wide
-terminal, and never touching the edges on a narrow one. `_tui_measure` tries `stty size` first (a
-real ioctl on the controlling tty, immune to a stale exported `$COLUMNS`), falling back to
-`tput cols`.
+The native header/prompt uses the readable foreground role; validation errors use the error role.
+Gum's own widget help remains disabled because the footer carries the wizard's complete keyboard
+guidance. No width or border is pre-rendered by the shell, so resize redraws do not retain stale
+card geometry.
 
 ## Colors
 
@@ -174,8 +141,8 @@ means don't proceed — so `$TUI_REPLY` is `"no"` and the exit code is `1` for b
 Every prompt has a non-interactive path, for tests and the acceptance harness:
 
 - **A real terminal** (`stdin` is a tty, `OMARCHY_KIDS_TUI_ANSWERS` unset): gum asks, a human
-  answers, and — unless `OMARCHY_KIDS_TUI_PLAIN=1` is also set — every screen renders as the card
-  described above.
+  answers, and — unless `OMARCHY_KIDS_TUI_PLAIN=1` is also set — every screen uses the native
+  interactive Gum header/prompt path described above.
 - **`OMARCHY_KIDS_TUI_ANSWERS=<file>`**: `tui_init` reads the file into memory once; each prompt
   after that consumes the next line. Two reserved lines stand in for keys a file can't press:
   - `@esc` — same as pressing Esc.
@@ -190,8 +157,8 @@ Every prompt has a non-interactive path, for tests and the acceptance harness:
   closed — returns `2` with a message on stderr — rather than hanging or guessing.
 
 `OMARCHY_KIDS_TUI_PLAIN=1` forces the plain render even on a real terminal — useful for capturing a
-screen's output as plain text (a bug report, a doc example) without a card's clearing and centering
-getting in the way. It has no effect on how a prompt is *answered* (that's `OMARCHY_KIDS_TUI_ANSWERS`
+screen's output as plain text without the interactive widget's clearing getting in the way. It has
+no effect on how a prompt is *answered* (that's `OMARCHY_KIDS_TUI_ANSWERS`
 alone); it only changes how a screen is drawn.
 
 A `tui_screen_choose` answer may be the choice's `value`, its `label`, the exact rendered line
@@ -237,6 +204,5 @@ See `scripts/omarchy-kids-tui-demo` for a full three-screen walk (Welcome, a cho
 
 ## Verified live (2026-09-03, QEMU test VM, foot)
 
-Each step draws one closed rounded card (step line, title, Omy's line where the screen has
-one, body) centred at up to 72 columns, with the chooser or input indented beneath it and no
-duplicate header or default help line; the colours followed tokyo-night and catppuccin-latte.
+Each step uses Gum's native header/prompt rendering for the step line, title, Omy's line where the
+screen has one, body, and keyboard guidance; the colours followed tokyo-night and catppuccin-latte.

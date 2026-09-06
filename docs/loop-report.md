@@ -538,3 +538,19 @@ Tokyo Night and Catppuccin Latte. The dry-run path was Welcome → password → 
 Ctrl+C/Yes leave. No provisioning or credentials were used; original themes were restored,
 and the driver confirmed every preview process had exited. VM owner notifications obscure
 none of the tested controls. These receipts prove this UI change, not full product acceptance.
+
+## #112 Air portal test-mode receipts, 2026-09-06
+
+The exact #112 source at `99a4ba5` was inspected through the installed SDDM
+Wayland test-mode path on Air, using an owned preview directory and generated
+`theme.conf.user`. The Tokyo Night and Catppuccin Latte receipts are
+`portal-preview-tokyo-night-air.png`, `portal-password-tokyo-night-air.png`,
+`portal-preview-catppuccin-latte-air.png`,
+`portal-password-catppuccin-latte-air.png`, and
+`portal-back-catppuccin-latte-air.png` under `docs/media/dogfood/`. They show the
+owner tile only, the empty password field opening with Enter, and Escape
+returning to the tile; no password or authentication was attempted, and Tokyo
+Night was restored after the preview exited. The #112 parent label is readable
+in both themes. The missing password label and submit/back guidance are tracked
+in the newly filed #128. These receipts document the Air preview path, not an
+actual SDDM login or VM gate.

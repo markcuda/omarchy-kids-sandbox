@@ -624,7 +624,8 @@ capture on both themes because stock owner autologin returned the desktop (#133)
 fixture values were restored and config was removed. Manual `portal_reset` recovery `31132`
 passed and captured the real light portal as tile-only evidence, with no Cy login. The VM is
 clean at the original Catppuccin Latte theme and Air is restored to Tokyo Night. The #133 reset
-fix is under review; its ordered gate and another automated capture run remain pending.
+fix is reviewed; the separate helper correction in #134, ordered gate, and another automated
+capture run remain pending.
 
 ## Manual dark portal receipt, 2026-09-06
 
@@ -639,6 +640,7 @@ state.
 `portal-restore-owner-vm.png` records the owner session left by manual dark run `84451`: the
 owner desktop/screensaver and notifications are visible instead of the portal. Diagnostic run
 `70637` reproduced a failed helper dispatch after selecting a prior compositor state; later
-read-only inventory found a different live state. The existing helper currently ignores that
-dispatch failure. Recovery was still running when this receipt was recorded, so no final greeter
-state is claimed.
+read-only inventory found a different live state. The existing helper ignores that dispatch
+failure; #134 tracks the correction. The diagnostic then recovered the greeter after startup and
+verified a successful session query with neither owner nor kid on seat0. Its final nonzero status
+records the reproduced failure, even though recovery succeeded. Temporary config was removed.

@@ -31,8 +31,8 @@ NetworkManager authorization. Merged-main formatting, Mac40, VM40, and scenario0
 A fresh [14-frame postmerge interaction run](media/dogfood/wifi148-main-441ab32/README.md)
 passed root and independent image review, followed by a separate successful restoration
 readback. This repeat covers the confirmation transitions in both themes; the earlier 26-frame
-run retains its broader keyboard/busy coverage. Issues #143 and #145 are also closed against
-their previously completed merged-main evidence.
+run retains its broader keyboard/busy coverage. Issues #138–140, #143, #145 and #150–153 are also closed against
+their previously completed merged-main evidence after independent and driver reconciliation.
 
 That pass exposed [#164](https://github.com/markcuda/omarchy-kids-sandbox/issues/164): an open
 network's failed join asks the child to check a password. The

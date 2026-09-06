@@ -97,32 +97,43 @@ wifid_request() {
 }
 
 # call_wifid HEADER [BODY] — prints payload on OK; else a one-line reason
-# to stderr (3 REFUSED, 1 ERROR/no reply).
+# to stderr (3 REFUSED, 1 ERROR/no reply). Keep the reply in a file while
+# framing it; command substitution would erase an empty payload's delimiter.
 call_wifid() {
-  local reply status
+  local reply_file status
   # "no reply" is a real answer (socat exits non-zero when the socket is
   # gone), so it must not abort this command's own set -e.
-  reply="$(wifid_request "$@")" || reply=""
-  if [[ -z "$reply" ]]; then
+  reply_file="$(mktemp)"
+  if ! wifid_request "$@" >"$reply_file"; then
+    rm -f "$reply_file"
     echo "omarchy-kids-wifi: no reply from omarchy-kids-wifid (is it running? see systemctl status omarchy-kids-wifid.socket)" >&2
     return 1
   fi
-  status="${reply%%$'\n'*}"
+  if [[ ! -s "$reply_file" ]]; then
+    rm -f "$reply_file"
+    echo "omarchy-kids-wifi: no reply from omarchy-kids-wifid (is it running? see systemctl status omarchy-kids-wifid.socket)" >&2
+    return 1
+  fi
+  IFS= read -r status <"$reply_file" || status=""
   case "$status" in
     OK)
-      printf '%s' "${reply#*$'\n'}"
+      sed '1d' "$reply_file"
+      rm -f "$reply_file"
       return 0
       ;;
     REFUSED*)
       echo "omarchy-kids-wifi: ${status#REFUSED }" >&2
+      rm -f "$reply_file"
       return 3
       ;;
     ERROR*)
       echo "omarchy-kids-wifi: ${status#ERROR }" >&2
+      rm -f "$reply_file"
       return 1
       ;;
     *)
       echo "omarchy-kids-wifi: unexpected reply from omarchy-kids-wifid: $status" >&2
+      rm -f "$reply_file"
       return 1
       ;;
   esac

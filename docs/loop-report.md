@@ -582,3 +582,13 @@ closed the previews in both themes. No request or
 password was submitted. The blank password field has no adjacent label and the panel shows no
 visible Tab/Enter/Escape guidance, so a parent or 7yo must infer the interaction from the
 controls; this finding is tracked in #131.
+
+## #131 Ask panel receipts, 2026-09-06
+
+The #131 source `406eadd` was independently source-approved and inspected on Air. The six
+receipts are `ask-131-{here,later,typed}-{tokyo-night,catppuccin-latte}-air.png` under
+`docs/media/dogfood/`. Tab selects Ask later, Shift+Tab returns to A grown-up is here, and four
+harmless letters `abcd` remain masked without submission. Escape closes both previews; the same
+process watcher confirmed the Tokyo Night `e86` preview reloaded to `406eadd`, and Tokyo Night was
+restored. The preview PIDs were absent afterward. The full ordered gate and VM Ask later scenario
+remain pending.

@@ -12,14 +12,16 @@ formatter, Mac suite, VM suite, and live welcome/input/back/cancel on both machi
 The merged-main gate also passed: formatter, both full suites, and the same live navigation
 scenario on both machines. Screenshots are `docs/media/dogfood/main-footer-*.png`.
 
-Reviewed drafts awaiting their ordered gates: #103 at `6961d69` (PR #114, cleanup correction
+Reviewed drafts: #103 at `6961d69` (PR #114, cleanup correction
 on `fix/103-session-cleanup`), #111 at `a78d413` (PR #115, current desktop-launch theme), and
-#112 at `99a4ba5` (PR #116, readable parent portal label). The original `media-driver` remote
+#112 at `99a4ba5` (PR #116, readable parent portal label). #111 and #112 await their ordered gates. The original `media-driver` remote
 branch is unchanged; PR #114 carries the rebased driver plus its reviewed correction. Real
 dogfood screenshots now exist in `docs/media/dogfood/`; the complete media-driver output is
 still pending. Its first full gate exposed a unit-fixture lock flag inherited from the outer
-gate. That isolation defect is corrected and independently reviewed; the ordered gate is
-running again. Runtime package inputs still match `cd93325`.
+gate. That isolation defect is corrected and independently reviewed. The retry passed VM
+formatting, all 36 Mac test files (five platform skips), and all 36 VM test files (two skips).
+Installation and capture remain held for a separate private harness hardening change under
+review. Runtime package inputs still match `cd93325`.
 
 New screenshot-backed issues: #117 empty More apps instructions, #118 unclear password owner
 on the exit card, #119 faint wizard keyboard help, and #120 resize corruption. The missing

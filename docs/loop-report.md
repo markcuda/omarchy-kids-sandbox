@@ -505,8 +505,10 @@ preview to inspect the new palette. Source watching and palette loading are sepa
 The first #103 full gate passed formatting but failed the media unit fixture's four lock
 assertions. The outer gate's inherited lock flag caused fixtures to skip their own temporary
 lock. Commit `6961d69` clears that inherited flag at unit-test entry; clean and inherited
-environment cases pass, and independent review approved the correction. The ordered gate is
-running again. No package was installed after the failure.
+environment cases pass, and independent review approved the correction. The retry passed VM
+formatting, all 36 Mac test files (five platform skips), and all 36 VM test files (two skips).
+No package was installed; capture is held for a separate private harness hardening change
+under review.
 
 Twenty-three abandoned Mac test stubs from earlier checkouts were independently identified by
 PID, parent PID, user, working directory, and a deleted sleep-stub file descriptor. Only those

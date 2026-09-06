@@ -1,0 +1,44 @@
+operation=list state=empty result=success pid=491274
+operation=list state=empty result=success pid=500621
+operation=list state=held result=started pid=502454
+operation=list state=held result=timeout pid=502454
+operation=list state=held result=started pid=503242
+operation=list state=held result=success pid=503242
+operation=list state=empty result=success pid=505179
+operation=list state=held result=started pid=507358
+operation=list state=held result=success pid=507358
+operation=list state=error result=failure pid=509452
+operation=list state=networks result=success pid=510401
+operation=join ssid=HomeNet mode=password result=started pid=513911
+operation=join ssid=HomeNet mode=password password_line=expected pid=513911
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=513911
+operation=join ssid=HomeNet result=failure pid=513911
+operation=join ssid=HomeNet mode=password result=started pid=515228
+operation=join ssid=HomeNet mode=password password_line=expected pid=515228
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=515228
+operation=join ssid=HomeNet result=held pid=515228
+operation=join ssid=HomeNet result=success pid=515228
+operation=list state=networks result=success pid=516322
+operation=join ssid=OpenNet mode=open stdin_bytes=0 pid=518543
+operation=join ssid=OpenNet result=success pid=518543
+operation=list state=networks result=success pid=518799
+operation=list state=empty result=success pid=529516
+operation=list state=held result=started pid=530957
+operation=list state=held result=success pid=530957
+operation=list state=empty result=success pid=532697
+operation=list state=error result=failure pid=533611
+operation=list state=networks result=success pid=534548
+operation=join ssid=HomeNet mode=password result=started pid=538403
+operation=join ssid=HomeNet mode=password password_line=expected pid=538403
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=538403
+operation=join ssid=HomeNet result=failure pid=538403
+operation=join ssid=HomeNet mode=password result=started pid=539355
+operation=join ssid=HomeNet mode=password password_line=expected pid=539355
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=539355
+operation=join ssid=HomeNet result=held pid=539355
+operation=join ssid=HomeNet result=success pid=539355
+operation=list state=networks result=success pid=540817
+operation=join ssid=OpenNet mode=open stdin_bytes=0 pid=542915
+operation=join ssid=OpenNet result=success pid=542915
+operation=list state=networks result=success pid=542922
+operation=list state=empty result=success pid=553774

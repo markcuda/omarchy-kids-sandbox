@@ -1,0 +1,13 @@
+warning: omarchy-kids: /usr/bin/omarchy-kids-wifi (Modification time mismatch)
+omarchy-kids: 181 total files, 1 altered file
+c0e963e04a77bd2457dc4abb1a5d0d2b4ab537d03f0ea7fa1b3f711d19c60137  /usr/bin/omarchy-kids-wifi
+1fddcad47ff89a154db26fed0520e0876673381a918cb467e50fd1a4e45a2603  /usr/share/omarchy-kids/wifi/shell.qml
+ActiveState=active
+SubState=waiting
+LoadState=not-found
+ActiveState=inactive
+2454  961 sddm   -     574096 manager-early -    no -
+2463 1000 kid-vm -     575346 user          -    no -
+2464 1000 kid-vm -     575353 manager       -    no -
+ c25  961 sddm   seat0 574089 greeter       tty1 no -
+Catppuccin Latte

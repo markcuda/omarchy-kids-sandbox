@@ -21,6 +21,7 @@ app_label_for() {
     supertuxkart) printf 'SuperTuxKart' ;;
     klettres) printf 'KLettres' ;;
     kanagram) printf 'Kanagram' ;;
+    # shellcheck disable=SC2016 # the command-substitution text is intentionally literal
     quote) printf 'Kid "Q" \\ \$(touch %s)' "$MARKER" ;;
   esac
 }
@@ -31,7 +32,11 @@ friendly_wifi_mode() { printf '%s' "$1"; }
 source "$ROOT/lib/wizard-advanced.sh"
 # Avoid the pack reader here; the production row and formatter remain real.
 adv_default() {
-  [[ "$1" == allowlist ]] && printf '%s' "$ALLOWLIST_IDS" || adv_get "$1"
+  if [[ "$1" == allowlist ]]; then
+    printf '%s' "$ALLOWLIST_IDS"
+  else
+    adv_get "$1"
+  fi
 }
 
 setup_advanced_globals() {
@@ -92,6 +97,7 @@ screen_advanced_checklist 13 15
   echo 'FAIL Advanced checklist did not expose the app row'
   exit 1
 }
+# shellcheck disable=SC2016 # the command-substitution text is intentionally literal
 [[ "${captured_body[*]}" == *'Kid "Q"'* && "${captured_body[*]}" == *'$('* ]] || {
   echo 'FAIL Advanced checklist did not pass complete app detail body'
   exit 1

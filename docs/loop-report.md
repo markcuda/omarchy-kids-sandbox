@@ -623,9 +623,12 @@ package contained 181 files with zero altered files. Automated media run `62216`
 capture on both themes because stock owner autologin returned the desktop (#133); the four
 fixture values were restored and config was removed. Manual `portal_reset` recovery `31132`
 passed and captured the real light portal as tile-only evidence, with no Cy login. The VM is
-clean at the original Catppuccin Latte theme and Air is restored to Tokyo Night. The #133 reset
-fix is reviewed; the separate helper correction in #134, ordered gate, and another automated
-capture run remain pending.
+clean at the original Catppuccin Latte theme and Air is restored to Tokyo Night. The #133 refresh fix and #134 live-compositor readiness fix
+are implemented. Fixture review
+caught false positives and now owns its config/output while proving retry, dispatch, and restart
+paths. Final independent review and the complete formatter → Mac → VM → live gates remain
+pending; the named live proof will repeat three fresh owner autologins and confirm clean exit to
+the portal before the full media rerun.
 
 ## Manual dark portal receipt, 2026-09-06
 
@@ -644,3 +647,13 @@ read-only inventory found a different live state. The existing helper ignores th
 failure; #134 tracks the correction. The diagnostic then recovered the greeter after startup and
 verified a successful session query with neither owner nor kid on seat0. Its final nonzero status
 records the reproduced failure, even though recovery succeeded. Temporary config was removed.
+
+## Current media handoff, 2026-09-06
+
+The #133 refresh fix and #134 live-compositor readiness fix are implemented. Fixture review
+caught false positives and now owns config/output while proving retry, dispatch, and restart
+paths. Final independent review and the complete formatter → Mac → VM → live gates remain
+pending. The named live proof will repeat three fresh owner autologins and confirm clean exit to
+the portal before the full media rerun. There are no new screenshots, no completed automated
+20-capture run, and no successful child login to claim. The last verified states remain the VM's
+Catppuccin Latte greeter and Air's Tokyo Night theme.

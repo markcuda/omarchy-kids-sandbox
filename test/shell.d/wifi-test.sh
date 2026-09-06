@@ -478,6 +478,82 @@ run_client_reply $'REFUSED wifi=parent\n' 0 "REFUSED reply" 3 ""
 trap - EXIT
 cleanup_c2
 
+# C3. Execute the picker's real JavaScript functions with owned process stubs.
+# This covers state transitions, not QML rendering or keyboard event delivery.
+if command -v node >/dev/null 2>&1; then
+  node - "$DIR/share/wifi/shell.qml" <<'NODE'
+const fs = require("fs");
+const vm = require("vm");
+const assert = require("assert");
+const source = fs.readFileSync(process.argv[2], "utf8");
+let scans = 0;
+let joins = 0;
+const listProcess = {
+  active: false,
+  get running() { return this.active; },
+  set running(value) { this.active = value; if (value) scans++; }
+};
+const joinProcess = {
+  active: false,
+  get running() { return this.active; },
+  set running(value) { this.active = value; if (value) joins++; }
+};
+const root = {
+  networks: [], currentIndex: 0, loading: false, joining: false,
+  showPasswordField: false, passwordText: "", statusText: ""
+};
+const context = vm.createContext({root, listProcess, joinProcess});
+for (const name of ["refreshList", "parseList", "selectedNetwork", "needsPassword", "beginJoin", "activateCurrent", "footerText"]) {
+  const expression = new RegExp("^    function " + name + "\\([^]*?^    \\}", "m");
+  const match = source.match(expression);
+  assert(match, "missing production function " + name);
+  root[name] = vm.runInContext("(" + match[0] + ")", context);
+}
+assert.strictEqual(root.footerText(), "Enter try again · Esc close");
+root.activateCurrent();
+assert.strictEqual(scans, 1);
+assert.strictEqual(root.loading, true);
+assert.strictEqual(root.footerText(), "Esc close");
+root.activateCurrent();
+root.refreshList();
+assert.strictEqual(scans, 1, "loading must not start another scan");
+listProcess.active = false;
+root.loading = false;
+root.statusText = "Couldn't list networks. Ask a grown-up.";
+root.activateCurrent();
+assert.strictEqual(scans, 2, "failed scan can be retried");
+assert.strictEqual(root.statusText, "");
+listProcess.active = false;
+root.networks = root.parseList("HomeNet:80:WPA2:\nOpenNet:40::\n");
+root.beginJoin();
+assert.strictEqual(joins, 0, "loading cannot join a stale selected row");
+root.loading = false;
+assert.strictEqual(root.footerText(), "↑/↓ choose · Enter join · Esc close");
+root.activateCurrent();
+assert.strictEqual(root.showPasswordField, true);
+assert.strictEqual(joins, 0);
+assert.strictEqual(root.footerText(), "Enter join · Esc back");
+root.passwordText = "fixture-password";
+root.activateCurrent();
+assert.deepStrictEqual(Array.from(joinProcess.command), ["/usr/bin/omarchy-kids-wifi", "join", "HomeNet", "--password-stdin"]);
+assert.strictEqual(joinProcess.candidate, "fixture-password");
+assert.strictEqual(joins, 1);
+assert.strictEqual(root.footerText(), "Esc back");
+root.activateCurrent();
+assert.strictEqual(joins, 1, "joining must not start another join");
+root.joining = false;
+root.showPasswordField = false;
+root.currentIndex = 1;
+root.activateCurrent();
+assert.deepStrictEqual(Array.from(joinProcess.command), ["/usr/bin/omarchy-kids-wifi", "join", "OpenNet"]);
+assert.strictEqual(joinProcess.stdinEnabled, false);
+assert.strictEqual(root.footerText(), "Esc close");
+NODE
+  check_status "$?" "0" "picker functions preserve retry, busy, open-network and password states"
+else
+  echo "SKIP Wi-Fi picker function checks: node not found"
+fi
+
 # `omarchy-kids-wifi portal` used to be tested here. The command is gone
 # (see this file's header): a kid could never have run it.
 out="$("$WIFI" portal 2>&1)"

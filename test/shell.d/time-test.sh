@@ -404,7 +404,10 @@ set_sessions "6 1000 kid-ada yes no"
 FINISH_RC=0 "$LEDGER" tick >/dev/null
 check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "6" "tick: a failed session query retries finish when the query recovers"
 STATE_FILE="$ROOT/run/omarchy-kids/time/kid-ada.json"
-check "$(jq -e . "$STATE_FILE" >/dev/null 2>&1; echo $?)" "0" \
+check "$(
+  jq -e . "$STATE_FILE" >/dev/null 2>&1
+  echo $?
+)" "0" \
   "tick: state failure baseline is valid JSON"
 before_state="$(cat "$STATE_FILE")"
 set_sessions "7 1000 kid-ada yes no"

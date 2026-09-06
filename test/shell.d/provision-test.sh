@@ -379,7 +379,9 @@ check_eq "$(cat "$ETC/luks-slots")" "0=mark:omarchy.desktop" "failed LUKS add le
 # --- add: kid-ada, band 6-8, password + LUKS slot -------------------------
 
 : >"$ARGV_LOG"
-out="$(printf 'kidpass1\nparentpass1\n' | "$BIN" add "Ada Lovelace" --band 6-8 --avatar fox \
+: >"$LOG/chpasswd.stdin"
+kid_password="Kid'Pw,\\word!"
+out="$(printf '%s\nparentpass1\n' "$kid_password" | "$BIN" add "Ada Lovelace" --band 6-8 --avatar fox \
   --password-stdin --parent-password-stdin --luks-device /dev/fake0 2>&1)"
 st=$?
 argv="$(cat "$ARGV_LOG")"
@@ -389,9 +391,10 @@ check_contains "$out" "Adding kid 'Ada Lovelace' as $SLUG" "add kid-ada announce
 
 check_contains "$argv" "useradd -m -s /bin/bash -G omarchy-kids,omarchy-kids-6-8 $SLUG" "add: useradd argv is exact"
 check_contains "$argv" "chpasswd" "add: chpasswd was invoked"
-check_contains "$(cat "$LOG/chpasswd.stdin")" "$SLUG:kidpass1" "add: chpasswd got 'account:password' on stdin, never argv"
-check_not_contains "$argv" "kidpass1" "add: the kid password never appears in any command's argv"
+check_eq "$(cat "$LOG/chpasswd.stdin")" "$SLUG:$kid_password" "add: chpasswd got exact punctuation-bearing 'account:password' stdin"
+check_not_contains "$argv" "$kid_password" "add: the kid password never appears in any command's argv"
 check_not_contains "$argv" "parentpass1" "add: the parent password never appears in any command's argv"
+unset kid_password
 
 check_eq "$(grep -c '^name=Ada Lovelace$' "$ETC/kids/$SLUG.conf")" "1" "profile: name=Ada Lovelace"
 check_eq "$(grep -c '^avatar=fox$' "$ETC/kids/$SLUG.conf")" "1" "profile: avatar=fox"
@@ -712,11 +715,14 @@ check_contains "$out8" "no such kid account" "remove: unknown-account message na
 # `run`, whose `printf ' %q'` preview used to shell-quote both onto stdout.
 
 : >"$ARGV_LOG"
-dry="$(printf 'S3cretKidPw\nS3cretParentPw\n' | DRY_RUN=1 "$BIN" add "Dry Luks" --band 6-8 --avatar fox \
+dry="$(printf 'S3cretKidPw\nS3cretParentPw\n' | DRY_RUN=1 "$BIN" add "Test" --band 6-8 --avatar fox \
   --password-stdin --parent-password-stdin --luks-device /dev/fake0 2>&1)"
+st=$?
+check_eq "$st" 0 "dry run: exits 0"
 check_contains "$dry" "[dry-run]" "dry run: still previews the plan"
 check_contains "$dry" "add_luks_slot" "dry run: still names add_luks_slot in the preview"
 check_contains "$dry" "<secret>" "dry run: the LUKS passphrases show as <secret> placeholders"
+check_contains "$dry" "Done: kid-test" "dry run: reports completion"
 case "$dry" in
   *S3cretKidPw*) fail "dry run leaked the kid's password (review S6)" ;;
   *) pass "dry run never prints the kid's password" ;;
@@ -732,6 +738,48 @@ if printf '%s\n' "$dry" | grep -F "[dry-run]" | grep -qE 'S3cretKidPw|S3cretPare
 else
   pass "no [dry-run] preview line contains either password"
 fi
+check_eq "$(cat "$ARGV_LOG")" "" "dry run: invokes no owned administrative stub"
+[[ ! -e "$ETC/kids/kid-test.conf" ]] && pass "dry run: writes no kid-test profile" ||
+  fail "dry run: wrote a kid-test profile"
+
+# A short producer often fills the pipe before `run` returns without reading
+# it. This bounded input exceeds the pipe buffer and makes that same cmd_add
+# path deterministic: a dry run must not terminate its password producer.
+: >"$ARGV_LOG"
+printf -v dry_large_password 'Issue106Synthetic%1048576s' x
+dry_large_stdout="$TMP/dry-large.stdout"
+dry_large_stderr="$TMP/dry-large.stderr"
+printf '%s\nS3cretParentPw\n' "$dry_large_password" | DRY_RUN=1 "$BIN" add "Test" --band 6-8 --avatar fox \
+  --password-stdin --parent-password-stdin --luks-device /dev/fake0 >"$dry_large_stdout" 2>"$dry_large_stderr"
+st=$?
+dry_large="$(cat "$dry_large_stdout")"
+dry_large_preview=false dry_large_placeholder=false dry_large_completion=false first_missing=none
+[[ "$dry_large" == *add_luks_slot* ]] && dry_large_preview=true || first_missing=add_luks_slot
+if [[ "$dry_large" == *\<secret\>* ]]; then
+  dry_large_placeholder=true
+elif [[ "$first_missing" == none ]]; then
+  first_missing=secret-placeholder
+fi
+if [[ "$dry_large" == *"Done: kid-test"* ]]; then
+  dry_large_completion=true
+elif [[ "$first_missing" == none ]]; then
+  first_missing=completion
+fi
+printf 'INFO dry-run-large exit=%s stdout_bytes=%s stderr_bytes=%s preview=%s placeholder=%s completion=%s first_missing=%s\n' \
+  "$st" "$(wc -c <"$dry_large_stdout")" "$(wc -c <"$dry_large_stderr")" "$dry_large_preview" \
+  "$dry_large_placeholder" "$dry_large_completion" "$first_missing"
+check_eq "$st" 0 "dry run: a large synthetic password exits 0"
+check_contains "$dry_large" "add_luks_slot" "dry run: a large synthetic password previews the LUKS step"
+check_contains "$dry_large" "<secret>" "dry run: a large synthetic password remains a placeholder"
+check_contains "$dry_large" "Done: kid-test" "dry run: a large synthetic password reports completion"
+check_not_contains "$dry_large" "Issue106Synthetic" "dry run: a large synthetic password stays secret"
+check_not_contains "$dry_large" "S3cretParentPw" "dry run: the synthetic parent password stays secret"
+[[ ! -s "$dry_large_stderr" ]] && pass "dry run: a large synthetic password emits no stderr" ||
+  fail "dry run: a large synthetic password emitted $(wc -c <"$dry_large_stderr") stderr bytes"
+check_eq "$(cat "$ARGV_LOG")" "" "dry run: a large synthetic password invokes no owned administrative stub"
+[[ ! -e "$ETC/kids/kid-test.conf" ]] && pass "dry run: a large synthetic password writes no profile" ||
+  fail "dry run: a large synthetic password wrote a profile"
+unset dry_large_password
 
 # --- review §1.10: a kid password that already unlocks the disk ------------
 

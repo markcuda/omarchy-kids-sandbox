@@ -105,7 +105,9 @@ PanelWindow {
             id: card
             anchors.centerIn: parent
             width: 560
-            height: Math.min(parent.height - 96, 640)
+            height: root.loaded && root.shelf.length === 0
+                ? 300
+                : Math.min(parent.height - 96, 640)
             radius: 24
             color: theme.background
             border.color: theme.cardFill
@@ -175,7 +177,7 @@ PanelWindow {
                     ListView {
                         id: shelfList
                         width: parent.width
-                        height: parent.height - 140
+                        height: root.shelf.length > 0 ? parent.height - 140 : 0
                         visible: root.loaded && root.shelf.length > 0
                         model: root.shelf
                         currentIndex: root.currentIndex
@@ -220,15 +222,37 @@ PanelWindow {
                     }
                 }
 
-                Text {
+                Rectangle {
+                    id: backButton
+                    width: 220
+                    height: 48
                     anchors.bottom: parent.bottom
-                    anchors.bottomMargin: 24
+                    anchors.bottomMargin: 20
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: "Esc  Back to launcher"
-                    color: theme.foreground
-                    font.pixelSize: 16
+                    radius: 10
+                    color: backMouse.containsMouse ? theme.tileFill : theme.cardFill
+                    border.width: 2
+                    border.color: theme.accent
+                    Accessible.role: Accessible.Button
                     Accessible.name: "Back to launcher"
                     Accessible.description: "Press Escape to close More apps"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Esc  Back to launcher"
+                        color: theme.foreground
+                        font.pixelSize: 16
+                    }
+
+                    MouseArea {
+                        id: backMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.closeModal()
+                    }
+
+                    Accessible.onPressAction: root.closeModal()
                 }
             }
         }

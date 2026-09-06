@@ -33,7 +33,10 @@ its narrow correction `9752481` is independently reviewed in draft PR #124.
 #117 has an independently reviewed compact empty shelf with a clickable Back control (PR #122).
 Its watched laptop preview passed Escape and actual pointer-click checks; the full gate remains.
 #111's exact candidate desktop entry passed real laptop launches in Tokyo Night and Catppuccin
-Latte, including the wizard child's theme environment. The original theme was restored. #118 (`aa4caa7`, PR #125) has independent approval and inspected laptop dark/light previews; its full gate remains pending. #119 (`b86309a`, PR #126) passed its ordered formatter, Mac, VM, and live evidence gate and awaits merge. #103 remains held on the private harness gate.
+Latte, including the wizard child's theme environment. The original theme was restored.
+#118 (`aa4caa7`, PR #125) has independent approval and inspected laptop dark/light previews;
+its full gate remains pending. #119 (`b86309a`, PR #126) passed its ordered formatter, Mac,
+VM, and live evidence gate and awaits merge. #103 remains held on the private harness gate.
 Their essential text now uses the theme foreground. The exit preview redrew source edits in
 the same Quickshell process, and Escape/cancel closed every preview without credentials.
 

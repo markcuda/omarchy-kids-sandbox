@@ -517,8 +517,24 @@ the VM suite remains serial.
 
 ## #120 resize preview receipts, 2026-09-05
 
-Inspected Air prototype dry-run receipts from `e35d1e9` under Tokyo Night. The Welcome, password, and Name flows each show a full-width card, a half-width resize, and a restored full-width card; the Name flow also records submission as `Pick Ada's face`. The Back receipt shows the surface closed, and the themed cancel receipt shows Escape/cancel closing it. The previews retain masked sample-password text, show no wizard advance during resize, and all were closed after capture. The resize pass used 621 logical pixels for the half-width state and returned to the full-width state. These are dogfood receipts only: no release or full-gate claim, with invented Ada/sample-password data. The pre-paint `resize-password-full-air.png` and unthemed cancel receipt are intentionally omitted; the latter did not represent the corrected themed launch.
+The Air dry-run preview of `e35d1e9` under Tokyo Night kept Welcome and Name coherent at full
+width, 621 logical pixels, and restored full width. The retained password receipts show the
+half-width and restored states with the masked sample intact; the early full-width capture
+was taken before every keystroke painted and is omitted. Resizing did not advance setup.
+The Name receipts show invented Ada retained and submitted as `Pick Ada's face`. Back returns
+to Name. The themed cancel receipt shows the leave confirmation; it does not show closure.
+After confirming leave, the operator separately verified that the preview processes had
+exited and the laptop had no remaining preview windows. These are prototype receipts, with
+no release or full-gate claim. The unthemed cancel image is omitted because its launch lacked
+Omarchy's current Gum environment; the corrected themed launch resolved its colors.
 
 ## #119 keyboard-help gate receipts, 2026-09-05
 
-The completed #119 gate used exact source `b86309a`: VM formatter passed; the Mac suite passed all 35 files with five platform skips; the VM suite passed all 35 files with two skips; and the live evidence run completed without parallel retry failures. Logs are `help-full-*.log` and `help-live.log`. Inspected receipts cover Welcome, password input, Back, and cancel across Air and VM in Tokyo Night and Catppuccin Latte. The dry-run path was Welcome → password → Escape back → Ctrl+C/Yes leave; no provisioning or credentials were used, original themes were restored, and every preview closed. VM owner notifications are visible but obscure none of the tested controls. These are dogfood receipts, not release media or a full product acceptance claim.
+The #119 gate used exact source `b86309a`: VM formatter passed; the Mac suite passed all 35
+files with five platform skips and no parallel retry failures; the serial VM suite passed all
+35 files with two skips. Logs are `help-full-*.log` and `help-live.log`. All sixteen inspected
+screenshots cover Welcome, password input, Back, and the leave confirmation on Air and VM in
+Tokyo Night and Catppuccin Latte. The dry-run path was Welcome → password → Escape back →
+Ctrl+C/Yes leave. No provisioning or credentials were used; original themes were restored,
+and the driver confirmed every preview process had exited. VM owner notifications obscure
+none of the tested controls. These receipts prove this UI change, not full product acceptance.

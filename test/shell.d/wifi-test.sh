@@ -467,6 +467,10 @@ run_client_reply() { # REPLY STATUS LABEL EXPECTED_STATUS EXPECTED_OUTPUT
 
 run_client_reply $'OK\n' 0 "empty OK reply" 0 ""
 run_client_reply $'OK\nOK:77::\n' 0 "nonempty OK reply preserves an SSID named OK" 0 $'OK:77::'
+run_client_reply "" 0 "empty no-reply result" 1 ""
+check_contains "$(cat "$TMP_C2/err")" "no reply" "empty no-reply result explains the missing daemon response"
+run_client_reply $'OK\npartial\n' 1 "failed request with partial payload" 1 ""
+check_contains "$(cat "$TMP_C2/err")" "no reply" "failed request discards a partial payload"
 run_client_reply $'ERROR scan failed\n' 0 "ERROR reply" 1 ""
 check_contains "$(cat "$TMP_C2/err")" "scan failed" "ERROR reply explains the daemon failure"
 run_client_reply $'REFUSED wifi=parent\n' 0 "REFUSED reply" 3 ""

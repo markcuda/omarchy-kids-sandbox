@@ -1,5 +1,34 @@
 # Real media captures, September 6
 
+## First complete ten-surface pass
+
+Candidate `3169b7e` passed the VM formatter, Mac 37-file suite, VM 37-file serial suite,
+package installation, and full capture scenario. All 20 actual frames below were viewed by the
+driving session. Package verification reported 181 files with zero altered. Settings and themes
+were restored, the VM returned to its greeter, and runtime config and recovery receipts were removed.
+
+These pictures establish rendered surfaces in both themes. They do not prove app activation,
+request approval, Wi-Fi association, or same-process bar updates. The bar uses a live test
+session; the Wi-Fi view is a settled empty scan. Startup popups obstruct the parent captures
+([#150](https://github.com/markcuda/omarchy-kids-sandbox/issues/150)); bar action words are cut off
+([#151](https://github.com/markcuda/omarchy-kids-sandbox/issues/151)). Both fixes are under review
+and gating, so these are honest baseline images rather than final release media.
+
+| Surface | Tokyo Night | Catppuccin Latte | Finding or limit |
+| --- | --- | --- | --- |
+| Portal | ![Portal, dark](media-complete-portal-tokyo-night.png) | ![Portal, light](media-complete-portal-catppuccin-latte.png) | #112, #128 |
+| Launcher | ![Launcher, dark](media-complete-launcher-tokyo-night.png) | ![Launcher, light](media-complete-launcher-catppuccin-latte.png) | #91 |
+| Exit card | ![Exit card, dark](media-complete-exit-modal-tokyo-night.png) | ![Exit card, light](media-complete-exit-modal-catppuccin-latte.png) | #118 |
+| Ask a grown-up | ![Ask a grown-up, dark](media-complete-ask-tokyo-night.png) | ![Ask a grown-up, light](media-complete-ask-catppuccin-latte.png) | #131 |
+| Time’s Up | ![Time’s Up, dark](media-complete-times-up-tokyo-night.png) | ![Time’s Up, light](media-complete-times-up-catppuccin-latte.png) | Readable countdown; action not activated |
+| Wi-Fi | ![Wi-Fi, dark](media-complete-wifi-picker-tokyo-night.png) | ![Wi-Fi, light](media-complete-wifi-picker-catppuccin-latte.png) | Settled empty scan; retry guidance visible |
+| More apps | ![More apps, dark](media-complete-plugins-shelf-tokyo-night.png) | ![More apps, light](media-complete-plugins-shelf-catppuccin-latte.png) | #117 |
+| Welcome | ![Welcome, dark](media-complete-wizard-tokyo-night.png) | ![Welcome, light](media-complete-wizard-catppuccin-latte.png) | #150 |
+| Parent panel | ![Parent panel, dark](media-complete-panel-tokyo-night.png) | ![Parent panel, light](media-complete-panel-catppuccin-latte.png) | #150 |
+| Parent bar | ![Parent bar, dark](media-complete-bar-module-tokyo-night.png) | ![Parent bar, light](media-complete-bar-module-catppuccin-latte.png) | #151 |
+
+## Earlier partial pass
+
 Fourteen screenshots from one VM run, viewed by the driving session. The run failed acceptance: wizard, panel, and bar captures did not pass. These are evidence of the current experience, including open defects. No app launch, request approval, or Wi-Fi join is claimed.
 
 | Surface | Tokyo Night | Catppuccin Latte | Findings from this capture |

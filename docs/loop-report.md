@@ -806,3 +806,12 @@ executable selector tests exposed and corrected acceptance of failed or ambiguou
 queries; independent review is underway. #137's tonight-extension design now covers short
 and exhausted budgets, 04:00 expiry, idempotent approvals, and truthful queued failures; its
 implementation is being drafted. None of those drafts is represented as shipped.
+
+
+### September 6: first complete media baseline
+
+Candidate `3169b7e` passed ordered formatter, Mac37, VM37, installation and all ten surfaces in
+both themes. Root inspected all20 photographs. The run restored settings, themes, timer and
+greeter and removed config/receipt files. Hash-verified baseline images are in the media gallery.
+Parent popups (#150) and truncated bar actions (#151) each received an evidenced ticket and
+reviewed fixes. Full installed interaction proof for #140/#143/#145 remains outstanding.

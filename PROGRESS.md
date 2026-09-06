@@ -22,9 +22,12 @@ frames were inspected and restoration passed; no advisory recipe or private imag
 
 #143 has reviewed draft PR #144 for empty-scan guidance and retry; #140 has reviewed
 draft PR #142 for bar status reload. #138/#139 recovery integration `6592b15` is independently
-approved. Combined media candidate `3169b7e` passed its formatter and Mac 37-file suite. Its VM
-37-file serial is running; no installation or live capture has occurred yet. The same-process bar
-status-update scenario and named installed Wi-Fi proof still remain.
+approved. Combined media candidate `3169b7e` passed its formatter, Mac 37-file suite, VM
+37-file serial suite, package installation (181 files, zero altered), and full media scenario.
+All 20 frames were inspected; settings, themes, active timer, greeter and config cleanup were
+verified. The same-process bar status-update scenario and named installed Wi-Fi proof still remain.
+Fresh parent frames exposed #150 startup-popup clutter and #151 truncated actions. Both fixes
+are independently reviewed; their combined candidate is entering the ordered gate.
 
 #145 source `451ffa7` passed watched Air fixture preflight in both themes. Protected joins
 delivered the expected harmless password line and EOF, including the first attempt and a retry
@@ -47,10 +50,11 @@ show client feedback from an owned backend, with no real Wi-Fi join. The preview
 process was absent, and Tokyo Night was restored. This candidate is separate from media
 `3169b7e`; its ordered full gates and installed-live acceptance remain pending.
 
-#137 code at `ee0bc6d` remains under independent review. It has not been pushed and has no full
-gate yet.
+#137 integration `92e62c5` passed independent code review and focused tests. It has not been
+pushed and has no full gate yet.
 #98/#109 remains a human ship decision. The [media gallery](docs/media/dogfood/media-gallery.md)
-retains the earlier captures; no full-media pass is claimed.
+contains the first complete 20-frame baseline plus the earlier partial captures. No release or
+merge is claimed for the media candidate yet.
 
 **Latest takeover status, September 5 evening:** #110 merged through PR #113 at
 `bd679f9`. Keyboard guidance now appears before the parent answers. Independent review, VM

@@ -33,6 +33,7 @@ Panel {
         id: statusFile
         path: root.statusPath
         watchChanges: true
+        onFileChanged: reload()
         onLoaded: root.reloadStatus()
         onTextChanged: root.reloadStatus()
     }

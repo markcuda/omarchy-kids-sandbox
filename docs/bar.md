@@ -104,7 +104,9 @@ session, opening a terminal, nothing to preview.
 
 ## `share/bar/KidsModule.qml`
 
-- Reads `/run/omarchy-kids/status.json` (R-BAR-3) via a `FileView` with `watchChanges: true`.
+- Reads `/run/omarchy-kids/status.json` (R-BAR-3) via a `FileView` with `watchChanges: true`
+  and reloads its contents on `fileChanged`, as required by the
+  [Quickshell FileView API](https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView/).
   Renders nothing when the file is missing, empty, or fails to parse (I-6: no control shown for
   data that isn't there).
 - One dot per kid whose row has `"live": true`: the initial letter of the kid's slug (`kid-ada` →

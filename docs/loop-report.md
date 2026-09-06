@@ -1,5 +1,14 @@
 # Loop report, night of 2026-09-02
 
+## September 6: installed age-default fix merged
+
+PR [#168](https://github.com/markcuda/omarchy-kids-sandbox/pull/168) for #166 merged as `fca1faf`, with exactly the accepted candidate `4fba8f4` tree. The test-box formatter, 41-file Mac suite (five skips), same VM suite (two skips), and scenario 05 passed before merge. Installed Gum 2.0.0 keyboard checks passed in Latte and fresh-login Tokyo Night: untouched Ages 6–8 default, Enter, Back, explicit Ages 3–5, No browser, and 45 minutes / 19:00. Both previews exited without Apply. Independent visual review and a separate restoration readback passed; all 181 package files were intact, original settings/theme were preserved, and the VM returned to the greeter.
+
+[Fourteen original acceptance screenshots](media/dogfood/wizard166-4fba8f4/README.md) are published at `707a4a2`. All 30 originals are retained, including setup/navigation, diagnostic frames, and the final greeter. The same-session theme switch also reproduced [existing #111](https://github.com/markcuda/omarchy-kids-sandbox/issues/111#issuecomment-5562051589); its [stale-color frame](media/dogfood/wizard-stale-colors-sep6/README.md) is separate evidence. Quickshell watching was re-enabled and verified after the fresh VM login. No Air package or boot changes occurred.
+
+The merged-main formatter, Mac41/five skips, VM41/two skips and scenario05 all passed. The installed repeat then passed both themes, independent visual review and separate restoration checks. [Fourteen merged-main screenshots and a 176.84-second age-selection preview](media/dogfood/wizard166-main-fca1faf/README.md) document that repeat. The recording starts at Age and ends after Leave; it contains no credential entry. It is a scoped navigation demo. PR #169 at `6ebf5dc` is now entering its source gates for the missing settings summary. The #98/#109 human ship decision and #97 ordering hold remain unchanged; all three full walkthrough videos remain open.
+
+
 ## Latest checkpoint, September 6: merged media and first recorder clip
 
 PR [#154](https://github.com/markcuda/omarchy-kids-sandbox/pull/154) is merged on main at

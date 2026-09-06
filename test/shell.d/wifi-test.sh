@@ -496,14 +496,21 @@ const listProcess = {
 const joinProcess = {
   active: false,
   sent: false,
-  stdinEnabled: true,
+  inputEnabled: true,
+  events: [],
+  get stdinEnabled() { return this.inputEnabled; },
+  set stdinEnabled(value) {
+    if (this.inputEnabled !== value) this.events.push(["stdin", value]);
+    this.inputEnabled = value;
+  },
   get running() { return this.active; },
-  set running(value) { this.active = value; if (value) { joins++; this.sent = false; } },
+  set running(value) { this.active = value; if (value) joins++; runningChanged(); },
   writes: [],
   write(value) {
     assert.strictEqual(this.active, true, "password write requires a started process");
     assert.strictEqual(this.stdinEnabled, true, "password write precedes stdin close");
     this.writes.push(value);
+    this.events.push(["write", value]);
   }
 };
 const root = {
@@ -511,6 +518,10 @@ const root = {
   showPasswordField: false, passwordText: "", statusText: ""
 };
 const context = vm.createContext({root, listProcess, joinProcess});
+Object.defineProperty(context, "running", {get: () => joinProcess.running});
+const runningMatch = source.match(/id: joinProcess[^]*?onRunningChanged:\s*\{([^]*?)^        \}/m);
+assert(runningMatch, "production running handler is present");
+const runningChanged = vm.runInContext("() => {" + runningMatch[1] + "}", context);
 for (const name of ["refreshList", "parseList", "selectedNetwork", "needsPassword", "beginJoin", "activateCurrent", "footerText", "deliverCandidate"]) {
   const expression = new RegExp("^    function " + name + "\\([^]*?^    \\}", "m");
   const match = source.match(expression);
@@ -545,6 +556,7 @@ assert.strictEqual(root.showPasswordField, true);
 assert.strictEqual(joins, 0);
 assert.strictEqual(root.footerText(), "Enter join · Esc back");
 root.passwordText = "fixture-password";
+started();
 assert.strictEqual(joinProcess.writes.length, 0, "a pre-start delivery attempt must do nothing");
 root.activateCurrent();
 assert.deepStrictEqual(Array.from(joinProcess.command), ["/usr/bin/omarchy-kids-wifi", "join", "HomeNet", "--password-stdin"]);
@@ -554,13 +566,14 @@ started();
 assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n"]);
 assert.strictEqual(joinProcess.candidate, "");
 assert.strictEqual(joinProcess.stdinEnabled, false);
+assert.deepStrictEqual(joinProcess.events, [["write", "fixture-password\n"], ["stdin", false]], "one write precedes EOF");
 started();
 assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n"], "a repeated started signal cannot resend");
 assert.strictEqual(root.footerText(), "Esc back");
 root.activateCurrent();
 assert.strictEqual(joins, 1, "joining must not start another join");
 root.joining = false;
-joinProcess.active = false; // simulate the first Process.onExited transition
+joinProcess.running = false; // deliver the production running-change signal
 root.showPasswordField = false;
 root.passwordText = "";
 root.activateCurrent();
@@ -568,8 +581,9 @@ root.passwordText = "second-password";
 root.activateCurrent();
 started();
 assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n", "second-password\n"], "a second protected join sends once");
+assert.deepStrictEqual(joinProcess.events.slice(-3), [["stdin", true], ["write", "second-password\n"], ["stdin", false]], "retry reopens stdin, writes once, then closes");
 root.joining = false;
-joinProcess.active = false;
+joinProcess.running = false;
 root.currentIndex = 1;
 root.activateCurrent();
 assert.deepStrictEqual(Array.from(joinProcess.command), ["/usr/bin/omarchy-kids-wifi", "join", "OpenNet"]);
@@ -577,7 +591,7 @@ assert.strictEqual(joinProcess.stdinEnabled, false);
 started();
 assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n", "second-password\n"], "open joins never write a password");
 root.joining = false;
-joinProcess.active = false;
+joinProcess.running = false;
 root.currentIndex = 0;
 root.showPasswordField = true;
 root.passwordText = "busy-password";

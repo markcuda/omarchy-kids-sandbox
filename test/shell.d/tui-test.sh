@@ -445,11 +445,13 @@ default_footer='Enter continue · Esc back · Ctrl+C leave (nothing changes)'
 : >"$GUM_LOG"
 (
   unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck disable=SC2030,SC2031 # the background fixture owns these exports
   export GUM_BLOCK_UNTIL="$release" GUM_OUTPUT=garden
   # shellcheck source=/dev/null
   source "$TUI_LIB"
   tui_init 2>/dev/null
   TUI_MODE="interactive" TUI_HAVE_GUM=1
+  # shellcheck disable=SC2034 # passed by name to tui_screen_choose's indirect array copy
   blocked_choices=("garden|Only sites you choose|")
   tui_screen_choose "Welcome" 1 3 1 "Hi from Omy." blocked_choices "garden" "$TUI_FOOTER_FIRST"
   echo "rc=$? reply=$TUI_REPLY"
@@ -468,6 +470,7 @@ check_contains "$(cat "$blocked_out")" "rc=0 reply=garden" "tui_screen_choose: b
 rm -f "$release"
 (
   unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck disable=SC2030,SC2031 # the background fixture owns these exports
   export GUM_BLOCK_UNTIL="$release" GUM_OUTPUT=Ada
   # shellcheck source=/dev/null
   source "$TUI_LIB"
@@ -490,11 +493,13 @@ check_contains "$(cat "$blocked_out")" "rc=0 reply=Ada" "tui_screen_input: block
 rm -f "$release"
 (
   unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck disable=SC2030,SC2031 # the background fixture owns this export
   export GUM_BLOCK_UNTIL="$release"
   # shellcheck source=/dev/null
   source "$TUI_LIB"
   tui_init 2>/dev/null
   TUI_MODE="interactive" TUI_HAVE_GUM=1
+  # shellcheck disable=SC2034 # passed by name to tui_screen_confirm's indirect array copy
   confirm_body=("Review these choices.")
   tui_screen_confirm "Ready?" 13 13 0 "" confirm_body "Apply" "Change something"
   echo "rc=$? reply=$TUI_REPLY"

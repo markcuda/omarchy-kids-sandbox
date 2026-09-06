@@ -592,3 +592,12 @@ harmless letters `abcd` remain masked without submission. Escape closes both pre
 process watcher confirmed the Tokyo Night `e86` preview reloaded to `406eadd`, and Tokyo Night was
 restored. The preview PIDs were absent afterward. The full ordered gate and VM Ask later scenario
 remain pending.
+
+## Media gate VM start blocker, 2026-09-06
+
+`media-start-vm.png` records the failed portal capture start: after the public media driver
+refreshed the portal and restarted SDDM, the stock VM owner autologin returned to the owner
+Desktop instead of the expected portal, so the driver timed out through its Tokyo Night and
+Catppuccin Latte attempts. Read-only journal evidence attributes the session to
+`sddm-autologin` for `kid-vm`; this is a fixture/reset sequencing failure and is not product
+portal evidence. No product screenshot is claimed from this receipt.

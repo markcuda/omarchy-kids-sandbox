@@ -105,6 +105,18 @@ PanelWindow {
         return !!net && net.security.length > 0 && net.security !== "--"
     }
 
+    // Process.write() is only valid after the child starts. The
+    // stdinEnabled change happens before running for a protected join,
+    // so the Process.started handler calls this delivery edge.
+    function deliverCandidate() {
+        if (joinProcess.stdinEnabled && joinProcess.running && !joinProcess.sent) {
+            joinProcess.write(joinProcess.candidate + "\n")
+            joinProcess.candidate = ""
+            joinProcess.sent = true
+            joinProcess.stdinEnabled = false
+        }
+    }
+
     // --- Joining -------------------------------------------------------
     // "omarchy-kids-wifi join <ssid> --password-stdin" (or without the
     // flag for an open network) — same one-line-on-stdin-then-EOF shape
@@ -127,17 +139,7 @@ PanelWindow {
                 joinProcess.collected = ""
             }
         }
-        // Only write to stdin for a network that actually needs a
-        // password; an open network's "join" invocation has no
-        // --password-stdin flag at all, so nothing here waits to write.
-        onStdinEnabledChanged: {
-            if (stdinEnabled && running && !joinProcess.sent) {
-                joinProcess.write(joinProcess.candidate + "\n")
-                joinProcess.candidate = ""
-                joinProcess.sent = true
-                joinProcess.stdinEnabled = false
-            }
-        }
+        onStarted: root.deliverCandidate()
         onExited: (exitCode) => {
             root.joining = false
             if (exitCode === 0) {

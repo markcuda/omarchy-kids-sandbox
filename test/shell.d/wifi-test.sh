@@ -495,20 +495,31 @@ const listProcess = {
 };
 const joinProcess = {
   active: false,
+  sent: false,
+  stdinEnabled: true,
   get running() { return this.active; },
-  set running(value) { this.active = value; if (value) joins++; }
+  set running(value) { this.active = value; if (value) { joins++; this.sent = false; } },
+  writes: [],
+  write(value) {
+    assert.strictEqual(this.active, true, "password write requires a started process");
+    assert.strictEqual(this.stdinEnabled, true, "password write precedes stdin close");
+    this.writes.push(value);
+  }
 };
 const root = {
   networks: [], currentIndex: 0, loading: false, joining: false,
   showPasswordField: false, passwordText: "", statusText: ""
 };
 const context = vm.createContext({root, listProcess, joinProcess});
-for (const name of ["refreshList", "parseList", "selectedNetwork", "needsPassword", "beginJoin", "activateCurrent", "footerText"]) {
+for (const name of ["refreshList", "parseList", "selectedNetwork", "needsPassword", "beginJoin", "activateCurrent", "footerText", "deliverCandidate"]) {
   const expression = new RegExp("^    function " + name + "\\([^]*?^    \\}", "m");
   const match = source.match(expression);
   assert(match, "missing production function " + name);
   root[name] = vm.runInContext("(" + match[0] + ")", context);
 }
+const startedMatch = source.match(/^\s*onStarted:\s*(root\.deliverCandidate\(\))\s*$/m);
+assert(startedMatch, "production started handler delivers the candidate");
+const started = vm.runInContext("() => " + startedMatch[1], context);
 assert.strictEqual(root.footerText(), "Enter try again · Esc close");
 root.activateCurrent();
 assert.strictEqual(scans, 1);
@@ -534,20 +545,49 @@ assert.strictEqual(root.showPasswordField, true);
 assert.strictEqual(joins, 0);
 assert.strictEqual(root.footerText(), "Enter join · Esc back");
 root.passwordText = "fixture-password";
+assert.strictEqual(joinProcess.writes.length, 0, "a pre-start delivery attempt must do nothing");
 root.activateCurrent();
 assert.deepStrictEqual(Array.from(joinProcess.command), ["/usr/bin/omarchy-kids-wifi", "join", "HomeNet", "--password-stdin"]);
 assert.strictEqual(joinProcess.candidate, "fixture-password");
 assert.strictEqual(joins, 1);
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n"]);
+assert.strictEqual(joinProcess.candidate, "");
+assert.strictEqual(joinProcess.stdinEnabled, false);
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n"], "a repeated started signal cannot resend");
 assert.strictEqual(root.footerText(), "Esc back");
 root.activateCurrent();
 assert.strictEqual(joins, 1, "joining must not start another join");
 root.joining = false;
+joinProcess.active = false; // simulate the first Process.onExited transition
 root.showPasswordField = false;
+root.passwordText = "";
+root.activateCurrent();
+root.passwordText = "second-password";
+root.activateCurrent();
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n", "second-password\n"], "a second protected join sends once");
+root.joining = false;
+joinProcess.active = false;
 root.currentIndex = 1;
 root.activateCurrent();
 assert.deepStrictEqual(Array.from(joinProcess.command), ["/usr/bin/omarchy-kids-wifi", "join", "OpenNet"]);
 assert.strictEqual(joinProcess.stdinEnabled, false);
-assert.strictEqual(root.footerText(), "Esc close");
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n", "second-password\n"], "open joins never write a password");
+root.joining = false;
+joinProcess.active = false;
+root.currentIndex = 0;
+root.showPasswordField = true;
+root.passwordText = "busy-password";
+root.activateCurrent();
+assert.strictEqual(joins, 4, "a protected join starts once");
+root.activateCurrent();
+assert.strictEqual(joins, 4, "duplicate Enter while busy does not start another join");
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n", "second-password\n", "busy-password\n"]);
+assert.strictEqual(root.footerText(), "Esc back");
 NODE
   check_status "$?" "0" "picker functions preserve retry, busy, open-network and password states"
 else

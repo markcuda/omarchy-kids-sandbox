@@ -1,134 +1,123 @@
-# Issue #137 implementation brief: tonight-only lights-out approval
+# Issue #137 implementation brief: tonight-only approval
 
 ## Goal
 
-Make the Time’s Up approval honest and useful when the root state says
-`reason=lights-out`, while preserving ordinary daily budget grants. The
-extension applies only to the current logical day, whose boundary is 04:00.
+Add one explicit `tonight` action for the Time’s Up flow. The parent-facing
+wording is “15 more minutes tonight”: it authorizes root to adjust tonight’s
+lights-out limit and, when necessary, tonight’s remaining budget. Ordinary
+budget requests keep their existing behavior and interfaces.
 
-## Contracts
+## Request contract and authority
 
-The root runtime document remains the authority. It already publishes
-`state`, `reason`, `remaining_seconds`, `logical_day`, `last_tick`,
-and `grace_deadline`.
+Legacy time requests remain unchanged: absent `action` means the current daily
+budget grant path. The new request adds:
 
-A time request gains two optional fields:
+- `action=tonight`;
+- `logical_day=YYYY-MM-DD`;
+- a stable `request_id` created before the immediate GRANT or Ask-later outbox
+  write.
 
-- `scope`: `budget`, `lights-out`, or `both`.
-- `logical_day`: the root logical day observed by the Time’s Up surface.
+The producer path is `timesup.qml` → `omarchy-kids-ask` → `lib/ask.py` →
+`omarchy-kids-authd` → `omarchy-kids-ask apply_record`. The QML surface reads
+the root-published `logical_day` and `reason`, but those values are hints for
+the request. The kid cannot choose the authority action.
 
-Existing records with no `scope` remain `budget` requests. Existing budget
-grant behavior and queue records remain compatible.
+For `action=tonight`, the root apply path takes the shared ledger/grant lock,
+then recomputes the current logical day, profile schedule, current budget,
+existing tonight record, and current wall clock. It does not trust stale
+runtime JSON for the decision. The request is rejected as expired if its
+logical day is no longer current. If today no longer needs a tonight
+extension, it is rejected as stale rather than changing a future night.
 
-The producer chain is:
+Legacy budget requests do not gain a new grace-state restriction. They may be
+approved before Time’s Up exactly as they are today. Only `action=tonight`
+requires the current logical day and tonight-specific validation.
 
-1. `share/time/timesup.qml` reads the validated root state. It supplies the
-   observed day and a scope hint when opening `omarchy-kids-ask`.
-2. `bin/omarchy-kids-ask` carries the fields through its modal, immediate
-   GRANT request, and Ask-later outbox record.
-3. `lib/ask.py` validates the field shapes and preserves them in JSON records.
-4. `bin/omarchy-kids-authd` forwards the validated request to the root apply
-   path.
-5. `bin/omarchy-kids-ask apply_record` dispatches the root time action.
+## Logical-day schedule and storage
 
-The consumer chain is:
+The logical day starts at 04:00. For a logical day labelled `D`, a configured
+lights-out time at or after 04:00 maps to `D`’s calendar date; a configured
+time before 04:00 maps to the following calendar date. The logical-day end is
+`D+1 04:00`.
 
-- `bin/omarchy-kids-time` exposes a root-only
-  `extend-lights-out <kid> <minutes> --day <logical_day>` action.
-- `lib/time.sh` reads a root-owned per-day lights-out deadline.
-- `bin/omarchy-kids-time-ledger` uses the effective deadline for the next
-  grace decision.
+Store tonight approvals per kid in one root-owned atomic record:
+`/var/lib/omarchy-kids/<kid>/usage/<D>.tonight.json`.
+It contains the current effective deadline, the validated request data, and
+an append-only approval entry for each `request_id`, including its outcome.
+Existing integer `<D>.grant` files remain the source and format for ordinary
+budget grants.
 
-The kid-provided scope is never authoritative. The root apply path re-reads
-the current runtime state and profile, confirms the requested day is still
-current for a new tonight request, and derives the effective action:
+Under the shared root lock, compute the candidate deadline from the current
+profile schedule, the existing tonight deadline, and approval time:
 
-- budget expiry -> `budget`;
-- lights-out expiry with positive budget remaining -> `lights-out`;
-- lights-out expiry with budget also exhausted -> `both`;
-- a new `lights-out` or `both` request outside `grace`/`finishing` -> stale
-  request failure.
+`candidate = max(current_schedule_deadline, existing_deadline, approval_now) + minutes * 60`
 
-Legacy requests with absent `scope`, and ordinary `budget` requests, retain
-their existing behavior and may be approved before a Time’s Up state exists.
-Only the new tonight-specific scopes require the current lights-out state.
+Cap the result at the logical-day end. A schedule edit before approval is
+therefore read at approval time. Repeated distinct approvals extend the latest
+stored deadline; the lock prevents lost updates.
 
-A request cannot turn a changed or already-resolved state into an approval.
+If the authoritative recomputation says the budget is already exhausted, the
+same `tonight` action records a budget contribution as well as the deadline.
+If budget remains, it records only the lights-out extension. Both values live
+in the one `.tonight.json` record, so a combined approval cannot leave a
+second independent write partially applied. The ledger adds that record’s
+budget contribution when calculating today’s remaining budget, but never adds
+usage for an inactive or locked session.
 
-## Tonight-only state
+A record entry is committed atomically before the root acknowledgement. A
+retry with the same `request_id` returns the stored outcome without applying a
+second contribution. A failed write leaves the prior record intact. The
+logical-day path and 04:00 cap make old approvals expire without affecting the
+next day.
 
-Store new tonight approvals per kid in a root-owned atomic record such as
-`/var/lib/omarchy-kids/<kid>/usage/<logical-day>.tonight.json`. It contains
-the absolute wall-clock lights-out deadline and any budget contribution from
-that approval. The logical-day filename makes expiry at 04:00 automatic; the
-ledger ignores records for older logical days. Existing integer
-`<logical-day>.grant` files remain valid and readable for ordinary budget
-grants.
+## Immediate, queued, and UI results
 
-At approval time, recompute the profile’s current scheduled deadline and use:
+Immediate GRANT carries the same `request_id`, `action`, and logical day as
+the outbox path. Queue collection preserves them. `apply_record` must apply a
+new tonight record before deciding it approved. If the action is expired or
+fails, it remains unapplied and `approve --apply` reports failure; it must not
+mark the request approved anyway. This corrects the current unconditional
+approval behavior in `bin/omarchy-kids-ask`.
 
-`new_deadline = max(current_schedule_deadline, existing_override, approval_now) + minutes * 60`
+The verifier returns a safe result token such as `ok tonight extended`,
+`ok tonight extended-budget`, or `ok tonight already-applied`. The client
+prints that token, and `share/ask/shell.qml` collects stdout instead of using
+only the exit code. A lost acknowledgement can therefore be retried and show
+the stored result. Ask-later remains an undecided message until a root
+approval succeeds.
 
-This makes the duration relative to the later of the current deadline and the
-approval time. A schedule change before approval is therefore respected. A
-second approval extends the latest stored deadline rather than losing the
-first approval.
-
-The read-modify-write operation needs one root-only lock shared by the time
-ledger and time grant actions. Each record replacement remains atomic. A
-`both` approval updates the single `.tonight.json` record under that lock, so
-there is no two-file partial grant or duplicate retry. A failed replacement
-leaves the prior record untouched and reports failure.
-
-The ledger continues to count usage only for active, unlocked sessions.
-Extending lights-out never adds usage or alters the ordinary `.grant` file.
-The ledger adds the `.tonight.json` budget contribution only when calculating
-the current day’s remaining budget.
-
-## User-visible result
-
-The modal should describe the actual cause:
-
-- budget: “15 more minutes of screen time”;
-- lights-out: “15 more minutes before lights-out”;
-- both: “15 more minutes tonight”.
-
-The root verifier should return an outcome token such as
-`ok budget`, `ok lights-out`, or `ok both`, while retaining the existing
-`ok*` compatibility accepted by the client. The modal maps the result to an
-accurate completion message. It must never say that time is ready when the
-budget is still exhausted.
-
-Ask later remains an undecided request message. It must not claim that the
-extension has already happened. A queued lights-out request whose logical day
-is stale is rejected as expired rather than applied to the next day.
+The Time’s Up modal uses “Ask for 15 more minutes tonight.” Success text is
+based on the root result and never claims time is ready when the root still
+reports no usable budget. Failure and expiry remain visible to the parent
+workflow.
 
 ## Focused proof
 
 Add tests for:
 
-- lights-out grace with budget remaining: lights-out approval clears grace on
-  the next ledger tick without changing the budget grant;
-- ordinary budget grant while lights-out remains active: lights-out still
-  controls the state;
-- both causes active: root applies the combined action and the result text
-  does not overpromise;
-- inactive ticks before and after approval add no usage;
-- schedule changed before approval: root uses the current schedule and current
-  logical day;
+- legacy budget approval before grace remains accepted and unchanged;
+- lights-out with budget remaining extends only the tonight deadline;
+- lights-out with budget exhausted records both the deadline and budget
+  contribution;
+- inactive and locked ticks add zero usage;
+- schedule edits before approval are recomputed from the profile;
+- pre-04:00 schedule mapping and the 04:00 cap/expiry;
+- stale logical-day requests are rejected;
 - repeated approvals serialize and extend the latest deadline;
-- a stale queued day is rejected;
-- absent scope remains a budget request;
-- malformed scope/day and kid-supplied scope disagreement are rejected or
-  recomputed from root state;
-- next logical day ignores the prior day’s override.
+- the same `request_id` after a committed write returns the prior outcome and
+  does not grant twice;
+- failure after a commit but before acknowledgement is retry-safe;
+- malformed action/day/id fields and untrusted kid-supplied action are rejected;
+- queued tonight apply leaves failed or expired records unapplied;
+- the client displays the returned result token rather than discarding it.
 
 ## Live gate
 
-Use an invented kid with budget headroom and lights-out imminent. Confirm the
-root state enters `grace` with `reason=lights-out`, approve through the
-parent-password modal, and verify after the next ledger tick that the state
-leaves lights-out grace and the ordinary budget grant remains unchanged.
+With an invented kid who has budget headroom and lights-out imminent, verify
+root state enters lights-out grace, approve “15 more minutes tonight” through
+the parent-password modal, and confirm after the next ledger tick that the
+lights-out condition clears without changing the ordinary `.grant` file.
 
-Run a separate deterministic ledger test for 04:00 expiry; do not wait
-overnight or alter live configuration.
+Use deterministic ledger fixtures for budget exhaustion, schedule changes,
+midnight/04:00 mapping, stale queued requests, commit-before-ack retry, and
+next-day expiry. Do not wait overnight or alter live configuration.

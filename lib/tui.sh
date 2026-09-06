@@ -543,6 +543,25 @@ tui_screen_confirm() {
   fi
 }
 
+# _tui_build_summary_lines ROWS_ARRAYNAME -- formats summary rows once so the
+# summary card and its blocking chooser show the same readable values.
+_tui_build_summary_lines() {
+  local -a _tui_rows
+  _tui_array_copy _tui_rows "$1"
+  TUI_SUMMARY_LINES=()
+
+  local row label width=0 value
+  for row in "${_tui_rows[@]+"${_tui_rows[@]}"}"; do
+    label="${row%%|*}"
+    ((${#label} > width)) && width=${#label}
+  done
+  for row in "${_tui_rows[@]+"${_tui_rows[@]}"}"; do
+    label="${row%%|*}"
+    value="${row#*|}"
+    TUI_SUMMARY_LINES+=("$(printf '%-*s  %s' "$width" "$label" "$value")")
+  done
+}
+
 # tui_screen_summary TITLE STEP TOTAL SHOW_OMY OMY_LINE ROWS_ARRAYNAME [FOOTER]
 # A pure display screen (spec A13): ROWS_ARRAYNAME holds "label|value"
 # strings, rendered as an aligned two-column table. Pair it with
@@ -550,29 +569,15 @@ tui_screen_confirm() {
 # function has no prompt of its own.
 tui_screen_summary() {
   local title="$1" step="$2" total="$3" show_omy="$4" omy_line="$5"
-  local -a _tui_rows
-  _tui_array_copy _tui_rows "$6"
   local footer="${7:-$TUI_FOOTER_DEFAULT}"
-
-  local row label width=0
-  for row in "${_tui_rows[@]+"${_tui_rows[@]}"}"; do
-    label="${row%%|*}"
-    ((${#label} > width)) && width=${#label}
-  done
-  local -a _tui_summary_lines=()
-  local value
-  for row in "${_tui_rows[@]+"${_tui_rows[@]}"}"; do
-    label="${row%%|*}"
-    value="${row#*|}"
-    _tui_summary_lines+=("$(printf '%-*s  %s' "$width" "$label" "$value")")
-  done
+  _tui_build_summary_lines "$6"
 
   if _tui_card_mode; then
-    tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_summary_lines
+    tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" TUI_SUMMARY_LINES
   else
     tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
     local l
-    for l in "${_tui_summary_lines[@]+"${_tui_summary_lines[@]}"}"; do _tui_style -- "$l"; done
+    for l in "${TUI_SUMMARY_LINES[@]+"${TUI_SUMMARY_LINES[@]}"}"; do _tui_style -- "$l"; done
   fi
 
   _tui_footer "$footer"

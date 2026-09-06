@@ -34,6 +34,7 @@ SHARE="${OMARCHY_KIDS_SHARE:-/usr/share/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
 SLOTS_FILE="$ETC/luks-slots"
 MACHINE_CONF="$ETC/machine.conf"
+TRANSACTIONS_DIR="${OMARCHY_KIDS_ROOT:-}/var/lib/omarchy-kids/transactions"
 
 CONF_BIN="$(kids_bin conf "$DIR")"
 
@@ -71,11 +72,11 @@ add     Creates the Unix account, the profile, the polkit/pam/fstab
         descriptor with --parent-password-fd N. Those options and
         --luks-device are rejected in portal mode.
 
-remove  Reverses everything "add" did for that account: LUKS slot,
-        luks-slots rewrite, pam_namespace lines, AccountsService file,
+remove  Reverses everything "add" did for that account: token-proven LUKS
+        slot, derived luks-slots rewrite, pam_namespace lines, AccountsService file,
         fstab line and mount, then the account itself. The home moves to
         "<parent home>/Kids Mode/<name>/" unless --keep-home; the profile
-        stays until those steps finish so a retry can resume.
+        and durable transaction stay until those steps finish so a retry can resume.
         Machine-level pieces (groups, console masks, the polkit rules)
         are left for Remove Kids Mode. --luks-device is disk-mode only;
         portal mode refuses an account that still has a recorded slot.
@@ -133,6 +134,7 @@ unique_account() {
   local base="$1" n=2
   local account="$base"
   while [[ -e "$KIDS_DIR/$account.conf" ]] ||
+    [[ -e "$TRANSACTIONS_DIR/$account.json" ]] ||
     { command -v getent >/dev/null 2>&1 && getent passwd "$account" >/dev/null 2>&1; }; do
     account="${base}-${n}"
     n=$((n + 1))

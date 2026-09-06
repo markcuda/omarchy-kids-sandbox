@@ -15,8 +15,9 @@ things, run first).
 Before reading a password, printing a plan, or changing state, the command reads `boot=` through
 `lib/boot-mode.sh`'s fixed-path trusted reader. Missing or unsafe mode state exits 1 without a
 mutation. Portal mode rejects `--luks-device` and `--parent-password-stdin` and never enters a
-cryptsetup, Limine, or mkinitcpio path. It still reads the slot map and refuses to remove any
-account with a recorded kid slot because portal mode cannot prove that key is gone.
+cryptsetup, Limine, or mkinitcpio path. It reads the map and authoritative transactions and refuses
+to remove any account with an owned disk identity because portal mode cannot prove that key is
+gone, including when the derived map entry is missing.
 
 ## What it does, in order
 
@@ -25,16 +26,15 @@ account with a recorded kid slot because portal mode cannot prove that key is go
    snapshot: #<n>`, issue #45) so a parent has it to hand if they ever need `snapper undochange` or
    the GUI. Skippable with `--no-snapshot`; silently does nothing if `snapper` isn't installed.
 2. **For every kid** (every `$OMARCHY_KIDS_ETC/kids/<account>.conf`), in this order:
-   1. In disk mode, writes and fsyncs `/etc/omarchy-kids/luks-slots.removing-<account>` with the
-      exact slot and account, then kills that slot, atomically rewrites `luks-slots` without the
-      entry, and removes the intent. The map and each per-kid transaction share a root-owned lock.
-      `--luks-device` supplies the device when auto-detection is unavailable. Before killing, the
-      command checks `cryptsetup luksDump`. A failed kill leaves the mapping and profile in place,
-      stops that kid's removal, and prevents machine cleanup. A different kid whose own slot
-      removal succeeds can still finish. If power stops the run after the kill, the next run reads
-      the intent, confirms the slot is empty, finishes the map rewrite, and clears the intent.
-      Portal mode reports `FAILED` and preserves the account, profile, and home whenever the map or
-      an intent still records that kid.
+   1. In disk mode, validates the account transaction and its on-device token, fsyncs `removing`,
+      verifies device UUID, slot, owner and token again immediately before the kill, observes the
+      empty slot, fsyncs `removed`, and derives `luks-slots`. The whole account removal and every
+      competing writer share one lock. A failed kill leaves the mapping, transaction, and profile
+      in place. A different kid whose proven removal succeeds can still finish. After power loss,
+      `removing` plus an empty slot finishes without another kill; an active mismatch is untouched.
+      Device UUID is checked before occupancy-based recovery. Portal mode reports `FAILED` and
+      preserves the account, profile, and home whenever the map, an intent, or an owned transaction
+      records that kid.
    2. Unmounts the home's noexec bind mount (`umount`), and best-effort stops whatever transient
       systemd mount unit fstab's own generator may have made for it (`systemd-escape --path
       --suffix=mount` then `systemctl stop`, both skipped quietly if `systemd-escape` isn't
@@ -49,7 +49,8 @@ account with a recorded kid slot because portal mode cannot prove that key is go
       also takes the home with it in the same step (see "Homes" below).
    8. Keeps the home: moves it to `<parent home>/Kids Mode/<display name>/` (R-FND-6, the exact
       convention `omarchy-kids-provision remove` already uses for a single kid — see "Homes"
-      below), unless `--delete-homes` already took it away in step 7.
+      below), unless `--delete-homes` already took it away in step 7. With preservation enabled,
+      both the source and recorded destination missing is a failure, not a successful move.
    9. Removes the profile only after the account and home steps finish. A retry therefore still has
       the account roster and display name after any earlier failure or power loss.
 3. **Machine level**, once per run regardless of how many kids there were:
@@ -118,6 +119,8 @@ Every run prints **the plan first**: every step above, either `skipped` (nothing
   `/etc/omarchy-kids` deletion preserves
   `machine.conf` for a retry; the pre-delete tarball covers a failure during that last deletion.
   Exit is 1 if anything failed, 0 otherwise.
+  Every durable journal update has the same failure path: it reports the exact transaction step,
+  stops that kid before the next dependent action, and prevents machine teardown and journal purge.
 
 This is the same `AGENTS.md` rule 8 exception `omarchy-kids-assert` already documents (see
 `docs/assert.md`'s "Judgment calls"): a command whose whole reason to exist is a single, deliberate
@@ -186,6 +189,11 @@ reports `skipped`, with no separate `rm -rf` or move needed.
   action, in the spirit of R-SEC-2's "every parent prompt uses the verifier", without inventing a
   requirement cryptsetup itself doesn't have and `omarchy-kids-provision remove` doesn't enforce
   either. Never on argv, matching every password in this repo.
+- **Legacy removal intents are evidence, not ownership.** An intent with no map and exact token is
+  reported as blocked and preserved; it is never imported as a non-LUKS account.
+- **Non-LUKS journals do not erase conflicting disk evidence.** If a valid `luks_mode=none`
+  transaction coexists with a legacy map entry or removal intent for that account, both removal
+  commands stop before account, home, profile, or evidence cleanup.
 - **The Snapper snapshot offer is the one non-idempotent step on purpose.** Every other step checks
   "is there anything left to undo" before acting; a snapshot has no such notion — running Remove
   Kids Mode twice on purpose (say, once that fails partway and once that finishes) legitimately

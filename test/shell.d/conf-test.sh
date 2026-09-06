@@ -46,7 +46,7 @@ mkdir -p "$OMARCHY_KIDS_HOME_ROOT/home/kid-ada"
 # A base toolset only: a real Omarchy box already has a kid-ada account,
 # and `getent passwd kid-ada` would send theme_apply_for at the real
 # /home/kid-ada instead of the scratch root (AGENTS.md, testing rules).
-BASE_PATH="$(kids_base_path "$TMP/base")"
+BASE_PATH="$(kids_base_path "$TMP/base" flock)"
 export PATH="$BASE_PATH"
 
 export OMARCHY_KIDS_ETC="$ETC"
@@ -490,6 +490,7 @@ source "$DIR/lib/conf.sh"
 source "$DIR/lib/launcher-map.sh"
 # shellcheck source=lib/session-manifest.sh
 source "$DIR/lib/session-manifest.sh"
+# shellcheck disable=SC2034 # consumed by sourced manifest helpers.
 CONF_BIN="$CONF" LIB="$DIR/lib" KIDS_PY=python3 KIDS_DIR="$ETC/kids" SYSROOT="$TMP/sysroot"
 export OMARCHY_KIDS_ROOT="$SYSROOT" # the map builder scans <root>/usr/share/applications, never this box's
 mkdir -p "$ETC/sessions" "$ETC/launchers" "$SYSROOT" "$SHARE/avatars"

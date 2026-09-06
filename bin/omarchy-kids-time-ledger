@@ -57,7 +57,8 @@ session_prop() {
 # active_kid_sessions — one account per line, deduplicated, for every kid
 # with a session Active=yes/LockedHint=no right now.
 active_kid_sessions() {
-  local line id user active locked seen=$'\n'
+  local sessions line id user active locked seen=$'\n'
+  sessions="$(loginctl list-sessions --no-legend 2>/dev/null)" || return 1
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     # loginctl list-sessions --no-legend: "SESSION UID USER SEAT [TTY]".
@@ -66,27 +67,43 @@ active_kid_sessions() {
     [[ -n "$id" && -n "$user" ]] || continue
     is_known_kid "$KIDS_DIR" "$user" || continue
     [[ "$seen" == *$'\n'"$user"$'\n'* ]] && continue
-    active="$(session_prop "$id" Active || true)"
-    locked="$(session_prop "$id" LockedHint || true)"
+    active="$(session_prop "$id" Active)" || return 1
+    locked="$(session_prop "$id" LockedHint)" || return 1
     [[ "$active" == yes && "$locked" == no ]] || continue
     seen+="$user"$'\n'
     printf '%s\n' "$user"
-  done < <(loginctl list-sessions --no-legend 2>/dev/null)
+  done <<<"$sessions"
 }
 
 # kid_session_ids ACCOUNT — active, unlocked sessions that belong to ACCOUNT.
 kid_session_ids() {
-  local wanted="$1" line id user active locked
+  local wanted="$1" sessions line id user active locked
+  sessions="$(loginctl list-sessions --no-legend 2>/dev/null)" || return 1
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     id="$(awk '{print $1}' <<<"$line")"
     user="$(awk '{print $3}' <<<"$line")"
     [[ "$user" == "$wanted" ]] || continue
-    active="$(session_prop "$id" Active || true)"
-    locked="$(session_prop "$id" LockedHint || true)"
+    active="$(session_prop "$id" Active)" || return 1
+    locked="$(session_prop "$id" LockedHint)" || return 1
     [[ "$active" == yes && "$locked" == no ]] || continue
     printf '%s\n' "$id"
-  done < <(loginctl list-sessions --no-legend 2>/dev/null)
+  done <<<"$sessions"
+}
+
+# kid_all_session_ids ACCOUNT — every logind session for ACCOUNT, including
+# inactive or locked sessions. Finish terminates the account, so this is the
+# matching existence check for re-entry after a successful finish.
+kid_all_session_ids() {
+  local wanted="$1" sessions line id user
+  sessions="$(loginctl list-sessions --no-legend 2>/dev/null)" || return 1
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    id="$(awk '{print $1}' <<<"$line")"
+    user="$(awk '{print $3}' <<<"$line")"
+    [[ -n "$id" && "$user" == "$wanted" ]] || continue
+    printf '%s\n' "$id"
+  done <<<"$sessions"
 }
 
 # lock_kid_sessions SESSION_IDS — lock each target and retain any failure.
@@ -107,9 +124,11 @@ write_status_json() {
   IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || return 0
   command -v jq >/dev/null 2>&1 || return 0
   install -d -m 0755 "$RUN_DIR" 2>/dev/null || return 0
-  rows="$(mktemp)" || return 0
   # One loginctl scan for every kid below, not one per kid.
-  active="$(active_kid_sessions)"
+  # Leave the last status intact when liveness is uncertain; writing every kid
+  # as inactive would turn an observation failure into false parent guidance.
+  active="$(active_kid_sessions)" || return 0
+  rows="$(mktemp)" || return 0
   while IFS= read -r kid; do
     [[ -n "$kid" ]] || continue
     remaining="$(time_remaining_minutes "$kid" "$day" "$weekend" 2>/dev/null || echo 0)"
@@ -134,28 +153,45 @@ cmd_tick() {
   if ! is_root; then
     die "tick must run as root (it is meant to be run by systemd/omarchy-kids-time.timer)" 1
   fi
-  local now day weekend monotonic active kid is_active
+  local now day weekend monotonic kid is_active kid_status tick_status=0
   now="$(time_root_now)"
   IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || die "could not compute today's logical day"
   monotonic="$(time_monotonic)" || die "could not read the monotonic clock"
-  active="$(active_kid_sessions)"
   while IFS= read -r kid; do
     [[ -n "$kid" ]] || continue
-    is_active=no
-    kid_is_active "$kid" "$active" && is_active=yes
-    time_is_paused "$kid" && is_active=no
-    tick_kid "$kid" "$day" "$weekend" "$now" "$monotonic" "$is_active"
+    if ! is_active="$(kid_active_state "$kid")"; then
+      is_active=unknown
+    fi
+    [[ "$is_active" == unknown ]] || { time_is_paused "$kid" && is_active=no; }
+    set +e
+    (
+      set -e
+      tick_kid "$kid" "$day" "$weekend" "$now" "$monotonic" "$is_active"
+    )
+    kid_status=$?
+    set -e
+    if [[ "$kid_status" -ne 0 ]]; then tick_status=1; fi
   done < <(kids_list "$KIDS_DIR")
   write_status_json
   fold_all_launches
+  return "$tick_status"
 }
 
-kid_is_active() {
-  local wanted="$1" list="$2" line
+# kid_active_state ACCOUNT — yes/no when the account's sessions are known;
+# failure means the account's liveness is unknown and must not advance usage.
+kid_active_state() {
+  local wanted="$1" sessions line id user active locked
+  sessions="$(loginctl list-sessions --no-legend 2>/dev/null)" || return 1
   while IFS= read -r line; do
-    [[ "$line" == "$wanted" ]] && return 0
-  done <<<"$list"
-  return 1
+    [[ -n "$line" ]] || continue
+    id="$(awk '{print $1}' <<<"$line")"
+    user="$(awk '{print $3}' <<<"$line")"
+    [[ "$user" == "$wanted" ]] || continue
+    active="$(session_prop "$id" Active)" || return 1
+    locked="$(session_prop "$id" LockedHint)" || return 1
+    [[ "$active" == yes && "$locked" == no ]] && printf 'yes\n' && return 0
+  done <<<"$sessions"
+  printf 'no\n'
 }
 
 # tick_kid ACCOUNT DAY WEEKEND NOW MONOTONIC ACTIVE — update one root state
@@ -166,7 +202,7 @@ tick_kid() {
   local previous_remaining="" fired="" elapsed accumulated minutes base_remaining remaining lo decision
   local split old_elapsed new_elapsed old_accum old_minutes new_minutes
   local enforcement_action=none enforcement_reason=none enforcement_result=none enforcement_at=""
-  local session_ids
+  local session_ids query_failed=0
 
   if state_json="$(time_state_file "$kid")" && time_state_read "$state_json"; then
     logical_day="$(jq -r '.logical_day' "$state_json")"
@@ -192,6 +228,10 @@ tick_kid() {
     enforcement_reason=none
     enforcement_result=none
     enforcement_at=""
+  fi
+
+  if [[ "$active" == unknown ]]; then
+    return 1
   fi
 
   # A changed logical day starts from that day's integer ledgers, not from
@@ -272,10 +312,15 @@ tick_kid() {
   fi
 
   if [[ "$state" == grace ]]; then
-    session_ids="$(kid_session_ids "$kid")"
-    if [[ "$enforcement_action" != lock || "$enforcement_reason" != "$reason" ||
+    if ! session_ids="$(kid_session_ids "$kid")"; then
+      enforcement_action=lock
+      enforcement_reason="$reason"
+      enforcement_result=failed
+      enforcement_at="$now"
+      query_failed=1
+    elif [[ "$enforcement_action" != lock || "$enforcement_reason" != "$reason" ||
       "$enforcement_result" == failed ||
-      ("$enforcement_result" == not-needed && -n "$session_ids") ]]; then
+      -n "$session_ids" ]]; then
       enforcement_action=lock
       enforcement_reason="$reason"
       enforcement_at="$now"
@@ -290,8 +335,15 @@ tick_kid() {
       fi
     fi
   elif [[ "$state" == finishing ]]; then
-    if [[ "$enforcement_action" != finish || "$enforcement_reason" != "$reason" ||
-      "$enforcement_result" == failed ]]; then
+    if ! session_ids="$(kid_all_session_ids "$kid")"; then
+      enforcement_action=finish
+      enforcement_reason="$reason"
+      enforcement_result=failed
+      enforcement_at="$now"
+      query_failed=1
+    elif [[ "$enforcement_action" != finish || "$enforcement_reason" != "$reason" ||
+      "$enforcement_result" == failed ||
+      -n "$session_ids" ]]; then
       enforcement_action=finish
       enforcement_reason="$reason"
       enforcement_at="$now"
@@ -306,6 +358,9 @@ tick_kid() {
   time_state_write "$kid" "$day" "$state" "$reason" "$remaining" "$grace" \
     "$last" "$remainder" "$fired" "$now" "$enforcement_action" \
     "$enforcement_reason" "$enforcement_result" "$enforcement_at"
+  if ((query_failed)); then
+    return 1
+  fi
 }
 
 # fold_all_launches — R-DATA-1, every known kid, best-effort.

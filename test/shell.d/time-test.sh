@@ -85,11 +85,16 @@ cat >"$STUBS/loginctl" <<EOF
 #!/bin/bash
 STATE="$SESSIONS"
 if [[ "\$1" == "list-sessions" ]]; then
+  list_rc="\${LOGINCTL_LIST_RC:-0}"
+  [[ "\$list_rc" == 0 ]] || exit "\$list_rc"
   awk '{print \$1, \$2, \$3, "seat0"}' "\$STATE"
   exit 0
 fi
 if [[ "\$1" == "show-session" ]]; then
+  show_rc="\${LOGINCTL_SHOW_RC:-0}"
+  [[ "\$show_rc" == 0 ]] || exit "\$show_rc"
   id="\$2"; shift 2
+  [[ "\${LOGINCTL_FAIL_ID:-}" == "\$id" ]] && exit 1
   props=()
   while [[ \$# -gt 0 ]]; do
     case "\$1" in
@@ -110,6 +115,8 @@ if [[ "\$1" == "show-session" ]]; then
 fi
 if [[ "\$1" == "lock-session" ]]; then
   printf '%s %s\n' "\$1" "\$2" >>"$LOCK_LOG"
+  awk -v id="\$2" '\$1 == id { \$5 = "yes" } { print }' "\$STATE" >"\$STATE.tmp"
+  mv -f "\$STATE.tmp" "\$STATE"
   exit 0
 fi
 exit 1
@@ -139,6 +146,10 @@ kids_set_const "$TIME" QUICKSHELL_BIN "$TMP/tree/bin/quickshell"
 kids_stub "$TMP/tree" omarchy-kids-exit <<EOF
 #!/bin/bash
 printf '%s\n' "\$*" >>"$FINISH_LOG"
+if [[ "\${FINISH_RC:-0}" == 0 ]]; then
+  awk '\$3 != "kid-ada"' "$SESSIONS" >"$SESSIONS.tmp"
+  mv -f "$SESSIONS.tmp" "$SESSIONS"
+fi
 exit "\${FINISH_RC:-0}"
 EOF
 kids_stub "$TMP/tree" quickshell <<EOF
@@ -149,6 +160,17 @@ printf 'argv=%s toast=%s account=%s name=%s avatar=%s\n' \\
 EOF
 
 export PATH="$STUBS:$PATH"
+cat >"$STUBS/jq" <<'EOF'
+#!/bin/bash
+[[ "${JQ_SERIALIZE_FAIL:-0}" == 1 && "${1:-}" == -n ]] && exit 1
+exec /usr/bin/jq "$@"
+EOF
+cat >"$STUBS/mv" <<'EOF'
+#!/bin/bash
+[[ "${MV_FAIL:-0}" == 1 ]] && exit 1
+exec /bin/mv "$@"
+EOF
+chmod +x "$STUBS/jq" "$STUBS/mv"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 export OMARCHY_KIDS_ROOT="$ROOT"
@@ -334,6 +356,7 @@ check_contains "$out" "budget runs out at 04:05" \
 
 set_now "2026-09-03 20:00:00"
 set_clock 1720
+set_sessions "1 1000 kid-ada yes no"
 "$LEDGER" tick >/dev/null
 check "$(state_value state)" "grace" "tick: lights-out enters grace independently of budget"
 check "$(state_value reason)" "lights-out" "tick: lights-out records its own reason"
@@ -343,6 +366,10 @@ check "$(enforcement_value reason)" "lights-out" "tick: state records why root l
 check "$(enforcement_value result)" "success" "tick: lights-out lock succeeds"
 check "$(enforcement_value at)" "2026-09-03 20:00:00" "tick: enforcement record uses the fixed wall-clock reading"
 check "$(wc -l <"$LOCK_LOG" | tr -d ' ')" "2" "tick: lights-out requests one additional root lock"
+set_sessions "2 1000 kid-ada yes no"
+set_clock 1730
+"$LEDGER" tick >/dev/null
+check "$(wc -l <"$LOCK_LOG" | tr -d ' ')" "3" "tick: a new session gets the existing lights-out lock decision"
 out="$("$TIME" status kid-ada)"
 check_contains "$out" "kid-ada: 56 min used, 4 min left today (budget 60)" \
   "status: keeps the parent-facing format at lights-out"
@@ -361,6 +388,60 @@ check "$(enforcement_value result)" "success" "tick: successful finish is record
 check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "2" "tick: finish failure is retried on the next tick"
 FINISH_RC=0 "$LEDGER" tick >/dev/null
 check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "2" "tick: successful finish is idempotent"
+set_sessions "3 1000 kid-ada yes no"
+FINISH_RC=0 "$LEDGER" tick >/dev/null
+check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "3" "tick: a new session gets the existing lights-out finish decision"
+set_sessions "4 1000 kid-ada yes yes"
+FINISH_RC=0 "$LEDGER" tick >/dev/null
+check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "4" "tick: a locked session gets the existing lights-out finish decision"
+set_sessions "5 1000 kid-ada no no"
+FINISH_RC=0 "$LEDGER" tick >/dev/null
+check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "5" "tick: an inactive session gets the existing lights-out finish decision"
+LOGINCTL_LIST_RC=1 "$LEDGER" tick >/dev/null 2>&1
+check "$?" "1" "tick: a session query failure is not treated as an empty session list"
+check "$(enforcement_value result)" "success" "tick: a session query failure preserves the prior finish state"
+set_sessions "6 1000 kid-ada yes no"
+FINISH_RC=0 "$LEDGER" tick >/dev/null
+check "$(wc -l <"$FINISH_LOG" | tr -d ' ')" "6" "tick: a failed session query retries finish when the query recovers"
+STATE_FILE="$ROOT/run/omarchy-kids/time/kid-ada.json"
+check "$(
+  jq -e . "$STATE_FILE" >/dev/null 2>&1
+  echo $?
+)" "0" \
+  "tick: state failure baseline is valid JSON"
+before_state="$(cat "$STATE_FILE")"
+set_sessions "7 1000 kid-ada yes no"
+JQ_SERIALIZE_FAIL=1 "$LEDGER" tick >/dev/null 2>&1
+check "$?" "1" "tick: jq state failure propagates"
+check "$(cat "$STATE_FILE")" "$before_state" \
+  "tick: jq state failure preserves the prior state"
+MV_FAIL=1 "$LEDGER" tick >/dev/null 2>&1
+check "$?" "1" "tick: state replacement failure propagates"
+check "$(cat "$STATE_FILE")" "$before_state" \
+  "tick: state replacement failure preserves the prior state"
+
+# A property failure for one kid must preserve another kid's valid accounting
+# while leaving the uncertain kid's interval pending for the retry.
+cat >"$ETC/kids/kid-ben.conf" <<'EOF'
+name=Ben Lovelace
+avatar=fox
+band=6-8
+EOF
+set_now "2026-09-12 10:00:00"
+set_clock 2000
+set_sessions "10 1000 kid-ada yes no" "11 1001 kid-ben yes no"
+"$LEDGER" tick >/dev/null
+set_clock 2060
+LOGINCTL_FAIL_ID=11 "$LEDGER" tick >/dev/null 2>&1
+check "$?" "1" "tick: one kid query failure propagates without hiding uncertainty"
+check "$(used_today 2026-09-12)" "1" "tick: unaffected kid still receives its valid minute"
+check "$(cat "$ROOT/var/lib/omarchy-kids/kid-ben/usage/2026-09-12" 2>/dev/null || true)" "" \
+  "tick: uncertain kid does not commit guessed inactive usage"
+set_clock 2120
+"$LEDGER" tick >/dev/null
+check "$(used_today 2026-09-12)" "2" "tick: unaffected kid catches up after the failed query recovers"
+check "$(cat "$ROOT/var/lib/omarchy-kids/kid-ben/usage/2026-09-12" 2>/dev/null || true)" "2" \
+  "tick: failed kid catches up its pending interval after recovery"
 
 echo
 

@@ -56,6 +56,11 @@ case "${1:-}" in
         done
         ;;
     *)
+        if [[ -n "${GUM_BLOCK_UNTIL:-}" ]]; then
+            printf 'blocked %s\n' "${1:-}" >>"$LOG"
+            while [[ ! -e "$GUM_BLOCK_UNTIL" ]]; do sleep 0.01; done
+        fi
+        [[ -n "${GUM_OUTPUT:-}" ]] && printf '%s\n' "$GUM_OUTPUT"
         exit "${GUM_EXIT:-0}"
         ;;
 esac
@@ -429,6 +434,85 @@ if [[ -n "$style_line" && -n "$choose_line" && "$style_line" -lt "$choose_line" 
 else
   fail "tui_screen_choose: card/choose are out of order (card=$style_line choose=$choose_line)"
 fi
+
+# Issue #110: card help must be visible while each blocking gum widget waits.
+# The fake gum owns the blocking command and release fixture, so this checks
+# output before the widget consumes an answer rather than after it exits.
+blocked_out="$TMP/blocked.out"
+release="$TMP/release"
+first_footer='Enter continue · Ctrl+C leave (nothing changes)'
+default_footer='Enter continue · Esc back · Ctrl+C leave (nothing changes)'
+: >"$GUM_LOG"
+(
+  unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck disable=SC2030,SC2031 # the background fixture owns these exports
+  export GUM_BLOCK_UNTIL="$release" GUM_OUTPUT=garden
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null
+  TUI_MODE="interactive" TUI_HAVE_GUM=1
+  # shellcheck disable=SC2034 # passed by name to tui_screen_choose's indirect array copy
+  blocked_choices=("garden|Only sites you choose|")
+  tui_screen_choose "Welcome" 1 3 1 "Hi from Omy." blocked_choices "garden" "$TUI_FOOTER_FIRST"
+  echo "rc=$? reply=$TUI_REPLY"
+) >"$blocked_out" 2>&1 </dev/null &
+blocked_pid=$!
+for ((i = 0; i < 100; i++)); do
+  grep -q '^blocked choose$' "$GUM_LOG" && break
+  sleep 0.01
+done
+check_contains "$(cat "$blocked_out")" "$first_footer" "tui_screen_choose: first-screen guidance is visible before gum consumes the answer"
+touch "$release"
+wait "$blocked_pid"
+check_contains "$(cat "$blocked_out")" "rc=0 reply=garden" "tui_screen_choose: blocked widget still returns its answer"
+
+: >"$GUM_LOG"
+rm -f "$release"
+(
+  unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck disable=SC2030,SC2031 # the background fixture owns these exports
+  export GUM_BLOCK_UNTIL="$release" GUM_OUTPUT=Ada
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null
+  TUI_MODE="interactive" TUI_HAVE_GUM=1
+  tui_screen_input "What's your kid's name?" 3 3 0 "" text "First name or nickname. It's what they'll see."
+  echo "rc=$? reply=$TUI_REPLY"
+) >"$blocked_out" 2>&1 </dev/null &
+blocked_pid=$!
+for ((i = 0; i < 100; i++)); do
+  grep -q '^blocked input$' "$GUM_LOG" && break
+  sleep 0.01
+done
+check_contains "$(cat "$blocked_out")" "$default_footer" "tui_screen_input: guidance is visible before gum consumes the answer"
+touch "$release"
+wait "$blocked_pid"
+check_contains "$(cat "$blocked_out")" "rc=0 reply=Ada" "tui_screen_input: blocked widget still returns its answer"
+
+: >"$GUM_LOG"
+rm -f "$release"
+(
+  unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck disable=SC2030,SC2031 # the background fixture owns this export
+  export GUM_BLOCK_UNTIL="$release"
+  # shellcheck source=/dev/null
+  source "$TUI_LIB"
+  tui_init 2>/dev/null
+  TUI_MODE="interactive" TUI_HAVE_GUM=1
+  # shellcheck disable=SC2034 # passed by name to tui_screen_confirm's indirect array copy
+  confirm_body=("Review these choices.")
+  tui_screen_confirm "Ready?" 13 13 0 "" confirm_body "Apply" "Change something"
+  echo "rc=$? reply=$TUI_REPLY"
+) >"$blocked_out" 2>&1 </dev/null &
+blocked_pid=$!
+for ((i = 0; i < 100; i++)); do
+  grep -q '^blocked confirm$' "$GUM_LOG" && break
+  sleep 0.01
+done
+check_contains "$(cat "$blocked_out")" "$default_footer" "tui_screen_confirm: guidance is visible before gum consumes the answer"
+touch "$release"
+wait "$blocked_pid"
+check_contains "$(cat "$blocked_out")" "rc=0 reply=yes" "tui_screen_confirm: blocked widget still returns its answer"
 
 # ...and a choose screen's body is drawn *inside* that one card (review
 # §3.1), not printed beside it where the next clear would take it.

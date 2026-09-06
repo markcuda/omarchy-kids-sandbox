@@ -439,9 +439,12 @@ fi
 # muted role is available for secondary copy (issue #119).
 footer_colors="$(
   unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  # shellcheck disable=SC1090 # test fixture resolves the same checkout path as the parent test
   source "$TUI_LIB"
   TUI_MODE="interactive" TUI_HAVE_GUM=1
+  # shellcheck disable=SC2034 # _tui_footer reads these indirect theme fixtures
   TUI_C_FG="#readable"
+  # shellcheck disable=SC2034 # _tui_footer reads these indirect theme fixtures
   TUI_C_MUTED="#muted"
   : >"$GUM_LOG"
   _tui_footer "Enter continue · Esc back"

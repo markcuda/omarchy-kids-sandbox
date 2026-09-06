@@ -60,10 +60,10 @@ PanelWindow {
         }
     }
 
-    function refreshList() {
+    function refreshList(preserveStatus) {
         if (listProcess.running || root.joining) return
         root.loading = true
-        root.statusText = ""
+        if (!preserveStatus) root.statusText = ""
         listProcess.running = true
     }
 
@@ -126,6 +126,7 @@ PanelWindow {
     // guessing a second one.
     Process {
         id: joinProcess
+        property string ssid: ""
         property string candidate: ""
         property bool sent: false
         stdinEnabled: true
@@ -143,10 +144,10 @@ PanelWindow {
         onExited: (exitCode) => {
             root.joining = false
             if (exitCode === 0) {
-                root.statusText = "Joined " + (root.selectedNetwork() ? root.selectedNetwork().ssid : "the network") + "."
+                root.statusText = "Joined " + joinProcess.ssid + "."
                 root.showPasswordField = false
                 root.passwordText = ""
-                root.refreshList()
+                root.refreshList(true)
             } else if (exitCode === 3) {
                 root.statusText = "Wi-Fi needs a grown-up right now."
             } else {
@@ -167,6 +168,7 @@ PanelWindow {
             return
         }
         root.joining = true
+        joinProcess.ssid = net.ssid
         root.statusText = "Joining " + net.ssid + "…"
         if (root.needsPassword(net)) {
             joinProcess.command = ["/usr/bin/omarchy-kids-wifi", "join", net.ssid, "--password-stdin"]

@@ -121,6 +121,41 @@ _tui_card_mode() {
   [[ "$TUI_MODE" == interactive && "${OMARCHY_KIDS_TUI_PLAIN:-0}" != 1 ]]
 }
 
+# _tui_native_mode -- Gum owns the complete interactive screen, so its
+# resize-aware renderer can clear and redraw the explanatory text too.
+_tui_native_mode() {
+  _tui_card_mode && ((TUI_HAVE_GUM))
+}
+
+# _tui_native_layout -- keep widget padding independent of the old terminal
+# width; the native Gum view reflows from its current WindowSizeMsg.
+_tui_native_layout() {
+  export GUM_CHOOSE_PADDING="0 2" GUM_INPUT_PADDING="0 2" GUM_CONFIRM_PADDING="0 2"
+  export GUM_CHOOSE_SHOW_HELP=false GUM_INPUT_SHOW_HELP=false GUM_CONFIRM_SHOW_HELP=false
+}
+
+# _tui_header_text TITLE STEP TOTAL SHOW_OMY OMY_LINE BODY_ARRAYNAME [ERROR]
+# Emits the semantic screen copy for a native Gum header/prompt. It contains
+# no pre-rendered border or width, so terminal resize can redraw it safely.
+_tui_header_text() {
+  local title="$1" step="$2" total="$3" show_omy="$4" omy_line="${5:-}"
+  local body_argname="${6:-}"
+  local -a lines=("Kids Mode")
+  ((total > 1)) && lines[0]="Kids Mode · Step ${step} of ${total}"
+  [[ "$title" != "Kids Mode" ]] && lines+=("$title")
+  if [[ "$show_omy" == 1 ]]; then
+    lines+=("🦉 Omy")
+    [[ -n "$omy_line" ]] && lines+=("$omy_line")
+  fi
+  local -a body=()
+  [[ -n "$body_argname" ]] && _tui_array_copy body "$body_argname"
+  if ((${#body[@]})); then
+    lines+=("")
+    lines+=("${body[@]}")
+  fi
+  printf '%s\n' "${lines[@]}"
+}
+
 # _tui_clear -- plain `clear`, same as omarchy-provision-owner's clear_logo,
 # so tests can fake it on PATH. No-op, not a failure, if not installed.
 _tui_clear() {
@@ -309,7 +344,13 @@ tui_screen_choose() {
   done
 
   while true; do
-    if _tui_card_mode; then
+    local native_header=""
+    if _tui_native_mode; then
+      _tui_clear
+      _tui_native_layout
+      native_header="$(_tui_header_text "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_choose_body)"
+      native_header="${native_header}"$'\n'"${footer}"
+    elif _tui_card_mode; then
       tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_choose_body
     else
       tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
@@ -328,7 +369,7 @@ tui_screen_choose() {
     fi
     # The footer must be visible before gum blocks while waiting; its own
     # help line is off in card mode.
-    _tui_footer "$footer"
+    if ! _tui_native_mode; then _tui_footer "$footer"; fi
 
     local chosen
     if [[ "$TUI_MODE" == file ]]; then
@@ -336,7 +377,9 @@ tui_screen_choose() {
       chosen="$TUI_NEXT_ANSWER"
     elif ((TUI_HAVE_GUM)); then
       local -a gflags=()
-      if _tui_card_mode; then
+      if _tui_native_mode; then
+        gflags+=(--header "$native_header" --header.foreground "$TUI_C_FG")
+      elif _tui_card_mode; then
         # No --header: the title's already the card's own line.
         gflags+=(--header "")
       else
@@ -407,7 +450,15 @@ tui_screen_input() {
     [[ -n "$placeholder" ]] && _tui_input_body+=("$placeholder")
     [[ -n "$last_err" ]] && _tui_input_body+=("" "$last_err")
 
-    if _tui_card_mode; then
+    local native_header=""
+    if _tui_native_mode; then
+      _tui_clear
+      _tui_native_layout
+      local input_err=0
+      [[ -n "$last_err" ]] && input_err=1
+      native_header="$(_tui_header_text "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_input_body "$input_err")"
+      native_header="${native_header}"$'\n'"${footer}"
+    elif _tui_card_mode; then
       local errflag=0
       [[ -n "$last_err" ]] && errflag=1
       tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_input_body "$errflag"
@@ -416,7 +467,7 @@ tui_screen_input() {
       [[ -n "$placeholder" ]] && _tui_style --foreground "$TUI_C_MUTED" -- "$placeholder"
       [[ -n "$last_err" ]] && _tui_style --foreground "$TUI_C_ERROR" -- "$last_err"
     fi
-    _tui_footer "$footer"
+    if ! _tui_native_mode; then _tui_footer "$footer"; fi
 
     local ans
     if [[ "$TUI_MODE" == file ]]; then
@@ -425,6 +476,11 @@ tui_screen_input() {
     elif ((TUI_HAVE_GUM)); then
       # The hint is on the card (or printed above) already; repeating it inside the box read twice.
       local -a gflags=(--placeholder "" --prompt.foreground "$TUI_C_ACCENT")
+      if _tui_native_mode; then
+        local header_color="$TUI_C_FG"
+        [[ -n "$last_err" ]] && header_color="$TUI_C_ERROR"
+        gflags+=(--header "$native_header" --header.foreground "$header_color")
+      fi
       [[ "$kind" == password ]] && gflags+=(--password)
       ans="$(gum input "${gflags[@]}")"
       case $? in
@@ -472,9 +528,15 @@ tui_screen_confirm() {
   local affirm="${7:-Yes}" decline="${8:-No}"
   local footer="${9:-$TUI_FOOTER_DEFAULT}"
 
-  if _tui_card_mode; then
+  local native_prompt=""
+  if _tui_native_mode; then
+    _tui_clear
+    _tui_native_layout
+    native_prompt="$(_tui_header_text "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_body)"
+    native_prompt="${native_prompt}"$'\n'"${footer}"
+  elif _tui_card_mode; then
     tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_body
-    _tui_footer "$footer"
+    if ! _tui_native_mode; then _tui_footer "$footer"; fi
   else
     tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
     local b
@@ -507,7 +569,10 @@ tui_screen_confirm() {
   elif ((TUI_HAVE_GUM)); then
     # No prompt text in card mode: the title/body is already the
     # card's own content (same reasoning as --header "" above).
-    if _tui_card_mode; then
+    if _tui_native_mode; then
+      gum confirm --affirmative "$affirm" --negative "$decline" \
+        --prompt.foreground "$TUI_C_FG" -- "$native_prompt"
+    elif _tui_card_mode; then
       gum confirm --affirmative "$affirm" --negative "$decline"
     else
       gum confirm --affirmative "$affirm" --negative "$decline" -- "$title"

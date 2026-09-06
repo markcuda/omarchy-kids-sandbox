@@ -268,6 +268,15 @@ else
 fi
 
 # --- review §1.5: the app entry marks itself as a human launch ------------
+# The app entry opens a terminal. omarchy-kids is a gum TUI, so Terminal=false launches it with
+# nothing to draw on: a parent clicking Kids Mode saw a launch toast and then nothing at all
+# (found on the test laptop, 2026-09-05). Omarchy's own TUI entries (btop, nvim) set Terminal=true.
+if grep -q '^Terminal=true$' "$ROOT/desktop/omarchy-kids.desktop"; then
+  pass "desktop/omarchy-kids.desktop opens a terminal for the TUI"
+else
+  fail "desktop/omarchy-kids.desktop must set Terminal=true; a gum TUI has nothing to draw on without one"
+fi
+
 if grep -q 'Exec=env OMARCHY_KIDS_LAUNCHED_BY=desktop omarchy-kids' "$ROOT/desktop/omarchy-kids.desktop"; then
   pass "desktop entry marks itself so the panel and wizard run for real"
 else

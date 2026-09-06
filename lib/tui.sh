@@ -326,9 +326,9 @@ tui_screen_choose() {
       local d
       for d in "${display[@]+"${display[@]}"}"; do _tui_style "${dm[@]+"${dm[@]}"}" -- "$d"; done
     fi
-    # Plain mode's footer sits above the prompt; card mode's below the
-    # widget, since gum's own help line is off (_tui_measure).
-    _tui_card_mode || _tui_footer "$footer"
+    # The footer must be visible before gum blocks while waiting; its own
+    # help line is off in card mode.
+    _tui_footer "$footer"
 
     local chosen
     if [[ "$TUI_MODE" == file ]]; then
@@ -357,8 +357,6 @@ tui_screen_choose() {
     else
       read -r -p "> " chosen
     fi
-
-    _tui_card_mode && _tui_footer "$footer"
 
     if [[ "$chosen" == "$TUI_ANS_ESC" ]]; then return 1; fi
     if [[ "$chosen" == "$TUI_ANS_CTRLC" ]]; then
@@ -418,7 +416,7 @@ tui_screen_input() {
       [[ -n "$placeholder" ]] && _tui_style --foreground "$TUI_C_MUTED" -- "$placeholder"
       [[ -n "$last_err" ]] && _tui_style --foreground "$TUI_C_ERROR" -- "$last_err"
     fi
-    _tui_card_mode || _tui_footer "$footer"
+    _tui_footer "$footer"
 
     local ans
     if [[ "$TUI_MODE" == file ]]; then
@@ -443,8 +441,6 @@ tui_screen_input() {
         read -r -p "> " ans
       fi
     fi
-
-    _tui_card_mode && _tui_footer "$footer"
 
     if [[ "$ans" == "$TUI_ANS_ESC" ]]; then return 1; fi
     if [[ "$ans" == "$TUI_ANS_CTRLC" ]]; then
@@ -478,6 +474,7 @@ tui_screen_confirm() {
 
   if _tui_card_mode; then
     tui_header "$title" "$step" "$total" "$show_omy" "$omy_line" _tui_body
+    _tui_footer "$footer"
   else
     tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
     local b
@@ -495,12 +492,10 @@ tui_screen_confirm() {
         return 130
         ;;
       "$TUI_ANS_ESC" | no | n | No | N)
-        _tui_card_mode && _tui_footer "$footer"
         TUI_REPLY="no"
         return 1
         ;;
       yes | y | Yes | Y)
-        _tui_card_mode && _tui_footer "$footer"
         TUI_REPLY="yes"
         return 0
         ;;
@@ -518,7 +513,6 @@ tui_screen_confirm() {
       gum confirm --affirmative "$affirm" --negative "$decline" -- "$title"
     fi
     local rc=$?
-    _tui_card_mode && _tui_footer "$footer"
     if [[ $rc == 0 ]]; then
       TUI_REPLY="yes"
     else
@@ -527,7 +521,6 @@ tui_screen_confirm() {
     return $rc
   else
     read -r -p "$title [$affirm/$decline] " ans
-    _tui_card_mode && _tui_footer "$footer"
     if [[ "$ans" =~ ^[Yy] ]]; then
       TUI_REPLY="yes"
       return 0

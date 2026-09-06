@@ -98,8 +98,9 @@ instead, border included, when `tui_screen_input`'s validator just failed).
 gum has no widget that draws *inside* another one, so the chooser/input/confirm a screen shows next
 isn't literally nested in the card — it renders directly below, with no header/prompt text of its
 own (nothing to repeat — the title's already in the card), no keybind help line of its own either
-(`_tui_measure`'s `GUM_CHOOSE_SHOW_HELP`/`GUM_INPUT_SHOW_HELP`/`GUM_CONFIRM_SHOW_HELP=false` — a
-screen prints its own help line in the muted color instead, the same wording it always did), and the
+(`_tui_measure`'s `GUM_CHOOSE_SHOW_HELP`/`GUM_INPUT_SHOW_HELP`/`GUM_CONFIRM_SHOW_HELP=false` — the
+screen prints its own help line in the muted color before the blocking widget waits, using the same
+wording it always did), and the
 same left indent as the card's own text (`GUM_CHOOSE_PADDING`/`GUM_INPUT_PADDING`/
 `GUM_CONFIRM_PADDING`, the same measure-then-pad-every-widget trick `omarchy-provision-owner`'s
 `measure_terminal` uses at v4.0.2).

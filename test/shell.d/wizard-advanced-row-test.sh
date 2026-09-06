@@ -5,10 +5,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
 BAND=6-8
 ALLOWLIST_IDS='gcompris,tuxpaint,ktuberling,blinken,supertux,supertuxkart,klettres,kanagram'
-MARKER="$(mktemp)"
-trap 'rm -f "$MARKER"' EXIT
+MARKER="$TMP/marker"
 
 app_label_for() {
   case "$2" in
@@ -23,12 +24,22 @@ app_label_for() {
     quote) printf 'Kid "Q" \\ \$(touch %s)' "$MARKER" ;;
   esac
 }
+friendly_web_mode() { printf '%s' "$1"; }
+friendly_wifi_mode() { printf '%s' "$1"; }
 
 # shellcheck disable=SC1091
 source "$ROOT/lib/wizard-advanced.sh"
 # Avoid the pack reader here; the production row and formatter remain real.
 adv_default() {
   [[ "$1" == allowlist ]] && printf '%s' "$ALLOWLIST_IDS" || adv_get "$1"
+}
+
+setup_advanced_globals() {
+  DISPLAY_NAME=kid-ada
+  WEB_MODE=garden DNS_MODE=cloudflare-family SITES='' BUDGET_MIN=60
+  BUDGET_MIN_WEEKEND=60 LIGHTS_OUT=19:30 LIGHTS_OUT_WEEKEND=20:00
+  ALLOWLIST_IDS="$1" WIFI_MODE=parent LEVEL=1 MENU_MODE=trimmed
+  THEME=catppuccin-latte HISTORY_VISIBLE=yes
 }
 
 row="$(adv_row_line allowlist)"
@@ -55,10 +66,30 @@ done
 }
 quoted_body=()
 adv_allowlist_body quoted_body 'quote'
-printf '%s\n' "${quoted_body[1]}" | grep -Fq 'Kid "Q"' &&
-printf '%s\n' "${quoted_body[1]}" | grep -Fq '$(' || {
+expected="  $(app_label_for "$BAND" quote)"
+[[ "${quoted_body[1]}" == "$expected" ]] || {
   echo 'FAIL quoted app label was not preserved as data'
   exit 1
 }
-[[ ! -s "$MARKER" ]] || { echo 'FAIL app label triggered command substitution'; exit 1; }
+[[ ! -e "$MARKER" ]] || { echo 'FAIL app label triggered command substitution'; exit 1; }
+
+setup_advanced_globals 'quote'
+captured_body=()
+captured_choices=()
+tui_screen_choose() {
+  local choices_name="$6" body_name="${9:-}"
+  eval "captured_choices=(\"\${${choices_name}[@]}\")"
+  eval "captured_body=(\"\${${body_name}[@]}\")"
+  TUI_REPLY=done
+  return 0
+}
+screen_advanced_checklist 13 15
+[[ "${captured_choices[*]}" == *'allowlist|'* ]] || {
+  echo 'FAIL Advanced checklist did not expose the app row'
+  exit 1
+}
+[[ "${captured_body[*]}" == *'Kid "Q"'* && "${captured_body[*]}" == *'$('* ]] || {
+  echo 'FAIL Advanced checklist did not pass complete app detail body'
+  exit 1
+}
 printf '%s\n' 'PASS Advanced app detail is readable and preserves CSV selection'

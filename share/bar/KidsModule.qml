@@ -33,6 +33,7 @@ Panel {
         id: statusFile
         path: root.statusPath
         watchChanges: true
+        onFileChanged: reload()
         onLoaded: root.reloadStatus()
         onTextChanged: root.reloadStatus()
     }
@@ -52,6 +53,7 @@ Panel {
         if (!text || text.length === 0) {
             root.hasFile = false
             root.liveKids = []
+            if (root.cursorIndex >= root.menuRows.length) root.cursorIndex = 0
             return
         }
         var data
@@ -60,6 +62,7 @@ Panel {
         } catch (e) {
             root.hasFile = false
             root.liveKids = []
+            if (root.cursorIndex >= root.menuRows.length) root.cursorIndex = 0
             return
         }
         root.hasFile = true
@@ -129,30 +132,34 @@ Panel {
     //     that kid's own status line, R-BAR-1's "Ada · paused · 32 min"),
     //     plus the open-requests row this widget also carries (SPEC.md's
     //     Ask flow: "queue -> panel or bar widget approve") ------------
-    readonly property var menuRows: {
+    function makeMenuRows(kids, requests, minutes) {
         var rows = []
-        for (var i = 0; i < liveKids.length; i++) {
-            var k = liveKids[i]
+        for (var i = 0; i < kids.length; i++) {
+            var k = kids[i]
             var status = k.paused ? "paused" : "live"
             var who = k.initial + " " + k.slug + " · " + status + " · " + k.minutesLeft + " min"
             rows.push({
                 kind: "grant",
                 kid: k.kid,
-                label: who + " — give " + root.grantMinutes + " more"
+                actionLabel: "Give " + minutes + " more",
+                detailLabel: who
             })
             rows.push({
                 kind: "end",
                 kid: k.kid,
-                label: who + " — end session"
+                actionLabel: "End session",
+                detailLabel: who
             })
         }
         rows.push({
             kind: "requests",
-            label: "Open requests" + (openRequestCount > 0 ? " (" + openRequestCount + ")" : "")
+            label: "Open requests" + (requests > 0 ? " (" + requests + ")" : "")
         })
         rows.push({ kind: "open", label: "Open Kids Mode" })
         return rows
     }
+
+    readonly property var menuRows: root.makeMenuRows(root.liveKids, root.openRequestCount, root.grantMinutes)
 
     // --- actions: shell out, never block the widget ------------------------
     Process { id: actionProcess }
@@ -273,21 +280,37 @@ Panel {
                         required property var modelData
                         required property int index
                         width: rowsColumn.width
-                        height: 28
+                        height: rowDelegate.modelData.kind === "grant" || rowDelegate.modelData.kind === "end" ? 44 : 28
                         radius: 6
                         color: index === root.cursorIndex ? Style.selectedFillFor(Color.foreground, Color.accent, Color.urgent) : "transparent"
 
-                        Text {
+                        Column {
                             anchors.left: parent.left
                             anchors.right: parent.right
                             anchors.leftMargin: 8
                             anchors.rightMargin: 8
                             anchors.verticalCenter: parent.verticalCenter
-                            text: rowDelegate.modelData.label
-                            elide: Text.ElideRight
-                            color: root.bar ? root.bar.foreground : Color.foreground
-                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                            font.pixelSize: 13
+                            spacing: 1
+
+                            Text {
+                                visible: rowDelegate.modelData.actionLabel !== undefined || rowDelegate.modelData.detailLabel === undefined
+                                width: parent.width
+                                text: rowDelegate.modelData.actionLabel || rowDelegate.modelData.label
+                                color: root.bar ? root.bar.foreground : Color.foreground
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: 13
+                                font.bold: rowDelegate.modelData.actionLabel !== undefined
+                            }
+
+                            Text {
+                                visible: rowDelegate.modelData.detailLabel !== undefined
+                                width: parent.width
+                                text: rowDelegate.modelData.detailLabel || ""
+                                color: root.bar ? root.bar.foreground : Color.foreground
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: 11
+                                elide: Text.ElideRight
+                            }
                         }
 
                         MouseArea {

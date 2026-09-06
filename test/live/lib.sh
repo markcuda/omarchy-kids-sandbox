@@ -16,6 +16,9 @@ set -uo pipefail
 
 LIVE_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIVE_REPO_ROOT="$(cd "$LIVE_LIB_DIR/../.." && pwd)"
+if [[ "${OMARCHY_KIDS_VM_DRIVER_LOCKED:-0}" != 1 ]]; then
+  exec "$LIVE_REPO_ROOT/scripts/vm-driver-lock" "$0" "$@"
+fi
 
 # --- config: env vars, optionally loaded from a sibling config.env (gitignored;
 # config.env.example is the checked-in template) — a CI job can just export every LIVE_* var
@@ -50,11 +53,11 @@ mkdir -p "$LIVE_OUT_DIR"
 # shellcheck disable=SC2033 # false positive: "air" here is the ssh(1) Host alias, not a call
 # to the shell function of the same name being defined on this line — same pattern already in
 # scripts/v1-two-sessions.sh and scripts/v6-limine.sh.
-air() { ssh -F "$LIVE_SSH_CFG" air "$@"; }
+air() { ssh -T -F "$LIVE_SSH_CFG" air "$@"; }
 
 # vm CMD... — runs CMD in the VM as its unprivileged owner account. Short connect timeout: a VM
 # that isn't up yet should fail fast, not hang whatever polling loop called this.
-vm() { ssh -F "$LIVE_SSH_CFG" -o ConnectTimeout=5 vm "$@"; }
+vm() { ssh -T -F "$LIVE_SSH_CFG" -o ConnectTimeout=5 vm "$@"; }
 
 # vm_tty CMD — like vm, but forces a pty (`ssh -tt`). sudo's authentication ticket is scoped per
 # tty (docs/vm.md), so a sequence that warms sudo with `sudo -S -v` and then relies on that ticket
@@ -62,17 +65,42 @@ vm() { ssh -F "$LIVE_SSH_CFG" -o ConnectTimeout=5 vm "$@"; }
 # not as separate `vm` calls that would each get sudo's own, cold ticket.
 vm_tty() { ssh -tt -F "$LIVE_SSH_CFG" -o ConnectTimeout=5 vm "$@"; }
 
-# vmroot CMD — runs CMD in the VM as root. The password is fed on sudo's stdin, never on argv and
-# never logged (AGENTS.md: "passwords only ever on stdin"); `-p ''` suppresses sudo's own prompt
-# so it never ends up mixed into CMD's output. `printf '%q'` quotes CMD once for the remote
-# `bash -c`, the same shape docs/vm.md's own reference drivers use.
+# vmroot CMD — runs CMD in the VM as root. The password is fed only to sudo's stdin; the target
+# command gets /dev/null, so a cached sudo ticket cannot leak the unused password into it.
 vmroot() {
-  vm "printf '%s\n' $(printf '%q' "$LIVE_OWNER_PASSWORD") | sudo -S -p '' bash -c $(printf '%q' "$1")"
+  local command="$1" quoted
+  quoted="$(printf '%q' "$command")"
+  printf '%s\n' "$LIVE_OWNER_PASSWORD" |
+    ssh -T -F "$LIVE_SSH_CFG" -o ConnectTimeout=5 vm \
+      "sudo -S -p '' -v 2>/dev/null && sudo -n -p '' bash -c $quoted </dev/null"
+}
+
+# vm_write_file PATH — atomically writes stdin to a restrictive remote file. The data never
+# appears in an SSH command string; callers use a here-document or redirected descriptor.
+vm_write_file() {
+  local path="$1" dir base qpath qtemplate
+  dir="$(dirname "$path")"
+  base="$(basename "$path")"
+  qpath="$(printf '%q' "$path")"
+  qtemplate="$(printf '%q' "$dir/.$base.XXXXXX")"
+  ssh -T -F "$LIVE_SSH_CFG" -o ConnectTimeout=5 vm \
+    "set -u; path=$qpath; [ ! -L \"\$path\" ] || exit 1; tmp=\$(mktemp $qtemplate) || exit 1; cleanup() { rm -f \"\$tmp\"; }; abort() { cleanup; exit 143; }; trap cleanup EXIT; trap abort HUP TERM; trap 'cleanup; exit 130' INT; umask 077; cat >\"\$tmp\" || exit \$?; chmod 600 \"\$tmp\" || exit \$?; mv -fT -- \"\$tmp\" \"\$path\" || exit \$?; trap - EXIT HUP INT TERM"
 }
 
 # qmp ARGS... — talks to the VM's QEMU monitor via scripts/vm-qmp.sh on air: shot/type/enter/
 # key/status/quit (scripts/vm-qmp.sh's own usage line).
-qmp() { air "cd ~/$LIVE_REMOTE_REPO && bash scripts/vm-qmp.sh $*"; }
+qmp() {
+  local action="${1:-}"
+  if [[ "$action" == type ]]; then
+    if (($# >= 2)); then
+      printf '%s' "$2"
+    else
+      cat
+    fi | air "cd ~/$LIVE_REMOTE_REPO && bash scripts/vm-qmp.sh type"
+  else
+    air "cd ~/$LIVE_REMOTE_REPO && bash scripts/vm-qmp.sh $*"
+  fi
+}
 
 # shot NAME — screenshots the VM console to $LIVE_OUT_DIR/NAME.png. Prints "NAME.png" (just the
 # basename) on success so test/live/all can collect that line straight into the report's
@@ -372,11 +400,16 @@ portal_tile_index() {
 # input devices; a hard terminate leaves SDDM with no greeter at all. If nothing is on seat0 (a
 # black screen), restart SDDM (the owner's stock autologin fires) and exit that session cleanly.
 portal_reset() {
-  local deadline="${1:-45}" who waited=0
+  local deadline="${1:-45}" who sessions waited=0
+  command -v jq >/dev/null 2>&1 || {
+    echo "portal_reset: jq is required on the harness host to inspect Hyprland instances" >&2
+    return 1
+  }
   # Right after a boot the seat may still be empty while the owner's autologin (a recorded
   # parent slot, docs/boot.md) is starting: give it a moment before treating it as black.
   while :; do
-    who="$(vmroot "loginctl list-sessions --no-legend | awk '\$4==\"seat0\"{print \$3}' | head -1" 2>/dev/null | tr -d '[:space:]')"
+    sessions="$(vmroot "loginctl list-sessions --no-legend" 2>/dev/null)" || return 1
+    who="$(awk '$4=="seat0"{print $3; exit}' <<<"$sessions" | tr -d '[:space:]')"
     [[ -n "$who" || $waited -ge 45 ]] && break
     sleep 5
     waited=$((waited + 5))
@@ -384,21 +417,42 @@ portal_reset() {
   case "$who" in
     sddm) : ;; # the greeter is already up
     "")
-      vmroot "systemctl restart sddm; sleep 16"
+      vmroot "systemctl restart sddm" || return 1
+      vmroot "sleep 16" || return 1
       who="$LIVE_OWNER_ACCOUNT"
-      portal_clean_exit "$who"
+      portal_clean_exit "$who" || return 1
       ;;
-    *) portal_clean_exit "$who" ;;
+    *) portal_clean_exit "$who" || return 1 ;;
   esac
   assert_greeter "$deadline"
 }
 
-# portal_clean_exit ACCOUNT — asks ACCOUNT's Hyprland to exit through the Lua dispatcher, from
-# root, with the instance signature read off /run/user/<uid>/hypr/ (docs/exit.md).
+# portal_clean_exit ACCOUNT [DEADLINE] — waits for one live Hyprland instance on wayland-1, then
+# asks that account's compositor to exit through its Lua dispatcher (docs/exit.md).
 portal_clean_exit() {
-  local acct="$1"
-  # Hyprland's instance dir appears a few seconds after the session does; wait for it.
-  vmroot "uid=\$(id -u '$acct'); for i in 1 2 3 4 5 6; do sig=\$(ls -t /run/user/\$uid/hypr/ 2>/dev/null | head -1); [ -n \"\$sig\" ] && break; sleep 5; done; [ -n \"\$sig\" ] && runuser -u '$acct' -- env XDG_RUNTIME_DIR=/run/user/\$uid HYPRLAND_INSTANCE_SIGNATURE=\$sig hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1; true"
+  local acct="$1" deadline="${2:-45}" acct_q uid inventory count sig sig_q waited=0
+  command -v jq >/dev/null 2>&1 || {
+    echo "portal_clean_exit: jq is required on the harness host to inspect Hyprland instances" >&2
+    return 1
+  }
+  acct_q="$(printf '%q' "$acct")"
+  uid="$(vmroot "env -i PATH=/usr/bin:/bin /usr/bin/id -u $acct_q")" || return 1
+  [[ "$uid" =~ ^[0-9]+$ ]] || return 1
+  while :; do
+    inventory="$(vmroot "runuser -u $acct_q -- env XDG_RUNTIME_DIR=/run/user/$uid WAYLAND_DISPLAY=wayland-1 LANG=C.UTF-8 /usr/bin/hyprctl instances -j" 2>/dev/null)" || inventory=
+    count="$(jq -r --arg display wayland-1 '[.[] | select(.wl_socket == $display)] | length' <<<"$inventory" 2>/dev/null)" || count=
+    if [[ "$count" == 1 ]]; then
+      sig="$(jq -r --arg display wayland-1 '.[] | select(.wl_socket == $display) | .instance' <<<"$inventory" 2>/dev/null)" || return 1
+      [[ -n "$sig" && "$sig" != null ]] || return 1
+      sig_q="$(printf '%q' "$sig")"
+      vmroot "runuser -u $acct_q -- env XDG_RUNTIME_DIR=/run/user/$uid HYPRLAND_INSTANCE_SIGNATURE=$sig_q WAYLAND_DISPLAY=wayland-1 /usr/bin/hyprctl dispatch 'hl.dsp.exit()' >/dev/null 2>&1" || return 1
+      return 0
+    fi
+    ((count > 1)) && return 1
+    ((waited >= deadline)) && return 1
+    sleep 5
+    waited=$((waited + 5))
+  done
 }
 
 # --- build / install ---------------------------------------------------------------------
@@ -445,12 +499,12 @@ build_install() {
       echo "build_install: could not copy the package to the vm" >&2
       return 1
     }
-  vmroot 'pacman -U --noconfirm /tmp/omarchy-kids-*.pkg.tar.zst >/tmp/live-pacman-U.log 2>&1; sync' ||
+  vmroot 'pacman -U --noconfirm /tmp/omarchy-kids-*.pkg.tar.zst && sync' >"$LIVE_OUT_DIR/live-pacman-U.log" 2>&1 ||
     {
       echo "build_install: pacman -U failed" >&2
       return 1
     }
-  vmroot 'pacman -Qkk omarchy-kids >/tmp/live-pacman-Qkk.log 2>&1'
+  vmroot 'pacman -Qkk omarchy-kids' >"$LIVE_OUT_DIR/live-pacman-Qkk.log" 2>&1
 }
 
 # --- assertions --------------------------------------------------------------------------

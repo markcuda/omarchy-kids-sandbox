@@ -118,7 +118,8 @@ lock_kid_sessions() {
 
 # write_status_json — R-BAR-3, best-effort: never fails the tick.
 write_status_json() {
-  local now day weekend hm kid remaining paused live rows active
+  local now day weekend hm kid remaining paused live rows tmp active
+  tmp=
   now="$(time_root_now)"
   hm="$(time_hm "$now")"
   IFS=$'\t' read -r day weekend <<<"$(time_logical_day "$now")" || return 0
@@ -128,7 +129,7 @@ write_status_json() {
   # Leave the last status intact when liveness is uncertain; writing every kid
   # as inactive would turn an observation failure into false parent guidance.
   active="$(active_kid_sessions)" || return 0
-  rows="$(mktemp)" || return 0
+  rows="$(mktemp "$RUN_DIR/.status-rows.XXXXXX")" || return 0
   while IFS= read -r kid; do
     [[ -n "$kid" ]] || continue
     remaining="$(time_remaining_minutes "$kid" "$day" "$weekend" 2>/dev/null || echo 0)"
@@ -138,15 +139,28 @@ write_status_json() {
     while IFS= read -r live_kid; do
       [[ "$live_kid" == "$kid" ]] && live="true"
     done <<<"$active"
-    jq -n --arg kid "$kid" --argjson minutes_left "$remaining" \
+    if ! jq -n --arg kid "$kid" --argjson minutes_left "$remaining" \
       --argjson paused "$paused" --argjson live "$live" \
       '{kid: $kid, minutes_left: $minutes_left, paused: $paused, live: $live}' \
-      >>"$rows"
+      >>"$rows"; then
+      rm -f "$rows" "$tmp"
+      return 0
+    fi
   done < <(kids_list "$KIDS_DIR")
-  jq -s '{generated_at: (now | todate), kids: .}' "$rows" >"$STATUS_JSON.tmp" 2>/dev/null &&
-    mv "$STATUS_JSON.tmp" "$STATUS_JSON" && chmod 0640 "$STATUS_JSON"
-  chgrp omarchy-parents "$STATUS_JSON" 2>/dev/null || true
-  rm -f "$rows" "$STATUS_JSON.tmp"
+  tmp="$(mktemp "$RUN_DIR/status.json.XXXXXX")" || {
+    rm -f "$rows"
+    return 0
+  }
+  if ! jq -s '{generated_at: (now | todate), kids: .}' "$rows" >"$tmp" 2>/dev/null ||
+    ! getent group omarchy-parents >/dev/null 2>&1 ||
+    ! chown root "$tmp" 2>/dev/null ||
+    ! chgrp omarchy-parents "$tmp" 2>/dev/null ||
+    ! chmod 0640 "$tmp" 2>/dev/null ||
+    ! mv -fT "$tmp" "$STATUS_JSON"; then
+    rm -f "$rows" "$tmp"
+    return 0
+  fi
+  rm -f "$rows" "$tmp"
 }
 
 cmd_tick() {

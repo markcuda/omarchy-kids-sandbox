@@ -7,11 +7,15 @@ QMP — the same recipe docs/vm.md, docs/laptop-runbook.md, and the reference dr
 `scripts/` (`v1-two-sessions.sh`, `v6-limine.sh`) already use. It is not a unit test suite: it is
 a set of scenario scripts, each one a slice of §8's acceptance list, that build the real package,
 install it on the real VM, and drive real logins through real QMP keystrokes. Nothing in here runs
-in CI (there is no VM there); `test/all`/CI only runs the pure parts, in
+in CI (there is no VM there); `test/all`/CI only runs the pure helpers and isolated behavioral
+fixtures, in
 `test/shell.d/live-lib-test.sh`. The one scenario that *does* run the unit suite is
 `05-unit-tests-on-vm.sh`, and only because a few of those tests can only really run on Arch.
 
 ## Setup, on a fresh laptop
+
+Install the Mac-side `jq` utility before running the harness; portal cleanup uses it to validate
+the live Hyprland instance inventory.
 
 1. Follow `docs/laptop-runbook.md` end to end: firmware, the stock install, Tailscale, the
    `test/verify-phase1.sh` sanity pass.
@@ -47,6 +51,57 @@ Every scenario is idempotent: run it once, run it twice in a row, get the same r
 (the exceptions are called out below). `test/live/all` writes `$LIVE_OUT_DIR/report.md` — a
 Markdown table of scenario, PASS/FAIL, and the screenshots it took — plus the screenshots
 themselves, all under `test/live/out/` by default.
+
+## Release screenshots
+
+`scripts/media-driver.sh` is the Mac-side driver for docs/GOAL.md item 3. It uses this harness's
+boot, portal, session, QMP, and screenshot helpers, but it is not a numbered acceptance scenario
+and `test/live/all` never runs it. The package already installed in the VM must match the checkout;
+the driver does not build or install it.
+
+```text
+bash scripts/media-driver.sh
+bash scripts/media-driver.sh nord catppuccin-latte
+bash scripts/media-driver.sh --surface ask catppuccin-latte
+```
+
+With no theme arguments it captures the ten supported surfaces under `tokyo-night` and
+`catppuccin-latte`. `--surface` reshoots one surface. Successful files land directly in
+`docs/media/<surface>-<theme>.png`; each one is staged beside that directory first, so a failed
+copy cannot replace a good image. A failed surface prints `FAILED`, the driver tries the next
+surface, and the run exits 1 after the pass.
+
+Every Mac-side VM driver takes `/tmp/omarchy-kids-vm-driver.lock` through `flock`. This includes
+the acceptance harness, media driver, and V1/V6 reference drivers. A second driver refuses to
+start and names the PID and command holding the lock. Drafting agents do not run the media driver.
+It boots the owner, records both current themes, sets the
+owner through `omarchy-theme-set` with `OMARCHY_PATH=/usr/share/omarchy`, sets the test kid through
+the governed `omarchy-kids-conf` theme writer, runs `omarchy-kids-assert`, and restarts SDDM before
+the portal shot. Its EXIT trap restores changed state, restarts SDDM even when the assert step
+fails, verifies both test accounts have no seat session, and confirms the greeter.
+
+Time's Up and Wi-Fi need temporary test-kid settings. The driver records whether each theme,
+weekday/weekend lights-out value, and Wi-Fi mode is an override. Cleanup restores an override with
+`set` and an inherited value with `unset`, so a run never pins a band or parent-theme default. A
+failed restore keeps the first saved value until a later cleanup restores it. SIGINT and SIGTERM
+run the same cleanup. Inspect the VM after SIGKILL, power loss, or any run whose final cleanup
+checks fail.
+
+Every shot polls disposable frames until macOS Vision sees that surface's required text, then
+checks the separate release PNG for the same text before moving it into `docs/media/`. Time's Up
+also waits on the running QML card's `timesUpReady` IPC result. That result stays false until the
+grace document is loaded, the card is visible, and its countdown has rendered a tick. A failed
+readiness or release-image check leaves the previous image untouched.
+
+The bar shot requires an already-enabled widget. On the real owner desktop, the driver starts a
+temporary kid login through systemd's `PAMName=login`, leaves the screen-time timer running, and
+waits for a fresh ledger tick to report that kid as live and unpaused. It then opens the widget
+through the owner's `omarchy-shell` IPC and verifies `live` plus `Open Kids Mode` in both the probe
+and release frames. Cleanup ends the temporary login and ticks the ledger again. It never edits the
+parent's bar, stops status updates, or removes either account's compositor.
+
+The driver does not record the three walkthrough videos in docs/GOAL.md item 3. Those remain a
+separate gate-runner recording step using QMP frames and ffmpeg.
 
 ## Safety rules
 
@@ -126,6 +181,20 @@ does not), and fails on any file the formatter would change.
    in a row to confirm it's actually idempotent.
 
 ## Known gaps, read before trusting a run
+
+### Quickshell UI iteration
+
+The test laptop's desktop can export `QS_DISABLE_FILE_WATCHER=1`. Clear that variable with
+`env -u QS_DISABLE_FILE_WATCHER` when launching a Kids Mode development preview. Quickshell
+0.3.1 defaults `Quickshell.watchFiles` to true; a disabled watcher inherited from the desktop
+otherwise prevents saved QML edits from appearing. See the [upstream property](https://quickshell.org/docs/v0.3.1/types/Quickshell/Quickshell/).
+
+Verified on the laptop on 2026-09-05 with a separate copy of the installed More apps QML:
+changing its visible title updated the screenshot while the Quickshell PID stayed the same.
+The title was restored and the preview closed. Use this for iteration; release screenshots
+must still show the actual reviewed product and the named live scenario must still pass.
+
+### Existing harness gaps
 
 - **`portal_login`'s navigation math is read from `share/sddm-theme/Main.qml`'s source, not yet
   confirmed live with more than two kid tiles.** `lib.sh`'s own comment on `portal_login` has the

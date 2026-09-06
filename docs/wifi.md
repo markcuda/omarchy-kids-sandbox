@@ -98,7 +98,10 @@ reused from the screen-time warnings) saying Wi-Fi needs a grown-up, and the com
 opening anything (I-6: the bind existing is not the same claim as the bind doing anything). A
 `helper`-mode kid gets the real picker: arrow keys through nearby networks (from `omarchy-kids-wifi
 list`), Enter to join (a password field appears first if the network needs one), Esc to back out
-of the password field or close the picker entirely.
+of the password field or close the picker entirely. An empty scan says “No networks found” and
+shows **Try again**, available by click or Enter. A failed scan keeps its error visible with the
+same retry action. While loading or joining, the footer offers only Escape; other steps show the
+available selection, retry, or join keys.
 
 Every action the picker takes still goes through `omarchy-kids-wifi` → `omarchy-kids-wifid`, which
 re-checks `SO_PEERCRED` on every single connection — the picker's own check is a UX nicety, not the

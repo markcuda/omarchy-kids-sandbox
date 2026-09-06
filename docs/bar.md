@@ -104,7 +104,9 @@ session, opening a terminal, nothing to preview.
 
 ## `share/bar/KidsModule.qml`
 
-- Reads `/run/omarchy-kids/status.json` (R-BAR-3) via a `FileView` with `watchChanges: true`.
+- Reads `/run/omarchy-kids/status.json` (R-BAR-3) via a `FileView` with `watchChanges: true`
+  and reloads its contents on `fileChanged`, as required by the
+  [Quickshell FileView API](https://quickshell.org/docs/v0.3.1/types/Quickshell.Io/FileView/).
   Renders nothing when the file is missing, empty, or fails to parse (I-6: no control shown for
   data that isn't there).
 - One dot per kid whose row has `"live": true`: the initial letter of the kid's slug (`kid-ada` →
@@ -113,16 +115,16 @@ session, opening a terminal, nothing to preview.
   in a `Process` and counting its output lines (that command prints a plain aligned table or the
   literal line `omarchy-kids-ask: no open requests` -- there is no `--json`/`--count` mode, so this
   counts lines rather than adding a new output mode to a command another issue owns).
-- Click or Enter opens a menu: "give 15 more minutes" and "end session" rows for each live kid
-  (also showing that kid's status and minutes left -- R-BAR-1's "Ada · paused · 32 min" line lives
-  here), then "Open requests" and "Open Kids Mode".
+- Click or Enter opens a menu: two-line "Give 15 more" and "End session" rows for each live kid,
+  with the affected kid's status and minutes on the detail line (R-BAR-1's
+  "Ada · paused · 32 min"), then "Open requests" and "Open Kids Mode".
 
 ### Actions (R-BAR-2: "give more time, end session, open Kids Mode")
 
 | Menu row | Runs |
 | --- | --- |
-| `<K> · live/paused · N min — give 15 more` | `omarchy-kids-bar grant <kid> 15` |
-| `<K> · live/paused · N min — end session` | `omarchy-kids-bar end <kid>` |
+| `Give 15 more` / `<K> · live/paused · N min` | `omarchy-kids-bar grant <kid> 15` |
+| `End session` / `<K> · live/paused · N min` | `omarchy-kids-bar end <kid>` |
 | `Open requests` | `omarchy-kids --requests` |
 | `Open Kids Mode` | `omarchy-kids` |
 

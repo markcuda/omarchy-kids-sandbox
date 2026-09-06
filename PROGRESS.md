@@ -6,6 +6,41 @@ useful work.
 
 ## Where the project is
 
+**Latest takeover status, September 5 evening:** #110 merged through PR #113 at
+`bd679f9`. Keyboard guidance now appears before the parent answers. Independent review, VM
+formatter, Mac suite, VM suite, and live welcome/input/back/cancel on both machines passed.
+The merged-main gate also passed: formatter, both full suites, and the same live navigation
+scenario on both machines. Screenshots are `docs/media/dogfood/main-footer-*.png`.
+
+Reviewed drafts awaiting their ordered gates: #103 at `cd93325` (PR #114, cleanup correction
+on `fix/103-session-cleanup`), #111 at `a78d413` (PR #115, current desktop-launch theme), and
+#112 at `99a4ba5` (PR #116, readable parent portal label). The original `media-driver` remote
+branch is unchanged; PR #114 carries the rebased driver plus its reviewed correction. Real
+dogfood screenshots now exist in `docs/media/dogfood/`; the complete media-driver output is
+still pending.
+
+New screenshot-backed issues: #117 empty More apps instructions, #118 unclear password owner
+on the exit card, #119 faint wizard keyboard help, and #120 resize corruption. The missing
+launcher apps were already #91; its ticket now has live evidence. A separate screen-time
+finding has an independently reviewed patch awaiting its ordered gate, with no public
+reproduction or merge. #123 records the parent panel losing preview mode when opening setup;
+its narrow correction is drafted and awaiting independent review.
+
+#117 has an independently reviewed compact empty shelf with a clickable Back control (PR #122).
+Its watched laptop preview passed Escape and actual pointer-click checks; the full gate remains.
+#111's exact candidate desktop entry passed real laptop launches in Tokyo Night and Catppuccin
+Latte, including the wizard child's theme environment. The original theme was restored.
+
+#98 still has no human ship decision. #97 remains blocked on #98. No laptop boot changes or
+full package upgrades were performed during this pass because #109 remains open. The wizard
+live gate used exact staged source with `--dry-run`; it proves rendering/navigation only.
+
+Quickshell previews must clear inherited `QS_DISABLE_FILE_WATCHER`; same-process live reload
+was proven on the laptop. See `docs/live-tests.md`. The local gate runner, logs, private work
+and current machine state are under `~/.omarchy-kids-loop/`, including `takeover-state.md`.
+
+The following sections retain the earlier boot-work handoff and machine instructions.
+
 Four spec-07 tickets merged today, plus two real-hardware fixes found within minutes of the first
 install on the test laptop. The product works end to end in the VM: a parent runs the wizard, a
 kid appears on the login portal, logs into their own desktop, is held to a screen-time budget, can

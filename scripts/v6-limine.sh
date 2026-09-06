@@ -2,13 +2,23 @@
 # V6 Limine driver (runs on the Mac; SSH_CFG with host `air`): reboot the VM, stop the boot menu
 # timer, screenshot the menu and the entry editor for the default entry and for a snapshot entry,
 # then boot the default entry and type the disk password.
-# Usage: SSH_CFG=<path> scripts/v6-limine.sh <disk-password> [shots-dir]
+# Usage: printf '%s\n' <disk-password> | SSH_CFG=<path> scripts/v6-limine.sh [shots-dir]
 set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${OMARCHY_KIDS_VM_DRIVER_LOCKED:-0}" != 1 ]]; then
+  exec "$SCRIPT_DIR/vm-driver-lock" "$0" "$@"
+fi
 CFG="${SSH_CFG:?set SSH_CFG}"
-PW="${1:?disk password}"
-OUT="${2:-/tmp}"
-air() { ssh -F "$CFG" air "$@"; }
-qmp() { air "bash ~/omarchy-kids-sandbox/scripts/vm-qmp.sh $*"; }
+OUT="${1:-/tmp}"
+PW="$(cat)"
+air() { ssh -T -F "$CFG" air "$@"; }
+qmp() {
+  if [[ "${1:-}" == type ]]; then
+    printf '%s' "$2" | air "bash ~/omarchy-kids-sandbox/scripts/vm-qmp.sh type"
+  else
+    air "bash ~/omarchy-kids-sandbox/scripts/vm-qmp.sh $*"
+  fi
+}
 shot() {
   air "bash ~/omarchy-kids-sandbox/scripts/vm-qmp.sh shot /tmp/$1.png >/dev/null"
   scp -q -F "$CFG" "air:/tmp/$1.png" "$OUT/$1.png"

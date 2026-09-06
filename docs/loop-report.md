@@ -439,3 +439,54 @@ is the same single-image weakness seen from the other side. #103 is implementati
 taken no real pictures yet; the media folder waits on a session that can drive the machines.
 
 `PROGRESS.md` and `docs/handoff-prompt.md` carry all of this forward.
+
+## Takeover pass, 2026-09-05
+
+Connected to both machines and inspected real laptop welcome/password screens and the VM
+portal and launcher. The laptop screenshots produced #110, keyboard guidance hidden until
+after input, and #111, stale inherited gum colors overriding the active theme. The light VM
+portal produced #112, a faint parent-account label. Each ticket links a screenshot and its
+cause line. The originals are under `docs/media/dogfood/`; they record findings, not release
+acceptance.
+
+Independent review approved #110 after fixing two ShellCheck warnings, and #111 after testing
+the actual upstream terminal helper. #110 merged through PR #113 at `bd679f9`: VM formatter
+first, all 35 Mac test files, the same suite serially on the VM, and live welcome/input/back/cancel
+on both machines passed. The Mac had five platform skips; the VM had two (bar status fixture and
+ash syntax). Authentication and SO_PEERCRED checks ran on the VM. The merged-main formatter, both full suites, and the same live scenario also passed; all eight
+post-merge screenshots were inspected and both wizard processes exited after confirmation.
+The live scenario used exact staged source with `--dry-run`, so it proves the renderer and
+keyboard navigation, not provisioning or full installation. #111 remains draft PR #115.
+
+The newly visible keyboard help is too faint in both themes (#119), and resizing an existing
+wizard corrupts the printed card (#120). Both are separate screenshot-backed tickets. The VM's
+empty More apps shelf produced #117, and its exit card's unlabeled password field produced #118.
+The missing-app launcher finding belongs to existing #91, which received the new screenshot.
+#112's parent-label correction has independent approval and awaits its gate in draft PR #116.
+
+Review of #103 found that an unsuccessful service-status query could leave the temporary
+login running while cleanup reported success. The correction preserves uncertainty and checks
+termination, and independent review approved it at `8ba4d6a`. Draft PR #114 awaits the full gate
+and real captures. A drafting session initially pushed this correction to the hub; that exact
+mistaken branch was removed after its hash was checked, and the commit was recovered into the
+sandbox. The repository identity is now explicit in the repo lock and AGENTS.md.
+
+A screen-time finding from real VM use is being handled privately under the hub's SECURITY.md.
+Its remediation remains separate from the public UI tickets. #98 still requires Mark's ship
+decision with #109; #97 still waits for #98. The Air has not been rebooted or had boot files
+changed during this pass.
+
+Mark requested file watching for Quickshell iteration. The laptop inherited
+`QS_DISABLE_FILE_WATCHER=1`; clearing it for a separate Kids Mode preview made an edited title
+appear without restarting the process. The original title was restored and the preview closed.
+`docs/live-tests.md` records the launch requirement. This preview is not release media.
+
+The empty More apps shelf now has a reviewed draft with a compact card and a real Back button
+(PR #122). A separate watched laptop preview demonstrated Escape, pointer hover, and an actual
+click closing the surface. The exact #111 desktop entry also launched the installed wizard with
+correct theme values in both Tokyo Night and Catppuccin Latte. Temporary previews and the entry
+were removed, and Tokyo Night was restored. These checks do not replace their ordered gates.
+
+The parent panel empty state was inspected on the laptop. Following Add a kid exposed #123:
+preview mode was not handed to the wizard. An owned wizard stub confirmed the mode loss without
+provisioning an account. Its explicit CLI mode handoff is drafted for independent review.

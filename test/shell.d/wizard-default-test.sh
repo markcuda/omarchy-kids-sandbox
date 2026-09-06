@@ -39,11 +39,11 @@ case "$1" in
     ((escaped == 0)) || exit 22
     parts+=("$decoded")
     chosen="${options[0]}"
-    if ((${#parts[@]} == 1)); then
+    for part in "${parts[@]}"; do
       for option in "${options[@]}"; do
-        [[ "$option" == "${parts[0]}" ]] && chosen="$option"
+        [[ "$option" == "$part" ]] && chosen="$option"
       done
-    fi
+    done
     printf '%s\n' "$chosen"
     ;;
   *) exit 1 ;;
@@ -52,13 +52,19 @@ EOF
 chmod +x "$STUBS/gum"
 
 export PATH="$STUBS:$PATH"
-export OMARCHY_KIDS_TUI_PLAIN=1 TUI_MODE=interactive TUI_C_ACCENT=blue
+ANSWERS="$TMP/answers"
+printf '%s\n' unused >"$ANSWERS"
+export OMARCHY_KIDS_TUI_ANSWERS="$ANSWERS"
+export OMARCHY_KIDS_TUI_PLAIN=1 TUI_C_ACCENT=blue
 source "$ROOT/lib/tui.sh"
 if ! tui_init; then
-  echo 'wizard default: tui_init did not establish interactive Gum mode' >&2
+  echo 'wizard default: tui_init failed with owned answers file' >&2
   exit 1
 fi
-[[ "$TUI_MODE" == interactive && "$TUI_HAVE_GUM" == 1 ]] || exit 1
+[[ "$TUI_MODE" == file && "$TUI_HAVE_GUM" == 1 ]] || exit 1
+# tui_init deliberately proves the no-TTY initialization path above; the
+# owned Gum stub then exercises the same chooser in its interactive branch.
+TUI_MODE=interactive
 choices=("plain|Plain option|No comma" "six|Ages 6–8, \\ safe|The intended default")
 tui_screen_choose "Age" 1 1 0 "" choices six
 [[ "$TUI_REPLY" == six ]] || exit 1

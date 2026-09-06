@@ -19,7 +19,7 @@ at `fee4ad4` pending the final live pass. The VM package installed cleanly with 
 zero altered files. Automated media run `62216` failed before capture on both themes because
 stock owner autologin returned the desktop (#133); its four fixture values were restored and
 config removed. The #133 refresh fix and #134 live-compositor readiness fix are implemented;
-final independent review and the complete formatter → Mac → VM → live gates remain pending.
+independent review passed, and the formatter → Mac → VM gate is running before the named live proof.
 Manual `portal_reset` recovery `31132` passed and captured the real light portal,
 with tile rendering only and no Cy login. The VM is clean at the original Catppuccin Latte theme;
 Air is restored to Tokyo Night. #111 at `a78d413` (PR #115, current desktop-launch theme) and

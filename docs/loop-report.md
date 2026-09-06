@@ -626,6 +626,7 @@ passed and captured the real light portal as tile-only evidence, with no Cy logi
 clean at the original Catppuccin Latte theme and Air is restored to Tokyo Night. The #133 reset
 fix is reviewed; the separate helper correction in #134, ordered gate, and another automated
 capture run remain pending.
+
 ## Manual dark portal receipt, 2026-09-06
 
 `portal-manual-tokyo-night.png` is tile-rendering evidence from manual dark run `84451`: invented
@@ -647,9 +648,9 @@ records the reproduced failure, even though recovery succeeded. Temporary config
 ## Current media handoff, 2026-09-06
 
 The #133 refresh fix and #134 live-compositor readiness fix are implemented. Fixtures now
-own config and output and check retry, dispatch, and restart paths. Final independent review and
-the complete formatter → Mac → VM → live gates remain
-pending. The named live proof will repeat three fresh owner autologins and confirm clean exit to
+own config and output and check retry, dispatch, and restart paths. Independent review passed;
+the formatter → Mac → VM gate is running. The named live proof will repeat three fresh owner
+autologins and confirm clean exit to
 the portal before the full media rerun. This step produced no new screenshots or child-login
 evidence; the automated 20-capture run remains incomplete. The last verified states remain the VM's
 Catppuccin Latte greeter and Air's Tokyo Night theme.

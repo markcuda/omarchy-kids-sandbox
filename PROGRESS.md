@@ -12,16 +12,12 @@ formatter, Mac suite, VM suite, and live welcome/input/back/cancel on both machi
 The merged-main gate also passed: formatter, both full suites, and the same live navigation
 scenario on both machines. Screenshots are `docs/media/dogfood/main-footer-*.png`.
 
-Reviewed drafts: #103 at `6961d69` (PR #114, cleanup correction
-on `fix/103-session-cleanup`), #111 at `a78d413` (PR #115, current desktop-launch theme), and
-#112 at `99a4ba5` (PR #116, readable parent portal label). #111 and #112 await their ordered gates. The original `media-driver` remote
+The public #103 source is `fee4ad4`, which includes merged main `3f2ebe4`. The package was
+built on Air; the exact integrated helper gate is underway and actual captures remain pending.
+#111 at `a78d413` (PR #115, current desktop-launch theme) and #112 at `99a4ba5` (PR #116,
+readable parent portal label) remain reviewed drafts. The original `media-driver` remote
 branch is unchanged; PR #114 carries the rebased driver plus its reviewed correction. Real
-dogfood screenshots now exist in `docs/media/dogfood/`; the complete media-driver output is
-still pending. Its first full gate exposed a unit-fixture lock flag inherited from the outer
-gate. That isolation defect is corrected and independently reviewed. The retry passed VM
-formatting, all 36 Mac test files (five platform skips), and all 36 VM test files (two skips).
-Installation and capture remain held for a separate private harness hardening change under
-review. Runtime package inputs still match `cd93325`.
+dogfood screenshots now exist in `docs/media/dogfood/`.
 
 New screenshot-backed issues: #117 empty More apps instructions, #118 unclear password owner
 on the exit card, #119 faint wizard keyboard help, #120 resize corruption, and #128 blank portal
@@ -37,8 +33,8 @@ Its watched laptop preview passed Escape and actual pointer-click checks; the fu
 #111's exact candidate desktop entry passed real laptop launches in Tokyo Night and Catppuccin
 Latte, including the wizard child's theme environment. The original theme was restored.
 #118 (`aa4caa7`, PR #125) has independent approval and inspected laptop dark/light previews;
-its full gate remains pending. #119 (`3f2ebe4`, PR #126) merged; its post-merge gate is
-still running. #120 (`db20d14`, PR #127) has independent review and awaits its full gate.
+its full gate remains pending. #119 (`3f2ebe4`, PR #126) merged; its post-merge gate
+passed. #120 (`db20d14`, PR #127) has independent review and awaits its full gate.
 #103 remains held on the private harness gate.
 Their essential text now uses the theme foreground. The exit preview redrew source edits in
 the same Quickshell process, and Escape/cancel closed every preview without credentials.

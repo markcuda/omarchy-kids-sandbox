@@ -557,4 +557,16 @@ actual SDDM login or VM gate.
 
 ## #128 portal password guidance receipts, 2026-09-06
 
-The #128 candidate at `cefc99d3db720204faa39d002b65ee19d08b5c9b` adds a persistent `Password` label and Enter/Escape guidance. Independent source review and Air visual preflight were approved; the exact runtime QML matches `0eca182`. The ten Tokyo Night and Catppuccin Latte receipts are `portal-128-{tile,input,typed,back,cleared}-{tokyo-night,catppuccin-latte}-air.png` under `docs/media/dogfood/`. Four harmless letters were entered and remained masked; they were never submitted. Escape returned to the tile, reopening showed a cleared field, both previews exited, and Tokyo Night was restored. No authentication was verified. The faint parent caption remains the separate #112 concern and is absent from this main-based branch. The ordered gate and actual VM scenario remain pending.
+The #128 candidate at `cefc99d3db720204faa39d002b65ee19d08b5c9b` adds a persistent `Password` label and Enter/Escape guidance. Independent source review and Air visual preflight were approved; the exact runtime QML matches `0eca182`. The ten Tokyo Night and Catppuccin Latte receipts are `portal-128-{tile,input,typed,back,cleared}-{tokyo-night,catppuccin-latte}-air.png` under `docs/media/dogfood/`. Four harmless letters were entered and remained masked; they were never submitted. Escape returned to the tile, reopening showed a cleared field, both previews exited, and Tokyo Night was restored. No authentication was verified. The #112 parent-label fix is absent from this main-based branch. The ordered gate and actual VM scenario remain pending.
+
+## #119 merged-main gate receipts, 2026-09-06
+
+The merged-main source `3f2ebe4` passed the formatter, then the Mac suite (35 files, five
+platform skips), then the VM suite (35 files, two skips for bar status and ash), followed by the
+named live path Welcome → password → Escape back → Ctrl+C/Yes leave on Air and VM in Tokyo Night
+and Catppuccin Latte. The sixteen inspected receipts are
+`help-main-gate-{welcome,input,back,cancel}-{tokyo-night,catppuccin-latte}-{air,vm}.png` under
+`docs/media/dogfood/`. The driver confirmed all previews exited and both original themes were
+restored; no credentials or provisioning were used. VM owner notifications obscure none of the
+tested controls. #103's public source is `fee4ad4`, which includes `3f2ebe4`; its package was
+built on Air, the exact integrated helper gate is underway, and actual captures remain pending.

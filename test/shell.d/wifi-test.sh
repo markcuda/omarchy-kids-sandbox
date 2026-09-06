@@ -641,16 +641,36 @@ listExited(1);
 assert.strictEqual(root.statusText, "Couldn't list networks. Ask a grown-up.", "failed refresh replaces success");
 
 // A failed join must never create a success label or trigger a list refresh.
-root.networks = root.parseList("OpenNet:40::\n");
+root.networks = root.parseList("HomeNet:80:WPA2:\n");
 root.currentIndex = 0;
 root.statusText = "Joined HomeNet.";
+root.showPasswordField = true;
+root.passwordText = "fixture-password";
 root.beginJoin();
-assert.strictEqual(root.statusText, "Joining OpenNet…", "new join clears stale success before completion");
+assert.strictEqual(root.statusText, "Joining HomeNet…", "new join clears stale success before completion");
 const scansBeforeFailure = scans;
 joinProcess.running = false;
 joinExited(2);
 assert.strictEqual(root.statusText, "Couldn't join. Check the password and try again.");
 assert.strictEqual(scans, scansBeforeFailure, "failed join does not refresh");
+
+// Open-network failures must not tell a child to check a password, while the
+// existing parent-required exit remains its own actionable state.
+root.joining = false;
+root.networks = root.parseList("HomeNet:80:WPA2:\nOpenNet:40::\n");
+root.currentIndex = 1;
+root.showPasswordField = false;
+root.passwordText = "";
+root.beginJoin();
+joinProcess.running = false;
+joinExited(2);
+assert.strictEqual(root.statusText, "Couldn't join this open network. Try again or ask a grown-up.");
+assert(!root.statusText.includes("password"), "open-network failure does not ask for a password");
+root.joining = false;
+root.beginJoin();
+joinProcess.running = false;
+joinExited(3);
+assert.strictEqual(root.statusText, "Wi-Fi needs a grown-up right now.", "parent-required failure stays distinct");
 NODE
   check_status "$?" "0" "picker handlers preserve retry, password delivery, and join feedback"
 else

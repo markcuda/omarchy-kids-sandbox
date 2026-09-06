@@ -128,6 +128,7 @@ PanelWindow {
         id: joinProcess
         property string ssid: ""
         property string candidate: ""
+        property bool openNetwork: false
         property bool sent: false
         stdinEnabled: true
         property string collected: ""
@@ -150,6 +151,8 @@ PanelWindow {
                 root.refreshList(true)
             } else if (exitCode === 3) {
                 root.statusText = "Wi-Fi needs a grown-up right now."
+            } else if (joinProcess.openNetwork) {
+                root.statusText = "Couldn't join this open network. Try again or ask a grown-up."
             } else {
                 root.statusText = "Couldn't join. Check the password and try again."
             }
@@ -169,6 +172,7 @@ PanelWindow {
         }
         root.joining = true
         joinProcess.ssid = net.ssid
+        joinProcess.openNetwork = !root.needsPassword(net)
         root.statusText = "Joining " + net.ssid + "…"
         if (root.needsPassword(net)) {
             joinProcess.command = ["/usr/bin/omarchy-kids-wifi", "join", net.ssid, "--password-stdin"]

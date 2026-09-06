@@ -1,6 +1,31 @@
 # Loop report, night of 2026-09-02
 
-## Latest checkpoint, September 6: Wi-Fi delivery blocks integration
+## Latest checkpoint, September 6: Wi-Fi delivery preflight passes
+
+Exact #145 source `451ffa7` ran in a watched Air Quickshell process (`1223702`) with an owned
+fixture backend. The first protected attempt delivered the expected harmless password line
+and EOF; the backend deliberately returned failure to exercise retry. The retry delivered the
+expected line and EOF and returned success. Busy duplicate Enter produced one join invocation.
+A protected attempt in Catppuccin Latte also delivered the expected line and EOF.
+
+The corrected open-network fixture verified no password flag or input and returned success in
+both themes. An earlier open fixture wrongly required a child read/EOF behavior and failed;
+its image labeled open-success is not published. Only the six selected, inspected images are
+in the [gallery](media/dogfood/media-gallery.md#145-air-password-delivery-preflight): first deliberate
+failure, retry success, light masked input, light protected success, and the two verified open
+results. The returned list is the visible success result; backend checks establish delivery,
+EOF, and invocation counts. These are real-process fixture checks, not real network joins or
+full-gate acceptance. No real credential was used. The preview closed, its process was absent,
+and Tokyo Night was restored. The eleven #143 frames retain their narrower masking/navigation
+claims.
+
+Media integration `11e162f` is independently approved for the ordered gate, still pending.
+Named installed Wi-Fi proof and same-process bar status updates in both themes remain required.
+#137 `37aaddb` is held on four review findings with author corrections in progress; it has not
+run a full gate. The tested screen-time enforcement correction is published as PR #146, and #136 remains fully post-gated at `f28a461`; #98/#109 remains
+a human ship decision. Earlier checkpoints below are preserved as historical records.
+
+## Earlier checkpoint, September 6: Wi-Fi delivery blocks integration
 
 #136 remains merged and fully post-gated at `f28a461`; its settled empty-scan receipts do not
 claim a Wi-Fi join. #138/#139's final recovery integration `6592b15` is independently approved

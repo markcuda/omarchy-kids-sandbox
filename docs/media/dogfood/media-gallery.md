@@ -42,3 +42,21 @@ attempted. The original themes and client bytes were restored after the run.
 | Tokyo Night | Catppuccin Latte |
 | --- | --- |
 | ![Merged-main empty scan, dark](wifi-main-tokyo-night-vm.png) | ![Merged-main empty scan, light](wifi-main-catppuccin-latte-vm.png) |
+
+## #145 Air password-delivery preflight
+
+Exact source `451ffa7` ran in one watched Air Quickshell process with an owned fixture backend.
+Protected joins delivered the expected harmless password line and EOF on the first attempt,
+after a deliberate failure and retry, and in Catppuccin Latte. Busy duplicate Enter produced
+one invocation. Corrected open fixtures accepted no password flag or input in both themes.
+The earlier open fixture that incorrectly required child read/EOF behavior failed; its
+mislabeled success image is excluded. Backend checks establish delivery and invocation counts;
+these six images show the corresponding UI states. No real network join or real credential
+was used. The process closed and Tokyo Night was restored. Ordered full gates and named
+installed-live acceptance remain pending for [#145](https://github.com/markcuda/omarchy-kids-sandbox/issues/145)
+and media integration `11e162f`.
+
+| State | Tokyo Night | Catppuccin Latte | Evidence |
+| --- | --- | --- | --- |
+| Protected input and result | ![Intentional backend failure after password delivery](wifi-145-first-delivery-error-tokyo-night-air.png) ![List restored after verified protected retry](wifi-145-retry-success-tokyo-night-air.png) | ![Masked fixture password](wifi-145-protected-catppuccin-latte-air.png) ![List restored after verified protected join](wifi-145-protected-success-catppuccin-latte-air.png) | First delivery, intentional failure, retry, and light protected delivery checked by the backend |
+| Open result | ![List after verified open fixture result, dark](wifi-145-open-verified-tokyo-night-air.png) | ![List after verified open fixture result, light](wifi-145-open-verified-catppuccin-latte-air.png) | Corrected fixture checked no password flag or input; both returned success |

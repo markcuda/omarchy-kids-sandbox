@@ -14,25 +14,27 @@ were restored. Final package check: 181 files, zero altered. Settings, themes, g
 config cleanup were verified. The merged-main gate completed with fresh settled empty-scan
 receipts in both themes; no Wi-Fi join was attempted.
 
-#143 has reviewed draft PR #144 (`eaa8cd1`) for empty-scan guidance and retry;
-#140 has reviewed draft PR #142 (`4d380bc`) for bar status reload. The #138/#139
-media recovery integration `6592b15` is independently approved and backed up; its full gate
-remains pending. Candidate `e343d22` combines that recovery, merged main, #140, and #143.
-Its strict settled Wi-Fi capture assertions pass focused tests, but integration review and
-gating are **HOLD on #145**, the newly evidenced missing Wi-Fi password delivery.
+#143 has reviewed draft PR #144 for empty-scan guidance and retry; #140 has reviewed
+draft PR #142 for bar status reload. #138/#139 recovery integration `6592b15` is independently
+approved. Combined media candidate `11e162f`, including the #145 password-delivery correction,
+is independently approved for its ordered gate, which remains pending. The same-process bar
+status-update scenario and named installed Wi-Fi proof still remain.
 
-The eleven earlier #143 Air frames remain evidence of masking, navigation, retry, and busy
-behavior, not password delivery. A subsequent real Quickshell fixture run from `eaa8cd1`
-attempted a join after harmless text was typed into the masked field. The owned backend's
-three-second stdin read received no password; the card displayed “Couldn't join.”
-[#145](https://github.com/markcuda/omarchy-kids-sandbox/issues/145) records that finding and the
-[new screenshot](docs/media/dogfood/wifi-password-delivery-tokyo-night-air.png).
-Only three client paths were redirected; no real network action or real password was used.
-The preview closed, its PID `1221202` was absent, and Tokyo Night was restored.
+#145 source `451ffa7` passed watched Air fixture preflight in both themes. Protected joins
+delivered the expected harmless password line and EOF, including the first attempt and a retry
+after an intentional backend failure. Busy duplicate Enter produced one join. Corrected open
+fixtures verified no password flag or input and returned success in both themes. An earlier
+open fixture incorrectly required a child read/EOF behavior and failed; its mislabeled image
+is excluded. The six [selected receipts](docs/media/dogfood/media-gallery.md#145-air-password-delivery-preflight)
+show these UI states; delivery and EOF are established by the driving session's backend checks,
+not the images alone. No real Wi-Fi join or real credential was used. The preview closed, its
+PID `1223702` was absent, and Tokyo Night was restored. The eleven earlier #143 frames remain
+masking/navigation evidence, distinct from this delivery preflight.
 
-#137 has code at `5ddb269`, held for a pre-04:00 edge case with an author correction in
-progress; no full gate has run. #98/#109 remains a human ship decision.
-The [media gallery](docs/media/dogfood/media-gallery.md) retains the earlier captures.
+#137 code at `37aaddb` is HOLD on four review findings, with corrections in progress and no
+full gate yet. The tested screen-time enforcement correction is published as PR #146.
+#98/#109 remains a human ship decision. The [media gallery](docs/media/dogfood/media-gallery.md)
+retains the earlier captures; no full-media pass is claimed.
 
 **Latest takeover status, September 5 evening:** #110 merged through PR #113 at
 `bd679f9`. Keyboard guidance now appears before the parent answers. Independent review, VM

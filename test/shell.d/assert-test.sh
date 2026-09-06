@@ -90,6 +90,7 @@ cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
 boot=disk
 EOF
+chmod 0644 "$ETC/machine.conf"
 
 # The mode reader is a build-time constant. Test the command from a copied
 # package tree with that constant pointed at this root-owned fixture.

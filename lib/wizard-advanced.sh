@@ -147,9 +147,9 @@ adv_allowlist_count() {
 
 adv_allowlist_body() {
   local arrname="$1" csv="$2" id oldifs="$IFS" label
-  eval "$arrname+=(\"Starter apps:\")"
+  adv_append_row "$arrname" "Starter apps:"
   if [[ -z "$csv" ]]; then
-    eval "$arrname+=(\"  (none selected)\")"
+    adv_append_row "$arrname" "  (none selected)"
     return
   fi
   IFS=,
@@ -157,7 +157,7 @@ adv_allowlist_body() {
     [[ -z "$id" ]] && continue
     IFS="$oldifs"
     label="$(app_label_for "$BAND" "$id")"
-    eval "$arrname+=(\"  $label\")"
+    adv_append_row "$arrname" "  $label"
   done
   IFS="$oldifs"
 }

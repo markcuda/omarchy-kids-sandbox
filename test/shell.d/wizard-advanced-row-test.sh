@@ -7,6 +7,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BAND=6-8
 ALLOWLIST_IDS='gcompris,tuxpaint,ktuberling,blinken,supertux,supertuxkart,klettres,kanagram'
+MARKER="$(mktemp)"
+trap 'rm -f "$MARKER"' EXIT
 
 app_label_for() {
   case "$2" in
@@ -18,6 +20,7 @@ app_label_for() {
     supertuxkart) printf 'SuperTuxKart' ;;
     klettres) printf 'KLettres' ;;
     kanagram) printf 'Kanagram' ;;
+    quote) printf 'Kid "Q" \\ \$(touch %s)' "$MARKER" ;;
   esac
 }
 
@@ -50,4 +53,12 @@ done
   echo 'FAIL display formatting changed the underlying allowlist'
   exit 1
 }
+quoted_body=()
+adv_allowlist_body quoted_body 'quote'
+printf '%s\n' "${quoted_body[1]}" | grep -Fq 'Kid "Q"' &&
+printf '%s\n' "${quoted_body[1]}" | grep -Fq '$(' || {
+  echo 'FAIL quoted app label was not preserved as data'
+  exit 1
+}
+[[ ! -s "$MARKER" ]] || { echo 'FAIL app label triggered command substitution'; exit 1; }
 printf '%s\n' 'PASS Advanced app detail is readable and preserves CSV selection'

@@ -62,7 +62,13 @@ screen_home() {
     ((rc == 0)) || return 1
 
     case "$TUI_REPLY" in
-      add) exec "$WIZARD_BIN" ;;
+      add)
+        if [[ "$DRY_RUN" == 1 ]]; then
+          exec "$WIZARD_BIN" --dry-run
+        else
+          exec "$WIZARD_BIN" --apply
+        fi
+        ;;
       requests)
         screen_requests
         rc=$?

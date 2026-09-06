@@ -404,5 +404,34 @@ DESKTOP="$ROOT_DIR/desktop/omarchy-kids.desktop"
 check_contains "$(cat "$DESKTOP")" "OMARCHY_KIDS_LAUNCHED_BY=desktop" \
   "desktop/omarchy-kids.desktop marks itself as a human launch"
 
+# --- Add-a-kid preserves the panel's resolved mode at the wizard handoff ---
+WIZARD_LOG="$TMP/wizard-handoff.log"
+cat >"$TMP/tree/bin/omarchy-kids-wizard" <<EOF
+#!/bin/bash
+printf 'args=%s dry=%s marker=%s tty=%s\\n' "\$*" "\${DRY_RUN-unset}" \\
+  "\${OMARCHY_KIDS_LAUNCHED_BY-unset}" "\$(test -t 0 && echo yes || echo no)" >"$WIZARD_LOG"
+EOF
+chmod +x "$TMP/tree/bin/omarchy-kids-wizard"
+
+answers="$(answers_file add)"
+run_panel "$answers" --dry-run
+check_status "$PANEL_STATUS" 0 "Add a kid dry-run handoff exits 0"
+check_contains "$(cat "$WIZARD_LOG")" "args=--dry-run" \
+  "Add a kid dry-run handoff passes --dry-run explicitly"
+check_contains "$(cat "$WIZARD_LOG")" "dry=unset" \
+  "Add a kid does not depend on inherited DRY_RUN"
+
+answers="$(answers_file add)"
+run_panel "$answers" --apply
+check_status "$PANEL_STATUS" 0 "Add a kid apply handoff exits 0"
+check_contains "$(cat "$WIZARD_LOG")" "args=--apply" \
+  "Add a kid apply handoff passes --apply explicitly"
+
+answers="$(answers_file add)"
+out="$(OMARCHY_KIDS_TUI_ANSWERS="$answers" OMARCHY_KIDS_LAUNCHED_BY=desktop "$BIN" 2>&1)"
+check_status "$?" 0 "desktop Add a kid handoff exits 0"
+check_contains "$(cat "$WIZARD_LOG")" "args=--apply" \
+  "desktop Add a kid handoff preserves real mode"
+
 echo "panel-test.sh: done"
 exit $rc

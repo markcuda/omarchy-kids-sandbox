@@ -267,20 +267,46 @@ else
   fail "PKGBUILD's package() may now ship scripts/ (review §6)"
 fi
 
-# --- review §1.5: the app entry marks itself as a human launch ------------
-# The app entry opens a terminal. omarchy-kids is a gum TUI, so Terminal=false launches it with
-# nothing to draw on: a parent clicking Kids Mode saw a launch toast and then nothing at all
-# (found on the test laptop, 2026-09-05). Omarchy's own TUI entries (btop, nvim) set Terminal=true.
-if grep -q '^Terminal=true$' "$ROOT/desktop/omarchy-kids.desktop"; then
-  pass "desktop/omarchy-kids.desktop opens a terminal for the TUI"
+# --- issue #111: the app entry refreshes gum through Omarchy's launcher ----
+# The presentation helper sources omarchy-restart-gum before opening its own
+# xdg-terminal-exec window, so Terminal must be false to avoid nesting one.
+if grep -q '^Terminal=false$' "$ROOT/desktop/omarchy-kids.desktop"; then
+  pass "desktop/omarchy-kids.desktop lets Omarchy's helper own the terminal"
 else
-  fail "desktop/omarchy-kids.desktop must set Terminal=true; a gum TUI has nothing to draw on without one"
+  fail "desktop/omarchy-kids.desktop must set Terminal=false; its helper opens the terminal"
 fi
 
-if grep -q 'Exec=env OMARCHY_KIDS_LAUNCHED_BY=desktop omarchy-kids' "$ROOT/desktop/omarchy-kids.desktop"; then
-  pass "desktop entry marks itself so the panel and wizard run for real"
+if grep -q '^Exec=omarchy-launch-floating-terminal-with-presentation env OMARCHY_KIDS_LAUNCHED_BY=desktop omarchy-kids$' "$ROOT/desktop/omarchy-kids.desktop"; then
+  pass "desktop entry refreshes current gum colors and marks itself as a human launch"
 else
-  fail "desktop/omarchy-kids.desktop must set OMARCHY_KIDS_LAUNCHED_BY (review §1.5)"
+  fail "desktop/omarchy-kids.desktop must use Omarchy's presentation helper with OMARCHY_KIDS_LAUNCHED_BY"
+fi
+
+# The helper is owned by Omarchy, so the fixture owns a command with that name
+# and proves the desktop command reaches it instead of launching a toast-only
+# process. The installed Omarchy path is the runtime contract; no fallback
+# terminal is guessed here.
+HELPER_FIXTURE="$TMP/omarchy-launch-floating-terminal-with-presentation"
+RESTART_FIXTURE="$TMP/omarchy-restart-gum"
+cat >"$RESTART_FIXTURE" <<'EOF'
+#!/bin/bash
+export BACKGROUND="#1a1b26" FOREGROUND="#a9b1d6" BORDER_FOREGROUND="#7aa2f7"
+EOF
+chmod +x "$RESTART_FIXTURE"
+cat >"$HELPER_FIXTURE" <<'EOF'
+#!/bin/bash
+source omarchy-restart-gum
+printf '%s|%s|%s|%s\n' "$*" "$BACKGROUND" "$FOREGROUND" "$BORDER_FOREGROUND" >"${HELPER_LOG:?}"
+EOF
+chmod +x "$HELPER_FIXTURE"
+HELPER_LOG="$TMP/helper.log"
+PATH="$TMP:$PATH" BACKGROUND="#000000" FOREGROUND="#ffffff" BORDER_FOREGROUND="#ffffff" \
+  HELPER_LOG="$HELPER_LOG" \
+  omarchy-launch-floating-terminal-with-presentation env OMARCHY_KIDS_LAUNCHED_BY=desktop omarchy-kids
+if [[ "$(cat "$HELPER_LOG")" == "env OMARCHY_KIDS_LAUNCHED_BY=desktop omarchy-kids|#1a1b26|#a9b1d6|#7aa2f7" ]]; then
+  pass "desktop helper fixture refreshes stale gum colors before the app"
+else
+  fail "desktop helper fixture did not refresh stale gum colors and receive the app command"
 fi
 
 # --- lib/sock.sh ships: three commands source it now ----------------------

@@ -412,6 +412,7 @@ screen_advanced_checklist() {
   local step="$1" total="$2"
   while true; do
     local -a choices=()
+    # shellcheck disable=SC2034 # passed by name to tui_screen_choose
     local -a body=()
     local k
     for k in "${ADV_KEYS[@]}"; do

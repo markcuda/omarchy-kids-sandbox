@@ -16,7 +16,7 @@ receipts in both themes; no Wi-Fi join was attempted.
 
 #143 has reviewed draft PR #144 for empty-scan guidance and retry; #140 has reviewed
 draft PR #142 for bar status reload. #138/#139 recovery integration `6592b15` is independently
-approved. Combined media candidate `11e162f`, including the #145 password-delivery correction,
+approved. Combined media candidate `bcf8b42`, including the #145 password-delivery correction,
 is independently approved for its ordered gate, which remains pending. The same-process bar
 status-update scenario and named installed Wi-Fi proof still remain.
 
@@ -32,7 +32,7 @@ PID `1223702` was absent, and Tokyo Night was restored. The eleven earlier #143 
 masking/navigation evidence, distinct from this delivery preflight.
 
 #137 code at `37aaddb` is HOLD on four review findings, with corrections in progress and no
-full gate yet. The tested screen-time enforcement correction is published as PR #146.
+full gate yet. The tested screen-time enforcement correction is merged through PR #146 at `f362102`; merged-main checks are running.
 #98/#109 remains a human ship decision. The [media gallery](docs/media/dogfood/media-gallery.md)
 retains the earlier captures; no full-media pass is claimed.
 

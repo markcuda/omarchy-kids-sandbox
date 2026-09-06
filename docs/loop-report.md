@@ -19,10 +19,10 @@ full-gate acceptance. No real credential was used. The preview closed, its proce
 and Tokyo Night was restored. The eleven #143 frames retain their narrower masking/navigation
 claims.
 
-Media integration `11e162f` is independently approved for the ordered gate, still pending.
+Media integration `bcf8b42` is independently approved for the ordered gate, still pending.
 Named installed Wi-Fi proof and same-process bar status updates in both themes remain required.
 #137 `37aaddb` is held on four review findings with author corrections in progress; it has not
-run a full gate. The tested screen-time enforcement correction is published as PR #146, and #136 remains fully post-gated at `f28a461`; #98/#109 remains
+run a full gate. The tested screen-time enforcement correction is merged through PR #146 at `f362102`; merged-main checks are running, and #136 remains fully post-gated at `f28a461`; #98/#109 remains
 a human ship decision. Earlier checkpoints below are preserved as historical records.
 
 ## Earlier checkpoint, September 6: Wi-Fi delivery blocks integration

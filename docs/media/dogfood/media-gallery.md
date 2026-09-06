@@ -54,7 +54,7 @@ mislabeled success image is excluded. Backend checks establish delivery and invo
 these six images show the corresponding UI states. No real network join or real credential
 was used. The process closed and Tokyo Night was restored. Ordered full gates and named
 installed-live acceptance remain pending for [#145](https://github.com/markcuda/omarchy-kids-sandbox/issues/145)
-and media integration `11e162f`.
+and media integration `bcf8b42`.
 
 | State | Tokyo Night | Catppuccin Latte | Evidence |
 | --- | --- | --- | --- |

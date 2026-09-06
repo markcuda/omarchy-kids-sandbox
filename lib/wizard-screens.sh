@@ -165,8 +165,10 @@ screen_time() {
   band_budget_weekend="$(band_field "$BAND" budget_min_weekend)"
   band_lights="$(band_field "$BAND" lights_out)"
   band_lights_weekend="$(band_field "$BAND" lights_out_weekend)"
+  local current_budget_weekend="${BUDGET_MIN_WEEKEND:-$band_budget_weekend}"
+  local current_lights_weekend="${LIGHTS_OUT_WEEKEND:-$band_lights_weekend}"
   local choices=(
-    "default|$band_budget minutes a day weekdays, $band_budget_weekend minutes a day weekends; lights out $band_lights weekdays, $band_lights_weekend weekends|Matches Ages $BAND's usual limits."
+    "default|Weekdays: $band_budget min; weekends: $current_budget_weekend min|Lights out: $band_lights weekdays; $current_lights_weekend weekends."
     "custom|I'll set my own|Pick your own minutes and bedtime."
   )
   tui_screen_choose "How much screen time?" 8 "$TOTAL_STEPS" 0 "" choices "default"

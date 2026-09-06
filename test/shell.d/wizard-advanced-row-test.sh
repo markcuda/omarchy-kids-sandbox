@@ -36,9 +36,13 @@ adv_default() {
 
 setup_advanced_globals() {
   DISPLAY_NAME=kid-ada
+  # shellcheck disable=SC2034 # read indirectly through adv_get
   WEB_MODE=garden DNS_MODE=cloudflare-family SITES='' BUDGET_MIN=60
+  # shellcheck disable=SC2034 # read indirectly through adv_get
   BUDGET_MIN_WEEKEND=60 LIGHTS_OUT=19:30 LIGHTS_OUT_WEEKEND=20:00
+  # shellcheck disable=SC2034 # read indirectly through adv_get
   ALLOWLIST_IDS="$1" WIFI_MODE=parent LEVEL=1 MENU_MODE=trimmed
+  # shellcheck disable=SC2034 # read indirectly through adv_get
   THEME=catppuccin-latte HISTORY_VISIBLE=yes
 }
 
@@ -80,7 +84,7 @@ tui_screen_choose() {
   local choices_name="$6" body_name="${9:-}"
   eval "captured_choices=(\"\${${choices_name}[@]}\")"
   eval "captured_body=(\"\${${body_name}[@]}\")"
-  TUI_REPLY=done
+  TUI_REPLY='done'
   return 0
 }
 screen_advanced_checklist 13 15

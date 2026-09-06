@@ -501,3 +501,14 @@ awaiting their ordered gates. No credentials were entered, and Tokyo Night was r
 Quickshell source edits updated the exit preview in the same PID. KidsTheme intentionally
 loads its palette at startup; changing the desktop theme requires reopening a standalone
 preview to inspect the new palette. Source watching and palette loading are separate.
+
+The first #103 full gate passed formatting but failed the media unit fixture's four lock
+assertions. The outer gate's inherited lock flag caused fixtures to skip their own temporary
+lock. Commit `6961d69` clears that inherited flag at unit-test entry; clean and inherited
+environment cases pass, and independent review approved the correction. The ordered gate is
+running again. No package was installed after the failure.
+
+Twenty-three abandoned Mac test stubs from earlier checkouts were independently identified by
+PID, parent PID, user, working directory, and a deleted sleep-stub file descriptor. Only those
+exact identities were terminated; their absence was confirmed. The Mac retry uses four workers;
+the VM suite remains serial.

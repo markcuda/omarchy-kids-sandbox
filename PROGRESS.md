@@ -1,6 +1,6 @@
 # Progress and handoff
 
-Written 2026-09-05 for whoever picks this up next. `docs/GOAL.md` is the standing order and
+Updated 2026-09-06 for whoever picks this up next. `docs/GOAL.md` is the standing order and
 `docs/loop-report.md` is the running account; this file is the shortest path from cold start to
 useful work.
 
@@ -23,9 +23,16 @@ with five platform skips, VM 37-file suite with two skips for bar status and ash
 checks. Named three-autologin reset scenario `88422` completed 0: each fresh owner autologin
 exited cleanly to the Catppuccin Latte portal with successful raw session queries showing no user
 seats. Manual `portal_reset` recovery `31132` passed and captured the real light portal, with tile
-rendering only and no Cy login. Before the current media run, the VM was verified at the original
-Catppuccin Latte greeter; Air remains restored to Tokyo Night. The full 20-capture run `18797` has started; no completion claim or fresh
-full-media result yet. #111 at `a78d413` (PR #115, current desktop-launch theme) and #112 at
+rendering only and no Cy login. Full media run `18797` exited 1. It saved 14 fresh screenshots: portal, launcher, exit, Ask,
+Time’s Up, Wi-Fi, and More apps in both themes. The wizard and panel never opened (#139);
+the bar omitted a live child (#140); collected transient-unit cleanup also failed (#138).
+The fresh photos are `docs/media/dogfood/media-observed-*.png`; they document visible defects, not
+a passing release. The fixture receipt confirms all four original settings restored, live config
+is removed, and a successful raw session query shows only the greeter on seat0. A checked unit
+query reports not-found/inactive/dead. VM theme is Catppuccin Latte; Air is Tokyo Night.
+New findings also include the fake OK Wi-Fi network (#136, reviewed draft PR #141) and a
+lights-out Ask promise that budget-only approval cannot fulfill (#137). No approval was submitted
+during this capture. #91 has independently reviewed draft PR #135; full gates remain pending. #111 at `a78d413` (PR #115, current desktop-launch theme) and #112 at
 `99a4ba5` (PR #116, readable parent portal label) remain reviewed drafts. The original
 `media-driver` remote branch is unchanged; PR #114 carries the rebased driver plus its reviewed
 correction. Real dogfood screenshots now exist in `docs/media/dogfood/`.

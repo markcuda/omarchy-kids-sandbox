@@ -659,3 +659,30 @@ no code merge claimed.
 Portal-reset receipts: [round 1](media/dogfood/portal-134-round-1-catppuccin-latte.png),
 [round 2](media/dogfood/portal-134-round-2-catppuccin-latte.png),
 [round 3](media/dogfood/portal-134-round-3-catppuccin-latte.png).
+
+
+## September 6: real media, failed acceptance
+
+The reviewed media candidate passed the VM formatter, full Mac suite (37 files, five platform
+skips), and full VM suite (37 files, two skips; Linux authd and SO_PEERCRED ran). The separate
+three-autologin portal-reset scenario passed. The subsequent full media run exited 1.
+
+Fourteen new images, inspected by the driving session, are saved under
+`docs/media/dogfood/media-observed-*.png`: seven surfaces in Tokyo Night and Catppuccin Latte.
+The run included an actual Cy login and launcher, plus real root-triggered Time’s Up countdowns.
+It did not launch an app, approve a request, or join Wi-Fi.
+
+As a parent, the bar conceals a running child (#140), and the wizard/panel are absent because
+the driver selects the wrong GUI process (#139). As a seven-year-old, the Wi-Fi picker offers
+a made-up OK network (#136), the empty shelf still asks for a selection (#117), and password
+cards need clearer guidance (#118/#131). The Time’s Up card promises more time at lights-out
+although approvals only add budget (#137); this was source-confirmed, not an approval test.
+
+The driver also mistakes systemd’s collected-unit status for failed cleanup (#138), which
+contaminated later success labels. A separate checked query confirms the unit is now absent;
+all fixture settings were restored, config removed, and the VM returned to its original light
+greeter with no user seat. Air remains on Tokyo Night. No full-media pass is claimed.
+
+#136 and #91 have independently reviewed draft PRs #141 and #135. #138/#139/#140 corrections
+are in review or drafting. Existing usability drafts remain queued for their full gates.
+The #98/#109 human ship decision remains open; #97 cannot precede #98.

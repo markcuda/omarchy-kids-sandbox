@@ -1,0 +1,132 @@
+# Progress and handoff
+
+Written 2026-09-05 for whoever picks this up next. `docs/GOAL.md` is the standing order and
+`docs/loop-report.md` is the running account; this file is the shortest path from cold start to
+useful work.
+
+## Where the project is
+
+Four spec-07 tickets merged today, plus two real-hardware fixes found within minutes of the first
+install on the test laptop. The product works end to end in the VM: a parent runs the wizard, a
+kid appears on the login portal, logs into their own desktop, is held to a screen-time budget, can
+ask for more, and the parent ends the session with their own password.
+
+**Merged (spec 07, the boot-mode work)**
+
+| Ticket | What landed |
+| --- | --- |
+| #92 | `boot=disk\|portal` in `machine.conf` behind a trusted reader |
+| #93 | Assert honours the mode; one root-owned lock serialises assert, the mode setter and the install scriptlet |
+| #94 | Boot-login resolves the account to a trusted role, so a malformed record can never put a kid in the parent's session |
+| #95 | Provisioning and removal honour the mode; portal mode makes no LUKS, UKI or Limine calls |
+| #104 | The portal shows kid tiles again when a machine has two or more kids |
+
+**In flight on branches, both mid-round when this was written**
+
+- `boot-7` (#98, mode transitions). Gate green once; the confirmation review closed four of six
+  findings, including the security one: two children can no longer be given the same disk
+  password. Round three addresses the last real blocker, a power cut during the boot-image rebuild
+  leaving a machine unbootable, plus a rollback that continued after failing to restore authority.
+- `media-driver` (#103, the screenshot driver). Confirmation review closed four of six, including
+  both honesty findings. Round three gives every surface the render-verification that only the
+  Time's Up capture had, and captures the parent bar from a real session instead of excluding it.
+- `boot-6` (#97, wizard boot row). Drafted, **must not merge before #98**; its own author flagged
+  the dependency.
+
+**Not started:** #99 (prove both modes in the VM), the last spec-07 ticket.
+
+## The two real-hardware findings
+
+The VM could not have shown either. Both are why the laptop matters.
+
+1. **#109: installing the package rebuilds the boot image and rewrites the boot menu**, even in
+   portal mode whose whole promise is that it leaves the boot path alone. Kids Mode's own hook
+   behaves correctly and changes nothing; the rebuild is Arch's `90-mkinitcpio-install.hook`,
+   which fires because the package ships a file under `/usr/lib/initcpio/hooks/`. The fix has the
+   same shape as #98's inactive drop-in: ship the hook as a template the distro does not watch and
+   install it only when a parent chooses the disk path.
+2. **The app entry did not open a terminal.** `omarchy-kids` is a gum TUI; with `Terminal=false` a
+   parent clicking Kids Mode got a launch toast and then nothing. Fixed on main with a test that
+   says why. Omarchy's own TUI entries (btop, nvim) were the reference.
+
+## The machines
+
+- **The test laptop, `omarky-air`** (2019 MacBook Air, T2), over Tailscale:
+  `ssh -i ~/.ssh/omarchy_kids_ed25519 omarky-air@omarky-air`. Kids Mode is **installed** on it now
+  in portal mode with `omarky-air` recorded as the owner. Rollback state is at
+  `/root/omarchy-kids-preflight` (host files as a tar, package list, boot fingerprints) plus
+  `phase1-strays/`, two hand-installed binaries from Phase 1 that had to be moved aside before the
+  package would install. `~/kids-install.sh` and `~/kids-rollback.sh` are on the box.
+  Boot fingerprints for the install gate: `~/before-fingerprints.txt`.
+- **Driving its desktop remotely**, which is how the app-entry bug was found:
+
+      export XDG_RUNTIME_DIR=/run/user/1000 WAYLAND_DISPLAY=wayland-1
+      export HYPRLAND_INSTANCE_SIGNATURE=$(ls -t /run/user/1000/hypr | head -1)
+      hyprctl dispatch "hl.dsp.exec_cmd(\"foot -e omarchy-kids\")"   # Hyprland 0.56 dispatch is Lua
+      grim /tmp/shot.png                                              # then scp it back and look at it
+
+  The laptop's terminal is `foot`. There is no alacritty or ghostty on it.
+- **The QEMU VM on that laptop** is where boot-level checks run, never the laptop's own disk.
+  `docs/vm.md` has the recipe and the ssh stanza. It is reached from a Mac through the laptop:
+  `ssh -F ~/.ssh/omarchy-kids-vm-config vm`.
+
+## How work gets done
+
+Read `AGENTS.md` first, especially **"Before you call a ticket done"**: six failure shapes that
+every blocking review finding so far has taken. Drafts that walk that list honestly need fewer
+rounds; drafts that assert they walked it need the same number as before.
+
+The loop that produced the merges above:
+
+1. Write a brief from the issue plus the spec. Say in its first line that the agent must never run
+   anything under `test/live/`, never run `scripts/vm-*.sh` and never ssh anywhere — a drafting
+   agent once rebooted the shared VM under three running gates.
+2. The agent drafts on its own branch in its own clone, and **attacks its own diff** before handing
+   over: for each test it adds, what production line could be deleted and leave that test green?
+3. An **independent** agent reviews it, one that did not write it, with a fresh clone and the
+   branch as its only context. Blocking findings only, ending in MERGE or FIX FIRST.
+4. Gate: the test box's formatter first (seconds), then the unit suite on the Mac, then the same
+   suite on the VM, then any live scenario the spec names.
+5. Merge, then gate the merged main once, because four branches that each pass alone can still
+   conflict together.
+
+**Order matters: review first, gate second.** Reviews are cheap and parallel; the gate is one slot
+and its cycles were repeatedly spent on code a reviewer then changed.
+
+Measured over about twenty rounds: eleven found real defects, five were environment problems now
+fixed structurally, four were rebases and scope. The eleven are why the review step is not
+optional. They caught two children able to unlock each other's accounts, a conversion that could
+leave a machine dead, and a screenshot driver that would have published a frozen interface labelled
+as live.
+
+## Tooling notes that cost time to learn
+
+- `~/.omarchy-kids-loop/` on the Mac holds `gate.sh`, the live-harness `config.env`, and the Air
+  runbooks, deliberately outside `/tmp`: a power cut and later a workspace change each wiped the
+  scratch directory. **Push a branch as soon as it has one working commit.**
+- The Mac cannot host `shfmt` honestly — Homebrew's 3.14 disagrees with the test box's 3.13 on
+  files that are already clean. The gate ships changed files to the box and runs its formatter.
+- The unit suite runs files in parallel on the Mac and **serially on the VM**, which has two cores
+  and is the correctness gate. A file that fails in parallel is re-run alone and named in the
+  summary; two files still do that (#106).
+- Never edit a runner while a copy of it is running. bash reads scripts incrementally and a gate
+  re-entered mid-run.
+- One VM driver at a time, and never more than one gate on the Mac at once. Two gates plus two
+  agents drove the load average past thirty-five and stalled both.
+- Keep Spotlight out of working trees (`.metadata_never_index`). Indexing thousands of scratch
+  files was burning more CPU than the agents.
+
+## What is left
+
+Nearest first:
+
+1. Land #98 and #103, then #97, then #99. That completes spec 07.
+2. #109, the boot rebuild at install: it makes a documented promise false.
+3. Capture the demo media with the merged driver: every surface under a dark and a light theme,
+   plus the three walkthrough videos (`docs/GOAL.md` item 3).
+4. Dogfood the portal path on the laptop end to end and prove a clean removal.
+5. #107, one crash-resumable transaction record for adding and removing a kid. Three rounds of
+   patching narrowed its windows without closing them, which is why it became its own ticket with a
+   design rather than more patches.
+6. Specs 03 to 06 (#73-#87) are internal shape, invisible to a parent or a kid. They can land after
+   a demo without changing what anyone sees.

@@ -97,7 +97,8 @@ wifid_request() {
 }
 
 # call_wifid HEADER [BODY] — prints payload on OK; else a one-line reason
-# to stderr (3 REFUSED, 1 ERROR/no reply).
+# to stderr (3 REFUSED, 1 ERROR/no reply). A bare OK is an empty payload:
+# command substitution removes the trailing newline from an empty reply.
 call_wifid() {
   local reply status
   # "no reply" is a real answer (socat exits non-zero when the socket is
@@ -110,7 +111,9 @@ call_wifid() {
   status="${reply%%$'\n'*}"
   case "$status" in
     OK)
-      printf '%s' "${reply#*$'\n'}"
+      if [[ "$reply" == *$'\n'* ]]; then
+        printf '%s' "${reply#*$'\n'}"
+      fi
       return 0
       ;;
     REFUSED*)

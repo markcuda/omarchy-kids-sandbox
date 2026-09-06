@@ -24,7 +24,9 @@ Installation and capture remain held for a separate private harness hardening ch
 review. Runtime package inputs still match `cd93325`.
 
 New screenshot-backed issues: #117 empty More apps instructions, #118 unclear password owner
-on the exit card, #119 faint wizard keyboard help, and #120 resize corruption. The missing
+on the exit card, #119 faint wizard keyboard help, #120 resize corruption, and #128 blank portal
+password guidance. #128 (`cefc99d3db720204faa39d002b65ee19d08b5c9b`, PR #129) has independent
+source review and Air visual preflight approval; its ordered gate and actual VM scenario remain pending. The missing
 launcher apps were already #91; its ticket now has live evidence. A separate screen-time
 finding has an independently reviewed patch awaiting its ordered gate, with no public
 reproduction or merge. #123 records the parent panel losing preview mode when opening setup;

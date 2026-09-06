@@ -554,3 +554,7 @@ Night was restored after the preview exited. The #112 parent label is readable
 in both themes. The missing password label and submit/back guidance are tracked
 in the newly filed #128. These receipts document the Air preview path, not an
 actual SDDM login or VM gate.
+
+## #128 portal password guidance receipts, 2026-09-06
+
+The #128 candidate at `cefc99d3db720204faa39d002b65ee19d08b5c9b` adds a persistent `Password` label and Enter/Escape guidance. Independent source review and Air visual preflight were approved; the exact runtime QML matches `0eca182`. The ten Tokyo Night and Catppuccin Latte receipts are `portal-128-{tile,input,typed,back,cleared}-{tokyo-night,catppuccin-latte}-air.png` under `docs/media/dogfood/`. Four harmless letters were entered and remained masked; they were never submitted. Escape returned to the tile, reopening showed a cleared field, both previews exited, and Tokyo Night was restored. No authentication was verified. The faint parent caption remains the separate #112 concern and is absent from this main-based branch. The ordered gate and actual VM scenario remain pending.

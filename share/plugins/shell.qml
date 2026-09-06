@@ -105,7 +105,9 @@ PanelWindow {
             id: card
             anchors.centerIn: parent
             width: 560
-            height: Math.min(parent.height - 96, 640)
+            height: root.loaded && root.shelf.length === 0
+                ? 300
+                : Math.min(parent.height - 96, 640)
             radius: 24
             color: theme.background
             border.color: theme.cardFill
@@ -136,7 +138,8 @@ PanelWindow {
 
                     Text {
                         width: parent.width
-                        text: "Pick one, then press Enter to ask a grown-up."
+                        visible: root.loaded && root.loadError.length === 0 && root.shelf.length > 0
+                        text: "Choose an app, then press Enter to ask a grown-up."
                         color: theme.caption
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
@@ -164,7 +167,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         visible: root.loaded && root.loadError.length === 0 && root.shelf.length === 0
-                        text: "Nothing here yet -- check back later!"
+                        text: "There aren't any extra apps to ask for yet. Press Esc to go back."
                         color: theme.caption
                         font.pixelSize: 15
                         wrapMode: Text.WordWrap
@@ -174,7 +177,7 @@ PanelWindow {
                     ListView {
                         id: shelfList
                         width: parent.width
-                        height: parent.height - 140
+                        height: root.shelf.length > 0 ? parent.height - 140 : 0
                         visible: root.loaded && root.shelf.length > 0
                         model: root.shelf
                         currentIndex: root.currentIndex
@@ -217,6 +220,39 @@ PanelWindow {
                             }
                         }
                     }
+                }
+
+                Rectangle {
+                    id: backButton
+                    width: 220
+                    height: 48
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 20
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    radius: 10
+                    color: backMouse.containsMouse ? theme.tileFill : theme.cardFill
+                    border.width: 2
+                    border.color: theme.accent
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Back to launcher"
+                    Accessible.description: "Press Escape to close More apps"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "Esc  Back to launcher"
+                        color: theme.foreground
+                        font.pixelSize: 16
+                    }
+
+                    MouseArea {
+                        id: backMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.closeModal()
+                    }
+
+                    Accessible.onPressAction: root.closeModal()
                 }
             }
         }

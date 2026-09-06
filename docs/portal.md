@@ -358,3 +358,9 @@ real/scratch source directories (OMARCHY_KIDS_SHARE) the way
 omarchy-kids-assert's hyprland-configs lock already does for
 share/hyprland/*.lua.
 ```
+
+## Air SDDM test-mode receipts (2026-09-06, issue #112)
+
+The earlier 2026-09-02 `sddm-greeter-qt6 --test-mode` abort remains recorded above for the QEMU/Hyprland context. A separate Air check now runs the installed SDDM in explicit Wayland test mode with the exact #112 source at `99a4ba5`, using a staged theme path and an owned preview directory for the generated `theme.conf.user`. Tokyo Night and Catppuccin Latte receipts are in `docs/media/dogfood/portal-preview-tokyo-night-air.png`, `portal-password-tokyo-night-air.png`, `portal-preview-catppuccin-latte-air.png`, `portal-password-catppuccin-latte-air.png`, and `portal-back-catppuccin-latte-air.png`.
+
+The receipts show the owner tile only, as expected on Air where no child profiles are provisioned. Enter opens the empty password field and Escape returns to the tile; no password was entered and no authentication was attempted. The preview exited afterward and Tokyo Night was restored. The parent label is readable in both themes. The empty password field still needs a visible `Password` label and keyboard guidance for submit/back; this remains a follow-up against `Main.qml:293-330`. These receipts prove the test-mode preview path, not an actual SDDM login or VM gate.

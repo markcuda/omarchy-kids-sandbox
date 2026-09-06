@@ -35,8 +35,7 @@ Its watched laptop preview passed Escape and actual pointer-click checks; the fu
 #111's exact candidate desktop entry passed real laptop launches in Tokyo Night and Catppuccin
 Latte, including the wizard child's theme environment. The original theme was restored.
 #118 (`aa4caa7`, PR #125) has independent approval and inspected laptop dark/light previews;
-its full gate remains pending. #119 (`b86309a`, PR #126) passed its ordered formatter, Mac,
-VM, and live evidence gate and awaits merge. #103 remains held on the private harness gate.
+its full gate remains pending. #119 (`3f2ebe4`, PR #126) merged; its post-merge gate is still running. #120 (`db20d14`, PR #127) has independent review and awaits its full gate. #103 remains held on the private harness gate.
 Their essential text now uses the theme foreground. The exit preview redrew source edits in
 the same Quickshell process, and Escape/cancel closed every preview without credentials.
 

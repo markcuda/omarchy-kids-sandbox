@@ -439,3 +439,33 @@ is the same single-image weakness seen from the other side. #103 is implementati
 taken no real pictures yet; the media folder waits on a session that can drive the machines.
 
 `PROGRESS.md` and `docs/handoff-prompt.md` carry all of this forward.
+
+## Takeover pass, 2026-09-05
+
+Connected to both machines and inspected real laptop welcome/password screens and the VM
+portal and launcher. The laptop screenshots produced #110, keyboard guidance hidden until
+after input, and #111, stale inherited gum colors overriding the active theme. The light VM
+portal produced #112, a faint parent-account label. Each ticket links a screenshot and its
+cause line. The originals are under `docs/media/dogfood/`; they record findings, not release
+acceptance.
+
+Independent review approved #110 after fixing two ShellCheck warnings, and #111 after testing
+the actual upstream terminal helper. Their draft PRs are #113 and #115. #110's VM formatter
+passed; the full unit and live gates are still in progress. Nothing from this pass has merged.
+
+Review of #103 found that an unsuccessful service-status query could leave the temporary
+login running while cleanup reported success. The correction preserves uncertainty and checks
+termination, and independent review approved it at `8ba4d6a`. Draft PR #114 awaits the full gate
+and real captures. A drafting session initially pushed this correction to the hub; that exact
+mistaken branch was removed after its hash was checked, and the commit was recovered into the
+sandbox. The repository identity is now explicit in the repo lock and AGENTS.md.
+
+A screen-time finding from real VM use is being handled privately under the hub's SECURITY.md.
+Its remediation remains separate from the public UI tickets. #98 still requires Mark's ship
+decision with #109; #97 still waits for #98. The Air has not been rebooted or had boot files
+changed during this pass.
+
+Mark requested file watching for Quickshell iteration. The laptop inherited
+`QS_DISABLE_FILE_WATCHER=1`; clearing it for a separate Kids Mode preview made an edited title
+appear without restarting the process. The original title was restored and the preview closed.
+`docs/live-tests.md` records the launch requirement. This preview is not release media.

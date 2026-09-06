@@ -55,7 +55,8 @@ screen_parent_password() {
 # A3: Name.
 screen_name() {
   tui_screen_input "What's your kid's name?" 3 "$TOTAL_STEPS" 0 "" \
-    text "First name or nickname. It's what they'll see." validate_kid_name
+    text "First name or nickname. It's what they'll see." validate_kid_name \
+    "$TUI_FOOTER_DEFAULT" "${DISPLAY_NAME:-}"
   local rc=$?
   ((rc == 0)) || return $rc
   DISPLAY_NAME="$TUI_REPLY"

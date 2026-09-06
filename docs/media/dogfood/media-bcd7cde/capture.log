@@ -1,0 +1,82 @@
+omarchy-kids: 181 total files, 0 altered files
+vm ssh reachable after 40s (kid-vm)
+theme_reload_if_live: no live session for 'kid-cy' -- the new theme applies at next login
+Capturing portal under tokyo-night
+portal-tokyo-night.png
+saved docs/media/portal-tokyo-night.png
+Capturing launcher under tokyo-night
+launcher-tokyo-night.png
+saved docs/media/launcher-tokyo-night.png
+Capturing exit-modal under tokyo-night
+exit-modal-tokyo-night.png
+saved docs/media/exit-modal-tokyo-night.png
+Capturing ask under tokyo-night
+ask-tokyo-night.png
+saved docs/media/ask-tokyo-night.png
+Capturing times-up under tokyo-night
+times-up-tokyo-night.png
+saved docs/media/times-up-tokyo-night.png
+Capturing wifi-picker under tokyo-night
+image-contains-text: required text is not visible
+wifi-picker-tokyo-night.png
+image-contains-text: required text is not visible
+saved docs/media/wifi-picker-tokyo-night.png
+Capturing plugins-shelf under tokyo-night
+plugins-shelf-tokyo-night.png
+saved docs/media/plugins-shelf-tokyo-night.png
+Capturing wizard under tokyo-night
+jq: parse error: Unmatched ']' at line 2, column 1
+image-contains-text: required text is not visible
+wizard-tokyo-night.png
+saved docs/media/wizard-tokyo-night.png
+Capturing panel under tokyo-night
+jq: parse error: Unmatched ']' at line 2, column 1
+image-contains-text: required text is not visible
+image-contains-text: required text is not visible
+panel-tokyo-night.png
+saved docs/media/panel-tokyo-night.png
+Capturing bar-module under tokyo-night
+image-contains-text: required text is not visible
+bar-module-tokyo-night.png
+saved docs/media/bar-module-tokyo-night.png
+theme_reload_if_live: no live session for 'kid-cy' -- the new theme applies at next login
+Capturing portal under catppuccin-latte
+portal-catppuccin-latte.png
+saved docs/media/portal-catppuccin-latte.png
+Capturing launcher under catppuccin-latte
+launcher-catppuccin-latte.png
+saved docs/media/launcher-catppuccin-latte.png
+Capturing exit-modal under catppuccin-latte
+exit-modal-catppuccin-latte.png
+saved docs/media/exit-modal-catppuccin-latte.png
+Capturing ask under catppuccin-latte
+ask-catppuccin-latte.png
+saved docs/media/ask-catppuccin-latte.png
+Capturing times-up under catppuccin-latte
+times-up-catppuccin-latte.png
+saved docs/media/times-up-catppuccin-latte.png
+Capturing wifi-picker under catppuccin-latte
+image-contains-text: required text is not visible
+wifi-picker-catppuccin-latte.png
+image-contains-text: required text is not visible
+saved docs/media/wifi-picker-catppuccin-latte.png
+Capturing plugins-shelf under catppuccin-latte
+plugins-shelf-catppuccin-latte.png
+saved docs/media/plugins-shelf-catppuccin-latte.png
+Capturing wizard under catppuccin-latte
+jq: parse error: Unmatched ']' at line 2, column 1
+image-contains-text: required text is not visible
+wizard-catppuccin-latte.png
+saved docs/media/wizard-catppuccin-latte.png
+Capturing panel under catppuccin-latte
+jq: parse error: Unmatched ']' at line 2, column 1
+image-contains-text: required text is not visible
+panel-catppuccin-latte.png
+saved docs/media/panel-catppuccin-latte.png
+Capturing bar-module under catppuccin-latte
+bar-module-catppuccin-latte.png
+saved docs/media/bar-module-catppuccin-latte.png
+Restoring themes
+theme_reload_if_live: no live session for 'kid-cy' -- the new theme applies at next login
+Closing sessions and confirming the greeter
+theme_reload_if_live: no live session for 'kid-cy' -- the new theme applies at next login

@@ -2,15 +2,25 @@
 # V1 driver (runs on the Mac; needs SSH_CFG with hosts `air` and `vm`, see docs/vm.md):
 # with one graphical session live in the VM, ask SDDM for a greeter, log a second user in by
 # typing on the console through QMP, and report what loginctl and the VTs show.
-# Usage: SSH_CFG=<path> scripts/v1-two-sessions.sh <second-user> <second-password> [shots-dir]
+# Usage: printf '%s\n' <second-password> | SSH_CFG=<path> scripts/v1-two-sessions.sh <second-user> [shots-dir]
 set -uo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "${OMARCHY_KIDS_VM_DRIVER_LOCKED:-0}" != 1 ]]; then
+  exec "$SCRIPT_DIR/vm-driver-lock" "$0" "$@"
+fi
 CFG="${SSH_CFG:?set SSH_CFG}"
 U2="${1:?user}"
-P2="${2:?password}"
-OUT="${3:-/tmp}"
-vm() { ssh -F "$CFG" vm "$@"; }
-air() { ssh -F "$CFG" air "$@"; }
-qmp() { air "bash ~/omarchy-kids-sandbox/scripts/vm-qmp.sh $*"; }
+OUT="${2:-/tmp}"
+P2="$(cat)"
+vm() { ssh -T -F "$CFG" vm "$@"; }
+air() { ssh -T -F "$CFG" air "$@"; }
+qmp() {
+  if [[ "${1:-}" == type ]]; then
+    printf '%s' "$2" | air "bash ~/omarchy-kids-sandbox/scripts/vm-qmp.sh type"
+  else
+    air "bash ~/omarchy-kids-sandbox/scripts/vm-qmp.sh $*"
+  fi
+}
 shot() {
   air "bash ~/omarchy-kids-sandbox/scripts/vm-qmp.sh shot /tmp/$1.png >/dev/null"
   scp -q -F "$CFG" "air:/tmp/$1.png" "$OUT/$1.png"

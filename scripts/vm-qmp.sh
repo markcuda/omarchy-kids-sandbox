@@ -1,5 +1,5 @@
 #!/bin/bash
-# Talk to the running test VM over QMP. shot <file.png> | type <text> | key <qcode>... | status | quit
+# Talk to the running test VM over QMP. shot <file.png> | type | key <qcode>... | status | quit
 set -euo pipefail
 VM="${VM_DIR:-$HOME/vm}"
 S="$VM/qmp.sock"
@@ -15,7 +15,11 @@ case ${1:-} in
     qmp "\"send-key\", \"arguments\": {\"keys\": [${keys%,}]}" >/dev/null
     ;;
   type)
-    text="$2"
+    (($# == 1)) || {
+      echo "type reads text from stdin" >&2
+      exit 2
+    }
+    text="$(cat)"
     for ((i = 0; i < ${#text}; i++)); do
       c=${text:i:1}
       case $c in
@@ -30,7 +34,7 @@ case ${1:-} in
   status) qmp '"query-status"' ;;
   quit) qmp '"quit"' >/dev/null ;;
   *)
-    echo "usage: vm-qmp.sh shot <png> | type <text> | enter | key <qcode>... | status | quit"
+    echo "usage: vm-qmp.sh shot <png> | type (reads stdin) | enter | key <qcode>... | status | quit"
     exit 2
     ;;
 esac

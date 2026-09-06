@@ -478,6 +478,136 @@ run_client_reply $'REFUSED wifi=parent\n' 0 "REFUSED reply" 3 ""
 trap - EXIT
 cleanup_c2
 
+# C3. Execute the picker's real JavaScript functions with owned process stubs.
+# This covers state transitions, not QML rendering or keyboard event delivery.
+if command -v node >/dev/null 2>&1; then
+  node - "$DIR/share/wifi/shell.qml" <<'NODE'
+const fs = require("fs");
+const vm = require("vm");
+const assert = require("assert");
+const source = fs.readFileSync(process.argv[2], "utf8");
+let scans = 0;
+let joins = 0;
+const listProcess = {
+  active: false,
+  get running() { return this.active; },
+  set running(value) { this.active = value; if (value) scans++; }
+};
+const joinProcess = {
+  active: false,
+  sent: false,
+  inputEnabled: true,
+  events: [],
+  get stdinEnabled() { return this.inputEnabled; },
+  set stdinEnabled(value) {
+    if (this.inputEnabled !== value) this.events.push(["stdin", value]);
+    this.inputEnabled = value;
+  },
+  get running() { return this.active; },
+  set running(value) { this.active = value; if (value) joins++; runningChanged(); },
+  writes: [],
+  write(value) {
+    assert.strictEqual(this.active, true, "password write requires a started process");
+    assert.strictEqual(this.stdinEnabled, true, "password write precedes stdin close");
+    this.writes.push(value);
+    this.events.push(["write", value]);
+  }
+};
+const root = {
+  networks: [], currentIndex: 0, loading: false, joining: false,
+  showPasswordField: false, passwordText: "", statusText: ""
+};
+const context = vm.createContext({root, listProcess, joinProcess});
+Object.defineProperty(context, "running", {get: () => joinProcess.running});
+const runningMatch = source.match(/id: joinProcess[^]*?onRunningChanged:\s*\{([^]*?)^        \}/m);
+assert(runningMatch, "production running handler is present");
+const runningChanged = vm.runInContext("() => {" + runningMatch[1] + "}", context);
+for (const name of ["refreshList", "parseList", "selectedNetwork", "needsPassword", "beginJoin", "activateCurrent", "footerText", "deliverCandidate"]) {
+  const expression = new RegExp("^    function " + name + "\\([^]*?^    \\}", "m");
+  const match = source.match(expression);
+  assert(match, "missing production function " + name);
+  root[name] = vm.runInContext("(" + match[0] + ")", context);
+}
+const startedMatch = source.match(/^\s*onStarted:\s*(root\.deliverCandidate\(\))\s*$/m);
+assert(startedMatch, "production started handler delivers the candidate");
+const started = vm.runInContext("() => " + startedMatch[1], context);
+assert.strictEqual(root.footerText(), "Enter try again · Esc close");
+root.activateCurrent();
+assert.strictEqual(scans, 1);
+assert.strictEqual(root.loading, true);
+assert.strictEqual(root.footerText(), "Esc close");
+root.activateCurrent();
+root.refreshList();
+assert.strictEqual(scans, 1, "loading must not start another scan");
+listProcess.active = false;
+root.loading = false;
+root.statusText = "Couldn't list networks. Ask a grown-up.";
+root.activateCurrent();
+assert.strictEqual(scans, 2, "failed scan can be retried");
+assert.strictEqual(root.statusText, "");
+listProcess.active = false;
+root.networks = root.parseList("HomeNet:80:WPA2:\nOpenNet:40::\n");
+root.beginJoin();
+assert.strictEqual(joins, 0, "loading cannot join a stale selected row");
+root.loading = false;
+assert.strictEqual(root.footerText(), "↑/↓ choose · Enter join · Esc close");
+root.activateCurrent();
+assert.strictEqual(root.showPasswordField, true);
+assert.strictEqual(joins, 0);
+assert.strictEqual(root.footerText(), "Enter join · Esc back");
+root.passwordText = "fixture-password";
+started();
+assert.strictEqual(joinProcess.writes.length, 0, "a pre-start delivery attempt must do nothing");
+root.activateCurrent();
+assert.deepStrictEqual(Array.from(joinProcess.command), ["/usr/bin/omarchy-kids-wifi", "join", "HomeNet", "--password-stdin"]);
+assert.strictEqual(joinProcess.candidate, "fixture-password");
+assert.strictEqual(joins, 1);
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n"]);
+assert.strictEqual(joinProcess.candidate, "");
+assert.strictEqual(joinProcess.stdinEnabled, false);
+assert.deepStrictEqual(joinProcess.events, [["write", "fixture-password\n"], ["stdin", false]], "one write precedes EOF");
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n"], "a repeated started signal cannot resend");
+assert.strictEqual(root.footerText(), "Esc back");
+root.activateCurrent();
+assert.strictEqual(joins, 1, "joining must not start another join");
+root.joining = false;
+joinProcess.running = false; // deliver the production running-change signal
+root.showPasswordField = false;
+root.passwordText = "";
+root.activateCurrent();
+root.passwordText = "second-password";
+root.activateCurrent();
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n", "second-password\n"], "a second protected join sends once");
+assert.deepStrictEqual(joinProcess.events.slice(-3), [["stdin", true], ["write", "second-password\n"], ["stdin", false]], "retry reopens stdin, writes once, then closes");
+root.joining = false;
+joinProcess.running = false;
+root.currentIndex = 1;
+root.activateCurrent();
+assert.deepStrictEqual(Array.from(joinProcess.command), ["/usr/bin/omarchy-kids-wifi", "join", "OpenNet"]);
+assert.strictEqual(joinProcess.stdinEnabled, false);
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n", "second-password\n"], "open joins never write a password");
+root.joining = false;
+joinProcess.running = false;
+root.currentIndex = 0;
+root.showPasswordField = true;
+root.passwordText = "busy-password";
+root.activateCurrent();
+assert.strictEqual(joins, 4, "a protected join starts once");
+root.activateCurrent();
+assert.strictEqual(joins, 4, "duplicate Enter while busy does not start another join");
+started();
+assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n", "second-password\n", "busy-password\n"]);
+assert.strictEqual(root.footerText(), "Esc back");
+NODE
+  check_status "$?" "0" "picker functions preserve retry, busy, open-network and password states"
+else
+  echo "SKIP Wi-Fi picker function checks: node not found"
+fi
+
 # `omarchy-kids-wifi portal` used to be tested here. The command is gone
 # (see this file's header): a kid could never have run it.
 out="$("$WIFI" portal 2>&1)"

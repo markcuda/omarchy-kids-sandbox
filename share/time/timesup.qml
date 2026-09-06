@@ -32,6 +32,15 @@ PanelWindow {
     // The account is supplied by id -un; the prefix is fixed at build time.
     readonly property string statusPath: "/run/omarchy-kids/time/" + root.kidAccount + ".json"
     property int secondsLeft: 0
+    property bool mediaReady: false
+
+    IpcHandler {
+        target: "media"
+
+        function timesUpReady(): bool {
+            return root.mediaReady
+        }
+    }
 
     FileView {
         id: statusFile
@@ -49,6 +58,7 @@ PanelWindow {
         running: false
         onTriggered: {
             if (root.secondsLeft > 0) root.secondsLeft -= 1
+            root.mediaReady = root.visible && root.secondsLeft > 0
         }
     }
 
@@ -65,6 +75,7 @@ PanelWindow {
             return
         }
         root.secondsLeft = status.grace_deadline - status.last_tick
+        root.mediaReady = false
         root.visible = true
         countdown.restart()
     }
@@ -78,6 +89,7 @@ PanelWindow {
 
     function hideCard() {
         root.visible = false
+        root.mediaReady = false
         countdown.stop()
     }
 

@@ -1,9 +1,9 @@
 #!/bin/bash
-# Tests the pure helpers in test/live/lib.sh — portal tile index/count parsing, the finalized
-# journal-report parser, and the report table generator. These are the only parts of the VM
-# acceptance harness (issue #31, SPEC.md R-BUILD-3) that don't need the test laptop or the VM, so
-# this is the only test/live coverage that runs in `test/all`/CI; the scenarios themselves
-# (test/live/NN-*.sh) are exercised by hand against the real VM per docs/live-tests.md, never here.
+# Tests the local helpers in test/live/lib.sh — portal tile/index parsing, live compositor
+# readiness, the finalized journal-report parser, and the report table generator. The live
+# compositor checks below own vmroot and sleep, so they never contact the test laptop or VM; the
+# scenarios themselves (test/live/NN-*.sh) are exercised by hand against the real VM per
+# docs/live-tests.md, never here.
 set -uo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -12,18 +12,28 @@ TMP="$(mktemp -d)"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
-# Point lib.sh at a scratch out dir and an obviously-fake ssh config, so sourcing it never
-# touches this machine's real ~/.ssh or writes anywhere outside $TMP (AGENTS.md rule 8). None of
-# the functions this file calls ever shell out to ssh/scp/qmp, so LIVE_SSH_CFG is never read.
-export LIVE_OUT_DIR="$TMP/out"
-export LIVE_SSH_CFG="$TMP/does-not-exist"
-
-# shellcheck source=test/live/lib.sh
-source "$DIR/test/live/lib.sh"
-# shellcheck source=lib/conf.sh
-source "$DIR/lib/conf.sh"
-# shellcheck source=lib/posture.sh
-source "$DIR/lib/posture.sh"
+# Copy every sourced library beside synthetic config before sourcing anything. The fixture uses
+# only this scratch tree, so it cannot read checkout config or touch a real VM helper.
+LIB_FIXTURE_ROOT="$TMP/library"
+mkdir -p "$LIB_FIXTURE_ROOT/test/live" "$LIB_FIXTURE_ROOT/lib"
+cp "$DIR/test/live/lib.sh" "$LIB_FIXTURE_ROOT/test/live/lib.sh"
+cp "$DIR/lib/conf.sh" "$LIB_FIXTURE_ROOT/lib/conf.sh"
+cp "$DIR/lib/posture.sh" "$LIB_FIXTURE_ROOT/lib/posture.sh"
+cp "$DIR/lib/theme.sh" "$LIB_FIXTURE_ROOT/lib/theme.sh"
+cp "$DIR/lib/kids.sh" "$LIB_FIXTURE_ROOT/lib/kids.sh"
+cat >"$LIB_FIXTURE_ROOT/test/live/config.env" <<EOF
+LIVE_OWNER_ACCOUNT=kid-test
+LIVE_OWNER_PASSWORD=fixture-owner
+LIVE_OUT_DIR=$TMP/out
+LIVE_SSH_CFG=$TMP/does-not-exist
+EOF
+export OMARCHY_KIDS_VM_DRIVER_LOCKED=1
+# shellcheck source=/dev/null
+source "$LIB_FIXTURE_ROOT/test/live/lib.sh"
+# shellcheck source=/dev/null
+source "$LIB_FIXTURE_ROOT/lib/conf.sh"
+# shellcheck source=/dev/null
+source "$LIB_FIXTURE_ROOT/lib/posture.sh"
 
 fail=0
 check() { # got want label
@@ -152,7 +162,7 @@ check "$(report_row 90-remove FAIL "")" \
 # directly — the same reason test/shell.d never calls a command's own `exit` inline either.)
 
 out="$(
-  LIVE_FAIL=0
+  export LIVE_FAIL=0
   ok "a check"
   scenario_result some-scenario
 )"
@@ -162,7 +172,7 @@ PASS some-scenario" "scenario_result: an all-ok run prints PASS"
 check_status "$status" "0" "scenario_result: an all-ok run exits 0"
 
 out="$(
-  LIVE_FAIL=0
+  export LIVE_FAIL=0
   ok "a check"
   fail "a broken check"
   scenario_result some-scenario
@@ -172,5 +182,145 @@ check "$out" "ok   a check
 FAIL a broken check
 FAIL some-scenario" "scenario_result: any fail prints FAIL"
 check_status "$status" "1" "scenario_result: any fail exits 1"
+
+# --- portal_clean_exit live inventory ---------------------------------------------------------
+# Source a copied helper beside synthetic config, then own every remote call in the behavior
+# fixture. This keeps command-substitution state and config reads inside the scratch tree.
+BEHAVIOR_ROOT="$LIB_FIXTURE_ROOT"
+
+(
+  export OMARCHY_KIDS_VM_DRIVER_LOCKED=1
+  export LIVE_OUT_DIR="$TMP/behavior-out"
+  export LIVE_SSH_CFG="$TMP/does-not-exist"
+  # shellcheck source=/dev/null
+  source "$BEHAVIOR_ROOT/test/live/lib.sh"
+  export LIVE_OUT_DIR="$TMP/behavior-out"
+  LIVE_TEST_VMROOT_MODE=delayed
+  LIVE_TEST_STATE_DIR="$TMP/behavior-state"
+  mkdir -p "$LIVE_TEST_STATE_DIR"
+  pass() { echo "ok   $*"; }
+  fail_() {
+    echo "FAIL $*"
+    fail=1
+  }
+  vmroot() {
+    local command="$1" calls=0
+    [[ -f "$LIVE_TEST_STATE_DIR/calls" ]] && calls="$(cat "$LIVE_TEST_STATE_DIR/calls")"
+    calls=$((calls + 1))
+    printf '%s\n' "$calls" >"$LIVE_TEST_STATE_DIR/calls"
+    case "$command" in
+      *"/usr/bin/id -u kid-test"*) printf '1000\n' ;;
+      *"loginctl list-sessions --no-legend"*)
+        [[ "$LIVE_TEST_VMROOT_MODE" != query-failure ]] || return 1
+        if [[ "$LIVE_TEST_VMROOT_MODE" != restart-failure ]]; then
+          printf '1 1000 kid-test seat0 - user\n'
+        fi
+        return 0
+        ;;
+      *"systemctl restart sddm"*)
+        : >"$LIVE_TEST_STATE_DIR/restart-attempt"
+        [[ "$LIVE_TEST_VMROOT_MODE" != restart-failure ]]
+        ;;
+      *"sleep 16"*) : >"$LIVE_TEST_STATE_DIR/sleep-attempt" ;;
+      *"instances -j"*)
+        local inventory_calls=0
+        [[ -f "$LIVE_TEST_STATE_DIR/inventory-calls" ]] && inventory_calls="$(cat "$LIVE_TEST_STATE_DIR/inventory-calls")"
+        inventory_calls=$((inventory_calls + 1))
+        printf '%s\n' "$inventory_calls" >"$LIVE_TEST_STATE_DIR/inventory-calls"
+        case "$LIVE_TEST_VMROOT_MODE:$inventory_calls" in
+          delayed:1) printf '[{"instance":"old","wl_socket":"wayland-0","pid":1}]\n' ;;
+          delayed:*) printf '[{"instance":"live","wl_socket":"wayland-1","pid":2}]\n' ;;
+          malformed-delayed:1) printf ']\n' ;;
+          malformed-delayed:*) printf '[{"instance":"live","wl_socket":"wayland-1","pid":2}]\n' ;;
+          malformed:*) printf ']\n' ;;
+          ambiguous:*) printf '[{"instance":"one","wl_socket":"wayland-1","pid":2},{"instance":"two","wl_socket":"wayland-1","pid":3}]\n' ;;
+          *) printf '[{"instance":"live","wl_socket":"wayland-1","pid":2}]\n' ;;
+        esac
+        ;;
+      *"dispatch 'hl.dsp.exit()'"*)
+        local dispatches=0
+        [[ -f "$LIVE_TEST_STATE_DIR/dispatches" ]] && dispatches="$(cat "$LIVE_TEST_STATE_DIR/dispatches")"
+        dispatches=$((dispatches + 1))
+        printf '%s\n' "$dispatches" >"$LIVE_TEST_STATE_DIR/dispatches"
+        [[ "$LIVE_TEST_VMROOT_MODE" != dispatch-failure ]]
+        ;;
+      *) return 1 ;;
+    esac
+  }
+  sleep() { :; }
+  assert_greeter() { :; }
+
+  portal_clean_exit kid-test 10
+  check_status "$?" "0" "portal_clean_exit: delayed inventory waits for a live instance"
+  check "$(cat "$LIVE_TEST_STATE_DIR/inventory-calls")" "2" \
+    "portal_clean_exit: delayed inventory queried twice"
+  check "$(cat "$LIVE_TEST_STATE_DIR/dispatches")" "1" \
+    "portal_clean_exit: dispatches exactly once after readiness"
+  LIVE_TEST_VMROOT_MODE=malformed
+  : >"$LIVE_TEST_STATE_DIR/calls"
+  rm -f "$LIVE_TEST_STATE_DIR/inventory-calls"
+  portal_clean_exit kid-test 0
+  check_status "$?" "1" "portal_clean_exit: malformed inventory is not treated as ready"
+  LIVE_TEST_VMROOT_MODE=ambiguous
+  : >"$LIVE_TEST_STATE_DIR/calls"
+  rm -f "$LIVE_TEST_STATE_DIR/inventory-calls"
+  portal_clean_exit kid-test 0
+  check_status "$?" "1" "portal_clean_exit: ambiguous inventory is rejected"
+  LIVE_TEST_VMROOT_MODE=malformed-delayed
+  : >"$LIVE_TEST_STATE_DIR/calls"
+  rm -f "$LIVE_TEST_STATE_DIR/inventory-calls"
+  portal_clean_exit kid-test 10
+  check_status "$?" "0" "portal_clean_exit: invalid inventory waits for a later valid query"
+  check "$(cat "$LIVE_TEST_STATE_DIR/inventory-calls")" "2" \
+    "portal_clean_exit: invalid inventory queried twice"
+  LIVE_TEST_VMROOT_MODE=dispatch-failure
+  : >"$LIVE_TEST_STATE_DIR/calls"
+  rm -f "$LIVE_TEST_STATE_DIR/inventory-calls"
+  rm -f "$LIVE_TEST_STATE_DIR/dispatches"
+  portal_clean_exit kid-test 0
+  check_status "$?" "1" "portal_clean_exit: dispatch failure propagates"
+  check "$(cat "$LIVE_TEST_STATE_DIR/dispatches")" "1" \
+    "portal_clean_exit: dispatch failure reached the dispatcher"
+  LIVE_TEST_VMROOT_MODE=dispatch-failure
+  : >"$LIVE_TEST_STATE_DIR/calls"
+  rm -f "$LIVE_TEST_STATE_DIR/inventory-calls" "$LIVE_TEST_STATE_DIR/dispatches"
+  portal_reset 0
+  check_status "$?" "1" "portal_reset: clean-exit failure propagates"
+  check "$(cat "$LIVE_TEST_STATE_DIR/inventory-calls")" "1" \
+    "portal_reset: dispatch case queried inventory once"
+  check "$(cat "$LIVE_TEST_STATE_DIR/dispatches")" "1" \
+    "portal_reset: dispatch case attempted exactly once"
+  LIVE_TEST_VMROOT_MODE=query-failure
+  : >"$LIVE_TEST_STATE_DIR/calls"
+  rm -f "$LIVE_TEST_STATE_DIR/restart-attempt"
+  portal_reset 0
+  check_status "$?" "1" "portal_reset: session query failure propagates"
+  [[ ! -e "$LIVE_TEST_STATE_DIR/restart-attempt" ]] &&
+    pass "portal_reset: query failure does not restart SDDM" ||
+    fail_ "portal_reset restarted SDDM after query failure"
+  LIVE_TEST_VMROOT_MODE=restart-failure
+  : >"$LIVE_TEST_STATE_DIR/calls"
+  rm -f "$LIVE_TEST_STATE_DIR/restart-attempt" "$LIVE_TEST_STATE_DIR/sleep-attempt"
+  portal_reset 0
+  check_status "$?" "1" "portal_reset: SDDM restart failure propagates"
+  [[ -e "$LIVE_TEST_STATE_DIR/restart-attempt" ]] &&
+    pass "portal_reset: restart failure attempted SDDM restart" ||
+    fail_ "portal_reset skipped SDDM restart"
+  [[ ! -e "$LIVE_TEST_STATE_DIR/sleep-attempt" ]] &&
+    pass "portal_reset: restart failure skips the wait" ||
+    fail_ "portal_reset waited after restart failure"
+  mkdir -p "$TMP/no-jq"
+  rm -f "$LIVE_TEST_STATE_DIR/restart-attempt"
+  # shellcheck disable=SC2123 # intentionally hide jq while exercising the host prerequisite
+  PATH="$TMP/no-jq"
+  portal_reset 0
+  check_status "$?" "1" "portal_reset: missing jq fails before VM mutation"
+  [[ ! -e "$LIVE_TEST_STATE_DIR/restart-attempt" ]] &&
+    pass "portal_reset: missing jq does not restart SDDM" ||
+    fail_ "portal_reset mutated SDDM without jq"
+  exit $fail
+)
+behavior_status=$?
+((behavior_status == 0)) || fail=1
 
 exit $fail

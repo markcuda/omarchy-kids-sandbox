@@ -1,0 +1,25 @@
+#!/bin/bash
+# Build once, then use macOS Vision to verify release-screenshot text.
+set -euo pipefail
+
+(($# >= 2)) || {
+  echo "image-contains-text: needs an image and required text" >&2
+  exit 2
+}
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CACHE_ROOT="${TMPDIR:-/tmp}/omarchy-kids-media-tools"
+BIN="$CACHE_ROOT/image-contains-text"
+SOURCE="$DIR/image-contains-text.swift"
+
+if [[ ! -x "$BIN" || "$SOURCE" -nt "$BIN" ]]; then
+  mkdir -p "$CACHE_ROOT/modules"
+  candidate="$BIN.$$"
+  trap 'rm -f "$candidate"' EXIT
+  /usr/bin/xcrun swiftc -O -module-cache-path "$CACHE_ROOT/modules" \
+    -o "$candidate" "$SOURCE"
+  mv -f "$candidate" "$BIN"
+  trap - EXIT
+fi
+
+exec "$BIN" "$@"

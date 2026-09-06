@@ -61,6 +61,7 @@ PanelWindow {
     }
 
     function refreshList() {
+        if (listProcess.running || root.joining) return
         root.loading = true
         root.statusText = ""
         listProcess.running = true
@@ -104,6 +105,18 @@ PanelWindow {
         return !!net && net.security.length > 0 && net.security !== "--"
     }
 
+    // Process.write() is only valid after the child starts. The
+    // stdinEnabled change happens before running for a protected join,
+    // so the Process.started handler calls this delivery edge.
+    function deliverCandidate() {
+        if (joinProcess.stdinEnabled && joinProcess.running && !joinProcess.sent) {
+            joinProcess.write(joinProcess.candidate + "\n")
+            joinProcess.candidate = ""
+            joinProcess.sent = true
+            joinProcess.stdinEnabled = false
+        }
+    }
+
     // --- Joining -------------------------------------------------------
     // "omarchy-kids-wifi join <ssid> --password-stdin" (or without the
     // flag for an open network) — same one-line-on-stdin-then-EOF shape
@@ -126,17 +139,7 @@ PanelWindow {
                 joinProcess.collected = ""
             }
         }
-        // Only write to stdin for a network that actually needs a
-        // password; an open network's "join" invocation has no
-        // --password-stdin flag at all, so nothing here waits to write.
-        onStdinEnabledChanged: {
-            if (stdinEnabled && running && !joinProcess.sent) {
-                joinProcess.write(joinProcess.candidate + "\n")
-                joinProcess.candidate = ""
-                joinProcess.sent = true
-                joinProcess.stdinEnabled = false
-            }
-        }
+        onStarted: root.deliverCandidate()
         onExited: (exitCode) => {
             root.joining = false
             if (exitCode === 0) {
@@ -157,7 +160,7 @@ PanelWindow {
 
     function beginJoin() {
         var net = root.selectedNetwork()
-        if (!net || root.joining) return
+        if (!net || root.loading || root.joining) return
         if (root.needsPassword(net) && !root.showPasswordField) {
             root.showPasswordField = true
             root.statusText = ""
@@ -174,6 +177,19 @@ PanelWindow {
             joinProcess.stdinEnabled = false
         }
         joinProcess.running = true
+    }
+
+    function activateCurrent() {
+        if (root.loading || root.joining) return
+        if (!root.showPasswordField && root.networks.length === 0) root.refreshList()
+        else root.beginJoin()
+    }
+
+    function footerText() {
+        if (root.showPasswordField) return root.joining ? "Esc back" : "Enter join · Esc back"
+        if (root.loading || root.joining) return "Esc close"
+        if (root.networks.length === 0) return "Enter try again · Esc close"
+        return "↑/↓ choose · Enter join · Esc close"
     }
 
     function closeOverlay() { Qt.quit() }
@@ -194,15 +210,15 @@ PanelWindow {
             event.accepted = true
         }
         Keys.onUpPressed: (event) => {
-            if (!root.showPasswordField && root.currentIndex > 0) root.currentIndex -= 1
+            if (!root.loading && !root.joining && !root.showPasswordField && root.currentIndex > 0) root.currentIndex -= 1
             event.accepted = true
         }
         Keys.onDownPressed: (event) => {
-            if (!root.showPasswordField && root.currentIndex + 1 < root.networks.length) root.currentIndex += 1
+            if (!root.loading && !root.joining && !root.showPasswordField && root.currentIndex + 1 < root.networks.length) root.currentIndex += 1
             event.accepted = true
         }
-        Keys.onReturnPressed: (event) => { root.beginJoin(); event.accepted = true }
-        Keys.onEnterPressed: (event) => { root.beginJoin(); event.accepted = true }
+        Keys.onReturnPressed: (event) => { root.activateCurrent(); event.accepted = true }
+        Keys.onEnterPressed: (event) => { root.activateCurrent(); event.accepted = true }
 
         Rectangle {
             anchors.fill: parent
@@ -236,13 +252,14 @@ PanelWindow {
                     Text {
                         visible: root.loading
                         text: "Looking for networks…"
-                        color: theme.caption
-                        font.pixelSize: 14
+                        color: theme.foreground
+                        font.family: theme.fontFamily
+                        font.pixelSize: 16
                     }
 
                     ListView {
                         id: list
-                        visible: !root.loading && !root.showPasswordField
+                        visible: !root.loading && !root.showPasswordField && root.networks.length > 0
                         width: parent.width
                         height: 320
                         clip: true
@@ -282,6 +299,7 @@ PanelWindow {
                             }
 
                             MouseArea {
+                                enabled: !root.joining
                                 anchors.fill: parent
                                 onClicked: {
                                     root.currentIndex = index
@@ -325,8 +343,8 @@ PanelWindow {
                                 clip: true
                                 text: root.passwordText
                                 onTextChanged: root.passwordText = text
-                                Keys.onReturnPressed: (event) => { root.beginJoin(); event.accepted = true }
-                                Keys.onEnterPressed: (event) => { root.beginJoin(); event.accepted = true }
+                                Keys.onReturnPressed: (event) => { root.activateCurrent(); event.accepted = true }
+                                Keys.onEnterPressed: (event) => { root.activateCurrent(); event.accepted = true }
                             }
                         }
                     }
@@ -335,16 +353,57 @@ PanelWindow {
                         width: parent.width
                         visible: root.statusText.length > 0
                         text: root.statusText
-                        color: theme.warning
-                        font.pixelSize: 14
+                        color: theme.foreground
+                        font.family: theme.fontFamily
+                        font.pixelSize: 16
                         wrapMode: Text.WordWrap
+                    }
+
+                    Column {
+                        visible: !root.loading && !root.joining && !root.showPasswordField && root.networks.length === 0
+                        width: parent.width
+                        spacing: 16
+
+                        Text {
+                            visible: root.statusText.length === 0
+                            width: parent.width
+                            text: "No networks found"
+                            color: theme.foreground
+                            font.family: theme.fontFamily
+                            font.pixelSize: 18
+                            horizontalAlignment: Text.AlignHCenter
+                        }
+
+                        Rectangle {
+                            width: parent.width
+                            height: 48
+                            radius: 10
+                            color: theme.tileFill
+                            border.color: theme.accent
+                            border.width: 2
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: "Try again"
+                                color: theme.foreground
+                                font.family: theme.fontFamily
+                                font.pixelSize: 16
+                                font.bold: true
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                onClicked: root.refreshList()
+                            }
+                        }
                     }
 
                     Text {
                         width: parent.width
-                        text: "Enter join · Esc back/close"
-                        color: theme.caption
-                        font.pixelSize: 12
+                        text: root.footerText()
+                        color: theme.foreground
+                        font.family: theme.fontFamily
+                        font.pixelSize: 14
                     }
                 }
             }

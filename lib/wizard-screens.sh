@@ -316,7 +316,7 @@ screen_summary() {
     tui_screen_summary "Here's what happens next for $DISPLAY_NAME." 13 "$TOTAL_STEPS" 0 "" rows
 
     local choices=("apply|Apply|" "change|Change something|")
-    tui_screen_choose "Ready?" 13 "$TOTAL_STEPS" 0 "" choices "apply"
+    tui_screen_choose "Ready?" 13 "$TOTAL_STEPS" 0 "" choices "apply" "$TUI_FOOTER_DEFAULT" TUI_SUMMARY_LINES
     local rc=$?
     ((rc == 0)) || return $rc # Esc/Ctrl+C: go back a screen / leave
     [[ "$TUI_REPLY" == apply ]] && return 0

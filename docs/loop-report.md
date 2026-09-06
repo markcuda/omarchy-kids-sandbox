@@ -570,3 +570,14 @@ and Catppuccin Latte. The sixteen inspected receipts are
 restored; no credentials or provisioning were used. VM owner notifications obscure none of the
 tested controls. #103's public source is `fee4ad4`, which includes `3f2ebe4`; its package was
 built on Air, the exact integrated helper gate is underway, and actual captures remain pending.
+
+## Ask panel Air receipts, 2026-09-06
+
+The exact merged-main source `3f2ebe4` was previewed on Air with the staged `share/ask` and
+KidsTheme sources, file watching enabled, and an invented 15-minute value. The three inspected
+receipts are `ask-before-tokyo-night-air.png`, `ask-tab-tokyo-night-air.png`, and
+`ask-before-catppuccin-latte-air.png` under `docs/media/dogfood/`. The Tokyo Night Tab receipt
+shows focus moving to Ask later; Escape closed the previews in both themes. No request or
+password was submitted. The blank password field has no adjacent label and the panel shows no
+visible Tab/Enter/Escape guidance, so a parent or 7yo must infer the interaction from the
+controls.

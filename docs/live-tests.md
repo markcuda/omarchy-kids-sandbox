@@ -178,6 +178,20 @@ does not), and fails on any file the formatter would change.
 
 ## Known gaps, read before trusting a run
 
+### Quickshell UI iteration
+
+The test laptop's desktop can export `QS_DISABLE_FILE_WATCHER=1`. Clear that variable with
+`env -u QS_DISABLE_FILE_WATCHER` when launching a Kids Mode development preview. Quickshell
+0.3.1 defaults `Quickshell.watchFiles` to true; a disabled watcher inherited from the desktop
+otherwise prevents saved QML edits from appearing. See the [upstream property](https://quickshell.org/docs/v0.3.1/types/Quickshell/Quickshell/).
+
+Verified on the laptop on 2026-09-05 with a separate copy of the installed More apps QML:
+changing its visible title updated the screenshot while the Quickshell PID stayed the same.
+The title was restored and the preview closed. Use this for iteration; release screenshots
+must still show the actual reviewed product and the named live scenario must still pass.
+
+### Existing harness gaps
+
 - **`portal_login`'s navigation math is read from `share/sddm-theme/Main.qml`'s source, not yet
   confirmed live with more than two kid tiles.** `lib.sh`'s own comment on `portal_login` has the
   full reasoning (the Left/Right clamp, the "overshoot Left, then Right to the target index"

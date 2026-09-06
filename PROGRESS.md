@@ -14,10 +14,15 @@ were restored. Final package check: 181 files, zero altered. Settings, themes, g
 config cleanup were verified. The merged-main gate completed with fresh settled empty-scan
 receipts in both themes; no Wi-Fi join was attempted.
 
+The #137 screen-time correction merged through PR #146 at `f362102`. Its post-merge formatter,
+Mac 35-file suite, VM 35-file suite, and named five-frame live receipt `57444` all passed.
+Authd and SO_PEERCRED ran; the two VM skips were the bar-status fixture and ash. Private rendered
+frames were inspected and restoration passed; no advisory recipe or private images are published.
+
 #143 has reviewed draft PR #144 for empty-scan guidance and retry; #140 has reviewed
 draft PR #142 for bar status reload. #138/#139 recovery integration `6592b15` is independently
-approved. Combined media candidate `bcf8b42`, including the #145 password-delivery correction,
-is independently approved for its ordered gate, which remains pending. The same-process bar
+approved. Combined media candidate `3169b7e` passed its formatter and Mac 37-file suite. Its VM
+37-file serial is running; no installation or live capture has occurred yet. The same-process bar
 status-update scenario and named installed Wi-Fi proof still remain.
 
 #145 source `451ffa7` passed watched Air fixture preflight in both themes. Protected joins
@@ -31,16 +36,18 @@ not the images alone. No real Wi-Fi join or real credential was used. The previe
 PID `1223702` was absent, and Tokyo Night was restored. The eleven earlier #143 frames remain
 masking/navigation evidence, distinct from this delivery preflight.
 
-#148 source `8294246` passed watched Air fixture preflight in the same process, PID `1230897`.
+#148 source `8294246` (PR #149) passed watched Air fixture preflight in the same process, PID
+`1230897`. #145 is PR #147. Both have only Air fixture preflight; installed VM proof remains
+pending.
 Network-specific "Joined" feedback remained visible after refresh for protected and open
 fixtures in both themes. Failed scans replaced success with an error in both themes; manual
 retry cleared the prior scan error in Catppuccin Latte. The seven [inspected frames](docs/media/dogfood/media-gallery.md#148-air-joined-feedback-preflight)
 show client feedback from an owned backend, with no real Wi-Fi join. The preview closed, its
 process was absent, and Tokyo Night was restored. This candidate is separate from media
-`bcf8b42`; its ordered full gates and installed-live acceptance remain pending.
+`3169b7e`; its ordered full gates and installed-live acceptance remain pending.
 
-#137 code at `37aaddb` is HOLD on four review findings, with corrections in progress and no
-full gate yet. The tested screen-time enforcement correction is merged through PR #146 at `f362102`; merged-main checks are running.
+#137 code at `ee0bc6d` remains under independent review. It has not been pushed and has no full
+gate yet.
 #98/#109 remains a human ship decision. The [media gallery](docs/media/dogfood/media-gallery.md)
 retains the earlier captures; no full-media pass is claimed.
 

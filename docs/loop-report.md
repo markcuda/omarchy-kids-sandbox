@@ -1,5 +1,18 @@
 # Loop report, night of 2026-09-02
 
+## Latest checkpoint, September 6: post-merge screen-time gate and media handoff
+
+The #137 screen-time correction merged through PR #146 at `f362102`. Post-merge formatter,
+Mac 35-file suite, VM 35-file suite, and the named five-frame live receipt `57444` all passed.
+Authd and SO_PEERCRED ran; the two VM skips were the bar-status fixture and ash. Root inspected
+the private rendered frames and restoration passed. No advisory recipe or private images are
+published.
+
+Media integration `3169b7e` passed its formatter and Mac 37-file suite. The VM 37-file serial is
+running; installation and live capture have not started. #145 (PR #147) and #148 (PR #149) have
+only Air fixture preflight; installed VM proof remains pending. #137 `ee0bc6d` remains under
+independent review with no push or full gate. #98/#109 remains a human ship decision.
+
 ## Latest checkpoint, September 6: Wi-Fi joined feedback preflight passes
 
 Exact #148 source `8294246` ran in watched Air process `1230897` with an owned fixture backend.
@@ -9,7 +22,7 @@ cleared the prior scan error in Catppuccin Latte. The seven [inspected frames](m
 record this client feedback; no real network join or real credential was used. The preview
 closed, its process was absent, and Tokyo Night was restored.
 
-#148 remains separate from media candidate `bcf8b42`. Its ordered full gates and named
+#148 remains separate from media candidate `3169b7e`. Its ordered full gates and named
 installed-live acceptance have not run. Earlier checkpoints below retain their original scope.
 
 ## Earlier checkpoint, September 6: Wi-Fi delivery preflight passes
@@ -31,11 +44,11 @@ full-gate acceptance. No real credential was used. The preview closed, its proce
 and Tokyo Night was restored. The eleven #143 frames retain their narrower masking/navigation
 claims.
 
-Media integration `bcf8b42` is independently approved for the ordered gate, still pending.
-Named installed Wi-Fi proof and same-process bar status updates in both themes remain required.
-#137 `37aaddb` is held on four review findings with author corrections in progress; it has not
-run a full gate. The tested screen-time enforcement correction is merged through PR #146 at `f362102`; merged-main checks are running, and #136 remains fully post-gated at `f28a461`; #98/#109 remains
-a human ship decision. Earlier checkpoints below are preserved as historical records.
+Media integration `3169b7e` is in its running VM 37-file serial; named installed Wi-Fi proof and
+same-process bar status updates in both themes remain required. #137 `ee0bc6d` remains under
+independent review and has not run a full gate. #136 remains fully post-gated at `f28a461`;
+#98/#109 remains a human ship decision. Earlier checkpoints below are preserved as historical
+records.
 
 ## Earlier checkpoint, September 6: Wi-Fi delivery blocks integration
 

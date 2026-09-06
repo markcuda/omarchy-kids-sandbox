@@ -392,6 +392,7 @@ printf 'default_entry: 1\neditor_enabled: no\n' >"$SCRATCH_ROOT/boot/limine.conf
 mkdir -p "$SCRATCH_ROOT/etc/default"
 printf 'MAX_SNAPSHOT_ENTRIES=0\n' >"$SCRATCH_ROOT/etc/default/limine"
 mkdir -p "$SCRATCH_ROOT/var/lib/omarchy-kids/kid-ada/usage"
+chmod 0755 "$SCRATCH_ROOT/var/lib/omarchy-kids/kid-ada/usage"
 
 # --- --help / bad args ------------------------------------------------
 

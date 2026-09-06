@@ -672,8 +672,9 @@ Fourteen new images, inspected by the driving session, are saved under
 The run included an actual Cy login and launcher, plus real root-triggered Time’s Up countdowns.
 It did not launch an app, approve a request, or join Wi-Fi.
 
-As a parent, the bar conceals a running child (#140), and the wizard/panel are absent because
-the driver selects the wrong GUI process (#139). As a seven-year-old, the Wi-Fi picker offers
+As a parent, the bar conceals a running child (#140), and the wizard/panel are absent after a
+Wayland launch failure (#139). A separate reproduction confirmed that the driver can select
+its SSH wrapper; the failed launches' selected PIDs were not recorded. As a seven-year-old, the Wi-Fi picker offers
 a made-up OK network (#136), the empty shelf still asks for a selection (#117), and password
 cards need clearer guidance (#118/#131). The Time’s Up card promises more time at lights-out
 although approvals only add budget (#137); this was source-confirmed, not an approval test.

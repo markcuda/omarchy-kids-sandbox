@@ -29,6 +29,13 @@ runtime JSON for the decision. The request is rejected as expired if its
 logical day is no longer current. If today no longer needs a tonight
 extension, it is rejected as stale rather than changing a future night.
 
+The root accepts `action=tonight` only while the current lights-out limit is
+binding. A budget-caused Time’s Up remains the legacy budget action. A schedule
+edit that removes the current lights-out condition, or a prior approval that
+has already resolved it, rejects a new tonight request. A positive but short
+remaining budget is valid for tonight; it is topped up only enough to cover
+the approved usable interval.
+
 Legacy budget requests do not gain a new grace-state restriction. They may be
 approved before Time’s Up exactly as they are today. Only `action=tonight`
 requires the current logical day and tonight-specific validation.
@@ -48,27 +55,34 @@ Existing integer `<D>.grant` files remain the source and format for ordinary
 budget grants.
 
 Under the shared root lock, compute the candidate deadline from the current
-profile schedule, the existing tonight deadline, and approval time:
+profile schedule and approval time:
 
-`candidate = max(current_schedule_deadline, existing_deadline, approval_now) + minutes * 60`
+`candidate = max(current_schedule_deadline, approval_now) + minutes * 60`
 
-Cap the result at the logical-day end. A schedule edit before approval is
-therefore read at approval time. Repeated distinct approvals extend the latest
-stored deadline; the lock prevents lost updates.
+Use an existing tonight deadline only when it is still the currently binding
+limit; otherwise the request is stale. Cap the candidate at the logical-day
+end. A schedule edit before approval is therefore read at approval time. The
+usable interval is `candidate - approval_now`; round any budget top-up up to
+whole minutes and add only `max(0, usable interval - current remaining)`.
+Thus a 15-minute request with 5 minutes remaining adds 10 minutes, while a
+request capped by 04:00 adds only the amount needed for the shortened interval.
 
-If the authoritative recomputation says the budget is already exhausted, the
-same `tonight` action records a budget contribution as well as the deadline.
-If budget remains, it records only the lights-out extension. Both values live
-in the one `.tonight.json` record, so a combined approval cannot leave a
-second independent write partially applied. The ledger adds that record’s
-budget contribution when calculating today’s remaining budget, but never adds
-usage for an inactive or locked session.
+If the authoritative recomputation says the budget is exhausted, this is a
+budget-caused expiry and the legacy budget action applies instead; `tonight`
+does not bypass that distinction. When budget remains, the deadline and any
+needed top-up live in the one `.tonight.json` record. The ledger adds that
+record’s contribution when calculating today’s remaining budget, but never
+adds usage for an inactive or locked session.
 
-A record entry is committed atomically before the root acknowledgement. A
-retry with the same `request_id` returns the stored outcome without applying a
-second contribution. A failed write leaves the prior record intact. The
-logical-day path and 04:00 cap make old approvals expire without affecting the
-next day.
+Each entry binds `request_id` to the kid, action, logical day, requested
+minutes, computed interval, and outcome. Reusing an ID with any changed field
+is rejected. A record entry is committed atomically before the root
+acknowledgement. A retry with the same unchanged request returns the stored
+outcome without applying a second contribution; an `already-applied` result
+describes the replay and does not promise that time is currently available.
+A later fresh expiry may use a distinct ID. A failed write leaves the prior
+record intact. The logical-day path and 04:00 cap make old approvals expire
+without affecting the next day.
 
 ## Immediate, queued, and UI results
 
@@ -80,11 +94,12 @@ mark the request approved anyway. This corrects the current unconditional
 approval behavior in `bin/omarchy-kids-ask`.
 
 The verifier returns a safe result token such as `ok tonight extended`,
-`ok tonight extended-budget`, or `ok tonight already-applied`. The client
+`ok tonight capped`, or `ok tonight already-applied`. The client
 prints that token, and `share/ask/shell.qml` collects stdout instead of using
 only the exit code. A lost acknowledgement can therefore be retried and show
 the stored result. Ask-later remains an undecided message until a root
-approval succeeds.
+approval succeeds. The modal treats `already-applied` as a recorded replay,
+not as proof that the child currently has usable time.
 
 The Time’s Up modal uses “Ask for 15 more minutes tonight.” Success text is
 based on the root result and never claims time is ready when the root still
@@ -97,16 +112,18 @@ Add tests for:
 
 - legacy budget approval before grace remains accepted and unchanged;
 - lights-out with budget remaining extends only the tonight deadline;
-- lights-out with budget exhausted records both the deadline and budget
-  contribution;
+- positive but short remaining budget receives only the top-up needed for the
+  approved interval;
+- budget-caused Time’s Up stays on the legacy budget action;
 - inactive and locked ticks add zero usage;
 - schedule edits before approval are recomputed from the profile;
 - pre-04:00 schedule mapping and the 04:00 cap/expiry;
 - stale logical-day requests are rejected;
-- repeated approvals serialize and extend the latest deadline;
-- the same `request_id` after a committed write returns the prior outcome and
-  does not grant twice;
+- a new tonight request requires a currently binding lights-out condition;
+- the same unchanged `request_id` after a committed write returns the prior
+  outcome and does not grant twice, while changed-data reuse is rejected;
 - failure after a commit but before acknowledgement is retry-safe;
+- an `already-applied` replay does not claim current availability;
 - malformed action/day/id fields and untrusted kid-supplied action are rejected;
 - queued tonight apply leaves failed or expired records unapplied;
 - the client displays the returned result token rather than discarding it.

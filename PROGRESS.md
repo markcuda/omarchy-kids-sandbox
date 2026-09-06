@@ -1,10 +1,121 @@
 # Progress and handoff
 
-Written 2026-09-05 for whoever picks this up next. `docs/GOAL.md` is the standing order and
+Updated 2026-09-06 for whoever picks this up next. `docs/GOAL.md` is the standing order and
 `docs/loop-report.md` is the running account; this file is the shortest path from cold start to
 useful work.
 
 ## Where the project is
+
+**September 6 update:** #136 merged through PR #141 at `f28a461` after independent review,
+VM formatter, Mac 35-file suite (five platform skips), VM 35-file suite (two skips; Linux authd
+and SO_PEERCRED ran), and the named Wi-Fi live check in both themes. The exact client was
+staged temporarily against the installed media build, then its original bytes and metadata
+were restored. Final package check: 181 files, zero altered. Settings, themes, greeter, and
+config cleanup were verified. The merged-main gate completed with fresh settled empty-scan
+receipts in both themes; no Wi-Fi join was attempted.
+
+The separate screen-time enforcement/session-reentry correction merged through PR #146 at `f362102`.
+Its post-merge formatter, Mac 35-file suite, VM 35-file suite, and named five-frame live receipt
+all passed.
+Authd and SO_PEERCRED ran; the two VM skips were the bar-status fixture and ash. Private rendered
+frames were inspected and restoration passed; no advisory recipe or private images are published.
+
+#143 has reviewed draft PR #144 for empty-scan guidance and retry; #140 has reviewed
+draft PR #142 for bar status reload. #138/#139 recovery integration `6592b15` is independently
+approved. Combined media candidate `3169b7e` passed its formatter, Mac 37-file suite, VM
+37-file serial suite, package installation (181 files, zero altered), and full media scenario.
+All 20 frames were inspected; settings, themes, active timer, greeter and config cleanup were
+verified. The same-process bar status-update scenario and named installed Wi-Fi proof still remain.
+Fresh parent frames exposed #150 startup-popup clutter and #151 truncated actions. Both fixes
+are independently reviewed; their combined candidate is entering the ordered gate.
+
+#145 source `451ffa7` passed watched Air fixture preflight in both themes. Protected joins
+delivered the expected harmless password line and EOF, including the first attempt and a retry
+after an intentional backend failure. Busy duplicate Enter produced one join. Corrected open
+fixtures verified no password flag or input and returned success in both themes. An earlier
+open fixture incorrectly required a child read/EOF behavior and failed; its mislabeled image
+is excluded. The six [selected receipts](docs/media/dogfood/media-gallery.md#145-air-password-delivery-preflight)
+show these UI states; delivery and EOF are established by the driving session's backend checks,
+not the images alone. No real Wi-Fi join or real credential was used. The preview closed, its
+PID `1223702` was absent, and Tokyo Night was restored. The eleven earlier #143 frames remain
+masking/navigation evidence, distinct from this delivery preflight.
+
+#148 source `8294246` (PR #149) passed watched Air fixture preflight in the same process, PID
+`1230897`. #145 is PR #147. Both have only Air fixture preflight; installed VM proof remains
+pending.
+Network-specific "Joined" feedback remained visible after refresh for protected and open
+fixtures in both themes. Failed scans replaced success with an error in both themes; manual
+retry cleared the prior scan error in Catppuccin Latte. The seven [inspected frames](docs/media/dogfood/media-gallery.md#148-air-joined-feedback-preflight)
+show client feedback from an owned backend, with no real Wi-Fi join. The preview closed, its
+process was absent, and Tokyo Night was restored. This candidate is separate from media
+`3169b7e`; its ordered full gates and installed-live acceptance remain pending.
+
+#137 integration `92e62c5` passed independent code review and focused tests. It has not been
+pushed and has no full gate yet.
+#98/#109 remains a human ship decision. The [media gallery](docs/media/dogfood/media-gallery.md)
+contains the first complete 20-frame baseline plus the earlier partial captures. No release or
+merge is claimed for the media candidate yet.
+
+**Latest takeover status, September 5 evening:** #110 merged through PR #113 at
+`bd679f9`. Keyboard guidance now appears before the parent answers. Independent review, VM
+formatter, Mac suite, VM suite, and live welcome/input/back/cancel on both machines passed.
+The merged-main gate also passed: formatter, both full suites, and the same live navigation
+scenario on both machines. Screenshots are `docs/media/dogfood/main-footer-*.png`.
+
+The public #103 source is `fee4ad4`, which includes merged main `3f2ebe4`. Integrated
+media/helper revision `344d9b2` passed the formatter, Mac 37 files (five platform skips), and
+VM 37 files (two skips for bar status and ash); authd and SO_PEERCRED checks ran. PR #114 remains
+at `fee4ad4` pending the final live pass. The VM package installed cleanly with 181 files and
+zero altered files. Automated media run `62216` failed before capture on both themes because
+stock owner autologin returned the desktop (#133); its four fixture values were restored and
+config removed. The final #133/#134 candidate passed the VM formatter and Mac 37-file suite
+with five platform skips, VM 37-file suite with two skips for bar status and ash, and Linux authd and SO_PEERCRED
+checks. Named three-autologin reset scenario `88422` completed 0: each fresh owner autologin
+exited cleanly to the Catppuccin Latte portal with successful raw session queries showing no user
+seats. Manual `portal_reset` recovery `31132` passed and captured the real light portal, with tile
+rendering only and no Cy login. Full media run `18797` exited 1. It saved 14 fresh screenshots: portal, launcher, exit, Ask,
+Time’s Up, Wi-Fi, and More apps in both themes. The wizard and panel never opened (#139);
+the bar omitted a live child (#140); collected transient-unit cleanup also failed (#138).
+The fresh photos are `docs/media/dogfood/media-observed-*.png`; they document visible defects, not
+a passing release. The fixture receipt confirms all four original settings restored, live config
+is removed, and a successful raw session query shows only the greeter on seat0. A checked unit
+query reports not-found/inactive/dead. VM theme is Catppuccin Latte; Air is Tokyo Night.
+New findings also include the fake OK Wi-Fi network (#136, merged PR #141) and a
+lights-out Ask promise that budget-only approval cannot fulfill (#137). No approval was submitted
+during this capture. #91 has independently reviewed draft PR #135; full gates remain pending. #111 at `a78d413` (PR #115, current desktop-launch theme) and #112 at
+`99a4ba5` (PR #116, readable parent portal label) remain reviewed drafts. The original
+`media-driver` remote branch is unchanged; PR #114 carries the rebased driver plus its reviewed
+correction. Real dogfood screenshots now exist in `docs/media/dogfood/`.
+
+New screenshot-backed issues: #117 empty More apps instructions, #118 unclear password owner
+on the exit card, #119 faint wizard keyboard help, #120 resize corruption, and #128 blank portal
+password guidance. #128 (`cefc99d3db720204faa39d002b65ee19d08b5c9b`, PR #129) has independent
+source review and Air visual preflight approval; its ordered gate and actual VM scenario remain pending. The missing
+launcher apps were already #91; its ticket now has live evidence. A separate screen-time
+finding has an independently reviewed patch awaiting its ordered gate, with no public
+reproduction or merge. #123 records the parent panel losing preview mode when opening setup;
+its narrow correction `9752481` is independently reviewed in draft PR #124.
+
+#117 has an independently reviewed compact empty shelf with a clickable Back control (PR #122).
+Its watched laptop preview passed Escape and actual pointer-click checks; the full gate remains.
+#111's exact candidate desktop entry passed real laptop launches in Tokyo Night and Catppuccin
+Latte, including the wizard child's theme environment. The original theme was restored.
+#118 (`aa4caa7`, PR #125) has independent approval and inspected laptop dark/light previews;
+its full gate remains pending. #119 (`3f2ebe4`, PR #126) merged; its post-merge gate
+passed. #120 (`db20d14`, PR #127) has independent review and awaits its full gate.
+#103 remains held on the private harness gate.
+Their essential text now uses the theme foreground. The exit preview redrew source edits in
+the same Quickshell process, and Escape/cancel closed every preview without credentials.
+
+#98 still has no human ship decision. #97 remains blocked on #98. No laptop boot changes or
+full package upgrades were performed during this pass because #109 remains open. The wizard
+live gate used exact staged source with `--dry-run`; it proves rendering/navigation only.
+
+Quickshell previews must clear inherited `QS_DISABLE_FILE_WATCHER`; same-process live reload
+was proven on the laptop. See `docs/live-tests.md`. The local gate runner, logs, private work
+and current machine state are under `~/.omarchy-kids-loop/`, including `takeover-state.md`.
+
+The following sections retain the earlier boot-work handoff and machine instructions.
 
 Four spec-07 tickets merged today, plus two real-hardware fixes found within minutes of the first
 install on the test laptop. The product works end to end in the VM: a parent runs the wizard, a

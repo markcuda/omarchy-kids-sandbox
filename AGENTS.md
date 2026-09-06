@@ -164,3 +164,7 @@ The test laptop (2019 MacBook Air, T2) is reached over Tailscale SSH; see
 `docs/laptop-runbook.md`. Boot-level checks (disk prompt, portal, two sessions, the early-boot
 hook) run in QEMU on that laptop, never on its real disk. Real-hardware checks (Wi-Fi, captive
 portals, firmware) run on the laptop itself.
+
+## GitHub Account Rule
+
+This repository is locked to `markcuda/omarchy-kids-sandbox` using the `markcuda` GitHub account. Before pushes, PRs, or GitHub CLI operations, verify `.codex/repo-lock.json`, `git remote -v`, and `gh auth status`. Do not use another GitHub account for this repo unless the user explicitly changes the lock.

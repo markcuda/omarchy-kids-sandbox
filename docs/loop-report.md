@@ -625,3 +625,11 @@ fixture values were restored and config was removed. Manual `portal_reset` recov
 passed and captured the real light portal as tile-only evidence, with no Cy login. The VM is
 clean at the original Catppuccin Latte theme and Air is restored to Tokyo Night. The #133 reset
 fix is under review; its ordered gate and another automated capture run remain pending.
+
+## Manual dark portal receipt, 2026-09-06
+
+`portal-manual-tokyo-night.png` is tile-rendering evidence from manual dark run `84451`: invented
+Cy and Dot render with clear avatars and the faint `Vm` parent caption already tracked in #112.
+The run exited 1 during restoration; Latte was restored, but the owner autologin session
+remained. No Cy login is claimed, and this frame does not establish full recovery or current VM
+state.

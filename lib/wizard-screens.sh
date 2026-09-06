@@ -174,9 +174,7 @@ screen_time() {
   ((rc == 0)) || return $rc
   if [[ "$TUI_REPLY" == default ]]; then
     BUDGET_MIN="$band_budget"
-    BUDGET_MIN_WEEKEND="$band_budget_weekend"
     LIGHTS_OUT="$band_lights"
-    LIGHTS_OUT_WEEKEND="$band_lights_weekend"
     return 0
   fi
   tui_screen_input "How many minutes a day?" 8 "$TOTAL_STEPS" 0 "" \

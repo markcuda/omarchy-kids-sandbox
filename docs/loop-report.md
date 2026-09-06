@@ -623,5 +623,5 @@ package contained 181 files with zero altered files. Automated media run `62216`
 capture on both themes because stock owner autologin returned the desktop (#133); the four
 fixture values were restored and config was removed. Manual `portal_reset` recovery `31132`
 passed and captured the real light portal as tile-only evidence, with no Cy login. The VM is
-clean at the original Catppuccin Latte theme and Air is restored to Tokyo Night. #133's rejected
-candidate and advisory details remain private and are omitted here.
+clean at the original Catppuccin Latte theme and Air is restored to Tokyo Night. The #133 reset
+fix is under review; its ordered gate and another automated capture run remain pending.

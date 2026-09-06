@@ -5,9 +5,6 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-
 BAND=6-8 DISPLAY_NAME=kid-ada ACCOUNT=kid-ada AVATAR=fox MODE=simple
 WEB_MODE=garden DNS_MODE=cloudflare-family SITES=''
 BUDGET_MIN=60 BUDGET_MIN_WEEKEND=60 LIGHTS_OUT=19:30 LIGHTS_OUT_WEEKEND=20:00
@@ -65,30 +62,45 @@ tui_screen_summary() {
   return 0
 }
 
+expected_labels=("One thing at a time" "Two things side by side" "The full desktop")
 for LEVEL_REPLY in 1 2 3; do
   screen_level
-  [[ "${captured_choices[LEVEL_REPLY-1]}" == "$LEVEL_REPLY|$(friendly_desktop_level "$LEVEL_REPLY")|"* ]] || {
+  expected_label="${expected_labels[LEVEL_REPLY-1]}"
+  [[ "${captured_choices[LEVEL_REPLY-1]}" == "$LEVEL_REPLY|$expected_label|"* ]] || {
     echo "FAIL Simple level $LEVEL_REPLY label"; exit 1;
+  }
+  [[ "$LEVEL" == "$LEVEL_REPLY" ]] || {
+    echo "FAIL Simple level $LEVEL_REPLY numeric value"; exit 1;
   }
 done
 
-LEVEL=2
-[[ "$(adv_friendly level 2)" == 'Two things side by side' ]] || {
-  echo 'FAIL Advanced level wording'; exit 1
-}
-row="$(adv_row_line level)"
-[[ "$row" == *'now: Two things side by side (changed)'* ]] || {
-  echo 'FAIL Advanced changed-level wording'; exit 1
-}
+for LEVEL in 1 2 3; do
+  expected_label="${expected_labels[LEVEL-1]}"
+  [[ "$(adv_friendly level "$LEVEL")" == "$expected_label" ]] || {
+    echo "FAIL Advanced level $LEVEL wording"; exit 1
+  }
+  row="$(adv_row_line level)"
+  if [[ "$LEVEL" == 1 ]]; then
+    [[ "$row" == *"Band default: $expected_label"* ]] || {
+      echo 'FAIL Advanced default-level wording'; exit 1
+    }
+  else
+    [[ "$row" == *"now: $expected_label (changed)"* ]] || {
+      echo "FAIL Advanced changed-level $LEVEL wording"; exit 1
+    }
+  fi
 
-captured_summary=()
-screen_summary >/dev/null
-summary_level=''
-for row in "${captured_summary[@]}"; do
-  [[ "$row" == Desktop\|* ]] && summary_level="${row#Desktop|}"
+  captured_summary=()
+  screen_summary >/dev/null
+  summary_level=''
+  for row in "${captured_summary[@]}"; do
+    [[ "$row" == Desktop\|* ]] && summary_level="${row#Desktop|}"
+  done
+  expected_summary="$expected_label"
+  [[ "$LEVEL" != 1 ]] && expected_summary+=' (custom)'
+  [[ "$summary_level" == "$expected_summary" ]] || {
+    echo "FAIL Ready card level $LEVEL wording or custom marker"; exit 1
+  }
 done
-[[ "$summary_level" == 'Two things side by side (custom)' ]] || {
-  echo 'FAIL Ready card level wording or custom marker'; exit 1
-}
 
 printf '%s\n' 'PASS issue #174 level wording stays aligned across Simple, Advanced, and Ready'

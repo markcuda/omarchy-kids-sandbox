@@ -101,7 +101,7 @@ Window {
             var data = JSON.parse(raw)
             if (data && data.tiles) {
                 root.manifest = data
-                parsed = data.tiles
+                parsed = GridNav.visibleTiles(data.tiles, data.show_missing === true)
             } else {
                 root.manifest = ({})
             }

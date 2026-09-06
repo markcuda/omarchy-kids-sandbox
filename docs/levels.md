@@ -111,9 +111,9 @@ environment argument. No tile is evaluated by a shell.
 carries `installed: true|false` — a matched `.desktop` file, or (the bare-command fallback)
 `command -v` on the resolved executable, **never `pacman -Q`**, so this works the same for a pack app,
 an `apps.extra` id with no package at all, or any future non-pacman app source. By default
-(`apps.show_missing=no`, docs/conf.md) a missing app's tile is left out of the JSON entirely, with
-one log line naming why (`$RUN/session-<uid>.log`) — the live bug this issue fixes was a tile that
-rendered but did nothing on Enter. With `apps.show_missing=yes` the tile is kept instead, with
+(`apps.show_missing=no`, docs/conf.md) the launcher filters a missing app's tile from its displayed
+list, with one log line naming why (`$RUN/session-<uid>.log`) — the live bug this issue fixes was a
+tile that rendered but did nothing on Enter. With `apps.show_missing=yes` the tile is kept instead, with
 `caption` set to `"installing..."` if the app's package is sitting in
 `bin/omarchy-kids-apps`' pending install queue (`OMARCHY_KIDS_ROOT/var/lib/omarchy-kids/apps-queue`,
 read here, never written) or `"not installed yet"` otherwise; `share/launcher/shell.qml` renders

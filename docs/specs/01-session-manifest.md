@@ -12,7 +12,7 @@ Build one root-owned session manifest per kid so login, the launcher, the browse
 
 The package adds `lib/session-manifest.sh`. It uses `lib/launcher-map.sh` as the only mapping from an allowed launcher id to fixed argv. If issue #60 lands first, its map is extended in place; it is not copied. Source data stays in `share/bands/bands.toml`, `share/packs/<band>.toml`, and the profile.
 
-The installed manifest is `/etc/omarchy-kids/sessions/<kid>.json`, schema version 1. It contains the account, display name, avatar, band, level, theme, allowlist, web mode and policy id, time settings, and launcher tiles. Each tile has an id, label, icon, installed state, and an argv array. It never has a shell command string.
+The installed manifest is `/etc/omarchy-kids/sessions/<kid>.json`, schema version 1. It contains the account, display name, avatar, band, level, theme, `show_missing` setting, allowlist, web mode and policy id, time settings, and launcher tiles. Each tile has an id, label, icon, installed state, and an argv array. It never has a shell command string. Older schema-version-1 documents without `show_missing` remain valid and default to `false` during freshness comparison.
 
 `omarchy-kids-session --manifest` has no kid or path argument. It derives the account from `id -un`, opens only `/etc/omarchy-kids/sessions/<account>.json`, validates the schema and account, and prints the document. Normal session startup reads the same document once, then performs live lock checks before Hyprland starts.
 

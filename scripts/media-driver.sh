@@ -187,13 +187,32 @@ settle_at_greeter() {
 }
 
 restore_transient_state() {
-  local failed=0 kid_q value_q retick=0
+  local failed=0 kid_q value_q retick=0 active_status
   kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
   if ((BAR_SESSION_DIRTY)); then
     if vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl is-active --quiet $BAR_SESSION_UNIT"; then
-      vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl stop $BAR_SESSION_UNIT" || failed=1
+      if ! vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl stop $BAR_SESSION_UNIT"; then
+        failed=1
+      elif vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl is-active --quiet $BAR_SESSION_UNIT"; then
+        echo "media-driver: $BAR_SESSION_UNIT remained active after stop" >&2
+        failed=1
+      else
+        active_status=$?
+        if ((active_status != 3)); then
+          echo "media-driver: could not confirm $BAR_SESSION_UNIT stopped" >&2
+          failed=1
+        fi
+      fi
+    else
+      active_status=$?
+      if ((active_status != 3)); then
+        echo "media-driver: could not determine whether $BAR_SESSION_UNIT is active" >&2
+        failed=1
+      fi
     fi
-    vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-time-ledger tick >/dev/null" || failed=1
+    if ((!failed)); then
+      vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-time-ledger tick >/dev/null" || failed=1
+    fi
     ((failed)) || BAR_SESSION_DIRTY=0
   fi
   if ((LIGHTS_OUT_DIRTY)); then

@@ -103,8 +103,12 @@ vmroot() {
     : >"$MEDIA_TEST_STATE_DIR/fail-once"
     return 1
   fi
+  if [[ -n "${MEDIA_TEST_FAIL_VMROOT_AFTER_START:-}" &&
+    "$*" == *"$MEDIA_TEST_FAIL_VMROOT_AFTER_START"* && -e "$MEDIA_TEST_LOG.bar-session" ]]; then
+    return 255
+  fi
   if [[ -n "${MEDIA_TEST_FAIL_VMROOT:-}" && "$*" == *"$MEDIA_TEST_FAIL_VMROOT"* ]]; then
-    return 1
+    return 255
   fi
   case "$*" in
     *"pgrep -u kid-test -f Hyprland"*)
@@ -114,7 +118,7 @@ vmroot() {
       [[ "${MEDIA_TEST_TIMER_ACTIVE:-1}" == 1 ]]
       ;;
     *"systemctl is-active --quiet omarchy-kids-media-session.service"*)
-      [[ -e "$MEDIA_TEST_LOG.bar-session" ]]
+      if [[ -e "$MEDIA_TEST_LOG.bar-session" ]]; then return 0; else return 3; fi
       ;;
     *"systemd-run --quiet --collect --unit=omarchy-kids-media-session"*)
       : >"$MEDIA_TEST_LOG.bar-session"
@@ -339,6 +343,36 @@ if [[ "$(cat "$LOG5D")" != *"systemd-run"* ]]; then
 else
   fail_ "a stopped timer started a temporary kid session"
 fi
+
+ROOT5F="$TMP/bar-status-query-failure"
+make_fixture "$ROOT5F"
+LOG5F="$TMP/bar-status-query-failure.log"
+STATE5F="$TMP/bar-status-query-failure-state"
+mkdir -p "$STATE5F"
+MEDIA_TEST_LOG="$LOG5F" MEDIA_TEST_STATE_DIR="$STATE5F" \
+  MEDIA_TEST_FAIL_VMROOT_AFTER_START="systemctl is-active --quiet omarchy-kids-media-session.service" \
+  "$ROOT5F/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/bar-status-query-failure.out" 2>&1
+status=$?
+check "$status" "1" "an uncertain temporary-session status makes the run fail"
+if [[ "$(cat "$LOG5F")" != *"systemctl stop omarchy-kids-media-session.service"* ]]; then
+  pass "an uncertain status never claims the temporary session is stopped"
+else
+  fail_ "an uncertain status attempted a stop without a confirmed active state"
+fi
+check "$(grep -c 'omarchy-kids-time-ledger tick' "$LOG5F")" "1" \
+  "an uncertain status does not clear the dirty session through a ledger tick"
+
+ROOT5G="$TMP/bar-stop-failure"
+make_fixture "$ROOT5G"
+LOG5G="$TMP/bar-stop-failure.log"
+MEDIA_TEST_LOG="$LOG5G" MEDIA_TEST_FAIL_VMROOT="systemctl stop omarchy-kids-media-session.service" \
+  "$ROOT5G/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/bar-stop-failure.out" 2>&1
+status=$?
+check "$status" "1" "a failed temporary-session stop makes the run fail"
+check_contains "$(cat "$LOG5G")" "systemctl stop omarchy-kids-media-session.service" \
+  "a failed stop is attempted during cleanup"
+check "$(grep -c 'omarchy-kids-time-ledger tick' "$LOG5G")" "1" \
+  "a failed stop does not clear the dirty session through a ledger tick"
 
 ROOT5E="$TMP/bar-owner-login"
 make_fixture "$ROOT5E"

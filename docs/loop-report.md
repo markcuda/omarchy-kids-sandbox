@@ -633,3 +633,12 @@ Cy and Dot render with clear avatars and the faint `Vm` parent caption already t
 The run exited 1 during restoration; Latte was restored, but the owner autologin session
 remained. No Cy login is claimed, and this frame does not establish full recovery or current VM
 state.
+
+## Portal restore owner-session receipt, 2026-09-06
+
+`portal-restore-owner-vm.png` records the owner session left by manual dark run `84451`: the
+owner desktop/screensaver and notifications are visible instead of the portal. Diagnostic run
+`70637` reproduced a failed helper dispatch after selecting a prior compositor state; later
+read-only inventory found a different live state. The existing helper currently ignores that
+dispatch failure. Recovery was still running when this receipt was recorded, so no final greeter
+state is claimed.

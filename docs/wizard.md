@@ -59,6 +59,9 @@ See "The Advanced path" below.
 Every screen up through the Summary is keyboard-complete: Esc goes back one screen (re-asking
 whatever was there — from Advanced's checklist itself, back to A6; from one of its editors, back to
 the checklist), Ctrl+C asks to confirm leaving and, if confirmed, exits `130` having run nothing.
+When Esc returns from the Face screen to Name, the previously entered display name is restored as
+the editable value; accepting or changing it recomputes the account slug before later screens use
+the name. Password prompts remain empty on every return.
 Once Apply actually starts running commands, the run is committed — same as the installer's own
 dashboard never lets you cancel mid-write. The apps checklist (A9's "Let me pick", also Advanced's
 own apps row) is the one place Esc and "No" are genuinely the same outcome per app —

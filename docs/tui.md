@@ -203,6 +203,10 @@ that judges the answer itself (the parent-password screen counts its own tries) 
 `TUI_PRESET_ERROR` before calling `tui_screen_input` again: the message renders exactly like a
 validator's, once, on that redraw — a plain `echo` after the screen is cleared before anyone reads it.
 
+The optional tenth `tui_screen_input` argument is an initial value for editable `text` inputs.
+It is passed to gum as `--value` only for text prompts; password prompts never receive or display
+an initial value.
+
 ## Example
 
 ```bash

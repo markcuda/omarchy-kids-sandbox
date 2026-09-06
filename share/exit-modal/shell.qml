@@ -182,7 +182,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: "Grown-up's login password"
-                        color: theme.caption
+                        color: theme.foreground
                         font.pixelSize: 14
                         horizontalAlignment: Text.AlignHCenter
                     }
@@ -212,7 +212,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         text: "Enter to finish · Esc to return"
-                        color: theme.caption
+                        color: theme.foreground
                         font.pixelSize: 13
                         horizontalAlignment: Text.AlignHCenter
                     }

@@ -153,6 +153,10 @@ check_contains "$exit_qml" "Grown-up's login password" \
   "exit modal: labels the field as the grown-up's login password"
 check_contains "$exit_qml" "Enter to finish · Esc to return" \
   "exit modal: shows the existing Finish and return keys"
+check_contains "$exit_qml" "text: \"Grown-up" \
+  "exit modal: keeps the password label as a visible text role"
+check_contains "$exit_qml" 'text: "Enter to finish · Esc to return"' \
+  "exit modal: keeps the keyboard hint as a visible text role"
 check_contains "$exit_qml" 'command: ["/usr/bin/omarchy-kids-parent-auth"]' \
   "exit modal: keeps the parent verifier command"
 check_contains "$exit_qml" "root.wrongCount >= 3" \

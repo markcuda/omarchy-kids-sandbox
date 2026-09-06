@@ -450,8 +450,18 @@ cause line. The originals are under `docs/media/dogfood/`; they record findings,
 acceptance.
 
 Independent review approved #110 after fixing two ShellCheck warnings, and #111 after testing
-the actual upstream terminal helper. Their draft PRs are #113 and #115. #110's VM formatter
-passed; the full unit and live gates are still in progress. Nothing from this pass has merged.
+the actual upstream terminal helper. #110 merged through PR #113 at `bd679f9`: VM formatter
+first, all 35 Mac test files, the same suite serially on the VM, and live welcome/input/back/cancel
+on both machines passed. The Mac had five platform skips; the VM had two (bar status fixture and
+ash syntax). Authentication and SO_PEERCRED checks ran on the VM. The merged-main gate is running.
+The live scenario used exact staged source with `--dry-run`, so it proves the renderer and
+keyboard navigation, not provisioning or full installation. #111 remains draft PR #115.
+
+The newly visible keyboard help is too faint in both themes (#119), and resizing an existing
+wizard corrupts the printed card (#120). Both are separate screenshot-backed tickets. The VM's
+empty More apps shelf produced #117, and its exit card's unlabeled password field produced #118.
+The missing-app launcher finding belongs to existing #91, which received the new screenshot.
+#112's parent-label correction has independent approval and awaits its gate in draft PR #116.
 
 Review of #103 found that an unsuccessful service-status query could leave the temporary
 login running while cleanup reported success. The correction preserves uncertainty and checks

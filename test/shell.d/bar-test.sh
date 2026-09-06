@@ -5,9 +5,8 @@
 # permissions (R-BAR-3), which bin/omarchy-kids-time-ledger writes and
 # nothing tested until now.
 #
-# The widget itself (share/bar/KidsModule.qml) is QML that parses
-# status.json inline; there is no separate bash/python parsing helper to
-# unit-test here (see docs/bar.md's "What this doesn't test").
+# The widget's request-count reader is exercised below by extracting the
+# actual JavaScript function from KidsModule.qml; no duplicate parser exists.
 set -uo pipefail
 
 # shellcheck source=test/shell.d/lib.sh
@@ -330,9 +329,41 @@ fi
 
 # --- KidsModule.qml renders nothing when the file is missing --------------
 grep -q 'root.hasFile = false' "$SHARE/bar/KidsModule.qml" &&
-  grep -q 'visible: root.hasFile' "$SHARE/bar/KidsModule.qml" &&
+  grep -q 'visible: root.hasFile &&' "$SHARE/bar/KidsModule.qml" &&
   pass "KidsModule.qml is visible only when status.json parsed (renders nothing when missing)" ||
   fail_ "expected KidsModule.qml's visible binding to gate on hasFile"
+
+grep -q 'open_requests' "$SHARE/bar/KidsModule.qml" &&
+  grep -q 'Count unavailable' "$SHARE/bar/KidsModule.qml" &&
+  ! grep -q 'command: \[root.askBin, "list"\]' "$SHARE/bar/KidsModule.qml" &&
+  pass "KidsModule.qml uses the root-published request count and labels read failure" ||
+  fail_ "expected QML to avoid the ordinary-session root-only ask list"
+
+if command -v node >/dev/null 2>&1; then
+  node - "$SHARE/bar/KidsModule.qml" <<'NODE'
+const fs = require("fs")
+const source = fs.readFileSync(process.argv[2], "utf8")
+const match = source.match(/function requestCountFromData\(data\) \{([\s\S]*?)\n    \}/)
+if (!match) process.exit(2)
+const requestCountFromData = new Function("data", match[1])
+const cases = [
+  [{}, -1], [{ open_requests: 0 }, 0], [{ open_requests: 2 }, 2],
+  [{ open_requests: -1 }, -1], [{ open_requests: 1.5 }, -1],
+  [{ open_requests: "2" }, -1], [null, -1], [[], -1], ["x", -1],
+  [{ kids: [] }, -1]
+]
+for (const [value, want] of cases) {
+  const got = requestCountFromData(value)
+  if (got !== want) {
+    console.error(JSON.stringify({ value, want, got }))
+    process.exit(1)
+  }
+}
+NODE
+  check "$?" 0 "QML request-count reader distinguishes missing, zero, positive, invalid, and scalar JSON"
+else
+  echo "SKIP QML request-count matrix: node not found"
+fi
 
 # --- shellcheck (the harness runs this too, but a direct check here keeps
 #     the failure local to this test file) ----------------------------------

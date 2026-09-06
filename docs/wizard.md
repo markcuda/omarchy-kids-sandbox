@@ -107,10 +107,10 @@ one screen); the summary's **Change something** button (below) redraws the summa
 (`adv_init`) the moment the age band is picked (A5) — before Simple's own A7-A11 screens run. Simple
 shows both weekday and weekend time values, while its custom path edits weekday minutes and bedtime
 only; weekend values edited through Advanced or "Change something" are preserved. The remaining
-Advanced-only cells (dns, sites, menu, history_visible) stay at their band defaults unless
+Advanced-only cells (dns, sites, menu, theme, history_visible) stay at their band defaults unless
 Advanced or "Change something" changes them. Apply's `maybe_override` calls (one per cell,
 `apply_step_account`) write an override for every cell whose value no longer equals that default —
-the same rule Simple's own five cells have always followed (R-BAND-2).
+as required by R-BAND-2.
 
 ## Root and the one sudo prompt
 

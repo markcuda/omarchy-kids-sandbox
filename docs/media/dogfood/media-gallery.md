@@ -16,20 +16,29 @@ The failed parent surfaces have their own evidence: [missing wizard/panel](https
 
 ## #143 Air Wi-Fi picker evidence
 
-Ten inspected Air frames use the exact #143 source `eaa8cd1`, with only three client paths
+Eleven inspected Air frames use the exact #143 source `eaa8cd1`, with only three client paths
 replaced by an owned fixture backend. The real Air preview used Quickshell 0.3.1 with source
 watching enabled. These frames document the empty and error states, retry through loading, list
-refresh, password and busy states, Escape back, and the light-theme list. They do not claim a
+refresh, password and busy states, Escape back, and the light-theme list and password. They do not claim a
 real Wi-Fi join or password validation; duplicate Enter produced one fixture join. The preview
-closed, its process was absent, and Tokyo Night was restored. The settled light-theme password
-frame is held pending replacement after a focus race; formatter, Mac, VM, and named installed-live
-gates remain pending.
+closed, its process was absent, and Tokyo Night was restored. Formatter, Mac, VM, and named
+installed-live gates remain pending.
 
 | State | Tokyo Night | Catppuccin Latte | Evidence |
 | --- | --- | --- | --- |
 | Empty | ![Wi-Fi empty, dark](wifi-143-empty-tokyo-night-air.png) | ![Wi-Fi empty, light](wifi-143-empty-catppuccin-latte-air.png) | No networks found; retry guidance |
 | Error | ![Wi-Fi error, dark](wifi-143-error-tokyo-night-air.png) | ![Wi-Fi error, light](wifi-143-error-catppuccin-latte-air.png) | Error state with retry |
 | Loading / watched list | ![Wi-Fi loading, dark](wifi-143-loading-pointer-tokyo-night-air.png) ![Wi-Fi watched list, dark](wifi-143-watched-networks-tokyo-night-air.png) | — | Pointer retry loads; source-watch refreshes the list |
-| Password / busy | ![Wi-Fi password, dark](wifi-143-password-tokyo-night-air.png) ![Wi-Fi busy, dark](wifi-143-busy-tokyo-night-air.png) | — | Masked input and joining state |
+| Password / busy | ![Wi-Fi password, dark](wifi-143-password-tokyo-night-air.png) ![Wi-Fi busy, dark](wifi-143-busy-tokyo-night-air.png) | ![Wi-Fi password, light](wifi-143-password-catppuccin-latte-air.png) | Masked input and joining state |
 | Back | ![Wi-Fi back, dark](wifi-143-back-tokyo-night-air.png) | — | Escape returns and closes |
 | Networks | — | ![Wi-Fi networks, light](wifi-143-networks-catppuccin-latte-air.png) | Light-theme list and join guidance |
+
+## #136 merged-main Wi-Fi receipts
+
+The merged-main source `f28a461` completed its post-merge gate. These two VM frames show settled
+empty scans in Tokyo Night and Catppuccin Latte with no fabricated network; no Wi-Fi join was
+attempted. The original themes and client bytes were restored after the run.
+
+| Tokyo Night | Catppuccin Latte |
+| --- | --- |
+| ![Merged-main empty scan, dark](wifi-main-tokyo-night-vm.png) | ![Merged-main empty scan, light](wifi-main-catppuccin-latte-vm.png) |

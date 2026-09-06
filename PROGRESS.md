@@ -11,7 +11,8 @@ VM formatter, Mac 35-file suite (five platform skips), VM 35-file suite (two ski
 and SO_PEERCRED ran), and the named Wi-Fi live check in both themes. The exact client was
 staged temporarily against the installed media build, then its original bytes and metadata
 were restored. Final package check: 181 files, zero altered. Settings, themes, greeter, and
-config cleanup were verified. The merged-main gate is running; it is not yet complete.
+config cleanup were verified. The merged-main gate completed with fresh settled empty-scan
+receipts in both themes; no Wi-Fi join was attempted.
 
 The corrected scan reveals a blank card still offering Enter join: #143 now has independently
 reviewed draft PR #144 (`eaa8cd1`), with a clear empty message, retry action, and readable help.
@@ -21,13 +22,12 @@ collected-unit correction is reviewed but not yet gated. #137's tonight-extensio
 approved for implementation; code is being drafted. #98/#109 remains a human ship decision.
 The [media gallery](docs/media/dogfood/media-gallery.md) pairs all fourteen original captures.
 
-Air evidence for #143 now covers ten inspected frames from exact source `eaa8cd1`, with only the
+Air evidence for #143 now covers eleven inspected frames from exact source `eaa8cd1`, with only the
 three client paths replaced by a fixture backend. It shows empty, error, loading, watched-list,
-password, busy, back, and light-theme network states; no real Wi-Fi join or password validation
-was attempted. The preview closed, its Quickshell PID was absent, and Tokyo Night was restored.
-The settled light-theme password frame is still held for replacement after a focus race. Full
-formatter, Mac, VM, and named installed-live gates remain pending. #136's post-live gate is still
-running; #137 remains HOLD with fixes in progress.
+password, busy, back, and light-theme network/password states; no real Wi-Fi join or password
+validation was attempted. The preview closed, its Quickshell PID was absent, and Tokyo Night was
+restored. Full formatter, Mac, VM, and named installed-live gates remain pending; #137 remains
+HOLD with fixes in progress.
 
 **Latest takeover status, September 5 evening:** #110 merged through PR #113 at
 `bd679f9`. Keyboard guidance now appears before the parent answers. Independent review, VM

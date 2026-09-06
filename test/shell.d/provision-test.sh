@@ -173,26 +173,51 @@ stub chpasswd 'cat >> "__LOG__/chpasswd.stdin"'
 # is the "this password already unlocks the disk" case.
 stub cryptsetup '
 case "$1" in
+    luksUUID) echo "18ea1ae2-ae5d-4012-9ff4-f071ccccdd01" ;;
     luksDump)
+        if [[ "$2" == "--dump-json-metadata" ]]; then
+            printf "{\"tokens\":{"; comma=""
+            for token in "__LOG__"/token.*.json; do
+                [[ -e "$token" ]] || continue
+                slot="${token##*/}"; slot="${slot#token.}"; slot="${slot%.json}"
+                printf "%s\"%s\":" "$comma" "$slot"; cat "$token"; comma=,
+            done
+            printf "}}\n"
+            exit 0
+        fi
         echo "Keyslots:"
         echo "  0: luks2"
         echo "  1: luks2"
-        [[ -e "__LOG__/luks-added" ]] && echo "  3: luks2"
+        for slot_file in "__LOG__"/slot.*; do
+            [[ -e "$slot_file" ]] || continue
+            echo "  ${slot_file##*.}: luks2"
+        done
         ;;
     luksAddKey)
         [[ ! -e "__LOG__/luks-add-fail" ]] || exit 1
-        : > "__LOG__/luks-added"
+        while (($#)); do
+            [[ "$1" != --key-slot ]] || { : > "__LOG__/slot.$2"; break; }
+            shift
+        done
+        ;;
+    token)
+        [[ "$2" == import ]] || exit 1
+        while (($#)); do
+            [[ "$1" != --json-file ]] || { slot="$(jq -r .slot "$2")"; cp "$2" "__LOG__/token.$slot.json"; break; }
+            shift
+        done
         ;;
     luksKillSlot)
         [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1
         slot="${@: -1}"
         [[ ! -e "__LOG__/require-luks-intent" ]] ||
-            grep -q "^$slot=" "$OMARCHY_KIDS_ETC"/luks-slots.removing-* || {
+            jq -e --argjson slot "$slot" "select(.state == \"removing\" and .slot == \$slot)" \
+              "$OMARCHY_KIDS_ROOT"/var/lib/omarchy-kids/transactions/*.json >/dev/null || {
                 : > "__LOG__/luks-intent-missing-at-kill"
                 exit 1
             }
-        [[ -e "__LOG__/luks-added" ]] || exit 1
-        rm -f "__LOG__/luks-added"
+        [[ -e "__LOG__/slot.$slot" ]] || exit 1
+        rm -f "__LOG__/slot.$slot" "__LOG__/token.$slot.json"
         ;;
     open) [[ -e "__LOG__/luks-open-ok" ]] || exit 1 ;;
 esac
@@ -324,7 +349,8 @@ printf '0=mark:omarchy.desktop\n7=kid-cy\n' >"$ETC/luks-slots"
 out_portal_mapped="$("$BIN" remove kid-cy 2>&1)"
 st=$?
 check_eq "$st" 1 "portal per-kid remove refuses a recorded LUKS slot"
-check_contains "$out_portal_mapped" "cannot verify recorded LUKS slot 7" "portal per-kid remove names the active-slot risk"
+check_contains "$out_portal_mapped" "non-LUKS transaction for kid-cy conflicts with legacy slot evidence" \
+  "portal per-kid remove names the conflicting ownership evidence"
 [[ -e "$ETC/kids/kid-cy.conf" ]] && pass "portal mapped-slot refusal leaves the profile" ||
   fail "portal mapped-slot refusal removed the profile"
 check_not_contains "$(cat "$ARGV_LOG")" "userdel" "portal mapped-slot refusal stops before account deletion"
@@ -453,7 +479,7 @@ check_eq "$(cat "$SDDM_PAMFILE")" "$expected_sddm" "pam.d/sddm: exact resulting 
 check_contains "$out" "warning: could not add the parent-unlock line to pam.d/omarchy-lock-password" \
   "add: warns (does not fail) when the lock-screen PAM stack doesn't exist yet"
 
-check_contains "$argv" "cryptsetup luksAddKey --batch-mode --key-file=" "add: cryptsetup luksAddKey called"
+check_contains "$argv" "cryptsetup luksAddKey --batch-mode --key-slot 3 --key-file=" "add: cryptsetup uses the durably reserved explicit slot"
 check_contains "$argv" "/dev/fake0" "add: cryptsetup ran against the given --luks-device"
 check_contains "$argv" "cryptsetup luksDump /dev/fake0" "add: the new slot is found by diffing luksDump, not by --test-passphrase"
 check_contains "$argv" "cryptsetup open --test-passphrase" "add: the kid password is tested against the disk before it is added"
@@ -573,6 +599,31 @@ check_not_contains "$(cat "$ARGV_LOG")" "chpasswd" "add --no-password never call
 check_eq "$(grep -c '^password=none$' "$ETC/kids/$SLUG_SAM.conf")" "1" "profile: password=none for a locked account"
 check_not_contains "$(cat "$ARGV_LOG")" "luksAddKey" "add --no-password never touches LUKS, even with a device given"
 
+: >"$ARGV_LOG"
+"$BIN" remove "$SLUG_SAM" --keep-home >/dev/null 2>&1
+check_eq "$?" 0 "disk-mode remove of a no-password account succeeds"
+check_not_contains "$(cat "$ARGV_LOG")" "cryptsetup" "disk-mode no-password removal never enters the LUKS path"
+check_eq "$(jq -r .state "$SCRATCH_ROOT/var/lib/omarchy-kids/transactions/$SLUG_SAM.json")" removed \
+  "disk-mode no-password removal retires its explicit non-LUKS transaction"
+
+# An unfinished add must be repaired or resumed; remove cannot mutate its
+# account or even its token-proven slot before the lifecycle permits removal.
+TX_DIR="$SCRATCH_ROOT/var/lib/omarchy-kids/transactions"
+python3 "$TREE/lib/transaction.py" create "$TX_DIR" kid-test add \
+  18ea1ae2-ae5d-4012-9ff4-f071ccccdd01 25 set Test 6-8 fox
+python3 "$TREE/lib/transaction.py" transition "$TX_DIR" kid-test reserved adding
+python3 "$TREE/lib/transaction.py" transition "$TX_DIR" kid-test adding added
+python3 "$TREE/lib/transaction.py" token "$TX_DIR" kid-test >"$LOG/token.25.json"
+printf 'name=Test\nband=6-8\navatar=fox\npassword=set\n' >"$ETC/kids/kid-test.conf"
+printf '25=kid-test\n' >>"$ETC/luks-slots"
+: >"$ARGV_LOG"
+out_incomplete="$("$BIN" remove kid-test --luks-device /dev/fake0 2>&1)"
+check_eq "$?" 1 "remove refuses an incomplete add lifecycle"
+check_contains "$out_incomplete" "lifecycle for kid-test is incomplete" "incomplete removal names the required repair"
+check_not_contains "$(cat "$ARGV_LOG")" "luksKillSlot" "incomplete account lifecycle blocks every slot kill"
+rm -f "$TX_DIR/kid-test.json" "$LOG/token.25.json" "$ETC/kids/kid-test.conf"
+sed -i '/^25=kid-test$/d' "$ETC/luks-slots"
+
 # --- add: password below the band minimum is refused -----------------------
 
 out4="$(printf 'ab\n' | "$BIN" add "Shorty" --band 6-8 --password-stdin 2>&1)"
@@ -649,7 +700,8 @@ rm -f "$LOG/luks-map-write-fail"
 check_eq "$st" 1 "slot-map write failure fails per-kid removal"
 check_contains "$out_map_fail" "could not update" "slot-map write failure names the preserved map"
 check_eq "$(cat "$ETC/luks-slots")" "$slots_before" "slot-map write failure preserves the trusted map"
-check_eq "$(cat "$ETC/luks-slots.removing-$SLUG")" "3=$SLUG" "slot-map write failure leaves a durable removal intent"
+check_eq "$(jq -r '.state' "$SCRATCH_ROOT/var/lib/omarchy-kids/transactions/$SLUG.json")" "removed" \
+  "slot-map write failure leaves a durable removed transaction"
 [[ -e "$LOG/luks-intent-missing-at-kill" ]] && fail "per-kid remove killed the slot before recording intent" ||
   pass "per-kid remove records intent before killing the slot"
 [[ -e "$ETC/kids/$SLUG.conf" ]] && pass "slot-map write failure preserves the profile" ||
@@ -664,8 +716,8 @@ check_eq "$st" 0 "remove retry after a map-write failure exits 0"
 check_not_contains "$argv6" "luksKillSlot" "remove retry does not kill the already-empty slot again"
 check_contains "$argv6" "cryptsetup luksDump /dev/fake0" "remove retry verifies the recorded slot is empty"
 check_eq "$(grep -c "^3=$SLUG\$" "$ETC/luks-slots")" "0" "luks-slots: $SLUG's slot is gone"
-[[ -e "$ETC/luks-slots.removing-$SLUG" ]] && fail "remove retry should clear the durable intent" ||
-  pass "remove retry clears the durable intent"
+check_eq "$(jq -r '.state' "$SCRATCH_ROOT/var/lib/omarchy-kids/transactions/$SLUG.json")" "removed" \
+  "remove retry keeps the durable retired ownership record"
 check_eq "$(grep -c '^0=mark:omarchy.desktop$' "$ETC/luks-slots")" "1" "luks-slots: the parent's slot 0 survives remove's rewrite"
 check_eq "$(grep -c "$SLUG-2\$" "$ETC/luks-slots")" "0" "luks-slots: never had an entry for $SLUG-2 (no LUKS device was given for it)"
 

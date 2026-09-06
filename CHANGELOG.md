@@ -9,6 +9,8 @@ once there is one. Regenerate or extend this by hand; it is not produced by a sc
 
 ### Security
 
+- Account and LUKS lifecycle changes now use fsync-durable per-account transactions plus exact
+  on-device ownership tokens; recovery, slot reuse, and every deletion fail closed on identity.
 - Launcher activation now uses fixed argv arrays embedded in the validated root-owned session
   manifest; no kid-writable runtime launcher JSON or separate launcher map is read by the launcher.
 - Closed kid-session path and binary redirect surfaces: kid-facing commands use build-time paths,

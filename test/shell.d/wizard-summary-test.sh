@@ -76,9 +76,15 @@ export GUM_OUTPUT
 out="$TMP/card.out"
 screen_summary >"$out" 2>&1
 status=$?
-[[ $status == 0 ]] || { echo "FAIL card summary returned $status"; exit 1; }
+[[ $status == 0 ]] || {
+  echo "FAIL card summary returned $status"
+  exit 1
+}
 current_card="$(cat "$DISPLAY_BUFFER")"
-grep -q 'Screen time.*30 minutes a day' <<<"$current_card" || { echo 'FAIL current Ready card lost the formatted summary'; exit 1; }
+grep -q 'Screen time.*30 minutes a day' <<<"$current_card" || {
+  echo 'FAIL current Ready card lost the formatted summary'
+  exit 1
+}
 if grep -q '|' <<<"$current_card"; then
   echo 'FAIL current Ready card contains raw row separators'
   exit 1
@@ -90,15 +96,30 @@ TUI_ANSWERS=(change @esc)
 # shellcheck disable=SC2034 # consumed by the renderer globals
 TUI_ANSWERS_I=0
 # shellcheck disable=SC2329,SC2034 # invoked indirectly by screen_summary
-screen_advanced_checklist() { BUDGET_MIN=45; return 0; }
+screen_advanced_checklist() {
+  BUDGET_MIN=45
+  return 0
+}
 # shellcheck disable=SC2329,SC2034 # invoked indirectly by screen_summary
-adv_summary_extra_rows() { local name="$1"; eval "$name+=(\"Custom setting|Changed\")"; }
+adv_summary_extra_rows() {
+  local name="$1"
+  eval "$name+=(\"Custom setting|Changed\")"
+}
 out="$TMP/change.out"
 screen_summary >"$out" 2>&1
 status=$?
-[[ $status == 1 ]] || { echo "FAIL Change then Esc returned $status"; exit 1; }
-grep -q 'Screen time.*45 minutes a day' "$out" || { echo 'FAIL customized summary was not redrawn'; exit 1; }
-grep -q 'Custom setting.*Changed' "$out" || { echo 'FAIL customized extra row was not redrawn'; exit 1; }
+[[ $status == 1 ]] || {
+  echo "FAIL Change then Esc returned $status"
+  exit 1
+}
+grep -q 'Screen time.*45 minutes a day' "$out" || {
+  echo 'FAIL customized summary was not redrawn'
+  exit 1
+}
+grep -q 'Custom setting.*Changed' "$out" || {
+  echo 'FAIL customized extra row was not redrawn'
+  exit 1
+}
 printf '%s\n' 'PASS Change loop redraws customized settings and does not apply'
 
 setup_globals file 0
@@ -109,5 +130,8 @@ TUI_ANSWERS_I=0
 out="$TMP/ctrlc.out"
 screen_summary >"$out" 2>&1
 status=$?
-[[ $status == 130 ]] || { echo "FAIL Ctrl+C then Leave returned $status"; exit 1; }
+[[ $status == 130 ]] || {
+  echo "FAIL Ctrl+C then Leave returned $status"
+  exit 1
+}
 printf '%s\n' 'PASS Ctrl+C leave exits summary without applying'

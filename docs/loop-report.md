@@ -660,6 +660,20 @@ Portal-reset receipts: [round 1](media/dogfood/portal-134-round-1-catppuccin-lat
 [round 2](media/dogfood/portal-134-round-2-catppuccin-latte.png),
 [round 3](media/dogfood/portal-134-round-3-catppuccin-latte.png).
 
+## #143 Air Wi-Fi picker receipts, 2026-09-06
+
+Ten Air frames from the independently reviewed #143 source `eaa8cd1` are in the
+[media gallery](media/dogfood/media-gallery.md). The preview used real Air Quickshell 0.3.1 and
+an owned fixture backend for the three client paths. Same-process source watching refreshed the
+network list; `wtype` Enter reached the retry/error path, and an owned pointer click reached the
+loading path. The receipts cover empty, error, loading, watched-list, password, busy, back, and
+light-theme network states. A masked fixture password was used; duplicate Enter produced one
+fixture join, and Escape returned before closing. No real Wi-Fi join or password validation was
+attempted. The preview closed, `/proc/1213749` was absent, and Tokyo Night was restored. The
+settled light-theme password frame is held pending replacement after a focus race. Full formatter,
+Mac, VM, and named installed-live gates remain pending; #136's post-live gate is still running,
+and #137 remains HOLD with fixes in progress.
+
 
 ## September 6: real media, failed acceptance
 

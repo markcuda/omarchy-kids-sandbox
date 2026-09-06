@@ -647,10 +647,11 @@ records the reproduced failure, even though recovery succeeded. Temporary config
 
 ## Current media handoff, 2026-09-06
 
-The #133 refresh fix and #134 live-compositor readiness fix are implemented. Fixtures now
-own config and output and check retry, dispatch, and restart paths. Independent review passed;
-the formatter → Mac → VM gate is running. The named live proof will repeat three fresh owner
-autologins and confirm clean exit to
-the portal before the full media rerun. This step produced no new screenshots or child-login
-evidence; the automated 20-capture run remains incomplete. The last verified states remain the VM's
-Catppuccin Latte greeter and Air's Tokyo Night theme.
+The final #133/#134 candidate passed the VM formatter, Mac 37-file suite with five platform
+skips, VM 37-file suite with two skips for bar status and ash, and Linux authd and SO_PEERCRED
+checks. Named three-autologin reset scenario `88422` completed 0: each fresh owner autologin
+exited cleanly to the Catppuccin Latte portal with successful raw session queries showing no user
+seats. Root inspected all three portal-reset receipts; the faint Vm caption remains #112. These
+are portal-reset proofs only, with no child login. The full 20-capture run `18797` has started;
+no completion claim or fresh full-media result is made. Public PR #114 remains at `fee4ad4`, with
+no code merge claimed.

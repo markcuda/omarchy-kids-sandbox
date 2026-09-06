@@ -18,12 +18,15 @@ VM 37 files (two skips for bar status and ash); authd and SO_PEERCRED checks ran
 at `fee4ad4` pending the final live pass. The VM package installed cleanly with 181 files and
 zero altered files. Automated media run `62216` failed before capture on both themes because
 stock owner autologin returned the desktop (#133); its four fixture values were restored and
-config removed. The #133 refresh fix and #134 live-compositor readiness fix are implemented;
-independent review passed, and the formatter → Mac → VM gate is running before the named live proof.
-Manual `portal_reset` recovery `31132` passed and captured the real light portal,
-with tile rendering only and no Cy login. The VM is clean at the original Catppuccin Latte theme;
-Air is restored to Tokyo Night. #111 at `a78d413` (PR #115, current desktop-launch theme) and
-#112 at `99a4ba5` (PR #116, readable parent portal label) remain reviewed drafts. The original
+config removed. The final #133/#134 candidate passed the VM formatter and Mac 37-file suite
+with five platform skips, VM 37-file suite with two skips for bar status and ash, and Linux authd and SO_PEERCRED
+checks. Named three-autologin reset scenario `88422` completed 0: each fresh owner autologin
+exited cleanly to the Catppuccin Latte portal with successful raw session queries showing no user
+seats. Manual `portal_reset` recovery `31132` passed and captured the real light portal, with tile
+rendering only and no Cy login. The VM is clean at the original Catppuccin Latte theme; Air is
+restored to Tokyo Night. The full 20-capture run `18797` has started; no completion claim or fresh
+full-media result yet. #111 at `a78d413` (PR #115, current desktop-launch theme) and #112 at
+`99a4ba5` (PR #116, readable parent portal label) remain reviewed drafts. The original
 `media-driver` remote branch is unchanged; PR #114 carries the rebased driver plus its reviewed
 correction. Real dogfood screenshots now exist in `docs/media/dogfood/`.
 

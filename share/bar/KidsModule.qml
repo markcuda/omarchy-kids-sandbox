@@ -16,7 +16,6 @@ Panel {
     // --- external commands, every path overridable for tests/dev ----------
     readonly property string statusPath: Quickshell.env("OMARCHY_KIDS_STATUS_JSON") || "/run/omarchy-kids/status.json"
     // Absolute, and not from the environment (AGENTS.md rule 9, review S12).
-    readonly property string askBin: "/usr/bin/omarchy-kids-ask"
     readonly property string barCtlBin: "/usr/bin/omarchy-kids-bar"
     readonly property string kidsBin: "/usr/bin/omarchy-kids"
     // How many more minutes one click grants (bin/omarchy-kids-time grant
@@ -26,7 +25,9 @@ Panel {
     // --- status.json (R-BAR-3) ---------------------------------------------
     property bool hasFile: false
     property var liveKids: []   // [{kid, initial, minutesLeft, paused}]
-    property int openRequestCount: 0
+    // -1 means the root publisher could not validate the queue count.
+    // It must never be rendered as a real zero (I-6).
+    property int openRequestCount: -1
     property int cursorIndex: 0
 
     FileView {
@@ -53,6 +54,7 @@ Panel {
         if (!text || text.length === 0) {
             root.hasFile = false
             root.liveKids = []
+            root.openRequestCount = -1
             if (root.cursorIndex >= root.menuRows.length) root.cursorIndex = 0
             return
         }
@@ -62,10 +64,12 @@ Panel {
         } catch (e) {
             root.hasFile = false
             root.liveKids = []
+            root.openRequestCount = -1
             if (root.cursorIndex >= root.menuRows.length) root.cursorIndex = 0
             return
         }
         root.hasFile = true
+        root.openRequestCount = root.requestCountFromData(data)
         var rows = (data && data.kids) || []
         var out = []
         for (var i = 0; i < rows.length; i++) {
@@ -93,38 +97,12 @@ Panel {
         return s.length > 0 ? s.charAt(0).toUpperCase() : "?"
     }
 
-    // --- open request badge (a Process every 30s, per the issue) ----------
-    // `omarchy-kids-ask list` prints a plain aligned table (ID/KID/KIND/
-    // WHAT/ASKED_AT header + one row per open request) or the literal line
-    // "omarchy-kids-ask: no open requests" -- there is no --json/--count
-    // (bin/omarchy-kids-ask), so this counts lines instead of adding a new
-    // output mode to a command another issue owns.
-    Timer {
-        interval: 30000
-        running: true
-        repeat: true
-        triggeredOnStart: true
-        onTriggered: askProcess.running = true
-    }
-
-    Process {
-        id: askProcess
-        command: [root.askBin, "list"]
-        stdout: StdioCollector {
-            waitForEnd: true
-            onStreamFinished: root.parseAskCount(text)
-        }
-    }
-
-    function parseAskCount(text) {
-        var lines = String(text || "").split("\n").filter(function (l) { return l.length > 0 })
-        if (lines.length === 0 || lines[0].indexOf("no open requests") !== -1) {
-            root.openRequestCount = 0
-            return
-        }
-        // First line is the header row (ID KID KIND WHAT ASKED_AT); every
-        // line after it is one open request.
-        root.openRequestCount = Math.max(0, lines.length - 1)
+    function requestCountFromData(data) {
+        if (!data || typeof data !== "object" || Array.isArray(data) ||
+            !Object.prototype.hasOwnProperty.call(data, "open_requests")) return -1
+        var count = data.open_requests
+        return typeof count === "number" && isFinite(count) &&
+            Math.floor(count) === count && count >= 0 ? count : -1
     }
 
     // --- menu rows: R-BAR-2's three actions ("give more time, end
@@ -151,10 +129,14 @@ Panel {
                 detailLabel: who
             })
         }
-        rows.push({
-            kind: "requests",
-            label: "Open requests" + (requests > 0 ? " (" + requests + ")" : "")
-        })
+        var requestRow = { kind: "requests" }
+        if (requests < 0) {
+            requestRow.actionLabel = "Open requests"
+            requestRow.detailLabel = "Count unavailable"
+        } else {
+            requestRow.label = "Open requests (" + requests + ")"
+        }
+        rows.push(requestRow)
         rows.push({ kind: "open", label: "Open Kids Mode" })
         return rows
     }
@@ -190,7 +172,9 @@ Panel {
     }
 
     // --- visibility: nothing to show, nothing painted -----------------------
-    visible: root.hasFile && (root.liveKids.length > 0 || root.openRequestCount > 0)
+    // A readable status file keeps the entry point available even when the
+    // root queue count is unknown; a missing or malformed file remains hidden.
+    visible: root.hasFile && (root.liveKids.length > 0 || root.openRequestCount !== 0)
     implicitWidth: root.visible ? iconRow.implicitWidth + 12 : 0
     implicitHeight: root.visible ? 22 : 0
 
@@ -218,7 +202,7 @@ Panel {
         }
 
         Rectangle {
-            visible: root.openRequestCount > 0
+            visible: root.openRequestCount > 0 || root.openRequestCount < 0
             width: reqBadgeText.implicitWidth + 10
             height: 16
             radius: 8
@@ -226,7 +210,7 @@ Panel {
             Text {
                 id: reqBadgeText
                 anchors.centerIn: parent
-                text: String(root.openRequestCount)
+                text: root.openRequestCount < 0 ? "?" : String(root.openRequestCount)
                 color: Color.background
                 font.pixelSize: 10
                 font.bold: true
@@ -280,7 +264,7 @@ Panel {
                         required property var modelData
                         required property int index
                         width: rowsColumn.width
-                        height: rowDelegate.modelData.kind === "grant" || rowDelegate.modelData.kind === "end" ? 44 : 28
+                        height: rowDelegate.modelData.kind === "grant" || rowDelegate.modelData.kind === "end" || rowDelegate.modelData.detailLabel !== undefined ? 44 : 28
                         radius: 6
                         color: index === root.cursorIndex ? Style.selectedFillFor(Color.foreground, Color.accent, Color.urgent) : "transparent"
 

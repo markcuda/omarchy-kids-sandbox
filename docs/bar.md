@@ -111,10 +111,12 @@ session, opening a terminal, nothing to preview.
   data that isn't there).
 - One dot per kid whose row has `"live": true`: the initial letter of the kid's slug (`kid-ada` →
   `A`), colored differently while `"paused": true`.
-- A badge with the count of open requests, refreshed every 30s by running `omarchy-kids-ask list`
-  in a `Process` and counting its output lines (that command prints a plain aligned table or the
-  literal line `omarchy-kids-ask: no open requests` -- there is no `--json`/`--count` mode, so this
-  counts lines rather than adding a new output mode to a command another issue owns).
+- A badge with the count of open requests, read from the root-published `open_requests` integer in
+  `status.json`. The time ledger uses the same `lib/ask.py` validation as the parent panel with
+  strict queue I/O: malformed or invalid records are excluded, while queue or record read errors
+  omit the field instead of claiming zero. The widget keeps the Requests entry visible for an
+  unknown count and gives it the two-line detail "Count unavailable". A readable status with no
+  live child and a known zero stays hidden; a missing or malformed status file also stays hidden.
 - Click or Enter opens a menu: two-line "Give 15 more" and "End session" rows for each live kid,
   with the affected kid's status and minutes on the detail line (R-BAR-1's
   "Ada · paused · 32 min"), then "Open requests" and "Open Kids Mode".
@@ -211,8 +213,8 @@ this issue's two spec-vs-ticket comments.
 | `DRY_RUN` | `1` | gates `enable`/`disable` |
 
 `share/bar/KidsModule.qml` reads its own env at runtime (`Quickshell.env(...)`, not a shell var):
-`OMARCHY_KIDS_STATUS_JSON` (default `/run/omarchy-kids/status.json`), `OMARCHY_KIDS_ASK_BIN`
-(default `omarchy-kids-ask`), `OMARCHY_KIDS_BAR_BIN` (default `omarchy-kids-bar`),
+`OMARCHY_KIDS_STATUS_JSON` (default `/run/omarchy-kids/status.json`), `OMARCHY_KIDS_BAR_BIN`
+(default `omarchy-kids-bar`),
 `OMARCHY_KIDS_BIN` (default `omarchy-kids`).
 
 ## What's unverified -- check in the VM

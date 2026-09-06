@@ -29,6 +29,7 @@ function extractFunction(source, name) {
 }
 
 const makeMenuRows = extractFunction(qml, 'makeMenuRows');
+const requestCountFromData = extractFunction(qml, 'requestCountFromData');
 const model = vm.runInNewContext(`(${makeMenuRows})`);
 const rows = model([
   { kid: 'kid-test', initial: 'T', slug: 'test', minutesLeft: 7, paused: false },
@@ -52,7 +53,7 @@ let statusText = '';
 let readFails = false;
 const launches = [];
 const root = {
-  liveKids: [], openRequestCount: 0, grantMinutes: 15,
+  liveKids: [], openRequestCount: -1, grantMinutes: 15,
   cursorIndex: 0, hasFile: false, opened: true,
   kidsBin: '/fixture/kids', barCtlBin: '/fixture/bar',
   runDetached(command) { launches.push(Array.from(command)); },
@@ -62,7 +63,7 @@ const context = vm.createContext({
   root,
   statusFile: { text() { if (readFails) throw new Error('missing fixture'); return statusText; } }
 });
-for (const name of ['makeMenuRows', 'reloadStatus', 'kidSlug', 'kidInitial', 'activateRow']) {
+for (const name of ['makeMenuRows', 'requestCountFromData', 'reloadStatus', 'kidSlug', 'kidInitial', 'activateRow']) {
   root[name] = vm.runInContext(`(${extractFunction(qml, name)})`, context);
   context[name] = root[name];
 }
@@ -80,8 +81,31 @@ function handler(name) {
 const activate = handler('onActivateRequested');
 const enter = handler('onReturnRequested');
 const escape = handler('onCloseRequested');
-const populated = JSON.stringify({ kids: [{ kid: 'kid-cy', live: true, paused: false, minutes_left: 17 }] });
-for (const kind of ['missing', 'empty', 'malformed', 'valid-empty']) {
+const populated = JSON.stringify({ kids: [{ kid: 'kid-cy', live: true, paused: false, minutes_left: 17 }], open_requests: 2 });
+const states = [
+  ['missing', '', -1], ['empty', '', -1], ['malformed', '{', -1],
+  ['scalar-zero', '0', -1], ['valid-empty', '{"kids":[]}', -1],
+  ['zero', '{"kids":[],"open_requests":0}', 0],
+  ['positive', '{"kids":[],"open_requests":2}', 2],
+  ['negative', '{"kids":[],"open_requests":-1}', -1],
+  ['fractional', '{"kids":[],"open_requests":1.5}', -1]
+];
+const badgeLine = qml.split('\n').find((line) => line.trim().startsWith('visible: root.openRequestCount > 0 ||'));
+assert(badgeLine, 'actual badge visibility binding is present');
+const badgeExpression = badgeLine.trim().slice('visible: '.length);
+const badgeTextLine = qml.split('\n').find((line) => line.trim().startsWith('text: root.openRequestCount < 0'));
+assert(badgeTextLine, 'actual badge text binding is present');
+const badgeTextExpression = badgeTextLine.trim().slice('text: '.length);
+const mainVisibility = qml.split('\n').find((line) => line.trim().startsWith('visible: rowDelegate.modelData.actionLabel'));
+const detailVisibility = qml.split('\n').find((line) => line.trim() === 'visible: rowDelegate.modelData.detailLabel !== undefined');
+const mainText = qml.split('\n').find((line) => line.trim() === 'text: rowDelegate.modelData.actionLabel || rowDelegate.modelData.label');
+const rowHeight = qml.split('\n').find((line) => line.trim().startsWith('height: rowDelegate.modelData.kind === "grant"'));
+assert(mainVisibility && detailVisibility && mainText && rowHeight, 'actual request row bindings are present');
+const rowContext = (row) => ({ rowDelegate: { modelData: row } });
+const widgetLine = qml.split('\n').find((line) => line.trim().startsWith('visible: root.hasFile &&'));
+assert(widgetLine, 'actual widget visibility binding is present');
+const widgetExpression = widgetLine.trim().slice('visible: '.length);
+for (const [kind, nextText, expectedCount] of states) {
   readFails = false;
   statusText = populated;
   root.opened = true;
@@ -89,11 +113,23 @@ for (const kind of ['missing', 'empty', 'malformed', 'valid-empty']) {
   root.cursorIndex = root.menuRows.length - 1;
   assert.strictEqual(root.cursorIndex, 3, 'fixture selects the last of four rows');
   readFails = kind === 'missing';
-  statusText = kind === 'malformed' ? '{' : kind === 'valid-empty' ? '{"kids":[]}' : '';
+  statusText = nextText;
   root.reloadStatus();
-  assert.strictEqual(root.hasFile, kind === 'valid-empty');
+  assert.strictEqual(root.hasFile, kind !== 'missing' && kind !== 'empty' && kind !== 'malformed');
+  assert.strictEqual(root.openRequestCount, expectedCount, `${kind} count state`);
   assert.strictEqual(root.liveKids.length, 0, `${kind} hides child controls`);
   assert.deepStrictEqual(Array.from(root.menuRows, row => row.kind), ['requests', 'open']);
+  const requestRow = root.menuRows[0];
+  assert.strictEqual(requestRow.label, expectedCount >= 0 ? `Open requests (${expectedCount})` : undefined, `${kind} menu label`);
+  assert.strictEqual(requestRow.actionLabel, expectedCount < 0 ? 'Open requests' : undefined, `${kind} menu main text`);
+  assert.strictEqual(requestRow.detailLabel, expectedCount < 0 ? 'Count unavailable' : undefined, `${kind} menu detail`);
+  assert.strictEqual(vm.runInNewContext(mainVisibility.trim().slice('visible: '.length), rowContext(requestRow)), true, `${kind} main text visible`);
+  assert.strictEqual(vm.runInNewContext(detailVisibility.trim().slice('visible: '.length), rowContext(requestRow)), expectedCount < 0, `${kind} detail visibility`);
+  assert.strictEqual(vm.runInNewContext(mainText.trim().slice('text: '.length), rowContext(requestRow)), expectedCount < 0 ? 'Open requests' : `Open requests (${expectedCount})`, `${kind} main text`);
+  assert.strictEqual(vm.runInNewContext(rowHeight.trim().slice('height: '.length), rowContext(requestRow)), expectedCount < 0 ? 44 : 28, `${kind} row height`);
+  assert.strictEqual(vm.runInNewContext(badgeExpression, { root }), expectedCount !== 0, `${kind} badge state`);
+  assert.strictEqual(vm.runInNewContext(badgeTextExpression, { root }), expectedCount < 0 ? '?' : String(expectedCount), `${kind} badge text`);
+  assert.strictEqual(vm.runInNewContext(widgetExpression, { root }), root.hasFile && (root.liveKids.length > 0 || expectedCount !== 0), `${kind} widget visibility`);
   assert(root.cursorIndex >= 0 && root.cursorIndex < root.menuRows.length, `${kind} keeps a visible selection`);
   assert.strictEqual(root.opened, true, `${kind} does not reopen or close the menu`);
   move(0, -1);

@@ -77,7 +77,7 @@ printf 'root:omarchy-parents:%s\n' "$mode" >"$STATUS_MV_BOUNDARY"
 MV
 chmod +x "$STUBS"/*
 
-awk '/^write_status_json\(\)/ { capture=1 } /^cmd_tick\(\)/ { exit } capture { print }' \
+awk '/^open_request_count\(\)/ { capture=1 } /^cmd_tick\(\)/ { exit } capture { print }' \
   "$LEDGER" >"$TMP/write-status.sh"
 # shellcheck source=/dev/null
 source "$TMP/write-status.sh"
@@ -95,6 +95,12 @@ PATH="$STUBS:/usr/bin:/bin"
 KIDS_DIR="$ROOT/etc/omarchy-kids/kids"
 RUN_DIR="$ROOT/run/omarchy-kids"
 STATUS_JSON="$RUN_DIR/status.json"
+# shellcheck disable=SC2034 # globals consumed by the extracted production function
+ASK_PY="$DIR/lib/ask.py"
+QUEUE_DIR="$ROOT/var/lib/omarchy-kids/queue"
+# shellcheck disable=SC2034 # consumed by the sourced write_status_json function
+KIDS_PY=python3
+mkdir -p "$QUEUE_DIR"
 printf '%s\n' '{"generated_at":"old","kids":[]}' >"$STATUS_JSON"
 OLD_HASH="$(file_hash "$STATUS_JSON")"
 
@@ -108,8 +114,48 @@ export STATUS_META_DIR="$TMP/meta"
 mkdir -p "$STATUS_META_DIR"
 write_status_json
 check "$(jq -r '.kids[0].kid' "$STATUS_JSON")" kid-ada "publishes complete JSON"
+check "$(jq -r '.open_requests' "$STATUS_JSON")" 0 "publishes a validated zero open-request count"
 check "$(cat "$STATUS_MV_BOUNDARY")" 'root:omarchy-parents:640' "metadata is complete at publication boundary"
 
+cat >"$QUEUE_DIR/1000000000-kid-ada-time.json" <<'REQUEST'
+{"kid":"kid-ada","kind":"time","what":"10","minutes":10,"asked_at":1000000000,"state":"open"}
+REQUEST
+write_status_json
+check "$(jq -r '.open_requests' "$STATUS_JSON")" 1 "publishes the validated open-request count"
+rm -f "$QUEUE_DIR/1000000000-kid-ada-time.json"
+
+QUEUE_DIR="$TMP/queue-file"
+printf 'not a directory\n' >"$QUEUE_DIR"
+write_status_json
+check "$(jq -r 'has("open_requests")' "$STATUS_JSON")" false "queue regular-file failure omits the request count"
+rm -f "$QUEUE_DIR"
+
+QUEUE_DIR="$TMP/unreadable-queue"
+mkdir -p "$QUEUE_DIR"
+cat >"$QUEUE_DIR/1000000001-kid-ada-time.json" <<'REQUEST'
+{"kid":"kid-ada","kind":"time","what":"10","minutes":10,"asked_at":1000000001,"state":"open"}
+REQUEST
+chmod 000 "$QUEUE_DIR/1000000001-kid-ada-time.json"
+if [[ ! -r "$QUEUE_DIR/1000000001-kid-ada-time.json" ]]; then
+  write_status_json
+  check "$(jq -r 'has("open_requests")' "$STATUS_JSON")" false "unreadable request failure omits the request count"
+else
+  echo "SKIP unreadable request check: test user can still read mode-000 fixture"
+fi
+chmod 600 "$QUEUE_DIR/1000000001-kid-ada-time.json"
+rm -rf "$QUEUE_DIR"
+
+QUEUE_DIR="$ROOT/var/lib/omarchy-kids/queue"
+
+# A broken root-side queue reader omits the count but still publishes live
+# child status; it must never turn an unreadable queue into zero.
+ASK_PY="$TMP/missing-ask.py"
+write_status_json
+check "$(jq -r 'has("open_requests")' "$STATUS_JSON")" false "queue-read failure omits the request count"
+check "$(jq -r '.kids[0].kid' "$STATUS_JSON")" kid-ada "queue-read failure preserves live child status"
+
+# shellcheck disable=SC2034 # consumed by the sourced write_status_json function
+ASK_PY="$DIR/lib/ask.py"
 for failure in jq-row jq-final chown chgrp chmod mv getent; do
   rm -f "$RUN_DIR"/status.json.* "$STATUS_MV_BOUNDARY"
   printf '%s\n' '{"generated_at":"old","kids":[]}' >"$STATUS_JSON"

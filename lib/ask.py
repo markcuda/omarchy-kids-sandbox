@@ -239,7 +239,7 @@ def cmd_show(argv):
     print("" if value is None else value)
 
 
-def cmd_list_open(argv):
+def list_open_rows(argv, strict=False):
     opts, rest = parse_kv_args(argv, {"kid"})
     if len(rest) != 1:
         die("list-open: needs DIR")
@@ -247,12 +247,38 @@ def cmd_list_open(argv):
     want_kid = opts.get("kid")
 
     rows = []
-    for path in sorted(glob.glob(os.path.join(directory, "*.json"))):
+    if strict:
+        try:
+            scan = os.scandir(directory)
+        except FileNotFoundError:
+            paths = []
+        except OSError as e:
+            die(f"list-open: could not inspect queue: {e}")
+        else:
+            try:
+                paths = sorted(
+                    entry.path
+                    for entry in scan
+                    if entry.name.endswith(".json") and entry.is_file()
+                )
+            except OSError as e:
+                die(f"list-open: could not inspect queue: {e}")
+            finally:
+                scan.close()
+    else:
+        paths = sorted(glob.glob(os.path.join(directory, "*.json")))
+    for path in paths:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 record = json.load(f)
-        except (OSError, json.JSONDecodeError):
+        except json.JSONDecodeError:
             continue  # a malformed record is skipped, not a crash
+        except OSError as e:
+            if strict:
+                die(f"list-open: could not read queue record: {e}")
+            continue
+        if not isinstance(record, dict):
+            continue
         if record.get("state") != "open":
             continue
         if want_kid and record.get("kid") != want_kid:
@@ -285,6 +311,14 @@ def cmd_list_open(argv):
         )
     for row in rows:
         print("\t".join(str(v) for v in row))
+
+
+def cmd_list_open(argv):
+    list_open_rows(argv)
+
+
+def cmd_list_open_strict(argv):
+    list_open_rows(argv, strict=True)
 
 
 def cmd_reopen(argv):
@@ -364,6 +398,7 @@ COMMANDS = {
     "decide": cmd_decide,
     "show": cmd_show,
     "list-open": cmd_list_open,
+    "list-open-strict": cmd_list_open_strict,
 }
 
 

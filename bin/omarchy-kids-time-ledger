@@ -20,6 +20,8 @@ SYSROOT=""
 KIDS_DIR="$ETC/kids"
 RUN_DIR="$SYSROOT/run/omarchy-kids"
 STATUS_JSON="$RUN_DIR/status.json"
+ASK_PY="$LIB/ask.py"
+QUEUE_DIR="$SYSROOT/var/lib/omarchy-kids/queue"
 TIME_SYSROOT="$SYSROOT"
 TIME_VARLIB="$SYSROOT/var/lib/omarchy-kids"
 TIME_NOW_FILE="$SYSROOT/run/omarchy-kids/time/now"
@@ -116,9 +118,21 @@ lock_kid_sessions() {
   return "$status"
 }
 
+# open_request_count — use the same validated queue reader as the panel.
+# A read failure is unknown, not zero; the bar must not claim otherwise.
+open_request_count() {
+  local rows count=0
+  rows="$("$KIDS_PY" "$ASK_PY" list-open-strict "$QUEUE_DIR" 2>/dev/null)" || return 1
+  if [[ -n "$rows" ]]; then
+    count="$(printf '%s\n' "$rows" | awk 'NF { count++ } END { print count + 0 }')" || return 1
+  fi
+  [[ "$count" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$count"
+}
+
 # write_status_json — R-BAR-3, best-effort: never fails the tick.
 write_status_json() {
-  local now day weekend hm kid remaining paused live rows tmp active
+  local now day weekend hm kid remaining paused live rows tmp active open_requests count
   tmp=
   now="$(time_root_now)"
   hm="$(time_hm "$now")"
@@ -129,6 +143,10 @@ write_status_json() {
   # Leave the last status intact when liveness is uncertain; writing every kid
   # as inactive would turn an observation failure into false parent guidance.
   active="$(active_kid_sessions)" || return 0
+  open_requests=""
+  if count="$(open_request_count)" && [[ "$count" =~ ^[0-9]+$ ]]; then
+    open_requests="$count"
+  fi
   rows="$(mktemp "$RUN_DIR/.status-rows.XXXXXX")" || return 0
   while IFS= read -r kid; do
     [[ -n "$kid" ]] || continue
@@ -151,7 +169,17 @@ write_status_json() {
     rm -f "$rows"
     return 0
   }
-  if ! jq -s '{generated_at: (now | todate), kids: .}' "$rows" >"$tmp" 2>/dev/null ||
+  if [[ -n "$open_requests" ]]; then
+    jq -s --argjson open_requests "$open_requests" \
+      '{generated_at: (now | todate), open_requests: $open_requests, kids: .}' "$rows" >"$tmp" 2>/dev/null || {
+      rm -f "$rows" "$tmp"
+      return 0
+    }
+  elif ! jq -s '{generated_at: (now | todate), kids: .}' "$rows" >"$tmp" 2>/dev/null; then
+    rm -f "$rows" "$tmp"
+    return 0
+  fi
+  if
     ! getent group omarchy-parents >/dev/null 2>&1 ||
     ! chown root "$tmp" 2>/dev/null ||
     ! chgrp omarchy-parents "$tmp" 2>/dev/null ||

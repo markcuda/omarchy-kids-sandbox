@@ -94,8 +94,9 @@ Three more keys live in the same per-kid `.conf` file and go through the same `g
 `reset` as the table above, but aren't part of Appendix B, so they're kept out of that table and
 out of the schema's Appendix B rows: `bin/omarchy-kids-apps` is `apps.extra`/
 `apps.hidden`'s only real caller (docs/apps.md), through `hide`/`show`, never by writing the
-profile file directly; `bin/omarchy-kids-session-start` reads `apps.show_missing` when it builds
-the validated session manifest, which the launcher then consumes (issue #42).
+profile file directly; `lib/session-manifest.sh` reads `apps.show_missing` when a root-owned
+provision or assertion build writes the validated session manifest, which the launcher then
+consumes (issue #42).
 
 | Key | Values | Default source | Default |
 | --- | --- | --- | --- |
@@ -287,9 +288,9 @@ too). omarchy-kids-apps is the only caller that needs them:
   apps.hidden  comma-separated launcher ids removed from this kid's
                allowlist, pack or apps.extra alike
   apps.show_missing  yes/no (issue #42, docs/apps.md): whether
-               the validated manifest keeps a tile for a
+               the launcher keeps a manifest tile for a
                pack/apps.extra app whose package isn't installed yet
-               visible in the launcher, greyed and labelled
+               visible, greyed and labelled
                "not installed yet", instead of hiding it from the
                displayed list (I-6: no tile that Enter silently does
                nothing on)

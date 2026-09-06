@@ -11,6 +11,7 @@ BAND=6-8
 ALLOWLIST_IDS='gcompris,tuxpaint,ktuberling,blinken,supertux,supertuxkart,klettres,kanagram'
 MARKER="$TMP/marker"
 
+# shellcheck disable=SC2016 # the command-substitution text is intentionally literal
 app_label_for() {
   case "$2" in
     gcompris) printf 'GCompris' ;;
@@ -21,7 +22,6 @@ app_label_for() {
     supertuxkart) printf 'SuperTuxKart' ;;
     klettres) printf 'KLettres' ;;
     kanagram) printf 'Kanagram' ;;
-    # shellcheck disable=SC2016 # the command-substitution text is intentionally literal
     quote) printf 'Kid "Q" \\ \$(touch %s)' "$MARKER" ;;
   esac
 }

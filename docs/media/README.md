@@ -15,6 +15,7 @@ replaces one `<surface>-<theme>.png`; a failed capture leaves the previous file 
 | `plugins-shelf-<theme>.png` | The read-only More apps shelf; its title and instruction must be visible. |
 | `wizard-<theme>.png` | The parent wizard; Welcome and Begin must be visible in the floating terminal. |
 | `panel-<theme>.png` | The parent panel; Kids Mode and Add a kid must be visible in the floating terminal. |
+| `bar-module-<theme>.png` | The enabled parent widget's open menu; live state and Open Kids Mode must be visible. |
 
 The existing `exit-modal-over-app-<theme>.png` files are extra composition checks, not another
 required surface. The three walkthrough videos in docs/GOAL.md item 3 are recorded separately;
@@ -24,7 +25,8 @@ For every surface, the driver polls disposable screenshots until macOS Vision fi
 text. It then takes a separate release screenshot and checks the same text again before replacing
 the committed image. A process alone is never treated as proof that its UI has rendered.
 
-No `bar-module-<theme>.png` is shipped. Omarchy 4.0.2 cannot keep the kid and parent graphical
-sessions live at the same time through SDDM. A parent-bar screenshot with a live kid would require
-frozen or invented state, so the driver refuses that surface until a real concurrent-session path
-exists.
+The bar capture requires the parent to have enabled the widget already; the driver never edits the
+parent's bar. It opens a genuine owner desktop, starts a temporary PAM-backed login session for the
+test kid, and leaves the real screen-time timer running. After a fresh ledger tick reports that kid
+as live and unpaused, the driver opens the real widget menu through the owner's shell and applies
+the same two-stage text check. Cleanup ends only the temporary login and ticks the ledger again.

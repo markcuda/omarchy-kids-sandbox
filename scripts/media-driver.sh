@@ -10,7 +10,7 @@ if [[ "${OMARCHY_KIDS_VM_DRIVER_LOCKED:-0}" != 1 ]]; then
   exec "$SCRIPT_DIR/vm-driver-lock" "$0" "$@"
 fi
 MEDIA_DIR="$REPO_ROOT/docs/media"
-SURFACES=(portal launcher exit-modal ask times-up wifi-picker plugins-shelf wizard panel)
+SURFACES=(portal launcher exit-modal ask times-up wifi-picker plugins-shelf wizard panel bar-module)
 THEMES=()
 SURFACE_FILTER=""
 RUN_FAILED=0
@@ -28,6 +28,8 @@ ORIGINAL_WIFI_SOURCE=""
 LIGHTS_OUT_DIRTY=0
 LIGHTS_OUT_WEEKEND_DIRTY=0
 WIFI_DIRTY=0
+BAR_SESSION_DIRTY=0
+BAR_SESSION_UNIT="omarchy-kids-media-session.service"
 
 usage() {
   cat <<'EOF'
@@ -38,12 +40,14 @@ With no themes, captures tokyo-night and catppuccin-latte. Images land in
 docs/media/<surface>-<theme>.png.
 
   --surface NAME  Capture only one of: portal, launcher, exit-modal, ask,
-                  times-up, wifi-picker, plugins-shelf, wizard, panel.
+                  times-up, wifi-picker, plugins-shelf, wizard, panel,
+                  bar-module.
   -h, --help      Show this help.
 
 The shared VM lock refuses a second driver and names the active run. This
 driver changes the owner and test-kid themes, restarts SDDM, then restores
-both themes.
+both themes. The bar widget must already be enabled; this script never changes
+the parent's bar.
 EOF
 }
 
@@ -185,6 +189,13 @@ settle_at_greeter() {
 restore_transient_state() {
   local failed=0 kid_q value_q retick=0
   kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
+  if ((BAR_SESSION_DIRTY)); then
+    if vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl is-active --quiet $BAR_SESSION_UNIT"; then
+      vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl stop $BAR_SESSION_UNIT" || failed=1
+    fi
+    vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-time-ledger tick >/dev/null" || failed=1
+    ((failed)) || BAR_SESSION_DIRTY=0
+  fi
   if ((LIGHTS_OUT_DIRTY)); then
     if [[ "$ORIGINAL_LIGHTS_OUT_SOURCE" == override ]]; then
       value_q="$(shell_quote "$ORIGINAL_LIGHTS_OUT")"
@@ -339,6 +350,43 @@ prepare_owner() {
   wait_vm_process "$LIVE_OWNER_ACCOUNT" omarchy-shell 60
 }
 
+prepare_owner_for_bar() {
+  if wait_vm_process "$LIVE_OWNER_ACCOUNT" Hyprland 1; then
+    wait_vm_process "$LIVE_OWNER_ACCOUNT" omarchy-shell 60
+    return
+  fi
+  assert_greeter 30 || return 1
+  portal_login "$LIVE_OWNER_ACCOUNT" "$LIVE_OWNER_PASSWORD" || return 1
+  wait_vm_process "$LIVE_OWNER_ACCOUNT" Hyprland 60 || return 1
+  wait_vm_process "$LIVE_OWNER_ACCOUNT" omarchy-shell 60
+}
+
+start_bar_kid_session() {
+  local kid_q
+  kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
+  if vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl is-active --quiet $BAR_SESSION_UNIT"; then
+    echo "media-driver: stale $BAR_SESSION_UNIT is still active; inspect the VM before retrying" >&2
+    return 1
+  fi
+  BAR_SESSION_DIRTY=1
+  vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemd-run --quiet --collect --unit=omarchy-kids-media-session --property=PAMName=login --uid=$kid_q /usr/bin/sleep infinity"
+}
+
+wait_bar_live_status() {
+  local kid_q waited=0 deadline="${1:-30}"
+  kid_q="$(shell_quote "$LIVE_KID1_ACCOUNT")"
+  while ((waited < deadline)); do
+    vmroot "env -i PATH=/usr/bin:/bin /usr/bin/omarchy-kids-time-ledger tick >/dev/null" || return 1
+    if vmroot "env -i PATH=/usr/bin:/bin /usr/bin/jq -e --arg kid $kid_q '.kids[]? | select(.kid == \$kid and .live == true and .paused == false)' /run/omarchy-kids/status.json >/dev/null"; then
+      return 0
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  echo "media-driver: concurrent kid session did not produce live bar state within ${deadline}s" >&2
+  return 1
+}
+
 shoot_portal() {
   local theme="$1" kid_q kid_name
   assert_greeter 30 || return 1
@@ -445,6 +493,27 @@ shoot_panel() {
   start_in_session "$LIVE_OWNER_ACCOUNT" omarchy-shell "/usr/bin/omarchy-launch-floating-terminal-with-presentation /usr/bin/omarchy-kids-panel --dry-run" || return 1
   wait_vm_process "$LIVE_OWNER_ACCOUNT" omarchy-kids-panel 15 || return 1
   wait_and_capture panel "$theme" 30 "Kids Mode" "Add a kid"
+}
+
+shoot_bar_module() {
+  local theme="$1"
+  [[ "$(vm "/usr/bin/omarchy-kids-bar status" 2>/dev/null)" == enabled ]] || {
+    echo "media-driver: bar module is not enabled; refusing to change the parent's bar" >&2
+    return 1
+  }
+  vmroot "env -i PATH=/usr/bin:/bin /usr/bin/systemctl is-active --quiet omarchy-kids-time.timer" || {
+    echo "media-driver: the live status timer is not active; refusing a frozen bar capture" >&2
+    return 1
+  }
+  prepare_owner_for_bar || return 1
+  start_bar_kid_session || return 1
+  wait_bar_live_status 30 || return 1
+  run_in_session "$LIVE_OWNER_ACCOUNT" omarchy-shell "/usr/bin/test -r /run/omarchy-kids/status.json" || {
+    echo "media-driver: the owner session cannot read live bar status" >&2
+    return 1
+  }
+  run_in_session "$LIVE_OWNER_ACCOUNT" omarchy-shell "/usr/bin/omarchy-shell omarchy-kids.bar toggle" || return 1
+  wait_and_capture bar-module "$theme" 30 "live" "Open Kids Mode"
 }
 
 run_surface() {

@@ -136,7 +136,8 @@ PanelWindow {
 
                     Text {
                         width: parent.width
-                        text: "Pick one, then press Enter to ask a grown-up."
+                        visible: root.loaded && root.loadError.length === 0 && root.shelf.length > 0
+                        text: "Choose an app, then press Enter to ask a grown-up."
                         color: theme.caption
                         font.pixelSize: 14
                         wrapMode: Text.WordWrap
@@ -164,7 +165,7 @@ PanelWindow {
                     Text {
                         width: parent.width
                         visible: root.loaded && root.loadError.length === 0 && root.shelf.length === 0
-                        text: "Nothing here yet -- check back later!"
+                        text: "There aren't any extra apps to ask for yet. Press Esc to go back."
                         color: theme.caption
                         font.pixelSize: 15
                         wrapMode: Text.WordWrap
@@ -217,6 +218,17 @@ PanelWindow {
                             }
                         }
                     }
+                }
+
+                Text {
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 24
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: "Esc  Back to launcher"
+                    color: theme.foreground
+                    font.pixelSize: 16
+                    Accessible.name: "Back to launcher"
+                    Accessible.description: "Press Escape to close More apps"
                 }
             }
         }

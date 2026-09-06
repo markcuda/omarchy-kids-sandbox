@@ -282,7 +282,7 @@ Rectangle {
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
                         text: root.displayNameFor(modelData.name, modelData.realName)
-                        color: modelData.isParent ? root.colMuted : root.colText
+                        color: root.colText
                         font.family: root.fontFam
                         font.pixelSize: modelData.isParent ? 16 : 20
                         width: tileItem.tileSize

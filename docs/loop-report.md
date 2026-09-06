@@ -490,3 +490,14 @@ were removed, and Tokyo Night was restored. These checks do not replace their or
 The parent panel empty state was inspected on the laptop. Following Add a kid exposed #123:
 preview mode was not handed to the wizard. An owned wizard stub confirmed the mode loss without
 provisioning an account. Its explicit CLI mode handoff is drafted for independent review.
+
+Further laptop previews: #118's exit card now names the grown-up's login password and shows
+Enter/Escape guidance. The first draft's caption color was too weak in Latte (3.47:1); the two
+new labels now use the foreground. Final dark/light screenshots show readable labels, and
+Escape closes both previews. #119's foreground keyboard help was also inspected on Welcome
+and password input under both themes. These are reviewed drafts (PR #125 and #126), still
+awaiting their ordered gates. No credentials were entered, and Tokyo Night was restored.
+
+Quickshell source edits updated the exit preview in the same PID. KidsTheme intentionally
+loads its palette at startup; changing the desktop theme requires reopening a standalone
+preview to inspect the new palette. Source watching and palette loading are separate.

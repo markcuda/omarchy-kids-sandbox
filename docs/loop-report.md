@@ -12,9 +12,24 @@ recorded 20 frames, and the root ledger recorded 6 frames. Issue
 [#158](https://github.com/markcuda/omarchy-kids-sandbox/issues/158) is closed after the private
 checker correction for byte-array journal messages and its live rerun.
 
-PR [#160](https://github.com/markcuda/omarchy-kids-sandbox/pull/160) for #159 is in the full gate
-and remains pending. PR [#156](https://github.com/markcuda/omarchy-kids-sandbox/pull/156) for #148
-and PR [#157](https://github.com/markcuda/omarchy-kids-sandbox/pull/157) for #155 remain pending.
+PR [#160](https://github.com/markcuda/omarchy-kids-sandbox/pull/160) for #159 merged at
+ade1500. Its formatter, 40-file Mac suite and 40-file VM suite passed before and after merge.
+It changes test-fixture permissions only.
+
+PR [#156](https://github.com/markcuda/omarchy-kids-sandbox/pull/156) for #148 is reviewed and
+built at 73ccace. Formatting and Mac tests passed; SSH exited 255 after 40 VM progress lines
+without the final suite result. That run is not counted as a pass. Disk and Git-cache recovery
+are complete and the ordered gate is being repeated. Installation and named live proof remain
+pending. PR [#157](https://github.com/markcuda/omarchy-kids-sandbox/pull/157) for #155 is also pending.
+
+A fresh real-laptop setup preview exposed two more findings:
+[#161](https://github.com/markcuda/omarchy-kids-sandbox/issues/161), a face picker with no
+portraits, and [#162](https://github.com/markcuda/omarchy-kids-sandbox/issues/162), the name
+clearing after Escape from Face. The
+[two inspected originals](media/dogfood/wizard-air-sep6/README.md) record the keyboard flow.
+The name-retention fix has independent review and focused regression coverage in draft
+PR [#163](https://github.com/markcuda/omarchy-kids-sandbox/pull/163); its full gate and installed
+proof remain pending.
 
 The recorder formatter and five owned test suites passed across Mac and VM checks. A first
 7.24-second idle portal clip was captured and checked; three walkthroughs remain open. #98's

@@ -218,7 +218,7 @@ Rectangle {
                 property real tileSize: modelData.isParent ? 140 : 200
                 property real shakeOffset: 0
                 width: tileSize
-                height: tileSize + 56 + (isCurrent && root.passwordMode ? 64 : 0)
+                height: tileSize + 56 + (isCurrent && root.passwordMode ? passwordPrompt.implicitHeight + visualColumn.spacing : 0)
 
                 Column {
                     id: visualColumn
@@ -290,44 +290,70 @@ Rectangle {
                         elide: Text.ElideRight
                     }
 
-                    // Password field, shown under the selected tile only
-                    // after Enter (R-LOGIN-1/2/4). No field at all for a
+                    // Password prompt, shown under the selected tile only
+                    // after Enter (R-LOGIN-1/2/4). No prompt at all for a
                     // "no password" profile: activateCurrent() logs it in
                     // directly instead of ever setting passwordMode.
-                    Rectangle {
+                    Column {
+                        id: passwordPrompt
                         visible: tileItem.isCurrent && root.passwordMode
                         anchors.horizontalCenter: parent.horizontalCenter
-                        width: Math.max(tileItem.tileSize, 160)
-                        height: 40
-                        radius: 8
-                        color: root.colTile
-                        border.width: 2
-                        border.color: root.loginFailed ? root.colError : root.colAccent
+                        width: tileItem.tileSize
+                        spacing: 6
 
-                        TextInput {
-                            id: passwordField
-                            anchors.fill: parent
-                            anchors.margins: 8
-                            verticalAlignment: TextInput.AlignVCenter
-                            echoMode: TextInput.Password
-                            passwordCharacter: "•"
+                        Text {
+                            width: parent.width
+                            text: "Password"
                             color: root.colText
                             font.family: root.fontFam
-                            font.pixelSize: 18
-                            focus: tileItem.isCurrent && root.passwordMode
+                            font.pixelSize: 14
+                            horizontalAlignment: Text.AlignHCenter
+                        }
 
-                            onTextChanged: root.loginFailed = false
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: Math.max(tileItem.tileSize, 160)
+                            height: 40
+                            radius: 8
+                            color: root.colTile
+                            border.width: 2
+                            border.color: root.loginFailed ? root.colError : root.colAccent
 
-                            Keys.onPressed: (event) => {
-                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                                    root.loginUser(modelData, passwordField.text)
-                                    event.accepted = true
-                                } else if (event.key === Qt.Key_Escape) {
-                                    passwordField.text = ""
-                                    root.selectTile(root.currentIndex)
-                                    event.accepted = true
+                            TextInput {
+                                id: passwordField
+                                anchors.fill: parent
+                                anchors.margins: 8
+                                verticalAlignment: TextInput.AlignVCenter
+                                echoMode: TextInput.Password
+                                passwordCharacter: "•"
+                                color: root.colText
+                                font.family: root.fontFam
+                                font.pixelSize: 18
+                                focus: tileItem.isCurrent && root.passwordMode
+
+                                onTextChanged: root.loginFailed = false
+
+                                Keys.onPressed: (event) => {
+                                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                        root.loginUser(modelData, passwordField.text)
+                                        event.accepted = true
+                                    } else if (event.key === Qt.Key_Escape) {
+                                        passwordField.text = ""
+                                        root.selectTile(root.currentIndex)
+                                        event.accepted = true
+                                    }
                                 }
                             }
+                        }
+
+                        Text {
+                            width: parent.width
+                            text: "Enter to continue · Esc to go back"
+                            color: root.colText
+                            font.family: root.fontFam
+                            font.pixelSize: 12
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WordWrap
                         }
                     }
                 }

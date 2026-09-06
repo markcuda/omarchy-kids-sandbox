@@ -111,6 +111,19 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
     fi
   done
 
+  password_prompt="$(sed -n '/id: passwordPrompt/,/Wrong password/p' "$MAIN_QML")"
+  check_contains "$password_prompt" 'visible: tileItem.isCurrent && root.passwordMode' \
+    "Main.qml shows the password prompt only for the active password mode"
+  check_contains "$password_prompt" 'text: "Password"' \
+    "Main.qml labels the password field while it is active"
+  check_contains "$password_prompt" 'text: "Enter to continue · Esc to go back"' \
+    "Main.qml shows the password keyboard guidance"
+  check_contains "$password_prompt" 'color: root.colText' \
+    "Main.qml uses the readable theme foreground for password copy"
+  check_contains "$(sed -n '/if (!u.needsPassword)/,/root.passwordMode = true/p' "$MAIN_QML")" \
+    'root.loginUser(u, "")' \
+    "Main.qml keeps direct login for no-password tiles"
+
   # R-LOGIN-1: parent identified as NOT kid-<slug>, and rendered
   # smaller than a kid tile.
   if grep -qF 'kid-' "$MAIN_QML"; then

@@ -604,10 +604,12 @@ portal evidence. No product screenshot is claimed from this receipt.
 
 ## Manual portal recovery receipt, 2026-09-06
 
-`rootportal-manual-catppuccin-latte.png` records the recovered Catppuccin Latte portal with
-invented Cy and Dot profiles rendered with large avatars and one faint `Vm` parent caption; no
-duplicate parent tile is present. The reviewed manual recovery exited 0, confirmed a successful
-Cy login with no owner or kid seat left in the session list, then restored the greeter and
-captured the frame. The earlier automated media attempt remains a #133 fixture/autologin failure
-on both themes, with cleanup restoring the four fixture values and removing config. This is one
-manual product receipt; no new #133 code gate passed. Air remains restored to Tokyo Night.
+`portal-manual-catppuccin-latte.png` records the recovered Catppuccin Latte portal with invented
+Cy and Dot profiles rendered with large avatars and one faint `Vm` parent caption. The reviewed
+manual recovery exited 0: its `portal_reset` path confirmed with `loginctl` that owner and kid
+seat sessions were absent, checked that the greeter was present, then captured a screenshot whose
+OCR matched `Cy`. This proves tile rendering only; no Cy login was performed or verified. The
+faint parent caption remains the existing #112 finding, so no duplicate issue is needed. The
+earlier automated media attempt remains a #133 fixture/autologin failure on both themes, with
+cleanup restoring the four fixture values and removing config. No new #133 code gate passed. Air
+remains restored to Tokyo Night.

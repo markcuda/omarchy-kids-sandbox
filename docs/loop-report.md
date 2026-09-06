@@ -514,3 +514,7 @@ Twenty-three abandoned Mac test stubs from earlier checkouts were independently 
 PID, parent PID, user, working directory, and a deleted sleep-stub file descriptor. Only those
 exact identities were terminated; their absence was confirmed. The Mac retry uses four workers;
 the VM suite remains serial.
+
+## #120 resize preview receipts, 2026-09-05
+
+Inspected Air prototype dry-run receipts from `e35d1e9` under Tokyo Night. The Welcome, password, and Name flows each show a full-width card, a half-width resize, and a restored full-width card; the Name flow also records submission as `Pick Ada's face`. The Back receipt shows the surface closed, and the themed cancel receipt shows Escape/cancel closing it. The previews retain masked sample-password text, show no wizard advance during resize, and all were closed after capture. The resize pass used 621 logical pixels for the half-width state and returned to the full-width state. These are dogfood receipts only: no release or full-gate claim, with invented Ada/sample-password data. The pre-paint `resize-password-full-air.png` and unthemed cancel receipt are intentionally omitted; the latter did not represent the corrected themed launch.

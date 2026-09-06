@@ -119,7 +119,7 @@ friendly_sites() {
   [[ -z "$1" ]] && echo "(none)" || echo "$1"
 }
 friendly_allowlist() {
-  local csv="$1" id oldifs="$IFS" out=""
+  local csv="$1" id oldifs="$IFS" out="" count=0
   if [[ -z "$csv" ]]; then
     echo "(none selected)"
     return
@@ -128,8 +128,11 @@ friendly_allowlist() {
   for id in $csv; do
     IFS="$oldifs"
     [[ -z "$id" ]] && continue
-    [[ -n "$out" ]] && out+=", "
+    if [[ -n "$out" ]]; then
+      if ((count % 3 == 0)); then out+=$'\n'; else out+=", "; fi
+    fi
     out+="$(app_label_for "$BAND" "$id")"
+    count=$((count + 1))
   done
   IFS="$oldifs"
   [[ -z "$out" ]] && out="(none selected)"

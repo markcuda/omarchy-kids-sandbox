@@ -84,6 +84,7 @@ parent=mark
 boot=disk
 firmware.card_done=yes
 EOF
+chmod 0644 "$ETC/machine.conf"
 
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada Lovelace
@@ -511,6 +512,7 @@ rm -f "$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 rm -f "$SCRATCH_ROOT/etc/sddm.conf.d/zz-omarchy-kids-autologin.conf"
 
 printf 'parent=mark\nboot=broken\nfirmware.card_done=yes\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 invalid_json="$("$BIN" --json)"
 invalid_status=$?
 check_eq "$invalid_status" 2 "an invalid trusted mode makes the safety report fail"
@@ -590,6 +592,7 @@ mkdir -p "$EMPTY_ETC/kids"
 cat >"$EMPTY_ETC/machine.conf" <<'EOF'
 parent=mark
 EOF
+chmod 0644 "$EMPTY_ETC/machine.conf"
 out="$(OMARCHY_KIDS_ETC="$EMPTY_ETC" "$BIN")"
 check_contains "$out" "SKIP  accounts:none" "no kids: Accounts says so"
 check_contains "$out" "SKIP  locks:none" "no kids: Locks says so"

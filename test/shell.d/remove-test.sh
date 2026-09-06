@@ -84,6 +84,7 @@ cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
 boot=disk
 EOF
+chmod 0644 "$ETC/machine.conf"
 
 cat >"$ETC/kids/kid-ada.conf" <<'EOF'
 name=Ada Lovelace
@@ -670,6 +671,7 @@ echo "remove-test RESULT (part 1): $([[ $rc == 0 ]] && echo PASS || echo FAIL)"
 
 mkdir -p "$ETC/kids"
 printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 cat >"$ETC/kids/kid-ben.conf" <<'EOF'
 name=Ben
 avatar=bear
@@ -703,6 +705,7 @@ cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
 boot=disk
 EOF
+chmod 0644 "$ETC/machine.conf"
 touch "$LOG/parent-group-mark"
 
 : >"$ARGV_LOG"
@@ -725,6 +728,7 @@ mkdir -p "$SCRATCH_ROOT/etc/mkinitcpio.conf.d"
 echo "# omarchy-kids hook insertion" >"$SCRATCH_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 mkdir -p "$ETC"
 printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 cat >"$STUBS/mkinitcpio" <<'EOF'
 #!/bin/bash
 { printf '%s' "mkinitcpio"; printf ' %s' "$@"; printf '\n'; } >> "__ARGVLOG__"
@@ -753,6 +757,7 @@ FAIL_ROOT="$TMP/fail/root"
 FAIL_HOME="$TMP/fail/home"
 mkdir -p "$FAIL_ETC/kids" "$FAIL_ROOT" "$FAIL_HOME/home/kid-dot"
 printf 'parent=mark\nboot=disk\n' >"$FAIL_ETC/machine.conf"
+chmod 0644 "$FAIL_ETC/machine.conf"
 printf 'name=Dot\nband=6-8\npassword=set\n' >"$FAIL_ETC/kids/kid-dot.conf"
 printf 'name=Test\nband=6-8\npassword=set\n' >"$FAIL_ETC/kids/kid-test.conf"
 printf '0=mark:omarchy.desktop\n9=kid-dot\n10=kid-test\n' >"$FAIL_ETC/luks-slots"
@@ -783,6 +788,7 @@ INTENT_ROOT="$TMP/intent/root"
 INTENT_HOME="$TMP/intent/home"
 mkdir -p "$INTENT_ETC/kids" "$INTENT_ROOT" "$INTENT_HOME/home/kid-dot"
 printf 'parent=mark\nboot=disk\n' >"$INTENT_ETC/machine.conf"
+chmod 0644 "$INTENT_ETC/machine.conf"
 printf 'name=Dot\nband=6-8\npassword=set\n' >"$INTENT_ETC/kids/kid-dot.conf"
 printf '0=mark:omarchy.desktop\n12=kid-dot\n' >"$INTENT_ETC/luks-slots"
 touch "$LOG/account-kid-dot" "$LOG/luks-intent-write-fail" "$LOG/require-luks-intent"
@@ -807,6 +813,7 @@ RECOVER_ROOT="$TMP/recover/root"
 RECOVER_HOME="$TMP/recover/home"
 mkdir -p "$RECOVER_ETC/kids" "$RECOVER_ROOT" "$RECOVER_HOME/home/kid-ben"
 printf 'parent=mark\nboot=disk\n' >"$RECOVER_ETC/machine.conf"
+chmod 0644 "$RECOVER_ETC/machine.conf"
 printf 'name=Ben\nband=6-8\npassword=set\n' >"$RECOVER_ETC/kids/kid-ben.conf"
 printf '0=mark:omarchy.desktop\n11=kid-ben\n' >"$RECOVER_ETC/luks-slots"
 touch "$LOG/account-kid-ben" "$LOG/luks-map-write-fail"
@@ -858,6 +865,7 @@ PURGE_ETC="$TMP/purge/etc/omarchy-kids"
 PURGE_ROOT="$TMP/purge/root"
 mkdir -p "$PURGE_ETC/kids" "$PURGE_ROOT/var/lib/omarchy-kids"
 printf 'parent=mark\nboot=portal\n' >"$PURGE_ETC/machine.conf"
+chmod 0644 "$PURGE_ETC/machine.conf"
 echo usage >"$PURGE_ROOT/var/lib/omarchy-kids/usage.log"
 touch "$LOG/varlib-purge-fail"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$PURGE_ETC/machine.conf"
@@ -881,6 +889,7 @@ PORTAL_ROOT="$TMP/portal/root"
 PORTAL_HOME="$TMP/portal/home"
 mkdir -p "$PORTAL_ETC/kids" "$PORTAL_ROOT/etc/mkinitcpio.conf.d" "$PORTAL_ROOT/etc/default" "$PORTAL_HOME/home/kid-test"
 printf 'parent=mark\nboot=portal\n' >"$PORTAL_ETC/machine.conf"
+chmod 0644 "$PORTAL_ETC/machine.conf"
 cat >"$PORTAL_ETC/kids/kid-test.conf" <<'EOF'
 name=Test
 avatar=fox
@@ -949,6 +958,7 @@ INVALID_ETC="$TMP/invalid/etc/omarchy-kids"
 INVALID_ROOT="$TMP/invalid/root"
 mkdir -p "$INVALID_ETC/kids" "$INVALID_ROOT"
 printf 'parent=mark\nboot=invalid\n' >"$INVALID_ETC/machine.conf"
+chmod 0644 "$INVALID_ETC/machine.conf"
 printf 'name=Test\nband=6-8\npassword=set\n' >"$INVALID_ETC/kids/kid-test.conf"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$INVALID_ETC/machine.conf"
 : >"$ARGV_LOG"
@@ -962,6 +972,7 @@ check_eq "$(cat "$ARGV_LOG")" "" "invalid mode invokes no system command"
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$ETC/machine.conf"
 mkdir -p "$ETC"
 printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 
 # --- remove-kids-mode dispatch through bin/omarchy-kids -------------------
 

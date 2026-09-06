@@ -92,6 +92,7 @@ cat >"$ETC/machine.conf" <<'EOF'
 parent=mark
 boot=disk
 EOF
+chmod 0644 "$ETC/machine.conf"
 mkdir -p "$HOMEROOT/home/mark"
 echo "0=mark:omarchy.desktop" >"$ETC/luks-slots"
 
@@ -272,6 +273,7 @@ check_contains "$out" "[dry-run]" "default DRY_RUN=1 prints dry-run lines"
 # --- boot mode gates every add/remove before mutation ---------------------
 
 printf 'parent=mark\nboot=portal\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 : >"$ARGV_LOG"
 out_empty_env="$(printf 'kidpass1\n' | env -i PATH="$PATH" DRY_RUN=1 \
   OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" OMARCHY_KIDS_ROOT="$SCRATCH_ROOT" \
@@ -337,6 +339,7 @@ check_eq "$st" 0 "portal per-kid remove succeeds once no kid slot is recorded"
 check_not_contains "$(cat "$ARGV_LOG")" "cryptsetup" "portal per-kid remove makes no LUKS call"
 
 printf 'parent=mark\nboot=invalid\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 : >"$ARGV_LOG"
 out_invalid="$("$BIN" add "Dot" --band 3-5 --no-password 2>&1)"
 st=$?
@@ -360,6 +363,7 @@ check_eq "$(cat "$ARGV_LOG")" "" "invalid mode remove invokes no system command"
 rm -f "$ETC/kids/kid-test.conf"
 
 printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 
 # --- add: a failed LUKS add mutates no account or profile -----------------
 
@@ -539,6 +543,7 @@ check_eq "$(cat "$HOMEROOT/home/$SLUG/.local/state/omarchy/current/theme.name" 2
 # --- add: slug collision gets -2 ------------------------------------------
 
 printf 'parent=mark\nboot=portal\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 : >"$ARGV_LOG"
 out2="$(printf 'kidpass2\n' | "$BIN" add "Ada Lovelace" --band 6-8 --avatar bear --password-stdin 2>&1)"
 check_contains "$out2" "as $SLUG-2" "second kid with the same name gets the -2 suffix"
@@ -563,6 +568,7 @@ check_eq "$(grep '^kids=' "$PORTAL_CONF" 2>/dev/null)" \
 # --- add: --no-password only for band 3-5 --------------------------------
 
 printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 : >"$ARGV_LOG"
 "$BIN" add "Sam" --band 3-5 --avatar bear --no-password --luks-device /dev/fake0 >/dev/null 2>&1
 st=$?
@@ -583,6 +589,7 @@ check_contains "$out4" "too short" "add: short-password message names the reason
 # --- omarchy-provision-user missing: migration markers are written --------
 
 printf 'parent=mark\nboot=portal\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 rm -f "$STUBS/omarchy-provision-user"
 out5="$(printf 'kidpass3\n' | "$BIN" add "Ben" --band 6-8 --avatar fox --password-stdin 2>&1)"
 SLUG_BEN="$("$CONFBIN" slug "Ben")"
@@ -609,6 +616,7 @@ check_eq "$(grep -c '^theme=' "$ETC/kids/$SLUG_NIA.conf")" "0" \
 mv "$TMP/theme.name.bak" "$HOMEROOT/home/mark/.local/state/omarchy/current/theme.name"
 
 printf 'parent=mark\nboot=disk\n' >"$ETC/machine.conf"
+chmod 0644 "$ETC/machine.conf"
 
 # --- list ------------------------------------------------------------------
 

@@ -1,12 +1,20 @@
 # Loop report, night of 2026-09-02
 
+## September 6: settings summary merged; post-merge gates running
+
+PR [#169](https://github.com/markcuda/omarchy-kids-sandbox/pull/169) merged as `b553913`, with the exact accepted `e9384a7` tree. The formatter, 42-file Mac suite (five skips), and same VM suite (two skips) passed before merge. Installed `wizard-summary-visible-167` passed in fresh watched Latte and Tokyo Night sessions: readable current summary, changed Desktop, Back to password, return preserving the custom value, and Leave without Apply. Independent visual review and separate package/settings/theme/timer/greeter readback passed. [Twelve exact candidate screenshots](media/dogfood/wizard167-e9384a7/README.md) are published; 58 original frames and recovery diagnostics are retained privately.
+
+Merged main passed the formatter and Mac suite; one provisioning check returned 141 in the parallel pass and passed its serial retry. Its precise cause is unverified. The VM suite and installed post-merge repeat remain pending. Local storage failures were recovered using verified external-cache copies; no acceptance screenshot was lost.
+
+[PR #171](https://github.com/markcuda/omarchy-kids-sandbox/pull/171), for the hidden weekend time limits, is rebased onto main with unchanged files and awaits its full gates. New [#172](https://github.com/markcuda/omarchy-kids-sandbox/issues/172) records the Advanced app list clipping in both themes; reviewed draft [PR #173](https://github.com/markcuda/omarchy-kids-sandbox/pull/173) exposes the full list in the card and remains stacked behind #171. Its full gates and live rendering are pending. The #98/#109 human decision, #97 ordering hold, and three full release walkthroughs remain open.
+
 ## September 6: installed age-default fix merged
 
 PR [#168](https://github.com/markcuda/omarchy-kids-sandbox/pull/168) for #166 merged as `fca1faf`, with exactly the accepted candidate `4fba8f4` tree. The test-box formatter, 41-file Mac suite (five skips), same VM suite (two skips), and scenario 05 passed before merge. Installed Gum 2.0.0 keyboard checks passed in Latte and fresh-login Tokyo Night: untouched Ages 6–8 default, Enter, Back, explicit Ages 3–5, No browser, and 45 minutes / 19:00. Both previews exited without Apply. Independent visual review and a separate restoration readback passed; all 181 package files were intact, original settings/theme were preserved, and the VM returned to the greeter.
 
 [Fourteen original acceptance screenshots](media/dogfood/wizard166-4fba8f4/README.md) are published at `707a4a2`. All 30 originals are retained, including setup/navigation, diagnostic frames, and the final greeter. The same-session theme switch also reproduced [existing #111](https://github.com/markcuda/omarchy-kids-sandbox/issues/111#issuecomment-5562051589); its [stale-color frame](media/dogfood/wizard-stale-colors-sep6/README.md) is separate evidence. Quickshell watching was re-enabled and verified after the fresh VM login. No Air package or boot changes occurred.
 
-The merged-main formatter, Mac41/five skips, VM41/two skips and scenario05 all passed. The installed repeat then passed both themes, independent visual review and separate restoration checks. [Fourteen merged-main screenshots and a 176.84-second age-selection preview](media/dogfood/wizard166-main-fca1faf/README.md) document that repeat. The recording starts at Age and ends after Leave; it contains no credential entry. It is a scoped navigation demo. PR #169 at `6ebf5dc` is now entering its source gates for the missing settings summary. The #98/#109 human ship decision and #97 ordering hold remain unchanged; all three full walkthrough videos remain open.
+The merged-main formatter, Mac41/five skips, VM41/two skips and scenario05 all passed. The installed repeat then passed both themes, independent visual review and separate restoration checks. [Fourteen merged-main screenshots and a 176.84-second age-selection preview](media/dogfood/wizard166-main-fca1faf/README.md) document that repeat. The recording starts at Age and ends after Leave; it contains no credential entry. It is a scoped navigation demo. The #98/#109 human ship decision and #97 ordering hold remain unchanged; all three full walkthrough videos remain open.
 
 
 ## Latest checkpoint, September 6: merged media and first recorder clip

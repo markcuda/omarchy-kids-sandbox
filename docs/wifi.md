@@ -103,6 +103,11 @@ shows **Try again**, available by click or Enter. A failed scan keeps its error 
 same retry action. While loading or joining, the footer offers only Escape; other steps show the
 available selection, retry, or join keys.
 
+A successful join keeps “Joined <network>.” visible through the automatic list refresh.
+The message names the submitted network even if selection changes while the join is running.
+A failed refresh replaces it with the scan error; a new join or manual retry clears stale
+feedback. Success reports the join client’s result, not a separate internet-access check.
+
 Every action the picker takes still goes through `omarchy-kids-wifi` → `omarchy-kids-wifid`, which
 re-checks `SO_PEERCRED` on every single connection — the picker's own check is a UX nicety, not the
 real gate.

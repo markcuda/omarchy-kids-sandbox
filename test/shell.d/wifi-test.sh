@@ -602,8 +602,57 @@ assert.strictEqual(joins, 4, "duplicate Enter while busy does not start another 
 started();
 assert.deepStrictEqual(joinProcess.writes, ["fixture-password\n", "second-password\n", "busy-password\n"]);
 assert.strictEqual(root.footerText(), "Esc back");
+
+function exitedHandler(id) {
+  const match = source.match(new RegExp("id: " + id + "[^]*?onExited: \\(exitCode\\) => \\{([^]*?)^        \\}", "m"));
+  assert(match, "production exit handler is present for " + id);
+  return vm.runInContext("(exitCode) => {" + match[1] + "}", context);
+}
+const joinExited = exitedHandler("joinProcess");
+const listExited = exitedHandler("listProcess");
+// Complete the current protected join, then refresh to a reordered list.
+joinProcess.running = false;
+joinExited(0);
+assert.strictEqual(root.statusText, "Joined HomeNet.", "success survives the join handler and refresh start");
+assert.strictEqual(root.showPasswordField, false);
+assert.strictEqual(root.passwordText, "");
+listProcess.active = false;
+listProcess.collected = "OpenNet:90::\nHomeNet:40:WPA2:*\n";
+listExited(0);
+assert.strictEqual(root.statusText, "Joined HomeNet.", "successful scan preserves the joined network message");
+assert.strictEqual(root.selectedNetwork().ssid, "OpenNet");
+root.refreshList();
+assert.strictEqual(root.statusText, "", "manual retry clears old success");
+listProcess.active = false;
+listExited(1);
+assert.strictEqual(root.statusText, "Couldn't list networks. Ask a grown-up.");
+
+// Capture the submitted SSID before an unrelated selection change.
+root.networks = root.parseList("HomeNet:80:WPA2:\nOpenNet:40::\n");
+root.currentIndex = 1;
+root.beginJoin();
+assert.strictEqual(root.statusText, "Joining OpenNet…", "new join replaces prior feedback");
+root.currentIndex = 0;
+joinProcess.running = false;
+joinExited(0);
+assert.strictEqual(root.statusText, "Joined OpenNet.", "success names the submitted network, not the later selection");
+listProcess.active = false;
+listExited(1);
+assert.strictEqual(root.statusText, "Couldn't list networks. Ask a grown-up.", "failed refresh replaces success");
+
+// A failed join must never create a success label or trigger a list refresh.
+root.networks = root.parseList("OpenNet:40::\n");
+root.currentIndex = 0;
+root.statusText = "Joined HomeNet.";
+root.beginJoin();
+assert.strictEqual(root.statusText, "Joining OpenNet…", "new join clears stale success before completion");
+const scansBeforeFailure = scans;
+joinProcess.running = false;
+joinExited(2);
+assert.strictEqual(root.statusText, "Couldn't join. Check the password and try again.");
+assert.strictEqual(scans, scansBeforeFailure, "failed join does not refresh");
 NODE
-  check_status "$?" "0" "picker functions preserve retry, busy, open-network and password states"
+  check_status "$?" "0" "picker handlers preserve retry, password delivery, and join feedback"
 else
   echo "SKIP Wi-Fi picker function checks: node not found"
 fi

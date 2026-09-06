@@ -577,7 +577,8 @@ The exact merged-main source `3f2ebe4` was previewed on Air with the staged `sha
 KidsTheme sources, file watching enabled, and an invented 15-minute value. The three inspected
 receipts are `ask-before-tokyo-night-air.png`, `ask-tab-tokyo-night-air.png`, and
 `ask-before-catppuccin-latte-air.png` under `docs/media/dogfood/`. The Tokyo Night Tab receipt
-shows focus moving to Ask later; Escape closed the previews in both themes. No request or
+shows Ask later becoming the selected action while the password field retains its caret; Escape
+closed the previews in both themes. No request or
 password was submitted. The blank password field has no adjacent label and the panel shows no
 visible Tab/Enter/Escape guidance, so a parent or 7yo must infer the interaction from the
-controls.
+controls; this finding is tracked in #131.

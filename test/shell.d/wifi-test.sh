@@ -439,6 +439,45 @@ check_contains "$out" "grown-up" "wifi picker: falls back to a stderr message wh
 trap - EXIT
 cleanup_c
 
+# =====================================================================
+# C2. Client reply framing (no daemon or socket)
+# =====================================================================
+
+TMP_C2="$(mktemp -d)"
+cleanup_c2() { rm -rf "$TMP_C2"; }
+trap cleanup_c2 EXIT
+kids_tree "$TMP_C2/tree" "$DIR"
+WIFI_C2="$TMP_C2/tree/bin/omarchy-kids-wifi"
+# Keep the production functions and source their owned library tree, but
+# replace only the executable entry point with a fixture-local reply stub.
+CLIENT_C2="$TMP_C2/tree/bin/client-test"
+sed '/^main "\$@"$/d' "$WIFI_C2" >"$CLIENT_C2"
+
+run_client_reply() { # REPLY STATUS LABEL EXPECTED_STATUS EXPECTED_OUTPUT
+  local reply="$1" reply_status="$2" label="$3" expected_status="$4" expected_output="$5" status
+  TMPDIR="$TMP_C2" REPLY="$reply" REPLY_STATUS="$reply_status" bash -c '
+    source "$1"
+    wifid_request() { printf "%s" "$REPLY"; return "$REPLY_STATUS"; }
+    call_wifid LIST
+  ' _ "$CLIENT_C2" "$reply" "$reply_status" >"$TMP_C2/out" 2>"$TMP_C2/err"
+  status=$?
+  check_status "$status" "$expected_status" "$label status"
+  check "$(cat "$TMP_C2/out")" "$expected_output" "$label payload"
+}
+
+run_client_reply $'OK\n' 0 "empty OK reply" 0 ""
+run_client_reply $'OK\nOK:77::\n' 0 "nonempty OK reply preserves an SSID named OK" 0 $'OK:77::'
+run_client_reply "" 0 "empty no-reply result" 1 ""
+check_contains "$(cat "$TMP_C2/err")" "no reply" "empty no-reply result explains the missing daemon response"
+run_client_reply $'OK\npartial\n' 1 "failed request with partial payload" 1 ""
+check_contains "$(cat "$TMP_C2/err")" "no reply" "failed request discards a partial payload"
+run_client_reply $'ERROR scan failed\n' 0 "ERROR reply" 1 ""
+check_contains "$(cat "$TMP_C2/err")" "scan failed" "ERROR reply explains the daemon failure"
+run_client_reply $'REFUSED wifi=parent\n' 0 "REFUSED reply" 3 ""
+
+trap - EXIT
+cleanup_c2
+
 # `omarchy-kids-wifi portal` used to be tested here. The command is gone
 # (see this file's header): a kid could never have run it.
 out="$("$WIFI" portal 2>&1)"

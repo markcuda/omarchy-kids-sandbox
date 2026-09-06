@@ -35,6 +35,13 @@ ask for more, and the parent ends the session with their own password.
 
 **Not started:** #99 (prove both modes in the VM), the last spec-07 ticket.
 
+**The one decision that belongs to a person.** #98's transitions no longer touch the boot image,
+but the conversion now asks the parent to run the rebuild by hand, and a power cut during that can
+still leave this single-UKI laptop unbootable with no firmware-bootable fallback. Its author said
+plainly it cannot be called power-cut safe and returned the ship decision rather than merging
+quietly. Decide it together with #109, which is the same single-image weakness seen from the
+install side. Do not merge #98 without making that call explicitly.
+
 ## The two real-hardware findings
 
 The VM could not have shown either. Both are why the laptop matters.

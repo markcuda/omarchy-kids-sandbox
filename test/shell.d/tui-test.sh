@@ -435,6 +435,23 @@ else
   fail "tui_screen_choose: card/choose are out of order (card=$style_line choose=$choose_line)"
 fi
 
+# Essential keyboard guidance must use the readable theme role, even when the
+# muted role is available for secondary copy (issue #119).
+footer_colors="$(
+  unset OMARCHY_KIDS_TUI_ANSWERS OMARCHY_KIDS_TUI_PLAIN
+  source "$TUI_LIB"
+  TUI_MODE="interactive" TUI_HAVE_GUM=1
+  TUI_C_FG="#readable"
+  TUI_C_MUTED="#muted"
+  : >"$GUM_LOG"
+  _tui_footer "Enter continue · Esc back"
+  cat "$GUM_LOG"
+)"
+check_contains "$footer_colors" "--foreground #readable" \
+  "_tui_footer: essential keyboard guidance uses the readable theme role"
+check_not_contains "$footer_colors" "--foreground #muted" \
+  "_tui_footer: essential keyboard guidance does not use the muted theme role"
+
 # Issue #110: card help must be visible while each blocking gum widget waits.
 # The fake gum owns the blocking command and release fixture, so this checks
 # output before the widget consumes an answer rather than after it exits.

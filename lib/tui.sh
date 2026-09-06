@@ -178,9 +178,9 @@ _tui_style() {
 
 _tui_footer() {
   if _tui_card_mode; then
-    _tui_style --foreground "$TUI_C_MUTED" --margin "0 0 0 $TUI_CARD_LEFT" -- "$1"
+    _tui_style --foreground "$TUI_C_FG" --margin "0 0 0 $TUI_CARD_LEFT" -- "$1"
   else
-    _tui_style --foreground "$TUI_C_MUTED" -- "$1"
+    _tui_style --foreground "$TUI_C_FG" -- "$1"
   fi
 }
 

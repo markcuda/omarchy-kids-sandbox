@@ -41,21 +41,29 @@ The consumer chain is:
 
 The kid-provided scope is never authoritative. The root apply path re-reads
 the current runtime state and profile, confirms the requested day is still
-current, and derives the effective action:
+current for a new tonight request, and derives the effective action:
 
 - budget expiry -> `budget`;
 - lights-out expiry with positive budget remaining -> `lights-out`;
 - lights-out expiry with budget also exhausted -> `both`;
-- anything no longer in `grace` or `finishing` -> stale request failure.
+- a new `lights-out` or `both` request outside `grace`/`finishing` -> stale
+  request failure.
+
+Legacy requests with absent `scope`, and ordinary `budget` requests, retain
+their existing behavior and may be approved before a Time’s Up state exists.
+Only the new tonight-specific scopes require the current lights-out state.
 
 A request cannot turn a changed or already-resolved state into an approval.
 
 ## Tonight-only state
 
-Store the absolute lights-out deadline in a root-owned file such as
-`usage/<logical-day>.lights-out`. The value is an integer wall-clock
-deadline, written atomically. The logical-day filename makes expiry at 04:00
-automatic; the ledger ignores files for older logical days.
+Store new tonight approvals per kid in a root-owned atomic record such as
+`/var/lib/omarchy-kids/<kid>/usage/<logical-day>.tonight.json`. It contains
+the absolute wall-clock lights-out deadline and any budget contribution from
+that approval. The logical-day filename makes expiry at 04:00 automatic; the
+ledger ignores records for older logical days. Existing integer
+`<logical-day>.grant` files remain valid and readable for ordinary budget
+grants.
 
 At approval time, recompute the profile’s current scheduled deadline and use:
 
@@ -67,14 +75,15 @@ second approval extends the latest stored deadline rather than losing the
 first approval.
 
 The read-modify-write operation needs one root-only lock shared by the time
-ledger and time grant actions. Each file replacement remains atomic. For
-`both`, the root action updates the ordinary daily budget grant and the
-lights-out override under that lock and reports failure if either write cannot
-complete.
+ledger and time grant actions. Each record replacement remains atomic. A
+`both` approval updates the single `.tonight.json` record under that lock, so
+there is no two-file partial grant or duplicate retry. A failed replacement
+leaves the prior record untouched and reports failure.
 
 The ledger continues to count usage only for active, unlocked sessions.
-Extending lights-out never adds usage or alters the ordinary `.grant` file
-unless the authoritative state requires the `both` action.
+Extending lights-out never adds usage or alters the ordinary `.grant` file.
+The ledger adds the `.tonight.json` budget contribution only when calculating
+the current day’s remaining budget.
 
 ## User-visible result
 
@@ -123,6 +132,3 @@ leaves lights-out grace and the ordinary budget grant remains unchanged.
 
 Run a separate deterministic ledger test for 04:00 expiry; do not wait
 overnight or alter live configuration.
-\nEOF
-
-git diff --check && git status --short --branch && git diff --stat

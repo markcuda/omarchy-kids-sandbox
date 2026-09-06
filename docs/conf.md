@@ -94,8 +94,8 @@ Three more keys live in the same per-kid `.conf` file and go through the same `g
 `reset` as the table above, but aren't part of Appendix B, so they're kept out of that table and
 out of the schema's Appendix B rows: `bin/omarchy-kids-apps` is `apps.extra`/
 `apps.hidden`'s only real caller (docs/apps.md), through `hide`/`show`, never by writing the
-profile file directly; `bin/omarchy-kids-session-start` is `apps.show_missing`'s only reader
-(issue #42).
+profile file directly; `bin/omarchy-kids-session-start` reads `apps.show_missing` when it builds
+the validated session manifest, which the launcher then consumes (issue #42).
 
 | Key | Values | Default source | Default |
 | --- | --- | --- | --- |
@@ -108,9 +108,11 @@ pack or from `apps.extra` alike). `omarchy-kids-apps allowlist <kid>` is what ac
 these with `allowlist` (docs/apps.md) — `get`/`show` here only read and write the raw override,
 same as any other key. `reset` clears both, same as every other override.
 
-`apps.show_missing` controls what `bin/omarchy-kids-session-start` does with a tile whose app
-isn't installed (docs/levels.md's "The launcher's tile list"): `no` (the default) omits it
-entirely; `yes` keeps it, greyed, with a caption. Not read anywhere else.
+`apps.show_missing` controls the validated manifest and launcher display for a tile whose app isn't
+installed (docs/levels.md's "The launcher's tile list"): `no` (the default) keeps the tile in the
+manifest but hides it from the displayed list; `yes` keeps it visible, greyed, and labelled
+`"not installed yet"`. The launcher does not launch a tile whose manifest `installed` value is
+false.
 
 ### `theme`: the one key with a real side effect (issue #53)
 
@@ -285,11 +287,11 @@ too). omarchy-kids-apps is the only caller that needs them:
   apps.hidden  comma-separated launcher ids removed from this kid's
                allowlist, pack or apps.extra alike
   apps.show_missing  yes/no (issue #42, docs/apps.md): whether
-               bin/omarchy-kids-session-start keeps a tile for a
-               pack/apps.extra app whose package isn't installed yet,
-               greyed with a "not installed yet"/"installing..."
-               caption, instead of the default of omitting it
-               entirely (I-6: no tile that Enter silently does
+               the validated manifest keeps a tile for a
+               pack/apps.extra app whose package isn't installed yet
+               visible in the launcher, greyed and labelled
+               "not installed yet", instead of hiding it from the
+               displayed list (I-6: no tile that Enter silently does
                nothing on)
 ```
 

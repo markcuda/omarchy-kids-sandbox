@@ -687,3 +687,22 @@ greeter with no user seat. Air remains on Tokyo Night. No full-media pass is cla
 #136 and #91 have independently reviewed draft PRs #141 and #135. #138/#139/#140 corrections
 are in review or drafting. Existing usability drafts remain queued for their full gates.
 The #98/#109 human ship decision remains open; #97 cannot precede #98.
+
+
+## September 6: empty Wi-Fi response fixed
+
+#136 merged through PR #141 at `f28a461`. The reviewed candidate passed the VM formatter,
+Mac 35-file suite, VM 35-file suite, then a named live Wi-Fi capture in Tokyo Night and
+Catppuccin Latte. Both inspected images show a settled empty scan with no fake OK network.
+No join was attempted. The temporary client deployment was restored with original metadata;
+final package check reports 181 files and zero altered. Test settings and original themes
+were restored, config removed, and the VM returned to the greeter with no user seat.
+The merged-main gate is running and still requires its own live pass.
+
+The empty screen itself now has #143 and draft PR #144: an explanation, click/Enter retry,
+and readable help that follows the current state. Source review passed; watched previews and
+full gates remain. #140's watched status-data reload is reviewed in draft PR #142. #139's
+executable selector tests exposed and corrected acceptance of failed or ambiguous seat
+queries; independent review is underway. #137's tonight-extension design now covers short
+and exhausted budgets, 04:00 expiry, idempotent approvals, and truthful queued failures; its
+implementation is being drafted. None of those drafts is represented as shipped.

@@ -6,6 +6,21 @@ useful work.
 
 ## Where the project is
 
+**September 6 update:** #136 merged through PR #141 at `f28a461` after independent review,
+VM formatter, Mac 35-file suite (five platform skips), VM 35-file suite (two skips; Linux authd
+and SO_PEERCRED ran), and the named Wi-Fi live check in both themes. The exact client was
+staged temporarily against the installed media build, then its original bytes and metadata
+were restored. Final package check: 181 files, zero altered. Settings, themes, greeter, and
+config cleanup were verified. The merged-main gate is running; it is not yet complete.
+
+The corrected scan reveals a blank card still offering Enter join: #143 now has independently
+reviewed draft PR #144 (`eaa8cd1`), with a clear empty message, retry action, and readable help.
+#140 has reviewed draft PR #142 (`4d380bc`) for live bar status reload. Both await full gates.
+#139's parent-session selector is in independent review with executable fixtures; #138's
+collected-unit correction is reviewed but not yet gated. #137's tonight-extension design is
+approved for implementation; code is being drafted. #98/#109 remains a human ship decision.
+The [media gallery](docs/media/dogfood/media-gallery.md) pairs all fourteen original captures.
+
 **Latest takeover status, September 5 evening:** #110 merged through PR #113 at
 `bd679f9`. Keyboard guidance now appears before the parent answers. Independent review, VM
 formatter, Mac suite, VM suite, and live welcome/input/back/cancel on both machines passed.
@@ -30,7 +45,7 @@ The fresh photos are `docs/media/dogfood/media-observed-*.png`; they document vi
 a passing release. The fixture receipt confirms all four original settings restored, live config
 is removed, and a successful raw session query shows only the greeter on seat0. A checked unit
 query reports not-found/inactive/dead. VM theme is Catppuccin Latte; Air is Tokyo Night.
-New findings also include the fake OK Wi-Fi network (#136, reviewed draft PR #141) and a
+New findings also include the fake OK Wi-Fi network (#136, merged PR #141) and a
 lights-out Ask promise that budget-only approval cannot fulfill (#137). No approval was submitted
 during this capture. #91 has independently reviewed draft PR #135; full gates remain pending. #111 at `a78d413` (PR #115, current desktop-launch theme) and #112 at
 `99a4ba5` (PR #116, readable parent portal label) remain reviewed drafts. The original

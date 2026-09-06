@@ -2,7 +2,7 @@
 
 Fourteen screenshots from one VM run, viewed by the driving session. The run failed acceptance: wizard, panel, and bar captures did not pass. These are evidence of the current experience, including open defects. No app launch, request approval, or Wi-Fi join is claimed.
 
-| Surface | Tokyo Night | Catppuccin Latte | Open findings |
+| Surface | Tokyo Night | Catppuccin Latte | Findings from this capture |
 | --- | --- | --- | --- |
 | Portal | ![Portal, dark](media-observed-portal-tokyo-night.png) | ![Portal, light](media-observed-portal-catppuccin-latte.png) | [#112](https://github.com/markcuda/omarchy-kids-sandbox/issues/112), [#128](https://github.com/markcuda/omarchy-kids-sandbox/issues/128) |
 | Launcher | ![Launcher, dark](media-observed-launcher-tokyo-night.png) | ![Launcher, light](media-observed-launcher-catppuccin-latte.png) | [#91](https://github.com/markcuda/omarchy-kids-sandbox/issues/91) |

@@ -16,11 +16,25 @@ PR [#160](https://github.com/markcuda/omarchy-kids-sandbox/pull/160) for #159 me
 ade1500. Its formatter, 40-file Mac suite and 40-file VM suite passed before and after merge.
 It changes test-fixture permissions only.
 
-PR [#156](https://github.com/markcuda/omarchy-kids-sandbox/pull/156) for #148 is reviewed and
-built at 73ccace. Formatting and Mac tests passed; SSH exited 255 after 40 VM progress lines
-without the final suite result. That run is not counted as a pass. Disk and Git-cache recovery
-are complete and the ordered gate is being repeated. Installation and named live proof remain
-pending. PR [#157](https://github.com/markcuda/omarchy-kids-sandbox/pull/157) for #155 is also pending.
+PR [#156](https://github.com/markcuda/omarchy-kids-sandbox/pull/156) for #148 merged as
+main `441ab32`, with the same tree as candidate `73ccace`. The candidate passed the test-box
+formatter, all 40 Mac test files, all 40 VM test files, and scenario 05 in order. The earlier
+SSH-255 run had no final VM result and remains recorded as a failure.
+
+The installed picker then passed its controlled-client interaction sequence in both themes.
+All [26 original frames](media/dogfood/wifi-148-73ccace/README.md) passed independent visual
+review. They show confirmation surviving automatic refresh and reordering, stale feedback
+clearing on retry or a new join, and refresh errors replacing success. A separate restoration
+readback passed: 181 package files, zero altered, original settings and themes restored, timer
+active, and greeter only. These checks do not establish real wireless association or
+NetworkManager authorization. Merged-main formatting passed; its remaining gate is running.
+
+That pass exposed [#164](https://github.com/markcuda/omarchy-kids-sandbox/issues/164): an open
+network's failed join asks the child to check a password. The
+[original screenshot](media/dogfood/wifi-open-failure-sep6/README.md) and source line are filed.
+Its fix is independently reviewed and pushed on `fix/164-open-wifi-failure`; full gating and
+installed proof remain pending. PR [#157](https://github.com/markcuda/omarchy-kids-sandbox/pull/157)
+for #155 also awaits its full gate and installed proof.
 
 A fresh real-laptop setup preview exposed two more findings:
 [#161](https://github.com/markcuda/omarchy-kids-sandbox/issues/161), a face picker with no

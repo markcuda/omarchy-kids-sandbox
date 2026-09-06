@@ -384,3 +384,58 @@ not see each other's failure is how a portal with no children on it stayed green
 
 #93 (assert and the pacman hook honour the boot mode) is drafted, pushed to `boot-2`, and with an
 independent sol reviewer; #95 is still drafting.
+
+### 2026-09-05, four merges, two real-hardware finds, and one decision left for a human
+
+Four spec-07 tickets landed: #93 (assert honours the boot mode, serialised by one root-owned lock
+that the mode setter and the install scriptlet also take), #94 (boot-login resolves the account to
+a trusted role, so a malformed record can never drop a kid into the parent's session), #95
+(provisioning and removal honour the mode) and #104 (the portal shows kid tiles again once a
+machine has more than one kid). Main was gated on the VM with all four combined, not only branch by
+branch, because four branches that each pass alone can still conflict together.
+
+#104 is worth remembering. On any box with two or more kids the portal rendered a single tile, the
+parent's, so no child could log in at all. The kid list is written into the greeter's theme config
+as a comma-separated value, and QSettings reads an unquoted comma-separated value as a list, which
+never reaches the greeter's QML. It took five rounds: the first fix quoted the value, and the
+review correctly called that a half fix, since a display name is typed by a parent and a name
+carrying a quote breaks straight back out. What shipped escapes the way Qt's own encoder does, with
+every reader its exact inverse, and encodes the record separators inside each field. A child called
+"Bo, Jr" reaches the login screen. A second defect had hidden the first for days: the harness read
+the greeter's tile report from the wrong journal source and had never once seen the line it
+asserts on.
+
+**Kids Mode is installed on the Air**, in portal mode, owner recorded. Two bugs surfaced within
+minutes, neither of which the VM could have shown:
+
+- The app entry did not open a terminal. `omarchy-kids` is a gum TUI, so clicking Kids Mode gave a
+  launch toast and then nothing at all. Omarchy's own TUI entries set `Terminal=true`; so does ours
+  now, with a test that says why.
+- **#109**: installing the package rebuilds the UKI and rewrites `limine.conf`, even in portal mode
+  whose entire promise is that it leaves the boot path alone. Our own hook behaves correctly and
+  changes nothing; the rebuild is Arch's `90-mkinitcpio-install.hook`, firing because the package
+  ships a file under `/usr/lib/initcpio/hooks/`. A parent who installs and chooses portal has had
+  their boot image regenerated before answering a question.
+
+**Process changes, measured rather than assumed.** Of roughly twenty review rounds, eleven found
+real defects, five were environment problems and four were rebases and scope. The five are fixed
+structurally: the gate now runs the test box's formatter first, in seconds, because the Mac cannot
+host that formatter honestly (Homebrew's 3.14 disagrees with the box's 3.13 on files already
+clean). The unit suite runs in parallel on the Mac and serially on the VM, which has two cores and
+is the correctness gate; a file that fails in parallel is re-run alone and named. Review now comes
+before the gate, since reviews are cheap and parallel while the gate is one slot. And AGENTS.md
+gained the six shapes every blocking finding has taken, with drafts required to attack their own
+diff against it before handing over.
+
+The test box had also been running at a third of its capacity for days: sixteen orphaned processes
+from a wizard-test stub that waited on a release file with no bound, one leaked per interrupted
+run. Bounded, and its load fell from ten to one.
+
+**Left for a person, not an agent.** #98's transitions no longer touch the boot image, but the
+conversion now asks the parent to rebuild by hand, and a power cut during *that* can still leave
+this single-UKI laptop unbootable with no firmware-bootable fallback. Its author said plainly that
+it cannot be called power-cut safe and returned the ship decision. That belongs with #109, which
+is the same single-image weakness seen from the other side. #103 is implementation-complete but has
+taken no real pictures yet; the media folder waits on a session that can drive the machines.
+
+`PROGRESS.md` and `docs/handoff-prompt.md` carry all of this forward.

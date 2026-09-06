@@ -136,6 +136,32 @@ friendly_allowlist() {
   echo "$out"
 }
 
+adv_allowlist_count() {
+  local csv="$1" id oldifs="$IFS" count=0
+  [[ -z "$csv" ]] && { printf 'no apps selected'; return; }
+  IFS=,
+  for id in $csv; do [[ -n "$id" ]] && count=$((count + 1)); done
+  IFS="$oldifs"
+  printf '%d app%s selected' "$count" "$([[ $count == 1 ]] || printf s)"
+}
+
+adv_allowlist_body() {
+  local arrname="$1" csv="$2" id oldifs="$IFS" label
+  adv_append_row "$arrname" "Starter apps:"
+  if [[ -z "$csv" ]]; then
+    adv_append_row "$arrname" "  (none selected)"
+    return
+  fi
+  IFS=,
+  for id in $csv; do
+    [[ -z "$id" ]] && continue
+    IFS="$oldifs"
+    label="$(app_label_for "$BAND" "$id")"
+    adv_append_row "$arrname" "  $label"
+  done
+  IFS="$oldifs"
+}
+
 # adv_friendly KEY VALUE — human words for a raw value, reusing the same
 # friendly_* functions the Easy summary uses so both paths agree.
 adv_friendly() {
@@ -201,10 +227,12 @@ adv_row_line() {
   group="$(adv_group_of "$key")"
   label="$(adv_label_of "$key")"
   default_disp="$(adv_friendly "$key" "$(adv_default "$key")")"
+  [[ "$key" == allowlist ]] && default_disp="$(adv_allowlist_count "$(adv_default "$key")")"
   if [[ "$(adv_get "$key")" == "$(adv_default "$key")" ]]; then
     reason="Band default: $default_disp"
   else
     current_disp="$(adv_friendly "$key" "$(adv_get "$key")")"
+    [[ "$key" == allowlist ]] && current_disp="$(adv_allowlist_count "$(adv_get "$key")")"
     reason="Band default: $default_disp — now: $current_disp (changed)"
   fi
   printf '%s|[%s] %s|%s' "$key" "$group" "$label" "$reason"
@@ -384,14 +412,17 @@ screen_advanced_checklist() {
   local step="$1" total="$2"
   while true; do
     local -a choices=()
+    # shellcheck disable=SC2034 # passed by name to tui_screen_choose
+    local -a body=()
     local k
     for k in "${ADV_KEYS[@]}"; do
       choices+=("$(adv_row_line "$k")")
     done
     choices+=("done|Done customizing|")
+    adv_allowlist_body body "$(adv_get allowlist)"
 
     tui_screen_choose "Every setting for $DISPLAY_NAME" "$step" "$total" 0 "" choices "done" \
-      "Enter opens a setting · Esc back · Ctrl+C leave (nothing changes)"
+      "Enter opens a setting · Esc back · Ctrl+C leave (nothing changes)" body
     local rc=$?
     ((rc == 0)) || return $rc
 

@@ -105,6 +105,15 @@ _tui_array_copy() {
   eval "$__tui_dest=(\"\${$__tui_src[@]+\"\${$__tui_src[@]}\"}\")"
 }
 
+# Escape one value for Gum v2/Kong's comma-separated --selected slice. The
+# parser consumes backslash escapes, so protect backslashes before commas.
+_tui_gum_slice_escape() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//,/\\,}"
+  printf '%s' "$value"
+}
+
 # _tui_gum_env_default NAME VALUE -- exports NAME=VALUE only when unset.
 # eval, not `${!name}`, for the same bash-3.2 reason as _tui_array_copy.
 _tui_gum_env_default() {
@@ -346,7 +355,9 @@ tui_screen_choose() {
       ((h > 16)) && h=16 # the avatar list is 13 rows; a paged list shows gum's dots
       ((h < 1)) && h=1
       gflags+=(--height "$h")
-      [[ -n "$default_display" ]] && gflags+=(--selected "$default_display")
+      if [[ -n "$default_display" ]]; then
+        gflags+=(--selected "$(_tui_gum_slice_escape "$default_display")")
+      fi
       chosen="$(gum choose "${gflags[@]}" -- "${display[@]+"${display[@]}"}")"
       case $? in
         1) return 1 ;;

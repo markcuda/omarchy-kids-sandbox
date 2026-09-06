@@ -62,21 +62,23 @@ profile schedule and approval time:
 Use an existing tonight deadline only when it is still the currently binding
 limit; otherwise the request is stale. Cap the candidate at the logical-day
 end. A schedule edit before approval is therefore read at approval time. The
-usable interval is `candidate - approval_now`; round any budget top-up up to
-whole minutes and add only `max(0, usable interval - current remaining)`.
+usable interval is `candidate - approval_now`. Calculate the raw budget balance
+in seconds (allowed time minus usage, including a negative overrun), and add
+`ceil(max(0, usable interval - raw balance) / 60)` budget minutes.
 Thus a 15-minute request with 5 minutes remaining adds 10 minutes, while a
 request capped by 04:00 adds only the amount needed for the shortened interval.
 
-If the authoritative recomputation says the budget is exhausted, this is a
-budget-caused expiry and the legacy budget action applies instead; `tonight`
-does not bypass that distinction. When budget remains, the deadline and any
-needed top-up live in the one `.tonight.json` record. The ledger adds that
+When lights-out is binding, a tonight approval handles a short, zero, or
+negative budget balance through that top-up. Only expiry caused by budget
+alone uses the legacy budget action. The deadline and any needed top-up live
+in the one `.tonight.json` record. The ledger adds that
 record’s contribution when calculating today’s remaining budget, but never
 adds usage for an inactive or locked session.
 
-Each entry binds `request_id` to the kid, action, logical day, requested
-minutes, computed interval, and outcome. Reusing an ID with any changed field
-is rejected. A record entry is committed atomically before the root
+Each entry binds `request_id` to the input kid, action, logical day, and requested
+minutes, and stores the computed interval and outcome. Reusing an ID with
+changed input fields is rejected; replay reads the stored result without
+recomputing its interval. A record entry is committed atomically before the root
 acknowledgement. A retry with the same unchanged request returns the stored
 outcome without applying a second contribution; an `already-applied` result
 describes the replay and does not promise that time is currently available.
@@ -114,6 +116,8 @@ Add tests for:
 - lights-out with budget remaining extends only the tonight deadline;
 - positive but short remaining budget receives only the top-up needed for the
   approved interval;
+- binding lights-out with zero or negative budget balance receives enough
+  top-up to cover both the overrun and the approved interval;
 - budget-caused Time’s Up stays on the legacy budget action;
 - inactive and locked ticks add zero usage;
 - schedule edits before approval are recomputed from the profile;

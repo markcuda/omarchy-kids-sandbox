@@ -2,6 +2,10 @@
 # Tests scripts/media-driver.sh (docs/GOAL.md item 3, SPEC.md R-BUILD-3): defaults,
 # one-surface runs, failure continuation, command order, and state restoration.
 set -uo pipefail
+# The gate may invoke this unit while its outer driver already holds the
+# shared lock. Each fixture owns its own substituted lock, so inherit no
+# global lock state from that caller.
+unset OMARCHY_KIDS_VM_DRIVER_LOCKED
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 TMP="$(mktemp -d)"

@@ -38,7 +38,7 @@ at the bottom of `bin/omarchy-kids-wizard` jumps straight from step 7 to step 12
 | 5 | A5 | Age band | 3-5 / 6-8 / 9-12 / 13+, each with its `bands.toml` blurb as the reason line. **Prefetch starts here** (see below) and never blocks; so does `adv_init` (see "The Advanced path" below), seeding every Advanced-only cell to this band's default whether or not Advanced is ever opened. |
 | 6 | A6 | Simple or Advanced | **Simple**: walk A7-A11 next. **Advanced** (issue #20): open the grouped checklist (A13a) next instead — see "The Advanced path" below. |
 | 12 | A12 | Kid's password | Twice, masked. Band 3-5 gets an extra "set a password or not" choice first (R-BAND's `password_optional`); every other band always sets one. Explains what it unlocks. |
-| 13 | A13 | Summary | A plain-words table — account, face, age band, desktop level, web mode, screen time, bedtime, Wi-Fi, starter apps, password, plus any of the seven Advanced-only cells that were changed — changed rows marked `(custom)` — then **Apply** or **Change something** (which opens the same grouped checklist, for a kid built either way, then redraws this summary). |
+| 13 | A13 | Summary | A plain-words table — account, face, age band, desktop level, web mode, weekday/weekend screen-time and bedtime limits, Wi-Fi, starter apps, password, plus any of the seven Advanced-only cells that were changed — changed rows marked `(custom)` — then **Apply** or **Change something** (which opens the same grouped checklist, for a kid built either way, then redraws this summary). |
 | 14 | A13b/A13c | Apply | A step-by-step progress dashboard (`tui_progress`, R-WIZ-5): the account (plus every cell, from either path, that overrides the band default), the web policy, the starter pack, and the safety check (A13c). |
 | 15 | A14 | Done | Omy's line; **Return to my desktop** or **Open `<Name>`'s desktop** (R-WIZ-6). |
 
@@ -47,7 +47,7 @@ at the bottom of `bin/omarchy-kids-wizard` jumps straight from step 7 to step 12
 | Screen | What happens |
 | --- | --- |
 | A7 Web | Two options, band-appropriate, band default preselected: 3-5 sees no-browser vs. a short allowed list; 6-8/9-12 see the walled garden vs. filtered open web; 13+ sees filtered open web vs. the walled garden. |
-| A8 Screen time | The band's minutes-a-day and lights-out, or "I'll set my own" (two follow-up fields, each validated). |
+| A8 Screen time | Shows the band's weekday and weekend minutes-a-day and lights-out limits, or "I'll set my own" (weekday and weekend fields, each validated). |
 | A9 Apps | "The `<band>` starter pack" (every app), or "Let me pick" — a yes/no per app, one at a time (`apps_pick_walk`; there's no multi-select checklist widget in `lib/tui.sh` yet — Advanced's apps row, below, reuses this same walk). |
 | A10 Wi-Fi | "Ask me first" (`parent`) vs. "On their own, safely" (`helper`), band default preselected. |
 | A11 Desktop level | 1 / 2 / 3, each with a one-liner, band default preselected. |
@@ -104,13 +104,12 @@ the wizard straight on to A12 (Simple's A7-A11 are skipped entirely, having been
 one screen); the summary's **Change something** button (below) redraws the summary instead.
 
 `bin/omarchy-kids-wizard`'s `screen_band` seeds every row to the chosen band's default
-(`adv_init`) the moment the age band is picked (A5) — before Simple's own A7-A11 screens run, so a
-kid built entirely through Simple still has every Advanced-only cell (dns, sites, menu,
-history_visible, the two weekend fields) sitting at its band default, and Apply's `maybe_override`
-calls (one per cell, `apply_step_account`) never write any of the seven Simple doesn't show,
-exactly as before this issue. A kid built through Advanced (or through "Change something") gets an
-override written for every cell whose value no longer equals that default — the same rule Simple's
-own five cells have always followed (R-BAND-2).
+(`adv_init`) the moment the age band is picked (A5) — before Simple's own A7-A11 screens run. Simple
+shows both weekday and weekend time values and edits both values when the parent chooses custom;
+the remaining Advanced-only cells (dns, sites, menu, history_visible) stay at their band defaults
+unless Advanced or "Change something" changes them. Apply's `maybe_override` calls (one per cell,
+`apply_step_account`) write an override for every cell whose value no longer equals that default —
+the same rule Simple's own five cells have always followed (R-BAND-2).
 
 ## Root and the one sudo prompt
 

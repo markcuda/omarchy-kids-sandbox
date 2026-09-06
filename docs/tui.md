@@ -204,5 +204,14 @@ See `scripts/omarchy-kids-tui-demo` for a full three-screen walk (Welcome, a cho
 
 ## Verified live (2026-09-03, QEMU test VM, foot)
 
-Each step uses Gum's native header/prompt rendering for the step line, title, Omy's line where the
-screen has one, body, and keyboard guidance; the colours followed tokyo-night and catppuccin-latte.
+Each step draws one closed rounded card (step line, title, Omy's line where the screen has one, body)
+centred at up to 72 columns, with the chooser or input indented beneath it and no duplicate header or
+default help line; the colours followed tokyo-night and catppuccin-latte.
+
+## Prototype preview (2026-09-05, Air, dry-run)
+
+The #120 prototype at e35d1e9 uses native Gum headers and prompts for resize-safe explanatory text.
+Root's Air-only dry-run preview passed Welcome, password, and name through full-to-half-to-full
+resizes, preserved the sample masked password, submitted the invented name Ada after resize, handled
+Escape/back, and closed with Ctrl+C/Yes. This is prototype preview evidence, separate from the
+historical QEMU receipt and any release gate.

@@ -463,7 +463,7 @@ tui_screen_input() {
       [[ -n "$placeholder" ]] && _tui_style --foreground "$TUI_C_MUTED" -- "$placeholder"
       [[ -n "$last_err" ]] && _tui_style --foreground "$TUI_C_ERROR" -- "$last_err"
     fi
-    _tui_footer "$footer"
+    if ! _tui_native_mode; then _tui_footer "$footer"; fi
 
     local ans
     if [[ "$TUI_MODE" == file ]]; then

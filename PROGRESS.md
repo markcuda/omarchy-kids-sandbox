@@ -23,8 +23,8 @@ with five platform skips, VM 37-file suite with two skips for bar status and ash
 checks. Named three-autologin reset scenario `88422` completed 0: each fresh owner autologin
 exited cleanly to the Catppuccin Latte portal with successful raw session queries showing no user
 seats. Manual `portal_reset` recovery `31132` passed and captured the real light portal, with tile
-rendering only and no Cy login. The VM is clean at the original Catppuccin Latte theme; Air is
-restored to Tokyo Night. The full 20-capture run `18797` has started; no completion claim or fresh
+rendering only and no Cy login. Before the current media run, the VM was verified at the original
+Catppuccin Latte greeter; Air remains restored to Tokyo Night. The full 20-capture run `18797` has started; no completion claim or fresh
 full-media result yet. #111 at `a78d413` (PR #115, current desktop-launch theme) and #112 at
 `99a4ba5` (PR #116, readable parent portal label) remain reviewed drafts. The original
 `media-driver` remote branch is unchanged; PR #114 carries the rebased driver plus its reviewed

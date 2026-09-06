@@ -655,3 +655,7 @@ seats. Root inspected all three portal-reset receipts; the faint Vm caption rema
 are portal-reset proofs only, with no child login. The full 20-capture run `18797` has started;
 no completion claim or fresh full-media result is made. Public PR #114 remains at `fee4ad4`, with
 no code merge claimed.
+
+Portal-reset receipts: [round 1](media/dogfood/portal-134-round-1-catppuccin-latte.png),
+[round 2](media/dogfood/portal-134-round-2-catppuccin-latte.png),
+[round 3](media/dogfood/portal-134-round-3-catppuccin-latte.png).

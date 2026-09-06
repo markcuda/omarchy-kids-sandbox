@@ -1,0 +1,42 @@
+operation=list state=empty result=success pid=446201
+operation=list state=empty result=success pid=456640
+operation=list state=held result=started pid=458896
+operation=list state=held result=success pid=458896
+operation=list state=empty result=success pid=460645
+operation=list state=error result=failure pid=461550
+operation=list state=networks result=success pid=462473
+operation=join ssid=HomeNet mode=password result=started pid=465948
+operation=join ssid=HomeNet mode=password password_line=expected pid=465948
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=465948
+operation=join ssid=HomeNet result=failure pid=465948
+operation=join ssid=HomeNet mode=password result=started pid=466894
+operation=join ssid=HomeNet mode=password password_line=expected pid=466894
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=466894
+operation=join ssid=HomeNet result=held pid=466894
+operation=join ssid=HomeNet result=success pid=466894
+operation=list state=networks result=success pid=467999
+operation=join ssid=OpenNet mode=open stdin_bytes=0 pid=469415
+operation=join ssid=OpenNet result=success pid=469415
+operation=list state=networks result=success pid=469442
+operation=list state=networks result=success pid=479926
+operation=join ssid=OpenNet mode=open stdin_bytes=0 pid=480851
+operation=join ssid=OpenNet result=success pid=480851
+operation=list state=empty result=success pid=480879
+operation=list state=held result=started pid=482230
+operation=list state=held result=success pid=482230
+operation=list state=empty result=success pid=483606
+operation=list state=error result=failure pid=484520
+operation=list state=networks result=success pid=485433
+operation=join ssid=HomeNet mode=password result=started pid=488923
+operation=join ssid=HomeNet mode=password password_line=expected pid=488923
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=488923
+operation=join ssid=HomeNet result=failure pid=488923
+operation=join ssid=HomeNet mode=password result=started pid=489876
+operation=join ssid=HomeNet mode=password password_line=expected pid=489876
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=489876
+operation=join ssid=HomeNet result=held pid=489876
+operation=join ssid=HomeNet result=success pid=489876
+operation=list state=networks result=success pid=490954
+operation=join ssid=OpenNet mode=open stdin_bytes=0 pid=492387
+operation=join ssid=OpenNet result=success pid=492387
+operation=list state=networks result=success pid=492415

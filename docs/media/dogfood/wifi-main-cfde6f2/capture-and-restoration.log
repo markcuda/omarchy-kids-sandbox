@@ -1,0 +1,179 @@
+omarchy-kids: 181 total files, 0 altered files
+ready pid=446193
+picker pid=446193 alive
+ack status
+wifi-main-initial-empty.png
+ack shot
+theme_reload_if_live: live reload failed for 'kid-cy' -- the theme is applied on disk, they will see it at next login
+ready pid=456603
+ack theme
+picker pid=456603 alive
+ack status
+wifi-main-dark-empty.png
+ack shot
+2
+ack offset
+ack state
+ack pointer
+wifi-main-dark-loading.png
+ack shot
+ack key
+ack key
+ack release
+operation=list state=held result=started pid=458896
+operation=list state=held result=success pid=458896
+ack events
+ack state
+ack key
+wifi-main-dark-keyboard-retry.png
+ack shot
+ack state
+ack key
+wifi-main-dark-error.png
+ack shot
+ack state
+ack key
+wifi-main-dark-networks.png
+ack shot
+ack key
+ack text
+wifi-main-dark-password.png
+ack shot
+ack key
+wifi-main-dark-back.png
+ack shot
+ack key
+wifi-main-dark-reopen-empty.png
+ack shot
+operation=list state=empty result=success pid=446201
+operation=list state=empty result=success pid=456640
+operation=list state=held result=started pid=458896
+operation=list state=held result=success pid=458896
+operation=list state=empty result=success pid=460645
+operation=list state=error result=failure pid=461550
+operation=list state=networks result=success pid=462473
+ack events
+ack result
+ack text
+ack key
+wifi-main-dark-join-error.png
+ack shot
+operation=join ssid=HomeNet mode=password result=started pid=465948
+operation=join ssid=HomeNet mode=password password_line=expected pid=465948
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=465948
+operation=join ssid=HomeNet result=failure pid=465948
+ack events
+ack result
+ack key
+wifi-main-dark-joining.png
+ack shot
+ack key
+ack key
+ack release
+wifi-main-dark-protected-complete.png
+ack shot
+operation=join ssid=HomeNet mode=password result=started pid=466894
+operation=join ssid=HomeNet mode=password password_line=expected pid=466894
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=466894
+operation=join ssid=HomeNet result=held pid=466894
+operation=join ssid=HomeNet result=success pid=466894
+operation=list state=networks result=success pid=467999
+ack events
+ack result
+ack key
+ack key
+wifi-main-dark-open-complete.png
+ack shot
+operation=join ssid=OpenNet mode=open stdin_bytes=0 pid=469415
+operation=join ssid=OpenNet result=success pid=469415
+operation=list state=networks result=success pid=469442
+ack events
+ack key
+theme_reload_if_live: live reload failed for 'kid-cy' -- the theme is applied on disk, they will see it at next login
+ready pid=479918
+ack theme
+picker pid=479918 alive
+ack status
+ack state
+ack key
+ack key
+wifi-main-light-empty.png
+ack shot
+operation=list state=networks result=success pid=479926
+operation=join ssid=OpenNet mode=open stdin_bytes=0 pid=480851
+operation=join ssid=OpenNet result=success pid=480851
+operation=list state=empty result=success pid=480879
+ack events
+ack state
+ack pointer
+wifi-main-light-loading.png
+ack shot
+ack key
+ack key
+ack release
+operation=list state=held result=started pid=482230
+operation=list state=held result=success pid=482230
+ack events
+ack state
+ack key
+wifi-main-light-keyboard-retry.png
+ack shot
+ack state
+ack key
+wifi-main-light-error.png
+ack shot
+ack state
+ack key
+wifi-main-light-networks.png
+ack shot
+ack key
+ack text
+wifi-main-light-password.png
+ack shot
+ack key
+wifi-main-light-back.png
+ack shot
+ack key
+wifi-main-light-reopen-empty.png
+ack shot
+operation=list state=empty result=success pid=483606
+operation=list state=error result=failure pid=484520
+operation=list state=networks result=success pid=485433
+ack events
+ack result
+ack text
+ack key
+wifi-main-light-join-error.png
+ack shot
+operation=join ssid=HomeNet mode=password result=started pid=488923
+operation=join ssid=HomeNet mode=password password_line=expected pid=488923
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=488923
+operation=join ssid=HomeNet result=failure pid=488923
+ack events
+ack result
+ack key
+wifi-main-light-joining.png
+ack shot
+ack key
+ack key
+ack release
+wifi-main-light-protected-complete.png
+ack shot
+operation=join ssid=HomeNet mode=password result=started pid=489876
+operation=join ssid=HomeNet mode=password password_line=expected pid=489876
+operation=join ssid=HomeNet mode=password stdin_eof=yes pid=489876
+operation=join ssid=HomeNet result=held pid=489876
+operation=join ssid=HomeNet result=success pid=489876
+operation=list state=networks result=success pid=490954
+ack events
+ack result
+ack key
+ack key
+wifi-main-light-open-complete.png
+ack shot
+operation=join ssid=OpenNet mode=open stdin_bytes=0 pid=492387
+operation=join ssid=OpenNet result=success pid=492387
+operation=list state=networks result=success pid=492415
+ack events
+ack key
+theme_reload_if_live: live reload failed for 'kid-cy' -- the theme is applied on disk, they will see it at next login

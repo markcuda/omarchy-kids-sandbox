@@ -1,5 +1,27 @@
 # Loop report, night of 2026-09-02
 
+## Latest checkpoint, September 6: merged media and first recorder clip
+
+PR [#154](https://github.com/markcuda/omarchy-kids-sandbox/pull/154) is merged on main at
+`cfde6f2`. The merged-main pass completed all 20 images, published at `459d482`; the
+[gallery record](https://github.com/markcuda/omarchy-kids-sandbox/blob/459d482/docs/media/dogfood/media-main-cfde6f2/README.md)
+is the evidence source.
+
+Installed Wi-Fi coverage recorded 25 images and 42 fixture actions, controlled bar coverage
+recorded 20 frames, and the root ledger recorded 6 frames. Issue
+[#158](https://github.com/markcuda/omarchy-kids-sandbox/issues/158) is closed after the private
+checker correction for byte-array journal messages and its live rerun.
+
+PR [#160](https://github.com/markcuda/omarchy-kids-sandbox/pull/160) for #159 is in the full gate
+and remains pending. PR [#156](https://github.com/markcuda/omarchy-kids-sandbox/pull/156) for #148
+and PR [#157](https://github.com/markcuda/omarchy-kids-sandbox/pull/157) for #155 remain pending.
+
+The recorder formatter and five owned test suites passed across Mac and VM checks. A first
+7.24-second idle portal clip was captured and checked; three walkthroughs remain open. #98's
+merge remains held pending Mark's #109 ship decision.
+
+Earlier checkpoints below retain their original scope.
+
 ## Latest checkpoint, September 6: post-merge screen-time gate and media handoff
 
 The separate screen-time enforcement/session-reentry correction merged through PR #146 at

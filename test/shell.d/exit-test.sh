@@ -145,6 +145,19 @@ check_contains "$env_out" "OMARCHY_KIDS_AVATAR=$SHARE/avatars/fox.svg" "--open e
 
 stub quickshell # restore the plain argv-logging stub for the rest of the suite
 
+# --- exit modal copy: the field says whose password it accepts, and the
+# existing keyboard paths are visible without changing the auth flow. -------
+EXIT_QML="$ROOT_DIR/share/exit-modal/shell.qml"
+exit_qml="$(cat "$EXIT_QML")"
+check_contains "$exit_qml" "Grown-up's login password" \
+  "exit modal: labels the field as the grown-up's login password"
+check_contains "$exit_qml" "Enter to finish · Esc to return" \
+  "exit modal: shows the existing Finish and return keys"
+check_contains "$exit_qml" 'command: ["/usr/bin/omarchy-kids-parent-auth"]' \
+  "exit modal: keeps the parent verifier command"
+check_contains "$exit_qml" "root.wrongCount >= 3" \
+  "exit modal: keeps the existing rate limit"
+
 # --- --open: a no-op if a modal already looks open (review §1.9) ---------
 #
 # It is a pidfile now, not `pgrep -f "quickshell -p <path>"`: that matched

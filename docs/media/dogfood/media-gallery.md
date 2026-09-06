@@ -65,7 +65,7 @@ and media integration `bcf8b42`.
 
 Exact source `8294246` ran in watched Air process `1230897` with an owned fixture backend.
 These seven inspected frames show network-specific success surviving list refresh, scan errors
-replacing success, and manual retry clearing the message. No real Wi-Fi join or real credential
+replacing success, and manual retry clearing the prior scan error. No real Wi-Fi join or real credential
 was used. The preview closed, its process was absent, and Tokyo Night was restored.
 [#148](https://github.com/markcuda/omarchy-kids-sandbox/issues/148) is separate from media
 candidate `bcf8b42`; its ordered full gates and named installed-live acceptance remain pending.
@@ -75,4 +75,4 @@ candidate `bcf8b42`; its ordered full gates and named installed-live acceptance 
 | Protected result | ![Joined HomeNet after refresh, dark](wifi-148-protected-joined-tokyo-night-air.png) | ![Joined HomeNet after refresh, light](wifi-148-protected-joined-catppuccin-latte-air.png) |
 | Open result | ![Joined OpenNet after refresh, dark](wifi-148-open-joined-tokyo-night-air.png) | ![Joined OpenNet after refresh, light](wifi-148-open-joined-catppuccin-latte-air.png) |
 | Failed scan | ![Scan error replaces success, dark](wifi-148-refresh-error-tokyo-night-air.png) | ![Scan error replaces success, light](wifi-148-refresh-error-catppuccin-latte-air.png) |
-| Manual retry | Not captured | ![Manual retry clears success, light](wifi-148-retry-cleared-catppuccin-latte-air.png) |
+| Manual retry | Not captured | ![Manual retry clears the scan error, light](wifi-148-retry-cleared-catppuccin-latte-air.png) |

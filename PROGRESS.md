@@ -34,7 +34,7 @@ masking/navigation evidence, distinct from this delivery preflight.
 #148 source `8294246` passed watched Air fixture preflight in the same process, PID `1230897`.
 Network-specific "Joined" feedback remained visible after refresh for protected and open
 fixtures in both themes. Failed scans replaced success with an error in both themes; manual
-retry cleared the message in Catppuccin Latte. The seven [inspected frames](docs/media/dogfood/media-gallery.md#148-air-joined-feedback-preflight)
+retry cleared the prior scan error in Catppuccin Latte. The seven [inspected frames](docs/media/dogfood/media-gallery.md#148-air-joined-feedback-preflight)
 show client feedback from an owned backend, with no real Wi-Fi join. The preview closed, its
 process was absent, and Tokyo Night was restored. This candidate is separate from media
 `bcf8b42`; its ordered full gates and installed-live acceptance remain pending.

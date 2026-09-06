@@ -5,7 +5,7 @@
 Exact #148 source `8294246` ran in watched Air process `1230897` with an owned fixture backend.
 Protected and open results kept their network-specific "Joined" message after the list refreshed
 in both themes. A failed scan replaced success with an error in both themes. Manual retry
-cleared the message in Catppuccin Latte. The seven [inspected frames](media/dogfood/media-gallery.md#148-air-joined-feedback-preflight)
+cleared the prior scan error in Catppuccin Latte. The seven [inspected frames](media/dogfood/media-gallery.md#148-air-joined-feedback-preflight)
 record this client feedback; no real network join or real credential was used. The preview
 closed, its process was absent, and Tokyo Night was restored.
 

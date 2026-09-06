@@ -2,8 +2,9 @@
 
 ## Latest checkpoint, September 6: post-merge screen-time gate and media handoff
 
-The #137 screen-time correction merged through PR #146 at `f362102`. Post-merge formatter,
-Mac 35-file suite, VM 35-file suite, and the named five-frame live receipt `57444` all passed.
+The separate screen-time enforcement/session-reentry correction merged through PR #146 at
+`f362102`. Post-merge formatter, Mac 35-file suite, VM 35-file suite, and the named five-frame
+live receipt all passed.
 Authd and SO_PEERCRED ran; the two VM skips were the bar-status fixture and ash. Root inspected
 the private rendered frames and restoration passed. No advisory recipe or private images are
 published.

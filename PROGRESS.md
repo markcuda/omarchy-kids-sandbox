@@ -14,8 +14,9 @@ were restored. Final package check: 181 files, zero altered. Settings, themes, g
 config cleanup were verified. The merged-main gate completed with fresh settled empty-scan
 receipts in both themes; no Wi-Fi join was attempted.
 
-The #137 screen-time correction merged through PR #146 at `f362102`. Its post-merge formatter,
-Mac 35-file suite, VM 35-file suite, and named five-frame live receipt `57444` all passed.
+The separate screen-time enforcement/session-reentry correction merged through PR #146 at `f362102`.
+Its post-merge formatter, Mac 35-file suite, VM 35-file suite, and named five-frame live receipt
+all passed.
 Authd and SO_PEERCRED ran; the two VM skips were the bar-status fixture and ash. Private rendered
 frames were inspected and restoration passed; no advisory recipe or private images are published.
 

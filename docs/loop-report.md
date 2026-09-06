@@ -27,7 +27,12 @@ review. They show confirmation surviving automatic refresh and reordering, stale
 clearing on retry or a new join, and refresh errors replacing success. A separate restoration
 readback passed: 181 package files, zero altered, original settings and themes restored, timer
 active, and greeter only. These checks do not establish real wireless association or
-NetworkManager authorization. Merged-main formatting passed; its remaining gate is running.
+NetworkManager authorization. Merged-main formatting, Mac40, VM40, and scenario05 all passed.
+A fresh [14-frame postmerge interaction run](media/dogfood/wifi148-main-441ab32/README.md)
+passed root and independent image review, followed by a separate successful restoration
+readback. This repeat covers the confirmation transitions in both themes; the earlier 26-frame
+run retains its broader keyboard/busy coverage. Issues #143 and #145 are also closed against
+their previously completed merged-main evidence.
 
 That pass exposed [#164](https://github.com/markcuda/omarchy-kids-sandbox/issues/164): an open
 network's failed join asks the child to check a password. The
@@ -44,6 +49,15 @@ clearing after Escape from Face. The
 The name-retention fix has independent review and focused regression coverage in draft
 PR [#163](https://github.com/markcuda/omarchy-kids-sandbox/pull/163); its full gate and installed
 proof remain pending.
+
+A second installed Air preview reached the final decision without selecting Apply. It exposed
+[#166](https://github.com/markcuda/omarchy-kids-sandbox/issues/166), where Gum's comma parsing
+loses the intended age default, and [#167](https://github.com/markcuda/omarchy-kids-sandbox/issues/167),
+where opening the Ready chooser erases the settings summary. The
+[originals](media/dogfood/wizard-air-next-sep6/README.md) show both findings. Draft PRs
+[#168](https://github.com/markcuda/omarchy-kids-sandbox/pull/168) and
+[#169](https://github.com/markcuda/omarchy-kids-sandbox/pull/169) passed independent source
+review and focused regression tests. Full gating and installed live acceptance remain pending.
 
 The recorder formatter and five owned test suites passed across Mac and VM checks. A first
 7.24-second idle portal clip was captured and checked; three walkthroughs remain open. #98's

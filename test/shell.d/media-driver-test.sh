@@ -67,7 +67,10 @@ boot_with() {
     while [[ ! -e "$MEDIA_TEST_HOLD.release" ]]; do /bin/sleep 0.01; done
   fi
 }
-portal_login() { log "portal_login $*"; }
+portal_login() {
+  log "portal_login $*"
+  [[ "$1" != "$LIVE_OWNER_ACCOUNT" ]] || : >"$MEDIA_TEST_LOG.owner-session"
+}
 wait_kid_ready() { log "wait_kid_ready $*"; }
 portal_reset() { log "portal_reset $*"; }
 portal_clean_exit() { log "portal_clean_exit $*"; }
@@ -88,7 +91,9 @@ vm() {
   fi
   case "$*" in
     *omarchy-theme-current*) echo original-owner ;;
-    *omarchy-kids-bar\ status*) echo enabled ;;
+    *omarchy-kids-bar\ status*)
+      if [[ "${MEDIA_TEST_BAR_ENABLED:-1}" == 1 ]]; then echo enabled; else echo disabled; fi
+      ;;
   esac
 }
 vmroot() {
@@ -102,6 +107,21 @@ vmroot() {
     return 1
   fi
   case "$*" in
+    *"pgrep -u kid-test -f Hyprland"*)
+      [[ "${MEDIA_TEST_OWNER_SESSION:-1}" == 1 || -e "$MEDIA_TEST_LOG.owner-session" ]]
+      ;;
+    *"systemctl is-active --quiet omarchy-kids-time.timer"*)
+      [[ "${MEDIA_TEST_TIMER_ACTIVE:-1}" == 1 ]]
+      ;;
+    *"systemctl is-active --quiet omarchy-kids-media-session.service"*)
+      [[ -e "$MEDIA_TEST_LOG.bar-session" ]]
+      ;;
+    *"systemd-run --quiet --collect --unit=omarchy-kids-media-session"*)
+      : >"$MEDIA_TEST_LOG.bar-session"
+      ;;
+    *"systemctl stop omarchy-kids-media-session.service"*)
+      rm -f "$MEDIA_TEST_LOG.bar-session"
+      ;;
     *timesUpReady*)
       [[ "${MEDIA_TEST_TIMES_UP_READY:-1}" == 1 ]] && echo true || echo false
       ;;
@@ -152,12 +172,12 @@ MEDIA_TEST_LOG="$LOG1" MEDIA_TEST_WRONG_OUT="$WRONG_OUT" \
   "$ROOT1/scripts/media-driver.sh" >"$TMP/default.out" 2>&1
 status=$?
 check "$status" "0" "default run exits 0"
-check "$(find "$ROOT1/docs/media" -name '*.png' | wc -l | tr -d ' ')" "18" \
-  "default run writes nine honest surfaces under two themes"
+check "$(find "$ROOT1/docs/media" -name '*.png' | wc -l | tr -d ' ')" "20" \
+  "default run writes ten honest surfaces under two themes"
 check "$(find "$WRONG_OUT" -name '*.png' | wc -l | tr -d ' ')" "0" \
   "config.env's acceptance output cannot divert release pictures"
 for theme in tokyo-night catppuccin-latte; do
-  for surface in portal launcher exit-modal ask times-up wifi-picker plugins-shelf wizard panel; do
+  for surface in portal launcher exit-modal ask times-up wifi-picker plugins-shelf wizard panel bar-module; do
     [[ -s "$ROOT1/docs/media/$surface-$theme.png" ]] &&
       pass "$surface is captured under $theme" || fail_ "$surface is missing under $theme"
   done
@@ -180,6 +200,7 @@ wifi-picker|Wi-Fi Enter join
 plugins-shelf|More apps Pick one
 wizard|Welcome Begin
 panel|Kids Mode Add a kid
+bar-module|live Open Kids Mode
 EOF
 check_contains "$log1" "boot_with owner-password kid-test" "driver starts from a known owner boot"
 check_contains "$log1" "export OMARCHY_PATH=/usr/share/omarchy; /usr/bin/omarchy-theme-set tokyo-night" \
@@ -252,16 +273,87 @@ check_contains "$log4" "omarchy-kids-conf set kid-cy lights_out 21:00" \
 check_contains "$log4" "omarchy-kids-conf set kid-cy lights_out_weekend 22:00" \
   "a partial Time's Up setup restores the weekend setting"
 
-ROOT5="$TMP/bar-rejected"
+ROOT5="$TMP/bar-live"
 make_fixture "$ROOT5"
-LOG5="$TMP/bar-rejected.log"
-: >"$LOG5"
+LOG5="$TMP/bar-live.log"
 MEDIA_TEST_LOG="$LOG5" \
-  "$ROOT5/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/bar-rejected.out" 2>&1
+  "$ROOT5/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/bar-live.out" 2>&1
 status=$?
-check "$status" "2" "the fabricated bar-module surface is rejected"
-check "$(wc -l <"$LOG5" | tr -d ' ')" "0" \
-  "a rejected bar capture calls no VM helper"
+check "$status" "0" "the bar is captured from a live owner session"
+[[ -s "$ROOT5/docs/media/bar-module-tokyo-night.png" ]] &&
+  pass "the verified bar image is released" || fail_ "the verified bar image is missing"
+log5="$(cat "$LOG5")"
+check_contains "$log5" "systemd-run --quiet --collect --unit=omarchy-kids-media-session --property=PAMName=login --uid=kid-cy /usr/bin/sleep infinity" \
+  "the bar uses a real concurrent kid login session"
+check_contains "$log5" "systemctl is-active --quiet omarchy-kids-time.timer" \
+  "the bar requires the real status timer to remain active"
+check_contains "$log5" "/usr/bin/test" \
+  "the owner session itself can read the live status file"
+check_contains "$log5" "omarchy-kids-time-ledger tick" \
+  "the live status producer reads the concurrent kid session"
+check_contains "$log5" ".live == true and .paused == false" \
+  "the bar waits for fresh live, unpaused status"
+check_contains "$log5" "omarchy-kids.bar" \
+  "the owner opens the real enabled bar widget"
+check_contains "$log5" "systemctl stop omarchy-kids-media-session.service" \
+  "the temporary kid login is closed after capture"
+if [[ "$log5" != *"systemctl stop omarchy-kids-time.timer"* &&
+  "$log5" != *"hl.dsp.exit"* && "$log5" != *"portal_reset"* ]]; then
+  pass "the bar capture neither freezes updates nor removes a compositor"
+else
+  fail_ "the bar capture froze updates or removed a compositor"
+fi
+
+ROOT5B="$TMP/bar-disabled"
+make_fixture "$ROOT5B"
+LOG5B="$TMP/bar-disabled.log"
+MEDIA_TEST_LOG="$LOG5B" MEDIA_TEST_BAR_ENABLED=0 \
+  "$ROOT5B/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/bar-disabled.out" 2>&1
+status=$?
+check "$status" "1" "a disabled parent bar is refused without changing it"
+if [[ "$(cat "$LOG5B")" != *"systemd-run"* ]]; then
+  pass "a disabled bar starts no temporary kid session"
+else
+  fail_ "a disabled bar started a temporary kid session"
+fi
+
+ROOT5C="$TMP/bar-status-failure"
+make_fixture "$ROOT5C"
+LOG5C="$TMP/bar-status-failure.log"
+MEDIA_TEST_LOG="$LOG5C" MEDIA_TEST_FAIL_VMROOT=".live == true" \
+  "$ROOT5C/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/bar-status-failure.out" 2>&1
+status=$?
+check "$status" "1" "a missing fresh live status makes the bar capture fail"
+check_contains "$(cat "$LOG5C")" "systemctl stop omarchy-kids-media-session.service" \
+  "bar failure still closes the temporary kid login"
+
+ROOT5D="$TMP/bar-timer-stopped"
+make_fixture "$ROOT5D"
+LOG5D="$TMP/bar-timer-stopped.log"
+MEDIA_TEST_LOG="$LOG5D" MEDIA_TEST_TIMER_ACTIVE=0 \
+  "$ROOT5D/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/bar-timer-stopped.out" 2>&1
+status=$?
+check "$status" "1" "a stopped status timer makes the bar capture fail"
+if [[ "$(cat "$LOG5D")" != *"systemd-run"* ]]; then
+  pass "a stopped timer starts no temporary kid session"
+else
+  fail_ "a stopped timer started a temporary kid session"
+fi
+
+ROOT5E="$TMP/bar-owner-login"
+make_fixture "$ROOT5E"
+LOG5E="$TMP/bar-owner-login.log"
+MEDIA_TEST_LOG="$LOG5E" MEDIA_TEST_OWNER_SESSION=0 \
+  "$ROOT5E/scripts/media-driver.sh" --surface bar-module tokyo-night >"$TMP/bar-owner-login.out" 2>&1
+status=$?
+check "$status" "0" "the bar capture can start a genuine owner session"
+check_contains "$(cat "$LOG5E")" "portal_login kid-test owner-password" \
+  "a missing owner session is entered through the portal"
+if [[ "$(cat "$LOG5E")" != *"portal_reset"* ]]; then
+  pass "starting the owner session does not remove another compositor"
+else
+  fail_ "starting the owner session removed another compositor"
+fi
 
 ROOT6="$TMP/reject"
 make_fixture "$ROOT6"

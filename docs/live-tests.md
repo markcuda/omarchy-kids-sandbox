@@ -89,10 +89,12 @@ also waits on the running QML card's `timesUpReady` IPC result. That result stay
 grace document is loaded, the card is visible, and its countdown has rendered a tick. A failed
 readiness or release-image check leaves the previous image untouched.
 
-The driver does not offer `bar-module`. Omarchy 4.0.2's SDDM path cannot show the parent session
-while keeping the kid session live. The old capture stopped status updates, ended the kid session,
-and photographed stale `live=true` state. That image is intentionally absent until a real
-concurrent-session capture exists.
+The bar shot requires an already-enabled widget. On the real owner desktop, the driver starts a
+temporary kid login through systemd's `PAMName=login`, leaves the screen-time timer running, and
+waits for a fresh ledger tick to report that kid as live and unpaused. It then opens the widget
+through the owner's `omarchy-shell` IPC and verifies `live` plus `Open Kids Mode` in both the probe
+and release frames. Cleanup ends the temporary login and ticks the ledger again. It never edits the
+parent's bar, stops status updates, or removes either account's compositor.
 
 The driver does not record the three walkthrough videos in docs/GOAL.md item 3. Those remain a
 separate gate-runner recording step using QMP frames and ffmpeg.

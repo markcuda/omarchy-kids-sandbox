@@ -181,7 +181,7 @@ if command -v node >/dev/null 2>&1; then
     results.push('colsNeg=' + G.columnsFor(800, 0));
 
     var tiles = [{id: 'installed', installed: true}, {id: 'missing', installed: false}];
-    results.push('missingDefault=' + G.visibleTiles(tiles, false).length);
+    results.push('missingDefault=' + G.visibleTiles(tiles).length);
     results.push('missingExplicitNo=' + G.visibleTiles(tiles, false).length);
     results.push('missingYes=' + G.visibleTiles(tiles, true).length);
     results.push('installedId=' + G.visibleTiles(tiles, false)[0].id);

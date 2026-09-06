@@ -149,6 +149,13 @@ jq 'del(.show_missing)' "$MANIFEST" >"$TMP/legacy-manifest.json"
 cp "$TMP/legacy-manifest.json" "$MANIFEST"
 session_manifest check "$ACCOUNT" >/dev/null
 check "$?" "0" "legacy manifest without show_missing defaults safely to false"
+conf_set "$PROFILE" apps.show_missing yes
+if session_manifest check "$ACCOUNT" >/dev/null 2>&1; then
+  fail_ "legacy manifest cannot override explicit show_missing=yes"
+else
+  pass "legacy manifest becomes stale when profile explicitly enables show_missing"
+fi
+conf_set "$PROFILE" apps.show_missing no
 jq '.show_missing = "maybe"' "$MANIFEST" >"$TMP/malformed-show-missing.json"
 cp "$TMP/malformed-show-missing.json" "$MANIFEST"
 if session_manifest check "$ACCOUNT" >/dev/null 2>&1; then

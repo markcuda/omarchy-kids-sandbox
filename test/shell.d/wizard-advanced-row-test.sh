@@ -1,7 +1,7 @@
 #!/bin/bash
 # Regression for issue #172: R-WIZ-3, I-5, I-6.
-# The Advanced app row must keep the complete value readable without changing
-# the CSV used by the picker or the row's selectable value.
+# The Advanced app row keeps the selectable item compact while the existing
+# checklist card body shows the complete value without changing the CSV.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -29,16 +29,25 @@ adv_default() {
 }
 
 row="$(adv_row_line allowlist)"
-[[ "$row" == *$'\n'* ]] || { echo 'FAIL long app row was not wrapped'; exit 1; }
-[[ "$(printf '%s\n' "$row" | wc -l | tr -d ' ')" == 3 ]] || {
-  echo 'FAIL app row did not produce three readable lines'
+[[ "$row" == *'8 apps selected'* ]] || { echo 'FAIL app row lost selected count'; exit 1; }
+[[ "$row" != *$'\n'* ]] || { echo 'FAIL selectable app row contains display newlines'; exit 1; }
+[[ "${#row}" -lt 80 ]] || {
+  echo 'FAIL selectable app row remains too wide'
   exit 1
 }
+
+body=()
+adv_allowlist_body body "$ALLOWLIST_IDS"
+[[ "${#body[@]}" == 9 ]] || {
+  echo 'FAIL app detail body did not expose one line per selected app'
+  exit 1
+}
+body_text="$(printf '%s\n' "${body[@]}")"
 for label in GCompris 'Tux Paint' KTuberling Blinken SuperTux SuperTuxKart KLettres Kanagram; do
-  [[ "$row" == *"$label"* ]] || { echo "FAIL app row lost $label"; exit 1; }
+  [[ "$body_text" == *"$label"* ]] || { echo "FAIL app detail body lost $label"; exit 1; }
 done
 [[ "$(adv_get allowlist)" == "$ALLOWLIST_IDS" ]] || {
   echo 'FAIL display formatting changed the underlying allowlist'
   exit 1
 }
-printf '%s\n' 'PASS Advanced app row wraps complete labels and preserves CSV selection'
+printf '%s\n' 'PASS Advanced app detail is readable and preserves CSV selection'

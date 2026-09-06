@@ -613,3 +613,15 @@ faint parent caption remains the existing #112 finding, so no duplicate issue is
 earlier automated media attempt remains a #133 fixture/autologin failure on both themes, with
 cleanup restoring the four fixture values and removing config. No new #133 code gate passed. Air
 remains restored to Tokyo Night.
+
+## Media/helper gate handoff, 2026-09-06
+
+Integrated revision `344d9b2` passed the ordered formatter, Mac 37-file suite with five platform
+skips, and serial VM 37-file suite with two skips for bar status and ash; authd and SO_PEERCRED
+checks ran. Public PR #114 remains at `fee4ad4` pending the final live pass. The installed VM
+package contained 181 files with zero altered files. Automated media run `62216` failed before
+capture on both themes because stock owner autologin returned the desktop (#133); the four
+fixture values were restored and config was removed. Manual `portal_reset` recovery `31132`
+passed and captured the real light portal as tile-only evidence, with no Cy login. The VM is
+clean at the original Catppuccin Latte theme and Air is restored to Tokyo Night. #133's rejected
+candidate and advisory details remain private and are omitted here.

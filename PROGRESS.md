@@ -12,12 +12,18 @@ formatter, Mac suite, VM suite, and live welcome/input/back/cancel on both machi
 The merged-main gate also passed: formatter, both full suites, and the same live navigation
 scenario on both machines. Screenshots are `docs/media/dogfood/main-footer-*.png`.
 
-The public #103 source is `fee4ad4`, which includes merged main `3f2ebe4`. The package was
-built on Air; the exact integrated helper gate is underway and actual captures remain pending.
-#111 at `a78d413` (PR #115, current desktop-launch theme) and #112 at `99a4ba5` (PR #116,
-readable parent portal label) remain reviewed drafts. The original `media-driver` remote
-branch is unchanged; PR #114 carries the rebased driver plus its reviewed correction. Real
-dogfood screenshots now exist in `docs/media/dogfood/`.
+The public #103 source is `fee4ad4`, which includes merged main `3f2ebe4`. Integrated
+media/helper revision `344d9b2` passed the formatter, Mac 37 files (five platform skips), and
+VM 37 files (two skips for bar status and ash); authd and SO_PEERCRED checks ran. PR #114 remains
+at `fee4ad4` pending the final live pass. The VM package installed cleanly with 181 files and
+zero altered files. Automated media run `62216` failed before capture on both themes because
+stock owner autologin returned the desktop (#133); its four fixture values were restored and
+config removed. Manual `portal_reset` recovery `31132` passed and captured the real light portal,
+with tile rendering only and no Cy login. The VM is clean at the original Catppuccin Latte theme;
+Air is restored to Tokyo Night. #111 at `a78d413` (PR #115, current desktop-launch theme) and
+#112 at `99a4ba5` (PR #116, readable parent portal label) remain reviewed drafts. The original
+`media-driver` remote branch is unchanged; PR #114 carries the rebased driver plus its reviewed
+correction. Real dogfood screenshots now exist in `docs/media/dogfood/`.
 
 New screenshot-backed issues: #117 empty More apps instructions, #118 unclear password owner
 on the exit card, #119 faint wizard keyboard help, #120 resize corruption, and #128 blank portal

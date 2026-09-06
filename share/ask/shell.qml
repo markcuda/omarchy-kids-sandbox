@@ -239,8 +239,8 @@ PanelWindow {
 
                     Text {
                         width: parent.width
-                        visible: !root.done && root.selectedAction === 0
-                        text: "Grown-up login password"
+                        visible: !root.done
+                        text: root.selectedAction === 0 ? "Grown-up login password" : "No password needed for Ask later"
                         color: theme.foreground
                         font.pixelSize: 16
                         font.bold: true

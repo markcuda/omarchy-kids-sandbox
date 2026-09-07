@@ -426,9 +426,9 @@ for n in 2 3 4 5 6; do
 done
 
 NSCONF="$SCRATCH_ROOT/etc/security/namespace.conf"
-check_eq "$(grep -c "^/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec $SLUG\$" "$NSCONF")" "1" \
+check_eq "$(grep -c "^/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec ~$SLUG\$" "$NSCONF")" "1" \
   "namespace.conf: exact /tmp line for $SLUG"
-check_eq "$(grep -c "^/dev/shm /dev/shm/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec $SLUG\$" "$NSCONF")" "1" \
+check_eq "$(grep -c "^/dev/shm /dev/shm/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec ~$SLUG\$" "$NSCONF")" "1" \
   "namespace.conf: exact /dev/shm line for $SLUG"
 
 for stack in sddm systemd-user; do

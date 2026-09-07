@@ -211,10 +211,13 @@ luks_remove() {
 }
 
 namespace_present() {
-  local file
+  local file account="$1"
   file="$(posture_namespace_conf)"
   [[ -f "$file" ]] || return 1
-  grep -qxF "$(posture_namespace_line_tmp "$1")" "$file" || grep -qxF "$(posture_namespace_line_shm "$1")" "$file"
+  grep -qxF "$(posture_namespace_line_tmp "$account")" "$file" ||
+    grep -qxF "$(posture_namespace_line_shm "$account")" "$file" ||
+    grep -qxF "$(posture_namespace_legacy_line_tmp "$account")" "$file" ||
+    grep -qxF "$(posture_namespace_legacy_line_shm "$account")" "$file"
 }
 namespace_remove() { posture_remove_namespace_lines "$1"; }
 

@@ -30,11 +30,14 @@ mount_fix() {
 
 # namespace: R-FND-2a's two pam_namespace.conf lines for this account.
 namespace_ok() {
-  local file
+  local file account="$1" old_l1 old_l2
   file="$(posture_namespace_conf)"
   [[ -f "$file" ]] || return 1
-  grep -qxF "$(posture_namespace_line_tmp "$1")" "$file" &&
-    grep -qxF "$(posture_namespace_line_shm "$1")" "$file"
+  old_l1="$(posture_namespace_legacy_line_tmp "$account")"
+  old_l2="$(posture_namespace_legacy_line_shm "$account")"
+  ! grep -qxF "$old_l1" "$file" && ! grep -qxF "$old_l2" "$file" &&
+    grep -qxF "$(posture_namespace_line_tmp "$account")" "$file" &&
+    grep -qxF "$(posture_namespace_line_shm "$account")" "$file"
 }
 namespace_fix() { posture_add_namespace_lines "$1"; }
 

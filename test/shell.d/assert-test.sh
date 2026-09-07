@@ -611,7 +611,21 @@ sed -i.bak '/kid-ada/d' "$NSCONF"
 rm -f "$NSCONF.bak"
 out="$("$BIN")"
 only_this_lock_changed "$out" "namespace:kid-ada" "namespace"
-check_eq "$(grep -c "kid-ada\$" "$NSCONF")" "2" "namespace.conf: both lines are back"
+check_eq "$(grep -c "~kid-ada\$" "$NSCONF")" "2" "namespace.conf: both lines use pam_namespace exclusions"
+
+# A legacy bare account line must not make the lock look healthy. Reasserting
+# it must remove both legacy lines and leave exactly the two exclusion lines.
+printf '%s\n%s\n' \
+  "$(posture_namespace_legacy_line_tmp kid-ada)" \
+  "$(posture_namespace_legacy_line_shm kid-ada)" >>"$NSCONF"
+if OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" source "$ROOT_DIR/bin/omarchy-kids-assert" 2>/dev/null && namespace_ok kid-ada; then
+  fail "namespace.conf: mixed legacy and exclusion lines are rejected"
+else
+  pass "namespace.conf: mixed legacy and exclusion lines are rejected"
+fi
+out="$("$BIN")"
+check_eq "$(grep -c "noexec kid-ada\$" "$NSCONF")" "0" "namespace.conf: legacy bare lines are removed"
+check_eq "$(grep -c "~kid-ada\$" "$NSCONF")" "2" "namespace.conf: reassert restores exactly two exclusions"
 
 # accountsservice
 ASFILE="$SCRATCH_ROOT/var/lib/AccountsService/users/kid-ada"

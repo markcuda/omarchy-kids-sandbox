@@ -108,16 +108,19 @@ posture_write_polkit_deny_rule() {
 # --- pam_namespace (R-FND-2a) -----------------------------------------------
 
 # posture_namespace_line_tmp/shm ACCOUNT — namespace.conf lines for this
-# account. pam_namespace's own per-uid polyinstantiation keeps two kids'
-# tmpfs's apart, not a distinct prefix per account.
-posture_namespace_line_tmp() { printf '/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec %s' "$1"; }
-posture_namespace_line_shm() { printf '/dev/shm /dev/shm/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec %s' "$1"; }
+# account. The leading "~" is pam_namespace's exclusion-list syntax: only
+# the named kid gets the private tmpfs, while the parent remains untouched.
+posture_namespace_line_tmp() { printf '/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec ~%s' "$1"; }
+posture_namespace_line_shm() { printf '/dev/shm /dev/shm/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec ~%s' "$1"; }
+posture_namespace_legacy_line_tmp() { printf '/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec %s' "$1"; }
+posture_namespace_legacy_line_shm() { printf '/dev/shm /dev/shm/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec %s' "$1"; }
 
 posture_add_namespace_lines() {
   local account="$1" file l1 l2
   file="$(posture_namespace_conf)"
   install -d -m 0755 "$(dirname "$file")"
   touch "$file"
+  posture_remove_namespace_lines "$account"
   l1="$(posture_namespace_line_tmp "$account")"
   l2="$(posture_namespace_line_shm "$account")"
   grep -qxF "$l1" "$file" || printf '%s\n' "$l1" >>"$file"
@@ -125,14 +128,16 @@ posture_add_namespace_lines() {
 }
 
 posture_remove_namespace_lines() {
-  local account="$1" file tmp l1 l2 line
+  local account="$1" file tmp l1 l2 old_l1 old_l2 line
   file="$(posture_namespace_conf)"
   [[ -f "$file" ]] || return 0
   l1="$(posture_namespace_line_tmp "$account")"
   l2="$(posture_namespace_line_shm "$account")"
+  old_l1="$(posture_namespace_legacy_line_tmp "$account")"
+  old_l2="$(posture_namespace_legacy_line_shm "$account")"
   tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ "$line" == "$l1" || "$line" == "$l2" ]] && continue
+    [[ "$line" == "$l1" || "$line" == "$l2" || "$line" == "$old_l1" || "$line" == "$old_l2" ]] && continue
     printf '%s\n' "$line" >>"$tmp"
   done <"$file"
   mv -f "$tmp" "$file"

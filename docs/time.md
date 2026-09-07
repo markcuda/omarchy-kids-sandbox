@@ -178,8 +178,10 @@ alone.
 - **Pushing lights-out for tonight only** (R-TIME-4). `grant` only ever extends the *budget*.
 - **The real R-ASK-1 "Ask a parent" modal** (a parent-password-gated on-the-spot grant, or a
   queued request) — see "Ask a grown-up is a placeholder" above.
-- **`/run/omarchy-kids/status.json` has no reader yet** — it's written (R-BAR-3's shape) for the
-  future parent-bar widget, R-BAR, which is a separate ticket.
+- **`/run/omarchy-kids/status.json` is read by the optional parent bar widget** — the root ledger
+  publishes live child rows and, when the validated queue read succeeds, the `open_requests`
+  count. A queue-read failure omits that field without blocking enforcement or child-status
+  publication; see `docs/bar.md`.
 
 Each of these is a real gap, not an oversight — I-6 says don't claim a control that isn't there,
 so this list is exactly the set of R-TIME/R-ASK behaviors this issue's "Done when" doesn't cover.

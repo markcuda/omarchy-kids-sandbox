@@ -330,7 +330,7 @@ apps_pick_walk() {
     [[ -z "$raw_id" ]] && continue
     [[ "$raw_id" =~ ^[a-z0-9][a-z0-9-]*$ ]] || return 2
     ids_array+=("$raw_id")
-  done <<< "$ids"
+  done <<<"$ids"
   # Iterate the validated capture so each interactive confirm retains the
   # caller's terminal stdin.
   for id in "${ids_array[@]}"; do

@@ -3,19 +3,28 @@
 set -euo pipefail
 VM="${VM_DIR:-$HOME/vm}"
 S="$VM/qmp.sock"
+QMP_SEQ=0
 qmp() {
-  local response last
-  if ! response="$(printf '{"execute":"qmp_capabilities"}\n{"execute":%s}\n' "$1" | socat -t 3 - "UNIX-CONNECT:$S")"; then
+  local response parsed cap_id command_id
+  QMP_SEQ=$((QMP_SEQ + 1))
+  cap_id="omarchy-kids-${QMP_SEQ}-capabilities"
+  command_id="omarchy-kids-${QMP_SEQ}-command"
+  if ! response="$(printf '{"execute":"qmp_capabilities","id":"%s"}\n{"execute":%s,"id":"%s"}\n' "$cap_id" "$1" "$command_id" | socat -t 3 - "UNIX-CONNECT:$S")"; then
     echo "QMP transport failed" >&2
     return 1
   fi
-  last="${response##*$'\n'}"
-  last="${last//$'\r'/}"
-  if [[ -z $last || $last != *'"return"'* || $last == *'"error"'* ]]; then
-    echo "QMP command failed: $last" >&2
+  if ! parsed="$(printf '%s\n' "$response" | jq -c -e -s --arg cap "$cap_id" --arg command "$command_id" '
+    ([.[] | select(type == "object" and (.id == $cap or .id == $command))]) as $matches |
+    ([$matches[] | select(.id == $cap)] | length) as $caps |
+    ([$matches[] | select(.id == $command)] | length) as $commands |
+    if $caps == 1 and $commands == 1 and all($matches[]; has("return") and (has("error") | not))
+    then [$matches[] | select(.id == $command)][0]
+    else error("missing, duplicate, malformed, or failed QMP response")
+    end')"; then
+    echo "QMP command failed" >&2
     return 1
   fi
-  printf '%s\n' "$last"
+  printf '%s\n' "$parsed"
 }
 case ${1:-} in
   shot)

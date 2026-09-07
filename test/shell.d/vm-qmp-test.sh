@@ -11,10 +11,14 @@ mkdir -p "$STUBS"
 cat >"$STUBS/socat" <<'SOCAT'
 #!/bin/bash
 cat >>"${QMP_REQUESTS:?QMP_REQUESTS must be set}"
+call=$((($(wc -l <"$QMP_REQUESTS") - 1) / 2 + 1))
 case "${QMP_RESULT:-ok}" in
-  ok) printf '%s\n%s\n%s\n' '{"QMP":{}}' '{"return":{}}' '{"return":{}}' ;;
-  error) printf '%s\n' '{"return":{},"error":{"class":"GenericError","desc":"bad key"}}' ;;
-  malformed) printf '%s\n' '{"unexpected":true}' ;;
+  ok) printf '%s\n%s\n%s\n%s\n' '{"QMP":{}}' '{"event":"RESET"}' "{\"return\":{},\"id\":\"omarchy-kids-${call}-capabilities\"}" "{\"return\":{},\"id\":\"omarchy-kids-${call}-command\"}" ;;
+  error) printf '%s\n%s\n%s\n' "{\"return\":{},\"id\":\"omarchy-kids-${call}-capabilities\"}" "{\"return\":{},\"error\":{\"class\":\"GenericError\"},\"id\":\"omarchy-kids-${call}-command\"}" '{"event":"RESET"}' ;;
+  malformed) printf '%s\n%s\n' "{\"return\":{},\"id\":\"omarchy-kids-${call}-capabilities\"}" "{\"return\": {oops},\"id\":\"omarchy-kids-${call}-command\"}" ;;
+  misleading) printf '%s\n%s\n' "{\"return\":{},\"id\":\"omarchy-kids-${call}-capabilities\"}" "{\"message\":\"return\",\"id\":\"omarchy-kids-${call}-command\"}" ;;
+  duplicate) printf '%s\n%s\n%s\n' "{\"return\":{},\"id\":\"omarchy-kids-${call}-capabilities\"}" "{\"return\":{},\"id\":\"omarchy-kids-${call}-capabilities\"}" "{\"return\":{},\"id\":\"omarchy-kids-${call}-command\"}" ;;
+  mismatch) printf '%s\n%s\n' "{\"return\":{},\"id\":\"omarchy-kids-${call}-capabilities\"}" "{\"return\":{},\"id\":\"other-command\"}" ;;
   transport) exit 7 ;;
   *) exit 8 ;;
 esac
@@ -26,13 +30,13 @@ mkdir -p "$VM_DIR"
 
 printf '21:00' | bash "$HELPER" type
 request="$(cat "$QMP_REQUESTS")"
-grep -Fq '"data":"shift"' <<<"$request"
-grep -Fq '"data":"semicolon"' <<<"$request"
+[[ $(jq -s -r '[.[] | select(.execute == "send-key") | .arguments.keys | map(.data) | join("+")] | join("|")' <<<"$request") == '2|1|shift+semicolon|0|0' ]]
 if grep -Fq '"data":":"' <<<"$request"; then
   echo "FAIL colon was sent as a raw qcode" >&2
   exit 1
 fi
-[[ $(bash "$HELPER" status) == '{"return":{}}' ]]
+: >"$QMP_REQUESTS"
+[[ $(bash "$HELPER" status) == '{"return":{},"id":"omarchy-kids-1-command"}' ]]
 
 : >"$QMP_REQUESTS"
 if printf '@' | bash "$HELPER" type >/dev/null 2>&1; then
@@ -41,7 +45,7 @@ if printf '@' | bash "$HELPER" type >/dev/null 2>&1; then
 fi
 [[ ! -s $QMP_REQUESTS ]]
 
-for result in error malformed transport; do
+for result in error malformed misleading duplicate mismatch transport; do
   : >"$QMP_REQUESTS"
   if printf ':' | QMP_RESULT="$result" bash "$HELPER" type >/dev/null 2>&1; then
     echo "FAIL QMP $result succeeded" >&2

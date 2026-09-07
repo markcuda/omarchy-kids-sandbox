@@ -6,6 +6,7 @@
 # render modes (issue #50), and a worked example.
 
 # shellcheck source=./theme.sh
+# shellcheck disable=SC1091 # resolved relative to this shared library at runtime
 source "$(dirname "${BASH_SOURCE[0]}")/theme.sh"
 
 TUI_ANS_ESC="@esc"
@@ -519,7 +520,7 @@ tui_screen_confirm() {
     # No prompt text in card mode: the title/body is already the
     # card's own content (same reasoning as --header "" above).
     if _tui_card_mode; then
-      gum confirm --affirmative "$affirm" --negative "$decline"
+      gum confirm --affirmative "$affirm" --negative "$decline" -- ""
     else
       gum confirm --affirmative "$affirm" --negative "$decline" -- "$title"
     fi

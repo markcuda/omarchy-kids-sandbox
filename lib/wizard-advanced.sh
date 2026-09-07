@@ -189,12 +189,6 @@ adv_summary_extra_rows() {
   if [[ "$(adv_get history_visible)" != "$(adv_default history_visible)" ]]; then
     adv_append_row "$arrname" "Browsing history|$(friendly_yesno "$HISTORY_VISIBLE") (custom)"
   fi
-  if [[ "$(adv_get budget_min_weekend)" != "$(adv_default budget_min_weekend)" ]]; then
-    adv_append_row "$arrname" "Screen time (weekends)|$BUDGET_MIN_WEEKEND minutes a day (custom)"
-  fi
-  if [[ "$(adv_get lights_out_weekend)" != "$(adv_default lights_out_weekend)" ]]; then
-    adv_append_row "$arrname" "Bedtime (weekends)|$LIGHTS_OUT_WEEKEND (custom)"
-  fi
   if [[ "$(adv_get sites)" != "$(adv_default sites)" ]]; then
     adv_append_row "$arrname" "Allowed sites|$SITES (custom)"
   fi

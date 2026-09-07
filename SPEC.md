@@ -294,12 +294,12 @@ Voice: Omy on A1 and A14; plain elsewhere. `<K>` is the kid's name, `<Kp>` the p
 | A5 | Age | "How old is <K>?" tiles 3-5 · 6-8 · 9-12 · 13+, each with one line ("Pre-reader. One app at a time.") | arrows |
 | A6 | Simple or Advanced | "How do you want to set up <Kp> computer?" **Simple** "A few clear choices with sensible defaults. About five minutes." **Advanced** "Every setting on one screen." | arrows |
 | A7 | Web (Simple) | "What can <K> see on the web?" A **Only sites you choose** "A short list you can grow. Best for younger kids." B **Filtered open web** "Adult content blocked, safe search on." (3-5 also: **No browser**) | A/B |
-| A8 | Time (Simple) | "How much screen time?" A "<budget> minutes a day, lights out at <time>" B "I'll set my own" → two fields | A/B |
+| A8 | Time (Simple) | "How much screen time?" A shows the band's weekday limits and the current weekend limits; B "I'll set my own" → edit weekday minutes and bedtime (weekend values are edited in Advanced) | A/B |
 | A9 | Apps (Simple) | "Which apps to start with?" A **The <band> starter pack** list of names B **Let me pick** → checklist | A/B |
 | A10 | Wi-Fi (Simple) | "Can <K> join new Wi-Fi?" A **Ask me first** B **On their own, safely** "They can join school or café Wi-Fi. The network can't change what's blocked." | A/B |
 | A11 | Level (Simple) | "How should <Kp> desktop work?" 1 **One thing at a time** 2 **Two things side by side** 3 **The full desktop** with a one-liner each; band default marked | arrows |
 | A12 | Kid password | "Now a password for <K>." hint by band; 3-5 adds **No password** | password ×2 |
-| A13 | Summary | "Here's what happens next." bullets: account, desktop level, web, time, apps, Wi-Fi; then "When the computer starts, whoever types their password lands on their own desktop. The youngest kids with no password get in after a grown-up starts it." Buttons **Apply** · **Change something** | Enter |
+| A13 | Summary | "Here's what happens next." bullets: account, desktop level, web, weekday/weekend screen-time and lights-out limits, apps, Wi-Fi; then "When the computer starts, whoever types their password lands on their own desktop. The youngest kids with no password get in after a grown-up starts it." Buttons **Apply** · **Change something** | Enter |
 | A13a | Advanced table | groups Web / Time / Apps / Wi-Fi / Desktop / Data; space toggles, slash filters, Enter picks | checklist |
 | A13b | Apply | one line per step with ✓, one bar, tip line; log to `/var/log/omarchy-kids/setup.log` | none |
 | A13c | Safety check | green/red list; firmware step red with "Print the parent card" | Enter |

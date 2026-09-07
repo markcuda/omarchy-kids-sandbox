@@ -160,11 +160,15 @@ screen_web() {
 
 # A8: Time (Simple). B leads to two custom fields, per Appendix A.
 screen_time() {
-  local band_budget band_lights
+  local band_budget band_budget_weekend band_lights band_lights_weekend
   band_budget="$(band_field "$BAND" budget_min)"
+  band_budget_weekend="$(band_field "$BAND" budget_min_weekend)"
   band_lights="$(band_field "$BAND" lights_out)"
+  band_lights_weekend="$(band_field "$BAND" lights_out_weekend)"
+  local current_budget_weekend="${BUDGET_MIN_WEEKEND:-$band_budget_weekend}"
+  local current_lights_weekend="${LIGHTS_OUT_WEEKEND:-$band_lights_weekend}"
   local choices=(
-    "default|$band_budget minutes a day, lights out at $band_lights|Matches Ages $BAND's usual day."
+    "default|Weekdays: $band_budget min; weekends: $current_budget_weekend min|Lights out: $band_lights weekdays; $current_lights_weekend weekends."
     "custom|I'll set my own|Pick your own minutes and bedtime."
   )
   tui_screen_choose "How much screen time?" 8 "$TOTAL_STEPS" 0 "" choices "default"
@@ -186,6 +190,24 @@ screen_time() {
   ((rc == 0)) || return $rc
   LIGHTS_OUT="$TUI_REPLY"
   return 0
+}
+
+summary_weekday_weekend() {
+  local weekday="$1" weekend="$2" weekday_default="$3" weekend_default="$4"
+  local text="$weekday minutes a day weekdays; $weekend minutes a day weekends"
+  if [[ "$weekday" != "$weekday_default" || "$weekend" != "$weekend_default" ]]; then
+    text+=' (custom)'
+  fi
+  printf '%s' "$text"
+}
+
+summary_lights_weekday_weekend() {
+  local weekday="$1" weekend="$2" weekday_default="$3" weekend_default="$4"
+  local text="$weekday weekdays; $weekend weekends"
+  if [[ "$weekday" != "$weekday_default" || "$weekend" != "$weekend_default" ]]; then
+    text+=' (custom)'
+  fi
+  printf '%s' "$text"
 }
 
 # A9: Apps (Simple). B walks the pack one app at a time via apps_pick_walk
@@ -306,8 +328,8 @@ screen_summary() {
       "Age band|$label ($blurb)"
       "Desktop|$(mark_if_changed level "Level $LEVEL")"
       "Web|$(mark_if_changed web "$(friendly_web_mode "$WEB_MODE")")"
-      "Screen time|$(mark_if_changed budget_min "$BUDGET_MIN minutes a day")"
-      "Bedtime|$(mark_if_changed lights_out "$LIGHTS_OUT")"
+      "Screen time|$(summary_weekday_weekend "$BUDGET_MIN" "$BUDGET_MIN_WEEKEND" "$(band_field "$BAND" budget_min)" "$(band_field "$BAND" budget_min_weekend)")"
+      "Bedtime|$(summary_lights_weekday_weekend "$LIGHTS_OUT" "$LIGHTS_OUT_WEEKEND" "$(band_field "$BAND" lights_out)" "$(band_field "$BAND" lights_out_weekend)")"
       "Wi-Fi|$(mark_if_changed wifi "$(friendly_wifi_mode "$WIFI_MODE")")"
       "Starter apps|$(mark_if_changed allowlist "$apps_desc")"
       "Password|$password_line"

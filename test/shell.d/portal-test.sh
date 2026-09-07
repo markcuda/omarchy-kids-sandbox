@@ -123,6 +123,22 @@ print(s.count('{'), s.count('}'), s.count('('), s.count(')'))
   else
     fail "Main.qml has no isParent tracking"
   fi
+  if python3 - "$MAIN_QML" <<'PY'
+from pathlib import Path
+import sys
+
+source = Path(sys.argv[1]).read_text()
+label_start = source.index("text: root.displayNameFor(modelData.name, modelData.realName)\n")
+label_end = source.index("\n                    }", label_start)
+label = source[label_start:label_end]
+assert "color: root.colText" in label
+assert "font.pixelSize: modelData.isParent ? 16 : 20" in label
+PY
+  then
+    pass "Main.qml renders parent account labels with readable text color and smaller font"
+  else
+    fail "Main.qml parent account label is not readable while retaining the smaller font"
+  fi
 
   # R-LOGIN-3: the session lookup is by file (not a picker UI).
   if grep -qF 'omarchy-kids.desktop' "$MAIN_QML" && grep -qF 'omarchy.desktop' "$MAIN_QML"; then

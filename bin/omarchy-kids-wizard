@@ -323,17 +323,26 @@ maybe_override() {
 # $TUI_REPLY to the comma-joined yes ids. Shared by A9 and the Advanced
 # checklist's apps row (docs/wizard.md).
 apps_pick_walk() {
-  local step="$1" total="$2" id label chosen=() body
-  while IFS= read -r id; do
-    [[ -z "$id" ]] && continue
+  local step="$1" total="$2" id raw_id label chosen=() body ids rc
+  local -a ids_array=()
+  ids="$(pack_field "$BAND" id)" || return 2
+  while IFS= read -r raw_id; do
+    [[ -z "$raw_id" ]] && continue
+    [[ "$raw_id" =~ ^[a-z0-9][a-z0-9-]*$ ]] || return 2
+    ids_array+=("$raw_id")
+  done <<<"$ids"
+  # Iterate the validated capture so each interactive confirm retains the
+  # caller's terminal stdin.
+  for id in "${ids_array[@]}"; do
     label="$(app_label_for "$BAND" "$id")"
     # shellcheck disable=SC2034 # read by tui_screen_confirm via nameref-by-name
     body=("Include $label in $DISPLAY_NAME's starter apps?")
     tui_screen_confirm "$label" "$step" "$total" 0 "" body "Yes" "No"
-    local rc=$?
+    rc=$?
     ((rc == 130)) && return 130
+    ((rc > 1)) && return "$rc"
     [[ "$TUI_REPLY" == yes ]] && chosen+=("$id")
-  done < <(pack_field "$BAND" id)
+  done
   local IFS=,
   TUI_REPLY="${chosen[*]}"
   return 0

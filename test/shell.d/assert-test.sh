@@ -618,6 +618,7 @@ check_eq "$(grep -c "~kid-ada\$" "$NSCONF")" "2" "namespace.conf: both lines use
 printf '%s\n%s\n' \
   "$(posture_namespace_legacy_line_tmp kid-ada)" \
   "$(posture_namespace_legacy_line_shm kid-ada)" >>"$NSCONF"
+chmod 0640 "$NSCONF"
 if OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" source "$ROOT_DIR/bin/omarchy-kids-assert" 2>/dev/null && namespace_ok kid-ada; then
   fail "namespace.conf: mixed legacy and exclusion lines are rejected"
 else
@@ -626,6 +627,7 @@ fi
 out="$("$BIN")"
 check_eq "$(grep -c "noexec kid-ada\$" "$NSCONF")" "0" "namespace.conf: legacy bare lines are removed"
 check_eq "$(grep -c "~kid-ada\$" "$NSCONF")" "2" "namespace.conf: reassert restores exactly two exclusions"
+check_eq "$(kids_file_mode "$NSCONF")" "640" "namespace.conf: migration preserves file mode"
 
 # accountsservice
 ASFILE="$SCRATCH_ROOT/var/lib/AccountsService/users/kid-ada"

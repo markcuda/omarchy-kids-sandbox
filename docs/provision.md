@@ -67,7 +67,7 @@ trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the com
 10. **A private noexec tmpfs for `/tmp` and `/dev/shm`** (R-FND-2a, issue #10 finding c): two
    lines appended to `/etc/security/namespace.conf` —
    `/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec ~<account>` and the same shape for
-   `/dev/shm` — the leading `~` excludes the named kid from the shared mount — plus, in
+   `/dev/shm` — the fourth field is an exclusion list when bare, while `~<account>` selects only that kid for polyinstantiation — plus, in
    `/etc/pam.d/sddm` and `/etc/pam.d/systemd-user`, a marker comment
    (`# omarchy-kids: pam_namespace for kid sessions (R-FND-2a)`) followed by
    `session required pam_namespace.so`, appended once per file and never duplicated (the marker

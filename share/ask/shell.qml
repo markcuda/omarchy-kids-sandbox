@@ -228,6 +228,25 @@ PanelWindow {
                         horizontalAlignment: Text.AlignHCenter
                     }
 
+                    Text {
+                        width: parent.width
+                        visible: !root.done
+                        text: "Tab choose · Enter continue · Esc close"
+                        color: theme.foreground
+                        font.pixelSize: 14
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: !root.done
+                        text: root.selectedAction === 0 ? "Grown-up login password" : "No password needed for Ask later"
+                        color: theme.foreground
+                        font.pixelSize: 16
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
                     // --- Password field (I-5: focused, masked, Enter/Esc) --
                     Rectangle {
                         visible: !root.done

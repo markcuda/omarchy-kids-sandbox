@@ -118,6 +118,14 @@ friendly_dns() {
 friendly_sites() {
   [[ -z "$1" ]] && echo "(none)" || echo "$1"
 }
+friendly_desktop_level() {
+  case "$1" in
+    1) echo "One thing at a time" ;;
+    2) echo "Two things side by side" ;;
+    3) echo "The full desktop" ;;
+    *) echo "$1" ;;
+  esac
+}
 friendly_allowlist() {
   local csv="$1" id oldifs="$IFS" out=""
   if [[ -z "$csv" ]]; then
@@ -175,7 +183,7 @@ adv_friendly() {
     dns) friendly_dns "$value" ;;
     menu) friendly_menu "$value" ;;
     history_visible) friendly_yesno "$value" ;;
-    level) echo "Level $value" ;;
+    level) friendly_desktop_level "$value" ;;
     budget_min | budget_min_weekend) echo "$value minutes a day" ;;
     lights_out | lights_out_weekend) echo "$value" ;;
     allowlist) friendly_allowlist "$value" ;;

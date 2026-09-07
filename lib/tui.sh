@@ -519,7 +519,7 @@ tui_screen_confirm() {
     # No prompt text in card mode: the title/body is already the
     # card's own content (same reasoning as --header "" above).
     if _tui_card_mode; then
-      gum confirm --affirmative "$affirm" --negative "$decline"
+      gum confirm --affirmative "$affirm" --negative "$decline" -- ""
     else
       gum confirm --affirmative "$affirm" --negative "$decline" -- "$title"
     fi

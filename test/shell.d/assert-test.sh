@@ -619,7 +619,7 @@ printf '%s\n%s\n' \
   "$(posture_namespace_legacy_line_tmp kid-ada)" \
   "$(posture_namespace_legacy_line_shm kid-ada)" >>"$NSCONF"
 chmod 0640 "$NSCONF"
-if OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" source "$ROOT_DIR/bin/omarchy-kids-assert" 2>/dev/null && namespace_ok kid-ada; then
+if (OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" source "$ROOT_DIR/bin/omarchy-kids-assert" 2>/dev/null && namespace_ok kid-ada); then
   fail "namespace.conf: mixed legacy and exclusion lines are rejected"
 else
   pass "namespace.conf: mixed legacy and exclusion lines are rejected"

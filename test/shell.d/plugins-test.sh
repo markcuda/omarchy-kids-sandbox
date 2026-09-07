@@ -325,4 +325,52 @@ check_contains "$help_out" "shelf" "--help mentions shelf"
 check_contains "$help_out" "install" "--help mentions install"
 check_contains "$help_out" "remove" "--help mentions remove"
 
+# --- kid-side More apps overlay: empty state stays honest and explains the
+# existing Escape path back to the launcher (issue #117) -------------------
+
+PLUGIN_QML="$DIR/share/plugins/shell.qml"
+plugin_qml="$(cat "$PLUGIN_QML")"
+check_contains "$plugin_qml" \
+  'visible: root.loaded && root.loadError.length === 0 && root.shelf.length > 0' \
+  "More apps: selection instruction is visible only for a populated shelf"
+check_contains "$plugin_qml" \
+  "There aren't any extra apps to ask for yet. Press Esc to go back." \
+  "More apps: empty state tells the kid why there is nothing to choose"
+check_contains "$plugin_qml" \
+  "Esc  Back to launcher" \
+  "More apps: visible Back affordance labels the Escape handler"
+check_contains "$plugin_qml" \
+  "id: backButton" \
+  "More apps: Back affordance has its own control"
+check_contains "$plugin_qml" \
+  "Accessible.role: Accessible.Button" \
+  "More apps: Back affordance exposes a Button role"
+check_contains "$plugin_qml" \
+  'Accessible.name: "Back to launcher"' \
+  "More apps: Back affordance exposes an accessible name"
+check_contains "$plugin_qml" \
+  "onClicked: root.closeModal()" \
+  "More apps: pointer Back action closes the overlay"
+check_contains "$plugin_qml" \
+  "color: backMouse.containsMouse ? theme.tileFill : theme.cardFill" \
+  "More apps: Back affordance has theme-based hover feedback"
+check_contains "$plugin_qml" \
+  "height: root.loaded && root.shelf.length === 0" \
+  "More apps: loaded empty and error states use a compact card"
+check_contains "$plugin_qml" \
+  "Math.min(parent.height - 96, 640)" \
+  "More apps: populated and loading states retain the tall card"
+check_contains "$plugin_qml" \
+  "height: root.shelf.length > 0 ? parent.height - 140 : 0" \
+  "More apps: empty and error states reserve no hidden list space"
+check_not_contains "$plugin_qml" \
+  'text: "Pick one, then press Enter to ask a grown-up."' \
+  "More apps: empty state no longer shows a choice prompt when there are no choices"
+check_contains "$plugin_qml" \
+  'Quickshell.execDetached([root.askBin, "app", item.id])' \
+  "More apps: populated selection still hands off to Ask a grown-up"
+check_contains "$plugin_qml" \
+  "Keys.onEscapePressed" \
+  "More apps: Escape remains the keyboard path back to the launcher"
+
 exit $fail

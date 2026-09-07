@@ -118,6 +118,7 @@ check "$(jq -r '.avatar' "$MANIFEST")" "fox" "manifest carries the avatar"
 check "$(jq -r '.band' "$MANIFEST")" "6-8" "manifest carries the band"
 check "$(jq -r '.level' "$MANIFEST")" "1" "manifest carries the level"
 check "$(jq -r '.theme' "$MANIFEST")" "tokyo-night" "manifest carries the theme"
+check "$(jq -r '.show_missing' "$MANIFEST")" "false" "manifest defaults show_missing to false"
 check "$(jq -r '.web' "$MANIFEST")" "garden" "manifest carries the web mode"
 check "$(jq -r '.policy_id' "$MANIFEST")" "omarchy-kids-6-8" "manifest carries the policy id"
 check "$(jq -r '.budget_min' "$MANIFEST")" "60" "manifest carries the weekday budget"
@@ -143,6 +144,37 @@ check "$(jq -r '.tiles[] | select(.id == "ktuberling") | .installed' "$MANIFEST"
   "missing application is represented as unavailable"
 check "$(jq -r '.tiles[] | select(.id == "ktuberling") | .argv | length' "$MANIFEST")" "0" \
   "missing application has no executable argv"
+
+jq 'del(.show_missing)' "$MANIFEST" >"$TMP/legacy-manifest.json"
+cp "$TMP/legacy-manifest.json" "$MANIFEST"
+session_manifest check "$ACCOUNT" >/dev/null
+check "$?" "0" "legacy manifest without show_missing defaults safely to false"
+conf_set "$PROFILE" apps.show_missing yes
+if session_manifest check "$ACCOUNT" >/dev/null 2>&1; then
+  fail_ "legacy manifest cannot override explicit show_missing=yes"
+else
+  pass "legacy manifest becomes stale when profile explicitly enables show_missing"
+fi
+conf_set "$PROFILE" apps.show_missing no
+jq '.show_missing = "maybe"' "$MANIFEST" >"$TMP/malformed-show-missing.json"
+cp "$TMP/malformed-show-missing.json" "$MANIFEST"
+if session_manifest check "$ACCOUNT" >/dev/null 2>&1; then
+  fail_ "manifest rejects a malformed show_missing value"
+else
+  pass "manifest rejects a malformed show_missing value"
+fi
+session_manifest build "$ACCOUNT" >/dev/null
+
+conf_set "$PROFILE" apps.show_missing yes
+session_manifest build "$ACCOUNT" >/dev/null
+check "$(jq -r '.show_missing' "$MANIFEST")" "true" "manifest carries explicit show_missing=yes"
+check "$(jq -r '.tiles[] | select(.id == "tuxpaint") | .installed' "$MANIFEST")" "true" \
+  "explicit show_missing preserves installed tiles"
+conf_set "$PROFILE" apps.show_missing no
+session_manifest build "$ACCOUNT" >/dev/null
+check "$(jq -r '.show_missing' "$MANIFEST")" "false" "manifest carries explicit show_missing=no"
+check "$(jq -r '.tiles[] | select(.id == "tuxpaint") | .installed' "$MANIFEST")" "true" \
+  "explicit show_missing=no preserves installed tiles"
 
 session_manifest check "$ACCOUNT" >/dev/null
 check "$?" "0" "check accepts a current manifest"

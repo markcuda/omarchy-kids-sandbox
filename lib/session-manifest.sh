@@ -77,6 +77,11 @@ session_manifest_validate_profile() {
     session_manifest_error "profile '$account' has an invalid web mode '$value'"
     return 1
   }
+  value="$(session_manifest_profile_value "$account" apps.show_missing)" || return 1
+  is_in "$value" yes no || {
+    session_manifest_error "profile '$account' has an invalid apps.show_missing value '$value'"
+    return 1
+  }
   return 0
 }
 
@@ -134,7 +139,7 @@ session_manifest_map_is_valid() {
 }
 
 session_manifest_render() {
-  local account="$1" output="$2" map name avatar band level theme web policy_id
+  local account="$1" output="$2" map name avatar band level theme web show_missing show_missing_json policy_id
   local budget_min budget_min_weekend lights_out lights_out_weekend allowlist
   map="$(mktemp)"
   if ! launcher_map_render "$account" "$map"; then
@@ -169,6 +174,19 @@ session_manifest_render() {
     rm -f "$map"
     return 1
   }
+  show_missing="$(session_manifest_profile_value "$account" apps.show_missing)" || {
+    rm -f "$map"
+    return 1
+  }
+  case "$show_missing" in
+    yes) show_missing_json=true ;;
+    no) show_missing_json=false ;;
+    *)
+      rm -f "$map"
+      session_manifest_error "profile '$account' has an invalid apps.show_missing value '$show_missing'"
+      return 1
+      ;;
+  esac
   budget_min="$(session_manifest_profile_value "$account" budget_min)" || {
     rm -f "$map"
     return 1
@@ -193,12 +211,14 @@ session_manifest_render() {
 
   jq -n --arg account "$account" --arg name "$name" --arg avatar "$avatar" \
     --arg band "$band" --argjson level "$level" --arg theme "$theme" \
+    --argjson show_missing "$show_missing_json" \
     --argjson allowlist "$allowlist" --arg web "$web" --arg policy_id "$policy_id" \
     --argjson budget_min "$budget_min" --argjson budget_min_weekend "$budget_min_weekend" \
     --arg lights_out "$lights_out" --arg lights_out_weekend "$lights_out_weekend" \
     --argjson tiles "$(jq '[.tiles[] | {id, label, icon, installed, argv}]' "$map")" \
     '{schema_version: 1, account: $account, name: $name, avatar: $avatar,
-      band: $band, level: $level, theme: $theme, allowlist: $allowlist,
+      band: $band, level: $level, theme: $theme, show_missing: $show_missing,
+      allowlist: $allowlist,
       web: $web, policy_id: $policy_id, budget_min: $budget_min,
       budget_min_weekend: $budget_min_weekend, lights_out: $lights_out,
       lights_out_weekend: $lights_out_weekend, tiles: $tiles}' >"$output"
@@ -213,6 +233,7 @@ session_manifest_json_is_valid() {
     (.avatar | type == "string" and test("^[a-z0-9][a-z0-9-]*$")) and
     (.band | type == "string") and (.level | type == "number" and . >= 1 and . <= 3) and
     (.theme | type == "string") and
+    ((has("show_missing") | not) or (.show_missing | type == "boolean")) and
     (.allowlist | type == "array" and all(.[]; type == "string")) and
     (.web | type == "string" and (IN("garden", "filtered", "none"))) and
     (.policy_id | type == "string" and length > 0) and
@@ -228,9 +249,10 @@ session_manifest_json_is_valid() {
       ((.installed == false and (.argv | length) == 0) or
        (.installed == true and (.argv | length) > 0)) and
       (.installed == false or (.argv[0] | type == "string" and startswith("/")))) and
-    (keys | length == 15) and
+    (((keys | length == 15) and (has("show_missing") | not)) or
+      ((keys | length == 16) and has("show_missing"))) and
     all(keys[]; IN("schema_version", "account", "name", "avatar", "band", "level", "theme",
-      "allowlist", "web", "policy_id", "budget_min", "budget_min_weekend", "lights_out",
+      "show_missing", "allowlist", "web", "policy_id", "budget_min", "budget_min_weekend", "lights_out",
       "lights_out_weekend", "tiles"))
   ' "$file" >/dev/null
 }
@@ -311,7 +333,7 @@ session_manifest_build() {
 }
 
 session_manifest_check() {
-  local account="$1" file expected
+  local account="$1" file expected actual_normalized expected_normalized
   session_manifest_valid_account "$account" || {
     session_manifest_error "invalid kid account '$account'"
     return 1
@@ -337,11 +359,17 @@ session_manifest_check() {
     session_manifest_error "current source data for '$account' is invalid"
     return 1
   fi
-  if ! cmp -s "$file" "$expected"; then
+  actual_normalized="$(mktemp)"
+  expected_normalized="$(mktemp)"
+  if ! jq -S 'if has("show_missing") then . else . + {show_missing: false} end' "$file" >"$actual_normalized" ||
+    ! jq -S . "$expected" >"$expected_normalized" ||
+    ! cmp -s "$actual_normalized" "$expected_normalized"; then
+    rm -f "$actual_normalized" "$expected_normalized"
     rm -f "$expected"
     session_manifest_error "manifest '$account' is stale"
     return 1
   fi
+  rm -f "$actual_normalized" "$expected_normalized"
   rm -f "$expected"
 }
 

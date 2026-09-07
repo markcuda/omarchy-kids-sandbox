@@ -52,6 +52,13 @@ function moveDown(index, columns, length) {
     return index + columns < length ? index + columns : index;
 }
 
+function visibleTiles(tiles, showMissing) {
+    if (showMissing === true) return tiles;
+    return tiles.filter(function(tile) {
+        return tile && tile.installed === true;
+    });
+}
+
 // Node-only: lets test/shell.d/launcher-grid-test.sh `eval()` this file
 // after pre-declaring `module` and then call these via `module.exports`.
 // The QML JS import environment never defines a global `module`, so this
@@ -62,6 +69,7 @@ if (typeof module !== "undefined") {
         moveLeft: moveLeft,
         moveRight: moveRight,
         moveUp: moveUp,
-        moveDown: moveDown
+        moveDown: moveDown,
+        visibleTiles: visibleTiles
     };
 }

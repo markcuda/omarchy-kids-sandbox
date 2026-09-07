@@ -59,6 +59,10 @@ check_contains "$qml_content" 'command: ["/usr/bin/omarchy-kids-session", "--man
   "launcher reads the caller-bound session manifest"
 check_contains "$qml_content" 'root.manifest.tiles || []' \
   "launcher gets tiles from the manifest"
+check_contains "$qml_content" 'GridNav.visibleTiles(data.tiles, data.show_missing === true)' \
+  "launcher filters missing tiles from the validated manifest setting"
+check_contains "$qml_content" 'if (root.currentIndex >= root.tiles.length)' \
+  "launcher clamps the keyboard index after filtering tiles"
 check_contains "$qml_content" 'root.launchInstalled(tile.id || "") !== true' \
   "activation requires the manifest to mark the tile installed"
 check_contains "$qml_content" 'launcherProcess.command = argv' \
@@ -176,9 +180,15 @@ if command -v node >/dev/null 2>&1; then
     results.push('cols0=' + G.columnsFor(0, 160));
     results.push('colsNeg=' + G.columnsFor(800, 0));
 
+    var tiles = [{id: 'installed', installed: true}, {id: 'missing', installed: false}];
+    results.push('missingDefault=' + G.visibleTiles(tiles).length);
+    results.push('missingExplicitNo=' + G.visibleTiles(tiles, false).length);
+    results.push('missingYes=' + G.visibleTiles(tiles, true).length);
+    results.push('installedId=' + G.visibleTiles(tiles, false)[0].id);
+
     console.log(results.join(' '));
   " "$JS" 2>&1)"
-  check "$out" "columns=5 down3=8 right7=8 right9=9 left0=0 left5=4 up2=2 down9=9 cols0=1 colsNeg=1" \
+  check "$out" "columns=5 down3=8 right7=8 right9=9 left0=0 left5=4 up2=2 down9=9 cols0=1 colsNeg=1 missingDefault=1 missingExplicitNo=1 missingYes=2 installedId=installed" \
     "gridnav.js index math matches issue #43's live scenario (node)"
 else
   echo "SKIP gridnav.js index-math check: node not found"

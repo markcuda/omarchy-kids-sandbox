@@ -611,7 +611,41 @@ sed -i.bak '/kid-ada/d' "$NSCONF"
 rm -f "$NSCONF.bak"
 out="$("$BIN")"
 only_this_lock_changed "$out" "namespace:kid-ada" "namespace"
-check_eq "$(grep -c "kid-ada\$" "$NSCONF")" "2" "namespace.conf: both lines are back"
+check_eq "$(grep -c "~kid-ada\$" "$NSCONF")" "2" "namespace.conf: both lines use pam_namespace exclusions"
+
+# A legacy bare account line must not make the lock look healthy. Reasserting
+# it must remove both legacy lines and leave exactly the two exclusion lines.
+printf '%s\n%s\n' \
+  "$(posture_namespace_legacy_line_tmp kid-ada)" \
+  "$(posture_namespace_legacy_line_shm kid-ada)" >>"$NSCONF"
+chmod 0640 "$NSCONF"
+if (OMARCHY_KIDS_ETC="$ETC" OMARCHY_KIDS_SHARE="$SHARE" source "$ROOT_DIR/bin/omarchy-kids-assert" 2>/dev/null && namespace_ok kid-ada); then
+  fail "namespace.conf: mixed legacy and exclusion lines are rejected"
+else
+  pass "namespace.conf: mixed legacy and exclusion lines are rejected"
+fi
+out="$("$BIN")"
+check_eq "$(grep -c "noexec kid-ada\$" "$NSCONF")" "0" "namespace.conf: legacy bare lines are removed"
+check_eq "$(grep -c "~kid-ada\$" "$NSCONF")" "2" "namespace.conf: reassert restores exactly two exclusions"
+check_eq "$(kids_file_mode "$NSCONF")" "640" "namespace.conf: migration preserves file mode"
+
+# A failed stage copy must fail the rewrite and leave the trusted file intact.
+NSCONF_BEFORE="$TMP/namespace.conf.before-copy-failure"
+cp "$NSCONF" "$NSCONF_BEFORE"
+NSFAIL_STUBS="$TMP/namespace-failure-stubs"
+mkdir -p "$NSFAIL_STUBS"
+cat >"$NSFAIL_STUBS/cp" <<'EOF'
+#!/bin/bash
+exit 73
+EOF
+chmod +x "$NSFAIL_STUBS/cp"
+if PATH="$NSFAIL_STUBS:$PATH" posture_add_namespace_lines kid-ada; then
+  fail "namespace.conf: failed stage copy is reported"
+else
+  pass "namespace.conf: failed stage copy is reported"
+fi
+cmp -s "$NSCONF_BEFORE" "$NSCONF" && pass "namespace.conf: failed stage copy preserves the original" ||
+  fail "namespace.conf: failed stage copy preserves the original"
 
 # accountsservice
 ASFILE="$SCRATCH_ROOT/var/lib/AccountsService/users/kid-ada"

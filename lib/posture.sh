@@ -108,33 +108,66 @@ posture_write_polkit_deny_rule() {
 # --- pam_namespace (R-FND-2a) -----------------------------------------------
 
 # posture_namespace_line_tmp/shm ACCOUNT — namespace.conf lines for this
-# account. pam_namespace's own per-uid polyinstantiation keeps two kids'
-# tmpfs's apart, not a distinct prefix per account.
-posture_namespace_line_tmp() { printf '/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec %s' "$1"; }
-posture_namespace_line_shm() { printf '/dev/shm /dev/shm/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec %s' "$1"; }
+# account. In pam_namespace's fourth field, a bare list exempts users from
+# polyinstantiation; the leading "~" instead selects only the named kid.
+posture_namespace_line_tmp() { printf '/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec ~%s' "$1"; }
+posture_namespace_line_shm() { printf '/dev/shm /dev/shm/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec ~%s' "$1"; }
+posture_namespace_legacy_line_tmp() { printf '/tmp /tmp/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec %s' "$1"; }
+posture_namespace_legacy_line_shm() { printf '/dev/shm /dev/shm/kids-inst/ tmpfs:mntopts=nosuid,nodev,noexec %s' "$1"; }
 
 posture_add_namespace_lines() {
-  local account="$1" file l1 l2
+  local account="$1" file
   file="$(posture_namespace_conf)"
   install -d -m 0755 "$(dirname "$file")"
-  touch "$file"
-  l1="$(posture_namespace_line_tmp "$account")"
-  l2="$(posture_namespace_line_shm "$account")"
-  grep -qxF "$l1" "$file" || printf '%s\n' "$l1" >>"$file"
-  grep -qxF "$l2" "$file" || printf '%s\n' "$l2" >>"$file"
+  posture_namespace_rewrite "$account" add
 }
 
 posture_remove_namespace_lines() {
-  local account="$1" file tmp l1 l2 line
+  posture_namespace_rewrite "$1" remove
+}
+
+posture_namespace_rewrite() {
+  local account="$1" action="$2" file tmp l1 l2 old_l1 old_l2 line
   file="$(posture_namespace_conf)"
-  [[ -f "$file" ]] || return 0
+  [[ "$action" == add || -f "$file" ]] || return 0
   l1="$(posture_namespace_line_tmp "$account")"
   l2="$(posture_namespace_line_shm "$account")"
+  old_l1="$(posture_namespace_legacy_line_tmp "$account")"
+  old_l2="$(posture_namespace_legacy_line_shm "$account")"
   tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")"
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    [[ "$line" == "$l1" || "$line" == "$l2" ]] && continue
-    printf '%s\n' "$line" >>"$tmp"
-  done <"$file"
+  if [[ -f "$file" ]]; then
+    cp -p "$file" "$tmp" || {
+      rm -f "$tmp"
+      return 1
+    }
+  else
+    chmod 0644 "$tmp" || {
+      rm -f "$tmp"
+      return 1
+    }
+  fi
+  : >"$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
+  if [[ -f "$file" ]]; then
+    if ! while IFS= read -r line || [[ -n "$line" ]]; do
+      [[ "$line" == "$l1" || "$line" == "$l2" || "$line" == "$old_l1" || "$line" == "$old_l2" ]] && continue
+      printf '%s\n' "$line" >>"$tmp" || {
+        rm -f "$tmp"
+        return 1
+      }
+    done <"$file"; then
+      rm -f "$tmp"
+      return 1
+    fi
+  fi
+  if [[ "$action" == add ]]; then
+    printf '%s\n%s\n' "$l1" "$l2" >>"$tmp" || {
+      rm -f "$tmp"
+      return 1
+    }
+  fi
   mv -f "$tmp" "$file"
 }
 

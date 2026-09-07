@@ -80,7 +80,7 @@ One line per lock, `<status> <lock-id>`, status one of `ok` / `fixed` / `FAIL` /
 | --- | --- | --- |
 | `fstab:<account>` | The exact `/etc/fstab` bind line for this account's home (R-FND-2) | `lib/posture.sh`'s `posture_add_fstab_line` (already idempotent) |
 | `mount:<account>` | The home is *actually* mounted `noexec,nosuid,nodev` right now, via `findmnt`, not just that `fstab` says it should be | `mount --bind` (only if not already a mountpoint) then `mount -o remount,bind,nosuid,nodev,noexec` |
-| `namespace:<account>` | Both `/etc/security/namespace.conf` lines for `/tmp` and `/dev/shm` (R-FND-2a) | `posture_add_namespace_lines` |
+| `namespace:<account>` | Both `/etc/security/namespace.conf` lines for `/tmp` and `/dev/shm`, using pam_namespace's `~<account>` exclusion syntax (R-FND-2a) | `posture_add_namespace_lines` |
 | `accountsservice:<account>` | `/var/lib/AccountsService/users/<account>` matches exactly (R-LOGIN-3) | `posture_write_accountsservice` |
 | `gecos:<account>` | The passwd GECOS field (read via `getent passwd`) matches the safe fallback: the exact profile name unless it contains passwd's `:` delimiter, then empty. "ok" if this box has no `getent` at all | `usermod -c "<fallback>" <account>` |
 | `face:<account>` | `/usr/share/sddm/faces/<account>.face.icon` is byte-for-byte the profile's avatar SVG (R-LOGIN, issue #39 — SDDM's `UserModel` reads the avatar from this path, not from AccountsService's `Icon=` key; `docs/portal.md` has the full `UserModel.cpp` citation) | `posture_write_face_icon` |

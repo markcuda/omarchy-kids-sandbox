@@ -86,10 +86,17 @@ fail-closed path as every other check, not a special case.
 
 Runs every check above (not stopping at the first failure — it always produces the full table)
 and prints a `CHECK / RESULT / DETAIL` table instead of starting anything. Exits 0 if nothing
-FAILed, 1 if anything did. Built so `omarchy-kids-check` (the
-green/red "is it safe?" tool, currently a stub of its own from an earlier issue) can shell out to
-this instead of re-implementing R-DESK-2's checks a second time — that wiring is that command's
-own issue, not this one's; this ticket only builds the flag.
+FAILed, 1 if anything did. Run this inside the child's actual login session: `sudo -u` does not establish
+that session's private temporary mounts.
+
+## `omarchy-kids-session --check-setup`
+
+Used by the wizard before first login. Runs the same account, policy, polkit, home mount,
+console and compositor-config checks, but reports the private `/tmp` and `/dev/shm` checks as
+`SKIP`, with “checked at child login.” Those mounts belong to the child's PAM session; a plain
+`sudo -u` process cannot prove them. Exits 1 on any other failed check, otherwise 0. It never
+starts the desktop or writes a session log. Normal login and `--check` still require every
+check, including both private temporary mounts.
 
 ## `omarchy-kids-session --install-configs`
 

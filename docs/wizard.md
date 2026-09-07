@@ -166,6 +166,14 @@ Ctrl+C before Apply stops the recorded prefetch job through `stop_prefetch` on t
 Prefetch always downloads the whole band pack, regardless of the later A9 selection; the allowlist
 override A9 writes still controls what the kid sees in the launcher.
 
+## Apply's account mode
+
+During a real Apply, the account step reads the active mode with `omarchy-kids-conf machine get
+boot`. Portal mode passes only the kid password to `omarchy-kids-provision`; disk mode also passes
+the parent password and the disk-only LUKS flags. A missing or invalid mode stops the account step.
+The dry-run preview retains its existing disk-shaped command text and does not read the machine boot
+mode, so it does not validate the portal invocation.
+
 ## Apply's five steps: exit codes, stopping on failure, and the technical log
 
 Each of Apply's five dashboard rows is one function (`apply_step_getok`, `apply_step_account`,

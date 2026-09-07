@@ -397,7 +397,7 @@ tui_screen_choose() {
 }
 
 # tui_screen_input TITLE STEP TOTAL SHOW_OMY OMY_LINE KIND PLACEHOLDER \
-#                   [VALIDATOR] [FOOTER]
+#                   [VALIDATOR] [FOOTER] [INITIAL_VALUE]
 # KIND is "text" or "password". VALIDATOR, if given, is a function name
 # called as `VALIDATOR "$candidate"`: it should print nothing and return 0
 # for a valid answer, or print a one-line reason and return non-zero to
@@ -407,6 +407,7 @@ tui_screen_input() {
   local title="$1" step="$2" total="$3" show_omy="$4" omy_line="$5"
   local kind="$6" placeholder="${7:-}" validator="${8:-}"
   local footer="${9:-$TUI_FOOTER_DEFAULT}"
+  local initial="${10:-}"
   local last_err="$TUI_PRESET_ERROR"
   TUI_PRESET_ERROR=""
 
@@ -437,6 +438,7 @@ tui_screen_input() {
       # The hint is on the card (or printed above) already; repeating it inside the box read twice.
       local -a gflags=(--placeholder "" --prompt.foreground "$TUI_C_ACCENT")
       [[ "$kind" == password ]] && gflags+=(--password)
+      [[ "$kind" == text && -n "$initial" ]] && gflags+=(--value "$initial")
       ans="$(gum input "${gflags[@]}")"
       case $? in
         1) return 1 ;;

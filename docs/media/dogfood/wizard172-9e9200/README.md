@@ -4,7 +4,7 @@ These are the approved original frames from the installed #172 source snapshot `
 
 The four dry-run routes cover 8-to-7 app selection and the 16-app boundary in both Latte and Tokyo. All four owned units closed. Their four Foot and four wizard processes, plus four watcher processes, were gone afterward. The invented Ben account and profile were absent. No Apply action was used. `w1729-restored-latte-greeter.png` records the restored greeter state.
 
-The separate final reader completed with status 0: all 181 package files were unaltered, the pinned runtime bytes and Wi-Fi mtime matched, the original VM Catppuccin Latte and Air Vantablack themes and Cy settings were confirmed, and the timer/greeter/config guards passed. The 16-app Leave frame has a low-severity top-border scroll presentation issue; all content and controls remain visible. A separate ticket tracks that presentation issue.
+The separate final reader completed with status 0: all 181 package files were unaltered, the pinned runtime bytes and Wi-Fi mtime matched, the original VM Catppuccin Latte and Air Vantablack themes and Cy settings were confirmed, and the timer/greeter/config guards passed. The 16-app Leave frame has a low-severity top-border scroll presentation issue; all content and controls remain visible. [#184](https://github.com/markcuda/omarchy-kids-sandbox/issues/184) tracks that presentation issue.
 
 `ORIGINAL-SHA256SUMS.txt` records the SHA-256 values of the exact private originals copied here.
 

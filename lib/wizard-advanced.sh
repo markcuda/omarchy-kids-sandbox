@@ -287,8 +287,10 @@ adv_edit_enum() {
 # with the same validators A8's "I'll set my own" custom fields use.
 adv_edit_number() {
   local key="$1" title="$2" step="$3" total="$4"
+  local current
+  current="$(adv_get "$key")"
   tui_screen_input "$title" "$step" "$total" 0 "" \
-    text "A number of minutes, 1 to 1440." validate_budget_minutes
+    text "A number of minutes, 1 to 1440." validate_budget_minutes "" "$current"
   local rc=$?
   ((rc == 0)) || return $rc
   adv_set "$key" "$TUI_REPLY"
@@ -296,8 +298,10 @@ adv_edit_number() {
 }
 adv_edit_time() {
   local key="$1" title="$2" step="$3" total="$4"
+  local current
+  current="$(adv_get "$key")"
   tui_screen_input "$title" "$step" "$total" 0 "" \
-    text "24-hour time, like 19:30." validate_lights_out
+    text "24-hour time, like 19:30." validate_lights_out "" "$current"
   local rc=$?
   ((rc == 0)) || return $rc
   adv_set "$key" "$TUI_REPLY"

@@ -103,6 +103,9 @@ customizing** row returns to whatever screen opened the checklist: A6's own Adva
 the wizard straight on to A12 (Simple's A7-A11 are skipped entirely, having been covered by this
 one screen); the summary's **Change something** button (below) redraws the summary instead.
 
+Advanced numeric and time editors show and, in Gum, prefill the current value; the plain fallback
+shows it as context, while password and name inputs keep their existing behavior.
+
 `bin/omarchy-kids-wizard`'s `screen_band` seeds every row to the chosen band's default
 (`adv_init`) the moment the age band is picked (A5) — before Simple's own A7-A11 screens run. Simple
 shows both weekday and weekend time values, while its custom path edits weekday minutes and bedtime

@@ -26,6 +26,15 @@ case "${1:-}" in
 esac
 GUM
 chmod +x "$STUBS/gum"
+cat >"$STUBS/clear" <<'CLEAR'
+#!/bin/bash
+:
+CLEAR
+cat >"$STUBS/tput" <<'TPUT'
+#!/bin/bash
+[[ "${1:-}" == cols ]] && printf '%s\n' 80
+TPUT
+chmod +x "$STUBS/clear" "$STUBS/tput"
 export PATH="$STUBS:$PATH"
 export OMARCHY_KIDS_TUI_PLAIN=1
 
@@ -92,6 +101,19 @@ GUM_RC=0
 [[ "$BUDGET_MIN_WEEKEND" == 75 && "$LIGHTS_OUT_WEEKEND" == 21:00 ]] || {
   echo 'FAIL Gum cancel changed current values'; exit 1
 }
+[[ "$BUDGET_MIN" == 60 && "$LIGHTS_OUT" == 19:30 ]] || {
+  echo 'FAIL Gum cancel changed weekday values'; exit 1
+}
+
+unset OMARCHY_KIDS_TUI_PLAIN
+: >"$RENDER_LOG"
+BUDGET_MIN_WEEKEND=60
+GUM_OUTPUT=60
+adv_edit_number budget_min_weekend "Weekend minutes" 13 15
+grep -q 'Current value: 60' "$RENDER_LOG" || {
+  echo 'FAIL card renderer omitted current minutes'; exit 1
+}
+export OMARCHY_KIDS_TUI_PLAIN=1
 
 : >"$RENDER_LOG"
 GUM_OUTPUT=secret
@@ -108,12 +130,14 @@ if grep -qx -- '--value' "$INPUT_LOG"; then
   echo 'FAIL ordinary text input received an initial value'; exit 1
 fi
 
+: >"$INPUT_LOG"
 TUI_MODE="file"
 TUI_ANSWERS=(55)
 TUI_ANSWERS_I=0
 TUI_REPLY=''
-tui_screen_input "Minutes" 1 1 0 "" text "A number" validate_budget_minutes
+tui_screen_input "Minutes" 1 1 0 "" text "A number" validate_budget_minutes "" 60
 [[ "$TUI_REPLY" == 55 ]] || { echo 'FAIL answers-file input changed behavior'; exit 1; }
+[[ ! -s "$INPUT_LOG" ]] || { echo 'FAIL answers-file input called Gum'; exit 1; }
 TUI_MODE="interactive"
 
 printf '%s\n' 'PASS Advanced numeric/time editors render and seed current values safely'

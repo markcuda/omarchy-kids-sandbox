@@ -9,7 +9,9 @@ STUBS="$TMP/stubs"
 mkdir -p "$STUBS"
 cat >"$STUBS/gum" <<'GUM'
 #!/bin/bash
-printf '%s\n' "$*" >>"${GUM_LOG:?}"
+printf 'argv:' >>"${GUM_LOG:?}"
+printf ' <%q>' "$@" >>"${GUM_LOG:?}"
+printf '\n' >>"${GUM_LOG:?}"
 if [[ "${1:-}" == confirm ]]; then
   # Gum's documented Prompt default is "Are you sure?" when no prompt arg is
   # supplied. Model that behavior so the regression catches omission of -- "".
@@ -38,15 +40,27 @@ TUI_FOOTER_DEFAULT='Enter continue · Esc back · Ctrl+C leave (nothing changes)
 body=('Include GCompris in Ben starter apps?')
 tui_screen_confirm 'GCompris' 9 15 0 '' body 'Yes' 'No'
 [[ $? == 0 && $TUI_REPLY == yes ]]
+grep -Fq "argv: <confirm> <--affirmative> <Yes> <--negative> <No> <--> <''>" "$GUM_LOG"
 if grep -Fq 'Are you sure?' "$GUM_LOG"; then exit 1; fi
 printf '%s\n' 'PASS card confirm supplies an explicit empty Gum prompt'
 
 : >"$GUM_LOG"
-unset OMARCHY_KIDS_TUI_PLAIN
-tui_screen_confirm 'Question' 1 1 0 '' body 'Yes' 'No'
+export OMARCHY_KIDS_TUI_PLAIN=1
+prompt='Question "q" \\, '
+tui_screen_confirm "$prompt" 1 1 0 '' body 'Apply' 'Decline'
 [[ $? == 0 && $TUI_REPLY == yes ]]
-grep -Fq 'Question' "$GUM_LOG"
+printf -v prompt_q '%q' "$prompt"
+grep -Fq "argv: <confirm> <--affirmative> <Apply> <--negative> <Decline> <--> <$prompt_q>" "$GUM_LOG"
 printf '%s\n' 'PASS non-card confirm keeps its prompt'
+
+GUM_RC=1
+unset OMARCHY_KIDS_TUI_PLAIN
+set +e
+tui_screen_confirm 'Decline' 1 1 0 '' body 'Yes' 'No'
+rc=$?
+set -e
+[[ $rc == 1 && $TUI_REPLY == no ]]
+printf '%s\n' 'PASS confirm preserves Gum negative status'
 
 TUI_MODE=file TUI_HAVE_GUM=0 TUI_ANSWERS=(yes) TUI_ANSWERS_I=0
 tui_screen_confirm 'File question' 1 1 0 '' body 'Yes' 'No'
@@ -54,6 +68,7 @@ tui_screen_confirm 'File question' 1 1 0 '' body 'Yes' 'No'
 printf '%s\n' 'PASS file confirm remains keyboard-answer driven'
 
 GUM_RC=130
+unset OMARCHY_KIDS_TUI_PLAIN
 TUI_MODE=interactive TUI_HAVE_GUM=1
 set +e
 tui_screen_confirm 'Cancel' 1 1 0 '' body 'Yes' 'No'

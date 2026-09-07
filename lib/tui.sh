@@ -6,7 +6,6 @@
 # render modes (issue #50), and a worked example.
 
 # shellcheck source=./theme.sh
-# shellcheck disable=SC1091 # resolved relative to this shared library at runtime
 source "$(dirname "${BASH_SOURCE[0]}")/theme.sh"
 
 TUI_ANS_ESC="@esc"

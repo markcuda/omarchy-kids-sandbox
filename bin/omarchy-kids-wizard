@@ -205,7 +205,7 @@ start_prefetch() {
     return 0
   fi
   if sudo -n true 2>/dev/null; then
-    sudo -n pacman -Sw --noconfirm "${REPO_PKGS[@]}" >/dev/null 2>&1 &
+    sudo -n pacman -Sw --noconfirm "${REPO_PKGS[@]}" </dev/null >/dev/null 2>&1 &
     PREFETCH_PID=$!
   else
     echo "  (starter-pack download will start at Apply instead of now — see docs/wizard.md)" >&2

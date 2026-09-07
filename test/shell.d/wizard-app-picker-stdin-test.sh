@@ -47,16 +47,22 @@ import os
 import pty
 import select
 import sys
+import time
 
 script = sys.argv[1]
 pid, fd = pty.fork()
 if pid == 0:
     os.execv('/bin/bash', ['/bin/bash', script, '--pty'])
 chunks = []
+deadline = time.monotonic() + 10
 while True:
-    ready, _, _ = select.select([fd], [], [], 5)
-    if not ready:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        os.kill(pid, 15)
         break
+    ready, _, _ = select.select([fd], [], [], min(1, remaining))
+    if not ready:
+        continue
     try:
         data = os.read(fd, 4096)
     except OSError:
@@ -182,4 +188,11 @@ rc=$?
 set -e
 [[ "$rc" == 130 ]] || { echo "FAIL Simple caller cancellation rc=$rc, want 130"; exit 1; }
 [[ "$ALLOWLIST_IDS" == gcompris ]] || { echo 'FAIL Simple caller cleared on cancellation'; exit 1; }
+ALLOWLIST_IDS=gcompris
+set +e
+adv_edit_allowlist 1 1
+rc=$?
+set -e
+[[ "$rc" == 130 ]] || { echo "FAIL Advanced caller cancellation rc=$rc, want 130"; exit 1; }
+[[ "$ALLOWLIST_IDS" == gcompris ]] || { echo 'FAIL Advanced caller cleared on cancellation'; exit 1; }
 printf '%s\n' 'PASS confirm error propagates through both callers'

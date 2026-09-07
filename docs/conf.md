@@ -147,7 +147,8 @@ already-present `0=` line is left exactly as it is — even one naming someone e
 stderr; `machine set parent` still succeeds. The one case it refuses outright, exiting non-zero:
 the existing `0=` line names a currently-provisioned kid, meaning slot 0 is already how that kid's
 own account unlocks, and writing the parent there too would be a real LUKS slot clash rather than
-a naming question — that needs a human to resolve the slot mapping by hand.
+a naming question — that needs a human to resolve the slot mapping by hand. The map read/rewrite
+takes the same `luks-slots.lock` as add/remove, then fsyncs the replacement and its directory.
 
 | Key | Values | Default | What it does |
 | --- | --- | --- | --- |

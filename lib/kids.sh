@@ -118,11 +118,17 @@ detect_luks_device() {
 # (from lib/posture.sh) so nothing needs a second source line for it.
 
 luks_fsync_path() {
-  "$KIDS_PY" -c 'import os, sys
+  "$KIDS_PY" -c 'import os, stat, sys
 p = sys.argv[1]
-for target in (p, os.path.dirname(p)):
-    fd = os.open(target, os.O_RDONLY)
+for index, target in enumerate((p, os.path.dirname(p))):
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    if index:
+        flags |= getattr(os, "O_DIRECTORY", 0)
+    fd = os.open(target, flags)
     try:
+        opened = os.fstat(fd)
+        if opened.st_uid != os.geteuid() or not (stat.S_ISREG(opened.st_mode) or stat.S_ISDIR(opened.st_mode)):
+            raise OSError("unsafe fsync target")
         os.fsync(fd)
     finally:
         os.close(fd)' "$1"
@@ -210,6 +216,239 @@ luks_slot_occupied() {
   grep -qxF -- "$2" <<<"$slots"
 }
 
+# --- durable LUKS ownership transactions (issue #107) -----------------
+
+kids_transaction() { "$KIDS_PY" "$LIB/transaction.py" "$@"; }
+
+transaction_dir_ensure() {
+  local parent="${TRANSACTIONS_DIR%/*}"
+  [[ "$TRANSACTIONS_DIR" != /var/lib/omarchy-kids/transactions ]] || is_root || {
+    echo "transaction state requires root" >&2
+    return 1
+  }
+  install -d -m 0700 "$parent" || return 1
+  if is_root; then
+    chown root:root "$parent" || return 1
+  fi
+  luks_fsync_path "$parent" || return 1
+  kids_transaction ensure-dir "$TRANSACTIONS_DIR"
+}
+
+luks_device_uuid() {
+  local value
+  value="$(cryptsetup luksUUID "$1" 2>/dev/null)" || return 1
+  [[ "$value" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] || return 1
+  printf '%s\n' "$value"
+}
+
+luks_transaction_field() { kids_transaction field "$TRANSACTIONS_DIR" "$1" "$2"; }
+
+luks_token_matches_transaction() {
+  local device="$1" account="$2" slot token owner transaction device_uuid
+  slot="$(luks_transaction_field "$account" slot)" || return 2
+  owner="$(luks_transaction_field "$account" owner)" || return 2
+  transaction="$(luks_transaction_field "$account" transaction)" || return 2
+  device_uuid="$(luks_transaction_field "$account" device_uuid)" || return 2
+  [[ "$(luks_device_uuid "$device" 2>/dev/null || true)" == "$device_uuid" ]] || return 1
+  token="$(cryptsetup luksDump --dump-json-metadata "$device" 2>/dev/null | jq -c \
+    --arg slot "$slot" --arg account "$account" --arg owner "$owner" \
+    --arg transaction "$transaction" --arg device_uuid "$device_uuid" \
+    '(.tokens // {}) | [.[] |
+      select((keys | sort) == (["account", "device_uuid", "keyslots", "owner", "schema", "slot", "transaction", "type"] | sort) and
+        .type == "omarchy-kids" and .schema == 1 and
+        .account == $account and .owner == $owner and
+        .transaction == $transaction and .device_uuid == $device_uuid and
+        .slot == ($slot | tonumber) and .keyslots == [$slot])] |
+      if length == 1 then .[0] else empty end')" || return 2
+  [[ -n "$token" ]]
+}
+
+luks_attach_transaction_token() {
+  local device="$1" account="$2" token_file
+  token_file="$(mktemp "$TRANSACTIONS_DIR/.token.XXXXXX")" || return 1
+  chmod 0600 "$token_file" || {
+    rm -f "$token_file"
+    return 1
+  }
+  if ! kids_transaction token "$TRANSACTIONS_DIR" "$account" >"$token_file" ||
+    ! cryptsetup token import --json-file "$token_file" "$device"; then
+    rm -f "$token_file"
+    return 1
+  fi
+  rm -f "$token_file"
+  luks_token_matches_transaction "$device" "$account"
+}
+
+luks_reserved_slots() {
+  local account state slot accounts
+  [[ -d "$TRANSACTIONS_DIR" ]] || return 0
+  accounts="$(kids_transaction list "$TRANSACTIONS_DIR")" || return 1
+  while IFS= read -r account; do
+    [[ -n "$account" ]] || continue
+    state="$(luks_transaction_field "$account" state)" || return 1
+    [[ "$state" == removed ]] && continue
+    slot="$(luks_transaction_field "$account" slot)" || return 1
+    [[ -n "$slot" ]] && printf '%s\n' "$slot"
+  done <<<"$accounts"
+  return 0
+}
+
+luks_allocate_slot() {
+  local device="$1" occupied reserved slot
+  occupied="$(luks_occupied_slots "$device")" || return 1
+  reserved="$(luks_reserved_slots)" || return 1
+  for slot in $(seq 1 31); do
+    grep -qxF "$slot" <<<"$occupied" && continue
+    grep -qxF "$slot" <<<"$reserved" && continue
+    printf '%s\n' "$slot"
+    return 0
+  done
+  return 1
+}
+
+luks_rebuild_map_locked() {
+  local device="$1" parent_line account state password_mode slot accounts entries=()
+  parent_line="$(luks_slots_parent_line "$SLOTS_FILE")"
+  [[ -d "$TRANSACTIONS_DIR" ]] || {
+    posture_write_luks_slots "$SLOTS_FILE" "$parent_line"
+    luks_fsync_path "$SLOTS_FILE"
+    return
+  }
+  accounts="$(kids_transaction list "$TRANSACTIONS_DIR")" || return 1
+  while IFS= read -r account; do
+    [[ -n "$account" ]] || continue
+    state="$(luks_transaction_field "$account" state)" || return 1
+    password_mode="$(luks_transaction_field "$account" luks_mode)" || return 1
+    [[ ("$state" == added || "$state" == removing) && "$password_mode" == owned ]] || continue
+    slot="$(luks_transaction_field "$account" slot)" || return 1
+    luks_slot_occupied "$device" "$slot" || return 1
+    luks_token_matches_transaction "$device" "$account" || return 1
+    entries+=("$slot=$account")
+  done <<<"$accounts"
+  posture_write_luks_slots "$SLOTS_FILE" "$parent_line" "${entries[@]+"${entries[@]}"}" || return 1
+  luks_fsync_path "$SLOTS_FILE"
+}
+
+luks_reconcile_transaction_locked() {
+  local account="$1" device="$2" state password_mode slot slot_state device_uuid
+  kids_transaction validate "$TRANSACTIONS_DIR" "$account" || return 1
+  state="$(luks_transaction_field "$account" state)" || return 1
+  password_mode="$(luks_transaction_field "$account" luks_mode)" || return 1
+  [[ "$password_mode" == owned ]] || return 0
+  device_uuid="$(luks_transaction_field "$account" device_uuid)" || return 1
+  [[ "$(luks_device_uuid "$device" 2>/dev/null || true)" == "$device_uuid" ]] || {
+    echo "LUKS device identity does not match the transaction for $account; no state was changed" >&2
+    return 1
+  }
+  slot="$(luks_transaction_field "$account" slot)" || return 1
+  if luks_slot_occupied "$device" "$slot"; then
+    slot_state=0
+  else
+    slot_state=$?
+  fi
+  ((slot_state != 2)) || return 1
+  case "$state:$slot_state" in
+    reserved:1 | adding:1 | removed:1) return 0 ;;
+    removed:0)
+      if luks_token_matches_transaction "$device" "$account"; then
+        echo "removed transaction for $account still owns active slot $slot; no slot was deleted" >&2
+        return 1
+      else
+        slot_state=$?
+      fi
+      # A later occupant may reuse the number. It cannot match the retired
+      # identity and this transaction can never authorize deleting it.
+      ((slot_state == 1)) || return 1
+      return 0
+      ;;
+    adding:0)
+      if luks_token_matches_transaction "$device" "$account"; then
+        kids_transaction transition "$TRANSACTIONS_DIR" "$account" adding added || return 1
+        luks_rebuild_map_locked "$device"
+      else
+        echo "LUKS slot $slot is active without matching ownership for $account; no slot was deleted" >&2
+        return 1
+      fi
+      ;;
+    added:0 | removing:0)
+      luks_token_matches_transaction "$device" "$account" || {
+        echo "LUKS ownership proof does not match active slot $slot for $account; no slot was deleted" >&2
+        return 1
+      }
+      ;;
+    removing:1)
+      kids_transaction transition "$TRANSACTIONS_DIR" "$account" removing removed || return 1
+      luks_rebuild_map_locked "$device"
+      ;;
+    *)
+      echo "LUKS transaction state $state disagrees with slot $slot for $account; no slot was deleted" >&2
+      return 1
+      ;;
+  esac
+}
+
+luks_reconcile_all_locked() {
+  local device="$1" account seen="" line mapped accounts mappings
+  [[ -d "$TRANSACTIONS_DIR" ]] || return 0
+  accounts="$(kids_transaction list "$TRANSACTIONS_DIR")" || return 1
+  while IFS= read -r account; do
+    [[ -n "$account" ]] || continue
+    luks_reconcile_transaction_locked "$account" "$device" || return 1
+    seen+=" $account "
+  done <<<"$accounts"
+  mappings="$(luks_slots_kid_entries "$SLOTS_FILE")" || return 1
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    mapped="${line#*=}"
+    mapped="${mapped%%:*}"
+    if [[ "$seen" != *" $mapped "* ]]; then
+      luks_migrate_legacy_account_locked "$device" "$mapped" || {
+        echo "legacy LUKS mapping for $mapped has no ownership transaction; inspect it non-destructively and migrate it before removal" >&2
+        return 1
+      }
+    fi
+  done <<<"$mappings"
+}
+
+luks_migrate_legacy_account_locked() {
+  local device="$1" account="$2" slot device_uuid token profile display band avatar
+  [[ -f "$TRANSACTIONS_DIR/$account.json" ]] && return 0
+  slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+  [[ "$slot" =~ ^[1-9][0-9]*$ ]] || return 1
+  device_uuid="$(luks_device_uuid "$device")" || return 1
+  token="$(cryptsetup luksDump --dump-json-metadata "$device" 2>/dev/null | jq -c \
+    --arg account "$account" --arg slot "$slot" --arg device_uuid "$device_uuid" \
+    '(.tokens // {}) | [.[] |
+      select((keys | sort) == (["account", "device_uuid", "keyslots", "owner", "schema", "slot", "transaction", "type"] | sort) and
+        .type == "omarchy-kids" and .schema == 1 and .account == $account and
+        .device_uuid == $device_uuid and .slot == ($slot | tonumber) and .keyslots == [$slot])] |
+      if length == 1 then .[0] else empty end')" || return 1
+  [[ -n "$token" ]] || return 1
+  profile="$KIDS_DIR/$account.conf"
+  [[ -f "$profile" ]] || return 1
+  display="$(conf_get "$profile" name 2>/dev/null || true)"
+  band="$(conf_get "$profile" band 2>/dev/null || true)"
+  avatar="$(conf_get "$profile" avatar 2>/dev/null || true)"
+  [[ -n "$display" && -n "$band" ]] || return 1
+  [[ -n "$avatar" ]] || avatar=fox
+  printf '%s\n' "$token" | kids_transaction import-token "$TRANSACTIONS_DIR" "$account" "$display" "$band" "$avatar"
+}
+
+account_migrate_profile_locked() {
+  local account="$1" profile password_mode display band avatar
+  [[ -f "$TRANSACTIONS_DIR/$account.json" ]] && return 0
+  profile="$KIDS_DIR/$account.conf"
+  [[ -f "$profile" ]] || return 1
+  password_mode="$(conf_get "$profile" password 2>/dev/null || true)"
+  [[ "$password_mode" == set || "$password_mode" == none ]] || return 1
+  display="$(conf_get "$profile" name 2>/dev/null || true)"
+  band="$(conf_get "$profile" band 2>/dev/null || true)"
+  avatar="$(conf_get "$profile" avatar 2>/dev/null || true)"
+  [[ -n "$display" && -n "$band" ]] || return 1
+  [[ -n "$avatar" ]] || avatar=fox
+  kids_transaction import-profile "$TRANSACTIONS_DIR" "$account" "$password_mode" "$display" "$band" "$avatar"
+}
+
 # posture_write_luks_slots FILE PARENT_LINE [ENTRY...] — always a full
 # rewrite, never append/edit-in-place: LUKS2 reuses freed slot numbers,
 # so a stale line could point a reused slot at the wrong account
@@ -243,31 +482,9 @@ posture_write_luks_slots() {
   return 0
 }
 
-# One intent file per kid is the durable boundary around a slot deletion. A
-# failed child never blocks another child's independently safe removal.
+# Pre-107 intent names are read only to keep ambiguous legacy work visible in
+# the removal roster. They are never written or accepted as deletion proof.
 luks_removal_intent_file() { printf '%s.removing-%s\n' "$1" "$2"; }
-
-luks_write_removal_intent() {
-  local slots_file="$1" slot="$2" account="$3" file tmp
-  [[ "$slot" =~ ^[1-9][0-9]*$ && "$account" =~ ^kid-[a-z0-9-]+$ ]] || return 1
-  file="$(luks_removal_intent_file "$slots_file" "$account")"
-  install -d -m 0755 "$(dirname "$file")" || return 1
-  tmp="$(mktemp "$(dirname "$file")/.$(basename "$file").XXXXXX")" || return 1
-  if ! printf '%s=%s\n' "$slot" "$account" >"$tmp"; then
-    rm -f "$tmp" || true
-    return 1
-  fi
-  if ! chmod 0600 "$tmp"; then
-    rm -f "$tmp" || true
-    return 1
-  fi
-  if ! mv -f "$tmp" "$file"; then
-    rm -f "$tmp" || true
-    return 1
-  fi
-  luks_fsync_path "$file" || return 1
-  return 0
-}
 
 # luks_read_removal_intent FILE ACCOUNT — print "slot account"; 1 absent, 2 invalid.
 luks_read_removal_intent() {
@@ -299,38 +516,42 @@ luks_removal_intents() {
 
 luks_remove_account_slot_locked() {
   local slots_file="$1" account="$2" device="$3" key_fd="${4:-}"
-  local intent="" intent_slot="" mapped_slot slot_state
-  local parent_line entries=() line acct
-
-  mapped_slot="$(luks_slot_for_account "$slots_file" "$account" || true)"
-  if [[ -e "$(luks_removal_intent_file "$slots_file" "$account")" ]]; then
-    intent="$(luks_read_removal_intent "$slots_file" "$account")" || {
-      echo "invalid LUKS removal intent beside $slots_file; repair it before retrying" >&2
+  local state slot slot_state
+  [[ "$slots_file" == "$SLOTS_FILE" ]] || return 1
+  [[ -f "$TRANSACTIONS_DIR/$account.json" ]] || {
+    echo "no authoritative ownership transaction for $account; refusing LUKS deletion" >&2
+    return 1
+  }
+  luks_reconcile_transaction_locked "$account" "$device" || return 1
+  state="$(luks_transaction_field "$account" state)" || return 1
+  if [[ "$state" == removed ]]; then
+    luks_rebuild_map_locked "$device" || {
+      echo "slot for $account is gone, but could not update $slots_file; retry removal" >&2
       return 1
     }
-    intent_slot="${intent%% *}"
-    if [[ -n "$mapped_slot" && "$mapped_slot" != "$intent_slot" ]]; then
-      echo "LUKS removal intent for $account disagrees with $slots_file" >&2
-      return 1
-    fi
-  else
-    [[ -n "$mapped_slot" ]] || return 0
-    intent_slot="$mapped_slot"
-    if ! luks_write_removal_intent "$slots_file" "$intent_slot" "$account"; then
-      echo "could not record removal intent for LUKS slot $intent_slot for $account" >&2
-      return 1
-    fi
+    return 0
   fi
-
-  if luks_slot_occupied "$device" "$intent_slot"; then
+  if [[ "$state" == added ]]; then
+    kids_transaction transition "$TRANSACTIONS_DIR" "$account" added removing || return 1
+  elif [[ "$state" != removing ]]; then
+    echo "transaction for $account is not ready for removal" >&2
+    return 1
+  fi
+  slot="$(luks_transaction_field "$account" slot)" || return 1
+  if luks_slot_occupied "$device" "$slot"; then
+    # The proof is checked inside the same lock immediately before every kill.
+    luks_token_matches_transaction "$device" "$account" || {
+      echo "ownership proof changed before deletion of slot $slot for $account; no slot was deleted" >&2
+      return 1
+    }
     if [[ -n "$key_fd" ]]; then
-      cryptsetup luksKillSlot --batch-mode --key-file="/dev/fd/$key_fd" "$device" "$intent_slot" || {
-        echo "cryptsetup could not remove slot $intent_slot for $account" >&2
+      cryptsetup luksKillSlot --batch-mode --key-file="/dev/fd/$key_fd" "$device" "$slot" || {
+        echo "cryptsetup could not remove slot $slot for $account" >&2
         return 1
       }
     else
-      cryptsetup luksKillSlot --batch-mode "$device" "$intent_slot" || {
-        echo "cryptsetup could not remove slot $intent_slot for $account" >&2
+      cryptsetup luksKillSlot --batch-mode "$device" "$slot" || {
+        echo "cryptsetup could not remove slot $slot for $account" >&2
         return 1
       }
     fi
@@ -341,28 +562,18 @@ luks_remove_account_slot_locked() {
       return 1
     fi
   fi
-
-  parent_line="$(luks_slots_parent_line "$slots_file")"
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    acct="${line#*=}"
-    acct="${acct%%:*}"
-    [[ "$acct" == "$account" ]] && continue
-    entries+=("$line")
-  done < <(luks_slots_kid_entries "$slots_file")
-  if ! posture_write_luks_slots "$slots_file" "$parent_line" "${entries[@]+"${entries[@]}"}"; then
-    echo "slot $intent_slot is gone, but could not update $slots_file; retry removal" >&2
+  if luks_slot_occupied "$device" "$slot"; then
+    echo "cryptsetup reported success but slot $slot remains active for $account" >&2
     return 1
+  else
+    slot_state=$?
   fi
-  if ! luks_fsync_path "$slots_file"; then
-    echo "slot $intent_slot is gone and its map was rewritten, but that rewrite is not durable; retry removal" >&2
+  ((slot_state == 1)) || return 1
+  kids_transaction transition "$TRANSACTIONS_DIR" "$account" removing removed || return 1
+  luks_rebuild_map_locked "$device" || {
+    echo "slot $slot is gone, but could not update $slots_file; retry removal" >&2
     return 1
-  fi
-  if ! rm -f "$(luks_removal_intent_file "$slots_file" "$account")"; then
-    echo "slot $intent_slot and its map entry are gone, but the removal intent remains; retry removal" >&2
-    return 1
-  fi
-  return 0
+  }
 }
 
 luks_remove_account_slot() {
@@ -391,7 +602,7 @@ luks_remove_account_slot() {
 # there too would be a real slot clash, not just an ownership question,
 # so this exits non-zero instead of silently leaving a kid mapped to the
 # slot the parent now thinks is theirs.
-luks_slots_record_parent() {
+luks_slots_record_parent_locked() {
   local file="$1" kids_dir="$2" parent="$3"
   local parent_line existing
   parent_line="$(luks_slots_parent_line "$file")"
@@ -410,7 +621,16 @@ luks_slots_record_parent() {
     [[ -z "$line" ]] && continue
     entries+=("$line")
   done < <(luks_slots_kid_entries "$file")
-  posture_write_luks_slots "$file" "0=$parent" "${entries[@]+"${entries[@]}"}"
+  posture_write_luks_slots "$file" "0=$parent" "${entries[@]+"${entries[@]}"}" || return 1
+  luks_fsync_path "$file"
+}
+
+luks_slots_record_parent() {
+  local rc=0
+  luks_lock_acquire "$1" || return 1
+  luks_slots_record_parent_locked "$@" || rc=$?
+  luks_lock_release
+  return "$rc"
 }
 
 # file_stat FMT FILE -- GNU/BSD stat(1) wrapper, GNU tried first (issue #49, docs/assert.md).

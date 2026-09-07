@@ -23,6 +23,7 @@ unset OMARCHY_KIDS_LUKS_DEVICE
 ETC="${OMARCHY_KIDS_ETC:-/etc/omarchy-kids}"
 KIDS_DIR="$ETC/kids"
 SLOTS_FILE="$ETC/luks-slots"
+TRANSACTIONS_DIR="${OMARCHY_KIDS_ROOT:-}/var/lib/omarchy-kids/transactions"
 
 YES=0
 REAL_DRY_RUN=0
@@ -50,7 +51,7 @@ Usage: omarchy-kids-remove [--yes] [--dry-run] [--delete-homes]
        omarchy-kids-remove --help
 
 Remove Kids Mode (SPEC.md R-TRUST-4): reverses every lock, removes every
-kid account and its LUKS slot, and keeps every kid's files -- each kid's
+kid account and only its token-proven LUKS slot, and keeps every kid's files -- each kid's
 home moves to "<parent home>/Kids Mode/<name>/" (same convention
 `omarchy-kids-provision remove` already uses) unless --delete-homes, in
 which case "userdel -r" deletes it instead. Offers a Snapper snapshot first (skip
@@ -65,11 +66,11 @@ the package itself -- this command never runs it.
                             of keeping it.
   --parent-password-stdin   Read the parent's password, one line, from
                             stdin, before any other input this run reads.
-                            Passed to cryptsetup as each kid's LUKS slot
-                            is killed, for an authenticated deletion; not
-                            required (root can kill a slot without one,
-                            same as omarchy-kids-provision remove -- see
-                            docs/remove.md).
+                            Passed to cryptsetup as each proven kid LUKS slot
+                            is killed, for passphrase authentication; not
+                            required. Transaction plus on-device token identity
+                            is always required; the map alone never authorizes
+                            deletion (see docs/transactions.md).
   --luks-device DEV         LUKS root when disk-mode auto-detection is
                             unavailable. Rejected in portal mode, which also
                             refuses any kid that still has a recorded slot.
@@ -162,6 +163,21 @@ kid_step() {
   return 1
 }
 
+kid_failure() {
+  local desc="$1" message="$2"
+  echo "omarchy-kids-remove: $message" >&2
+  report FAILED "$desc"
+  ANY_FAIL=1
+  FAILED_STEPS+=("$desc")
+  return 1
+}
+
+kid_transaction_step() {
+  local desc="$1" account="$2"
+  shift 2
+  "$@" || kid_failure "$desc" "could not durably update the transaction for $account; preserving retry state"
+}
+
 file_present() { [[ -e "$1" ]]; }
 file_remove() { rm -f "$1"; }
 
@@ -192,7 +208,8 @@ fstab_remove() { posture_remove_fstab_line "$1"; }
 
 luks_present() {
   [[ -n "$(luks_slot_for_account "$SLOTS_FILE" "$1" || true)" ]] ||
-    [[ -n "$(luks_removal_intent_for_account "$SLOTS_FILE" "$1" 2>/dev/null || true)" ]]
+    [[ -n "$(luks_removal_intent_for_account "$SLOTS_FILE" "$1" 2>/dev/null || true)" ]] ||
+    { [[ -f "$TRANSACTIONS_DIR/$1.json" ]] && [[ "$(luks_transaction_field "$1" luks_mode 2>/dev/null || true)" == owned ]]; }
 }
 luks_remove() {
   local account="$1" slot device
@@ -203,10 +220,10 @@ luks_remove() {
     return 1
   fi
   if [[ -n "$PARENT_PASSWORD" ]]; then
-    luks_remove_account_slot "$SLOTS_FILE" "$account" "$device" 3 \
+    luks_remove_account_slot_locked "$SLOTS_FILE" "$account" "$device" 3 \
       3< <(printf '%s' "$PARENT_PASSWORD")
   else
-    luks_remove_account_slot "$SLOTS_FILE" "$account" "$device"
+    luks_remove_account_slot_locked "$SLOTS_FILE" "$account" "$device"
   fi
 }
 
@@ -225,6 +242,11 @@ accountsservice_remove() { posture_remove_accountsservice "$1"; }
 # Icon= above -- docs/portal.md's "Avatars" has why both exist.
 face_present() { [[ -f "$(posture_sddm_faces_dir)/$1.face.icon" ]]; }
 face_remove() { posture_remove_face_icon "$1"; }
+
+launcher_present() { [[ -e "$ETC/launchers/$1.json" ]]; }
+launcher_remove() { rm -f "$ETC/launchers/$1.json"; }
+session_present() { [[ -e "$ETC/sessions/$1.json" ]]; }
+session_remove() { rm -f "$ETC/sessions/$1.json"; }
 
 account_present() { id "$1" >/dev/null 2>&1; }
 account_remove() {
@@ -254,8 +276,80 @@ home_remove() {
 }
 
 remove_kid() {
-  local account="$1" display_name kid_failed=0 slot
+  local account="$1" display_name slot state transaction legacy_intent="" luks_mode=""
+  transaction="$TRANSACTIONS_DIR/$account.json"
+  slot="$(luks_slot_for_account "$SLOTS_FILE" "$account" || true)"
+  legacy_intent="$(luks_removal_intent_for_account "$SLOTS_FILE" "$account" 2>/dev/null || true)"
+  if [[ ! -f "$transaction" && -n "$legacy_intent" && -z "$slot" ]]; then
+    if [[ "$DRY_RUN" == 0 ]]; then
+      report FAILED "legacy-luks-intent:$account"
+      FAILED_STEPS+=("legacy-luks-intent:$account")
+    else
+      report blocked "legacy-luks-intent:$account"
+    fi
+    ANY_FAIL=1
+    return 0
+  fi
+  if [[ -f "$transaction" ]]; then
+    if ! kids_transaction validate "$TRANSACTIONS_DIR" "$account"; then
+      report FAILED "transaction:$account"
+      ANY_FAIL=1
+      [[ "$DRY_RUN" != 0 ]] || FAILED_STEPS+=("transaction:$account")
+      return 0
+    fi
+    luks_mode="$(luks_transaction_field "$account" luks_mode)"
+    if [[ "$luks_mode" == none && (-n "$slot" || -n "$legacy_intent") ]]; then
+      echo "non-LUKS transaction for $account conflicts with legacy slot evidence; preserving account, files, and records" >&2
+      [[ "$DRY_RUN" == 0 ]] && report FAILED "conflicting-luks-evidence:$account" || report blocked "conflicting-luks-evidence:$account"
+      ANY_FAIL=1
+      [[ "$DRY_RUN" != 0 ]] || FAILED_STEPS+=("conflicting-luks-evidence:$account")
+      return 0
+    fi
+    if [[ "$BOOT_MODE" == portal && "$luks_mode" == owned ]]; then
+      [[ "$DRY_RUN" == 0 ]] && report FAILED "luks:$account" || report blocked "luks:$account"
+      ANY_FAIL=1
+      [[ "$DRY_RUN" != 0 ]] || FAILED_STEPS+=("luks:$account")
+      return 0
+    fi
+  fi
+  if [[ "$DRY_RUN" == 0 ]]; then
+    if [[ ! -f "$transaction" ]]; then
+      if [[ "$BOOT_MODE" == disk && -n "$slot" ]]; then
+        local migration_device
+        migration_device="$(detect_luks_device "$LUKS_DEVICE")" || true
+        [[ -n "$migration_device" ]] && luks_migrate_legacy_account_locked "$migration_device" "$account" || true
+      elif [[ -z "$slot" ]]; then
+        account_migrate_profile_locked "$account" || true
+      fi
+    fi
+    kids_transaction validate "$TRANSACTIONS_DIR" "$account" || {
+      report FAILED "transaction:$account"
+      ANY_FAIL=1
+      FAILED_STEPS+=("transaction:$account")
+      return 0
+    }
+    luks_mode="$(luks_transaction_field "$account" luks_mode)"
+    state="$(luks_transaction_field "$account" account_state)"
+    if [[ "$state" == complete ]]; then
+      kid_transaction_step "transaction-intent:$account" "$account" \
+        kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" complete removing || return 0
+    elif [[ "$state" != removing && "$state" != unmounted && "$state" != fstab_removed &&
+      "$state" != namespace_removed && "$state" != accountsservice_removed && "$state" != face_removed &&
+      "$state" != launcher_removed && "$state" != session_removed && "$state" != account_removed &&
+      "$state" != home_moved && "$state" != cleaned ]]; then
+      report FAILED "account-lifecycle:$account"
+      ANY_FAIL=1
+      FAILED_STEPS+=("account-lifecycle:$account")
+      return 0
+    fi
+    if [[ "$(luks_transaction_field "$account" luks_mode)" == none &&
+    "$(luks_transaction_field "$account" state)" == added ]]; then
+      kid_transaction_step "transaction-luks-intent:$account" "$account" \
+        kids_transaction transition "$TRANSACTIONS_DIR" "$account" added removing || return 0
+    fi
+  fi
   display_name="$(conf_get "$KIDS_DIR/$account.conf" name 2>/dev/null || true)"
+  [[ -n "$display_name" || "$DRY_RUN" != 0 ]] || display_name="$(luks_transaction_field "$account" display)"
   [[ -n "$display_name" ]] || display_name="$account"
   if [[ "$BOOT_MODE" == disk ]]; then
     kid_step "luks:$account" luks_present luks_remove "$account" || return 0
@@ -275,15 +369,83 @@ remove_kid() {
       return 0
     fi
   fi
-  kid_step "mount:$account" mount_present mount_remove "$account" || kid_failed=1
-  kid_step "fstab:$account" fstab_present fstab_remove "$account" || kid_failed=1
-  kid_step "namespace:$account" namespace_present namespace_remove "$account" || kid_failed=1
-  kid_step "accountsservice:$account" accountsservice_present accountsservice_remove "$account" || kid_failed=1
-  kid_step "face:$account" face_present face_remove "$account" || kid_failed=1
-  ((kid_failed == 0)) || return 0
+  kid_step "mount:$account" mount_present mount_remove "$account" || return 0
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" account_state)" == removing ]]; then
+    kid_transaction_step "transaction-unmounted:$account" "$account" \
+      kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" removing unmounted || return 0
+  fi
+  kid_step "fstab:$account" fstab_present fstab_remove "$account" || return 0
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" account_state)" == unmounted ]]; then
+    kid_transaction_step "transaction-fstab:$account" "$account" \
+      kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" unmounted fstab_removed || return 0
+  fi
+  kid_step "namespace:$account" namespace_present namespace_remove "$account" || return 0
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" account_state)" == fstab_removed ]]; then
+    kid_transaction_step "transaction-namespace:$account" "$account" \
+      kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" fstab_removed namespace_removed || return 0
+  fi
+  kid_step "accountsservice:$account" accountsservice_present accountsservice_remove "$account" || return 0
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" account_state)" == namespace_removed ]]; then
+    kid_transaction_step "transaction-accountsservice:$account" "$account" \
+      kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" namespace_removed accountsservice_removed || return 0
+  fi
+  kid_step "face:$account" face_present face_remove "$account" || return 0
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" account_state)" == accountsservice_removed ]]; then
+    kid_transaction_step "transaction-face:$account" "$account" \
+      kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" accountsservice_removed face_removed || return 0
+  fi
+  kid_step "launcher:$account" launcher_present launcher_remove "$account" || return 0
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" account_state)" == face_removed ]]; then
+    kid_transaction_step "transaction-launcher:$account" "$account" \
+      kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" face_removed launcher_removed || return 0
+  fi
+  kid_step "session:$account" session_present session_remove "$account" || return 0
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" account_state)" == launcher_removed ]]; then
+    kid_transaction_step "transaction-session:$account" "$account" \
+      kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" launcher_removed session_removed || return 0
+  fi
   kid_step "account:$account" account_present account_remove "$account" || return 0
+  if [[ "$DRY_RUN" == 0 ]]; then
+    state="$(luks_transaction_field "$account" account_state)"
+    if [[ "$state" == session_removed ]]; then
+      kid_transaction_step "transaction-account:$account" "$account" \
+        kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" session_removed account_removed || return 0
+    fi
+  fi
+  if [[ "$DRY_RUN" == 0 && "$DELETE_HOMES" == 0 ]]; then
+    local parent_home dest source
+    parent_home="$(parent_home_dir "$ETC/machine.conf")" || {
+      kid_failure "home:$account" "could not resolve the parent home; preserving the kid home and retry state"
+      return 0
+    }
+    dest="$parent_home/Kids Mode/$display_name"
+    source="$(home_dir_for "$account")"
+    kid_transaction_step "transaction-destination:$account" "$account" \
+      kids_transaction destination "$TRANSACTIONS_DIR" "$account" "$dest" || return 0
+    if [[ -e "$dest" && -e "$source" ]]; then
+      kid_failure "home:$account" "both home source and destination exist; refusing to overwrite either"
+      return 0
+    fi
+    if [[ ! -e "$dest" && ! -e "$source" ]]; then
+      kid_failure "home:$account" "both home source and recorded destination are absent; refusing to claim preservation"
+      return 0
+    fi
+  fi
   kid_step "home:$account" home_present home_remove "$account" "$display_name" || return 0
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" account_state)" == account_removed ]]; then
+    kid_transaction_step "transaction-home:$account" "$account" \
+      kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" account_removed home_moved || return 0
+  fi
   kid_step "profile:$account" profile_present profile_remove "$account" || return 0
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" account_state)" == home_moved ]]; then
+    kid_transaction_step "transaction-cleaned:$account" "$account" \
+      kids_transaction lifecycle "$TRANSACTIONS_DIR" "$account" home_moved cleaned || return 0
+  fi
+  if [[ "$DRY_RUN" == 0 && "$(luks_transaction_field "$account" luks_mode)" == none &&
+  "$(luks_transaction_field "$account" state)" == removing ]]; then
+    kid_transaction_step "transaction-retired:$account" "$account" \
+      kids_transaction transition "$TRANSACTIONS_DIR" "$account" removing removed || return 0
+  fi
 }
 
 # --- machine-level steps -------------------------------------------------
@@ -534,13 +696,32 @@ snapshot_take() {
 # --- one full pass, at whichever $DRY_RUN is currently set to -----------
 
 run_body() {
-  local kids=() k line account intents="" slot=""
+  local kids=() k line account intents="" slot="" transaction_accounts="" mappings=""
   while IFS= read -r k; do
     [[ -n "$k" ]] && kids+=("$k")
   done < <(kids_list "$KIDS_DIR")
 
+  if [[ -d "$TRANSACTIONS_DIR" ]]; then
+    if ! transaction_accounts="$(kids_transaction list "$TRANSACTIONS_DIR")"; then
+      report FAILED "transaction-state"
+      ANY_FAIL=1
+      FAILED_STEPS+=("transaction-state")
+      return 0
+    fi
+    while IFS= read -r account; do
+      [[ -n "$account" ]] || continue
+      is_in "$account" "${kids[@]+"${kids[@]}"}" || kids+=("$account")
+    done <<<"$transaction_accounts"
+  fi
+
   # The map and journal are also retry records. A missing profile must not
   # make a live key disappear from the removal roster.
+  mappings="$(luks_slots_kid_entries "$SLOTS_FILE")" || {
+    report FAILED "luks-state"
+    ANY_FAIL=1
+    FAILED_STEPS+=("luks-state")
+    return 0
+  }
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     account="${line#*=}"
@@ -552,7 +733,7 @@ run_body() {
       return 0
     fi
     is_in "$account" "${kids[@]+"${kids[@]}"}" || kids+=("$account")
-  done < <(luks_slots_kid_entries "$SLOTS_FILE")
+  done <<<"$mappings"
   if ! intents="$(luks_removal_intents "$SLOTS_FILE")"; then
     report FAILED "luks-state"
     ANY_FAIL=1
@@ -618,7 +799,7 @@ main() {
     die "LUKS options are not available in portal mode"
   fi
 
-  if ((PARENT_PW_STDIN)) && ((!REAL_DRY_RUN)); then
+  if ((PARENT_PW_STDIN)) && ((! REAL_DRY_RUN)); then
     IFS= read -r PARENT_PASSWORD || die "--parent-password-stdin needs a line on stdin"
   fi
 
@@ -638,7 +819,10 @@ main() {
   DRY_RUN=0
   ANY_FAIL=0
   FAILED_STEPS=()
+  transaction_dir_ensure || die "could not create trusted transaction storage" 1
+  luks_lock_acquire "$SLOTS_FILE" || die "could not acquire the shared transaction lock" 1
   run_body
+  luks_lock_release
 
   echo
   if ((ANY_FAIL)); then

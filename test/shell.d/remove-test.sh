@@ -183,7 +183,18 @@ true
 # shellcheck disable=SC2016
 stub cryptsetup '
 case "$1" in
+    luksUUID) echo "18ea1ae2-ae5d-4012-9ff4-f071ccccdd01" ;;
     luksDump)
+        if [[ "$2" == "--dump-json-metadata" ]]; then
+            printf "{\"tokens\":{"; comma=""
+            for token in "__LOG__"/token.*.json; do
+                [[ -e "$token" ]] || continue
+                slot="${token##*/}"; slot="${slot#token.}"; slot="${slot%.json}"
+                printf "%s\"%s\":" "$comma" "$slot"; cat "$token"; comma=,
+            done
+            printf "}}\n"
+            exit 0
+        fi
         for slot in $(seq 0 31); do
             grep -qx "$slot" "__LOG__/luks-empty-slots" 2>/dev/null || echo "  $slot: luks2"
         done
@@ -198,7 +209,8 @@ case "$1" in
         [[ ! -e "__LOG__/luks-kill-fail" ]] || exit 1
         slot="${@: -1}"
         [[ ! -e "__LOG__/require-luks-intent" ]] ||
-            grep -q "^$slot=" "$OMARCHY_KIDS_ETC"/luks-slots.removing-* || {
+            jq -e --argjson slot "$slot" "select(.state == \"removing\" and .slot == \$slot)" \
+              "$OMARCHY_KIDS_ROOT"/var/lib/omarchy-kids/transactions/*.json >/dev/null || {
                 : > "__LOG__/luks-intent-missing-at-kill"
                 exit 1
             }
@@ -282,6 +294,8 @@ if [[ "\$target" == "$ETC" || "\$target" == "$ETC/machine.conf" ||
   "\$target" == "$TMP/intent/etc/omarchy-kids" || "\$target" == "$TMP/intent/etc/omarchy-kids/machine.conf" ||
   "\$target" == "$TMP/recover/etc/omarchy-kids" || "\$target" == "$TMP/recover/etc/omarchy-kids/machine.conf" ||
   "\$target" == "$TMP/purge/etc/omarchy-kids" || "\$target" == "$TMP/purge/etc/omarchy-kids/machine.conf" ||
+  "\$target" == "$TMP/journal-intent/etc/omarchy-kids" || "\$target" == "$TMP/journal-intent/etc/omarchy-kids/machine.conf" ||
+  "\$target" == "$TMP/destination/etc/omarchy-kids" || "\$target" == "$TMP/destination/etc/omarchy-kids/machine.conf" ||
   "\$target" == "$TMP/portal/etc/omarchy-kids" || "\$target" == "$TMP/portal/etc/omarchy-kids/machine.conf" ||
   "\$target" == "$TMP/invalid/etc/omarchy-kids" || "\$target" == "$TMP/invalid/etc/omarchy-kids/machine.conf" ]]; then
   case "\$format" in
@@ -311,6 +325,9 @@ chmod +x "$STUBS/rm"
 cat >"$STUBS/python3" <<EOF
 #!/bin/bash
 target="\${@: -1}"
+if [[ -e "$LOG/luks-intent-write-fail" && "\${*: -2}" == "added removing" ]]; then exit 1; fi
+if [[ -e "$LOG/account-intent-write-fail" && "\${*: -2}" == "complete removing" ]]; then exit 1; fi
+if [[ -e "$LOG/destination-write-fail" && "\${2:-}" == destination ]]; then exit 1; fi
 if [[ -e "$LOG/luks-map-fsync-fail" && "\$target" == */luks-slots ]]; then exit 1; fi
 exec "$REAL_PY" "\$@"
 EOF
@@ -333,6 +350,31 @@ export PATH="$STUBS:$BASE_PATH"
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_ROOT="$SCRATCH_ROOT"
 export OMARCHY_KIDS_HOME_ROOT="$HOMEROOT"
+
+seed_transaction() {
+  local root="$1" account="$2" slot="$3" display="$4" band="${5:-6-8}" avatar="${6:-fox}" password_mode="${7:-set}" manager
+  manager="$TREE/lib/transaction.py"
+  local dir="$root/var/lib/omarchy-kids/transactions"
+  mkdir -p "$root/var/lib/omarchy-kids"
+  chmod 0700 "$root/var/lib/omarchy-kids"
+  if [[ "$slot" == - ]]; then
+    "$REAL_PY" "$manager" create "$dir" "$account" add - - "$password_mode" "$display" "$band" "$avatar"
+  else
+    "$REAL_PY" "$manager" create "$dir" "$account" add \
+      18ea1ae2-ae5d-4012-9ff4-f071ccccdd01 "$slot" "$password_mode" "$display" "$band" "$avatar"
+    "$REAL_PY" "$manager" transition "$dir" "$account" reserved adding
+    "$REAL_PY" "$manager" transition "$dir" "$account" adding added
+  fi
+  local from to
+  for to in creating created passworded fstab mounted profile namespace accountsservice face portal launcher session complete; do
+    from="$("$REAL_PY" "$manager" field "$dir" "$account" account_state)"
+    "$REAL_PY" "$manager" lifecycle "$dir" "$account" "$from" "$to"
+  done
+  [[ "$slot" == - ]] || "$REAL_PY" "$manager" token "$dir" "$account" >"$LOG/token.$slot.json"
+}
+
+seed_transaction "$SCRATCH_ROOT" kid-ada 3 "Ada Lovelace" 6-8 fox
+seed_transaction "$SCRATCH_ROOT" kid-cy 5 Cy 6-8 bear
 
 # --- seed every lock as "already provisioned" -----------------------------
 
@@ -381,6 +423,8 @@ posture_ensure_parent_unlock_line omarchy-lock-password
 # mount: mounted noexec right now
 mkdir -p "$HOMEROOT/home/kid-ada"
 echo "a drawing" >"$HOMEROOT/home/kid-ada/drawing.txt"
+mkdir -p "$HOMEROOT/home/kid-cy"
+echo "a fixture file" >"$HOMEROOT/home/kid-cy/file.txt"
 touch "$LOG/mounted-kid-ada"
 touch "$LOG/account-kid-ada"
 
@@ -685,6 +729,7 @@ touch "$LOG/mounted-kid-ben" "$LOG/account-kid-ben"
 posture_add_fstab_line kid-ben
 posture_add_namespace_lines kid-ben
 posture_write_accountsservice kid-ben bear
+seed_transaction "$SCRATCH_ROOT" kid-ben - Ben 6-8 bear none
 
 : >"$ARGV_LOG"
 out4="$("$BIN" --yes --no-snapshot --delete-homes 2>&1)"
@@ -763,6 +808,8 @@ printf 'name=Test\nband=6-8\npassword=set\n' >"$FAIL_ETC/kids/kid-test.conf"
 printf '0=mark:omarchy.desktop\n9=kid-dot\n10=kid-test\n' >"$FAIL_ETC/luks-slots"
 mkdir -p "$FAIL_HOME/home/kid-test"
 touch "$LOG/account-kid-dot" "$LOG/account-kid-test" "$LOG/luks-kill-fail-slot-9"
+seed_transaction "$FAIL_ROOT" kid-dot 9 Dot
+seed_transaction "$FAIL_ROOT" kid-test 10 Test
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$FAIL_ETC/machine.conf"
 
 : >"$ARGV_LOG"
@@ -792,6 +839,7 @@ chmod 0644 "$INTENT_ETC/machine.conf"
 printf 'name=Dot\nband=6-8\npassword=set\n' >"$INTENT_ETC/kids/kid-dot.conf"
 printf '0=mark:omarchy.desktop\n12=kid-dot\n' >"$INTENT_ETC/luks-slots"
 touch "$LOG/account-kid-dot" "$LOG/luks-intent-write-fail" "$LOG/require-luks-intent"
+seed_transaction "$INTENT_ROOT" kid-dot 12 Dot
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$INTENT_ETC/machine.conf"
 
 : >"$ARGV_LOG"
@@ -818,6 +866,7 @@ printf 'name=Ben\nband=6-8\npassword=set\n' >"$RECOVER_ETC/kids/kid-ben.conf"
 printf '0=mark:omarchy.desktop\n11=kid-ben\n' >"$RECOVER_ETC/luks-slots"
 touch "$LOG/account-kid-ben" "$LOG/luks-map-write-fail"
 touch "$LOG/require-luks-intent"
+seed_transaction "$RECOVER_ROOT" kid-ben 11 Ben
 kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$RECOVER_ETC/machine.conf"
 
 : >"$ARGV_LOG"
@@ -828,7 +877,8 @@ rm -f "$LOG/luks-map-write-fail"
 check_eq "$st" 1 "a slot-map write failure fails the full run"
 check_status "$out_map_fail" "luks:kid-ben" "FAILED" "slot-map write failure is not masked"
 check_eq "$(cat "$RECOVER_ETC/luks-slots")" $'0=mark:omarchy.desktop\n11=kid-ben' "slot-map write failure preserves the trusted map"
-check_eq "$(cat "$RECOVER_ETC/luks-slots.removing-kid-ben")" '11=kid-ben' "slot-map write failure leaves the durable removal intent"
+check_eq "$(jq -r .state "$RECOVER_ROOT/var/lib/omarchy-kids/transactions/kid-ben.json")" removed \
+  "slot-map write failure leaves the durable retired transaction"
 [[ -e "$LOG/luks-intent-missing-at-kill" ]] && fail "slot kill ran before its intent existed" || pass "slot kill ran only after its intent was durable"
 [[ -e "$RECOVER_ETC/kids/kid-ben.conf" ]] && pass "slot-map write failure preserves the profile" || fail "slot-map write failure removed the profile"
 
@@ -844,7 +894,8 @@ check_status "$out_fsync_fail" "luks:kid-ben" "FAILED" "map fsync failure is not
 check_not_contains "$fsync_fail_argv" "luksKillSlot" "map fsync retry does not kill the already-empty slot again"
 check_contains "$fsync_fail_argv" "cryptsetup luksDump /dev/fake0" "map fsync retry verifies the recorded slot is already empty"
 check_eq "$(grep -c '^11=kid-ben$' "$RECOVER_ETC/luks-slots")" "0" "map is rewritten before its durability check"
-[[ -e "$RECOVER_ETC/luks-slots.removing-kid-ben" ]] && pass "map fsync failure preserves the removal intent" || fail "map fsync failure cleared the removal intent"
+check_eq "$(jq -r .state "$RECOVER_ROOT/var/lib/omarchy-kids/transactions/kid-ben.json")" removed \
+  "map fsync failure preserves the retired transaction"
 [[ -e "$RECOVER_ETC/kids/kid-ben.conf" ]] && pass "map fsync failure preserves the profile" || fail "map fsync failure removed the profile"
 
 : >"$ARGV_LOG"
@@ -855,7 +906,7 @@ retry_argv="$(cat "$ARGV_LOG")"
 check_eq "$st" 0 "retry finishes after the slot and map were already updated"
 check_not_contains "$retry_argv" "luksKillSlot" "final retry does not kill the already-empty slot again"
 check_contains "$retry_argv" "cryptsetup luksDump /dev/fake0" "final retry verifies the recorded slot is already empty"
-[[ -e "$RECOVER_ETC/luks-slots.removing-kid-ben" ]] && fail "retry should clear the completed removal intent" || pass "retry clears the completed removal intent"
+pass "retry keeps the retired transaction until final archive and purge"
 [[ -e "$RECOVER_ETC" ]] && fail "successful retry should finish the full purge" || pass "successful retry finishes the full purge"
 rm -f "$LOG/require-luks-intent"
 
@@ -882,6 +933,68 @@ OMARCHY_KIDS_ETC="$PURGE_ETC" OMARCHY_KIDS_ROOT="$PURGE_ROOT" "$BIN" --yes --no-
 check_eq "$?" 0 "purge retry can read machine.conf and finish"
 [[ -e "$PURGE_ETC" ]] && fail "purge retry should remove etc" || pass "purge retry removes etc"
 
+# --- journal failures stop kid and machine teardown ----------------------
+
+JOURNAL_ETC="$TMP/journal-intent/etc/omarchy-kids"
+JOURNAL_ROOT="$TMP/journal-intent/root"
+JOURNAL_HOME="$TMP/journal-intent/home"
+mkdir -p "$JOURNAL_ETC/kids" "$JOURNAL_ROOT" "$JOURNAL_HOME/home/kid-dot"
+printf 'parent=mark\nboot=portal\n' >"$JOURNAL_ETC/machine.conf"
+printf 'name=Dot\navatar=fox\nband=6-8\npassword=none\nonboarded=no\n' >"$JOURNAL_ETC/kids/kid-dot.conf"
+printf '0=mark:omarchy.desktop\n' >"$JOURNAL_ETC/luks-slots"
+touch "$LOG/account-kid-dot" "$LOG/account-intent-write-fail"
+seed_transaction "$JOURNAL_ROOT" kid-dot - Dot 6-8 fox none
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$JOURNAL_ETC/machine.conf"
+
+: >"$ARGV_LOG"
+out_journal_intent="$(OMARCHY_KIDS_ETC="$JOURNAL_ETC" OMARCHY_KIDS_ROOT="$JOURNAL_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$JOURNAL_HOME" "$BIN" --yes --no-snapshot 2>&1)"
+st=$?
+rm -f "$LOG/account-intent-write-fail"
+check_eq "$st" 1 "an account-intent journal failure fails the full run"
+check_status "$out_journal_intent" "transaction-intent:kid-dot" "FAILED" \
+  "account-intent journal failure is reported"
+check_not_contains "$(cat "$ARGV_LOG")" "userdel kid-dot" \
+  "failed account intent stops before userdel"
+[[ -e "$LOG/account-kid-dot" && -d "$JOURNAL_HOME/home/kid-dot" ]] &&
+  pass "failed account intent preserves the account and home" ||
+  fail "failed account intent lost the account or home"
+[[ -e "$JOURNAL_ETC/kids/kid-dot.conf" && -e "$JOURNAL_ETC/machine.conf" ]] &&
+  pass "failed account intent preserves profile and machine state" ||
+  fail "failed account intent allowed machine teardown"
+check_eq "$(jq -r .account_state "$JOURNAL_ROOT/var/lib/omarchy-kids/transactions/kid-dot.json")" complete \
+  "failed account intent leaves the journal retryable"
+
+DEST_ETC="$TMP/destination/etc/omarchy-kids"
+DEST_ROOT="$TMP/destination/root"
+DEST_HOME="$TMP/destination/home"
+mkdir -p "$DEST_ETC/kids" "$DEST_ROOT" "$DEST_HOME/home/kid-ben"
+printf 'parent=mark\nboot=portal\n' >"$DEST_ETC/machine.conf"
+printf 'name=Ben\navatar=fox\nband=6-8\npassword=none\nonboarded=no\n' >"$DEST_ETC/kids/kid-ben.conf"
+printf '0=mark:omarchy.desktop\n' >"$DEST_ETC/luks-slots"
+touch "$LOG/account-kid-ben" "$LOG/destination-write-fail"
+seed_transaction "$DEST_ROOT" kid-ben - Ben 6-8 fox none
+kids_set_const "$TREE/lib/boot-mode.sh" BOOT_MODE_MACHINE_CONF "$DEST_ETC/machine.conf"
+
+: >"$ARGV_LOG"
+out_destination="$(OMARCHY_KIDS_ETC="$DEST_ETC" OMARCHY_KIDS_ROOT="$DEST_ROOT" \
+  OMARCHY_KIDS_HOME_ROOT="$DEST_HOME" "$BIN" --yes --no-snapshot 2>&1)"
+st=$?
+rm -f "$LOG/destination-write-fail"
+check_eq "$st" 1 "a home-destination journal failure fails the full run"
+check_status "$out_destination" "transaction-destination:kid-ben" "FAILED" \
+  "home-destination journal failure is reported"
+[[ ! -e "$LOG/account-kid-ben" && -d "$DEST_HOME/home/kid-ben" ]] &&
+  pass "destination failure preserves the home after recorded account removal" ||
+  fail "destination failure lost the home or retained an unjournaled account"
+[[ -e "$DEST_ETC/kids/kid-ben.conf" && -e "$DEST_ETC/machine.conf" ]] &&
+  pass "destination failure preserves profile and machine state" ||
+  fail "destination failure allowed machine teardown"
+check_eq "$(jq -r .account_state "$DEST_ROOT/var/lib/omarchy-kids/transactions/kid-ben.json")" account_removed \
+  "destination failure leaves the journal at the retryable account boundary"
+check_eq "$(jq -r .destination "$DEST_ROOT/var/lib/omarchy-kids/transactions/kid-ben.json")" "" \
+  "failed destination write never claims a preservation path"
+
 # --- portal and invalid modes are decided before boot mutation ------------
 
 PORTAL_ETC="$TMP/portal/etc/omarchy-kids"
@@ -899,6 +1012,7 @@ onboarded=no
 EOF
 printf '0=mark:omarchy.desktop\n7=kid-test\n' >"$PORTAL_ETC/luks-slots"
 touch "$LOG/account-kid-test"
+seed_transaction "$PORTAL_ROOT" kid-test - Test 6-8 fox set
 printf 'portal drop-in must stay\n' >"$PORTAL_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf"
 printf '# omarchy-kids: was MAX_SNAPSHOT_ENTRIES=8\nMAX_SNAPSHOT_ENTRIES=0\n' >"$PORTAL_ROOT/etc/default/limine"
 portal_dropin_before="$(cat "$PORTAL_ROOT/etc/mkinitcpio.conf.d/omarchy_kids.conf")"
@@ -937,8 +1051,10 @@ out_portal="$(OMARCHY_KIDS_ETC="$PORTAL_ETC" OMARCHY_KIDS_ROOT="$PORTAL_ROOT" \
 st=$?
 portal_argv="$(cat "$ARGV_LOG")"
 check_eq "$st" 1 "portal full removal refuses a kid with a recorded disk slot"
-check_status "$out_portal" "luks:kid-test" "FAILED" "portal removal reports the unverifiable kid slot"
-check_contains "$out_portal" "cannot verify recorded LUKS slot 7" "portal removal says why it stopped"
+check_status "$out_portal" "conflicting-luks-evidence:kid-test" "FAILED" \
+  "portal removal reports the conflicting transaction and slot evidence"
+check_contains "$out_portal" "non-LUKS transaction for kid-test conflicts with legacy slot evidence" \
+  "portal removal says why it stopped"
 [[ -e "$PORTAL_ETC/kids/kid-test.conf" ]] && pass "portal slot refusal preserves the kid profile" || fail "portal slot refusal removed the kid profile"
 check_not_contains "$portal_argv" "userdel kid-test" "portal slot refusal preserves the kid account"
 for command in cryptsetup mkinitcpio limine limine-snapper-sync; do

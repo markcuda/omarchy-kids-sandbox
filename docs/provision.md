@@ -12,6 +12,9 @@ functions; the luks-slots parsing and rewrite live in `lib/kids.sh` instead (sha
 own use of it, docs/conf.md); `bin/omarchy-kids-provision` is the sequencing and the policy
 (bands, passwords, LUKS).
 
+The durable transaction and token contract is documented in `docs/transactions.md`. In short,
+`/var/lib/omarchy-kids/transactions/<account>.json` is authoritative and `luks-slots` is derived.
+
 `DRY_RUN=1` is the default everywhere (AGENTS.md rule 8): every action below is printed, not
 run, unless `--apply` is passed or `DRY_RUN=0` is set. The few things that only *decide* what to
 do — the slug collision check, LUKS device selection, reading `luks-slots` and
@@ -24,19 +27,18 @@ trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the com
 1. **Account name** (Appendix B.1): `omarchy-kids-conf slug "<display-name>"` gives the base
    `kid-<slug>`; if a profile already exists for it (`$OMARCHY_KIDS_ETC/kids/<slug>.conf`), or
    `getent passwd` already knows it, `-2`, `-3`, ... is appended until one is free.
-2. **A LUKS key slot** (R-SEC-4), only in `boot=disk` when a password was given. This runs before
-   account creation. Disk mode requires an encrypted device (`--luks-device`, or the first
-   `crypto_LUKS` device from `lsblk`) and the parent's passphrase. The command rejects a kid
-   password that already unlocks the device, captures the occupied slots from `luksDump`, runs
-   `luksAddKey`, then diffs a second `luksDump` to find the new slot number. This happens under the
-   same root-owned slot-map lock removal uses. Only then does it atomically add the mapping. If the
-   map write fails, it tries to kill the new slot and exits
-   without creating the account. If that rollback also fails, the error names the exact slot for
-   manual removal. Portal mode makes no LUKS call and rejects `--luks-device`,
+2. **A LUKS key slot** (R-SEC-4), only in `boot=disk` when a password was given. Under the shared
+   writer lock, add reconciles every transaction, reserves an explicit free slot durably, records
+   `adding`, runs `luksAddKey --key-slot`, attaches and verifies the non-secret ownership token,
+   records `added`, and rebuilds `luks-slots` only from proven records. An active slot without the
+   matching token is ambiguous: it is not deleted or adopted. A retry with an empty reserved slot
+   requires both secrets again and the recorded device UUID. Portal mode makes no LUKS call and rejects `--luks-device`,
    `--parent-password-stdin`, and `--parent-password-fd`.
 3. **The account itself** (R-FND-2): `useradd -m -s /bin/bash -G omarchy-kids,<band-group>
    <account>`. Band groups: `omarchy-kids-3-5`, `omarchy-kids-6-8`, `omarchy-kids-9-12`,
-   `omarchy-kids-13plus` (docs/packaging.md).
+   `omarchy-kids-13plus` (docs/packaging.md). Account selection and unfinished base/suffix retry
+   discovery happen under the shared lock. A pre-existing account is adopted after a restart only
+   when its shell, home, and exact group set match the journaled request.
 4. **Password** (R-SEC-3): with `--password-stdin`, the kid's password is the first line of
    stdin, piped straight into `chpasswd` as `<account>:<password>` — never on argv, never
    logged. With `--no-password` (3-5 only; refused for every other band, checking
@@ -126,14 +128,12 @@ trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the com
 
 Reverses every account-level step `add` took, in reverse-ish order, then removes the account:
 
-1. **LUKS slot** (R-SEC-4), disk mode only: looked up by *slot number* in `luks-slots` (a kid's own password
-   isn't available to `remove`, so `--test-passphrase` isn't an option here — this is the one
-   place slot number, not password, is the key), killed with
-   the command writes and fsyncs `luks-slots.removing-<account>`, then calls
-   `cryptsetup luksKillSlot --batch-mode DEVICE SLOT` (`--luks-device`, or auto-detection), rewrites
-   `luks-slots`, and clears the intent. A failed kill leaves the mapping, intent, and profile in
-   place. If the kill succeeded but the map write failed, a retry confirms the slot is empty and
-   finishes the rewrite without killing it again. Portal mode makes no cryptsetup call and rejects
+1. **LUKS slot** (R-SEC-4), disk mode only: the transaction identifies it. Removal verifies the
+   device UUID, active slot, random owner, transaction, account, and bound on-device token, records
+   and fsyncs `removing`, verifies ownership again immediately before `luksKillSlot`, observes the
+   slot empty, records `removed`, and derives the map. A failed kill preserves the record, mapping,
+   and profile. A retry after a successful kill observes the empty slot and never kills it again.
+   A map-only legacy entry is not ownership proof. Portal mode makes no cryptsetup call and rejects
    `--luks-device`; if the map or an intent records this account, it refuses removal and preserves
    the account, profile, and home.
 2. `pam_namespace` lines for the account removed from `namespace.conf` (the `pam.d/sddm` and
@@ -152,7 +152,8 @@ Reverses every account-level step `add` took, in reverse-ish order, then removes
 9. Unless `--keep-home`, the home moves to `<parent home>/Kids Mode/<display name>/` — the
    parent's login name comes from `machine.conf`'s `parent=`, and their home directory from
    `getent passwd` (falling back to `/home/<parent>` where `getent` isn't available, e.g. this
-   repo's macOS dev environment).
+   repo's macOS dev environment). The destination is journaled before the move; two existing paths
+   conflict, and two missing paths fail rather than claiming the files were preserved.
 10. The profile is removed last. Until the account and home steps succeed, it remains the retry
     record for the account and display name.
 

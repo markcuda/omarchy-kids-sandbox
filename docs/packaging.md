@@ -104,7 +104,9 @@ The package does not create these runtime paths itself: `/etc/omarchy-kids/kids/
 `/etc/omarchy-kids/machine.conf`, `/etc/omarchy-kids/luks-slots`, the transition-owned
 `/etc/mkinitcpio.conf.d/omarchy_kids.conf`, Chromium policy files,
 polkit and PAM changes, SDDM runtime configuration, `/run/omarchy-kids/`, or
-`/var/lib/omarchy-kids/`. The wizard, provisioning, web, assertion, and removal commands create
+`/var/lib/omarchy-kids/transactions/<account>.json`. Provisioning creates the transaction directory
+root-owned `0700` and its durable records `0600`; Remove Kids Mode archives and removes them only
+after account cleanup succeeds. The wizard, provisioning, web, assertion, and removal commands create
 or remove them as their jobs require.
 
 ### Groups

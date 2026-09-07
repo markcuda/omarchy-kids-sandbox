@@ -1,5 +1,17 @@
 # Loop report, night of 2026-09-02
 
+## September 7: focused bug-fix and usability pass
+
+Mark’s current priority ends at 13:44 EDT, with regression, restoration, and handoff beginning at 10:44 EDT. Walkthrough videos are canceled. The measure of this pass is verified parent and kid journeys and resolved usability problems; older video requirements below are historical.
+
+[#180 / PR #181](https://github.com/markcuda/omarchy-kids-sandbox/pull/181) merged as `8ae2e0c`, with the complete tree identical to accepted candidate `7482d1c`. Starter apps now prompts through the terminal and preserves the chosen apps. The formatter, Mac 43-file suite (five skipped checks), VM 43-file suite (two skipped checks), and scenario 05 passed before merge. All four installed Simple/Advanced previews in fresh watched Latte/Tokyo sessions retained the intended seven apps after GCompris was declined. Independent review and separate restoration passed. [Six original premerge screenshots](media/dogfood/wizard180-7482d1c/README.md) document this scoped preview; no Apply or provisioning was attempted.
+
+The merged-main formatter and Mac suite passed; the VM suite and final installed readback remain pending. Premerge UI proof will be retained only if the complete tree, package bytes and timestamps, and installed pins remain unchanged. The VM returned to its original Latte greeter. The Air’s current Vantablack theme was preserved after an obsolete Tokyo Night check failed; no cause for that external change is asserted.
+
+The Advanced checklist clipping fix, [PR #173](https://github.com/markcuda/omarchy-kids-sandbox/pull/173), is rebased as `9e9200aa` and independently source-approved; its new gates and installed editing/viewport checks are pending. The redundant confirmation question remains [#182](https://github.com/markcuda/omarchy-kids-sandbox/issues/182), with source-approved draft PR #183 awaiting gates. Lower-impact findings stay in existing tickets.
+
+Full setup, kid login, launcher/apps, exit/return, Ask/approval, time expiry, Wi-Fi, parent settings, and disposable-VM removal remain untested as complete journeys on this candidate. These are the remaining walkthrough priorities. #98 still requires Mark’s #109 decision; #97 waits for #98, then #99.
+
 ## September 6: settings summary verified on merged main
 
 PR [#169](https://github.com/markcuda/omarchy-kids-sandbox/pull/169) merged as `b553913`, with the exact accepted `e9384a7` tree. The formatter, 42-file Mac suite (five skips), and same VM suite (two skips) passed before merge. Installed `wizard-summary-visible-167` passed in fresh watched Latte and Tokyo Night sessions: readable current summary, changed Desktop, Back to password, return preserving the custom value, and Leave without Apply. Independent visual review and separate package/settings/theme/timer/greeter readback passed. [Twelve exact candidate screenshots](media/dogfood/wizard167-e9384a7/README.md) are published; 58 original frames and recovery diagnostics are retained privately.

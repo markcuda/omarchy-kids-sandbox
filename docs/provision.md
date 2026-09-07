@@ -38,7 +38,7 @@ trusted reader in `lib/boot-mode.sh`. Missing or unsafe mode state stops the com
    <account>`. Band groups: `omarchy-kids-3-5`, `omarchy-kids-6-8`, `omarchy-kids-9-12`,
    `omarchy-kids-13plus` (docs/packaging.md).
 4. **Password** (R-SEC-3): with `--password-stdin`, the kid's password is the first line of
-   stdin, piped straight into `chpasswd` as `<account>:<password>` — never on argv, never
+   stdin, passed straight to `chpasswd` on stdin as `<account>:<password>` — never on argv, never
    logged. With `--no-password` (3-5 only; refused for every other band, checking
    `password_optional` from `omarchy-kids-conf band <band>`), the account is locked instead
    (`usermod -L`).
@@ -277,6 +277,11 @@ on stdin, never argv, never logged". The function now takes the kid's passphrase
 parent's on fd 4, is never handed to `run` at all, and prints its own preview with `<secret>`
 placeholders in the two positions. `test/shell.d/provision-test.sh` greps the whole default
 dry-run output, and every `[dry-run]` line in it, for either password.
+
+The `chpasswd` input uses a here-string rather than a producer pipe. In a dry run, `run` prints
+the command without reading stdin; with `pipefail`, a producer that loses that race can receive
+SIGPIPE and terminate the preview before its final `Done` line. The here-string keeps the secret
+off argv while leaving no producer process to fail when the preview intentionally does not read.
 
 The slot number is found by diffing `cryptsetup luksDump`'s occupied slots before and after
 `luksAddKey`, not by running `cryptsetup open --test-passphrase` afterwards and parsing "Key

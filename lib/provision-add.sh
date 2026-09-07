@@ -58,7 +58,7 @@ cmd_add() {
   if ((want_password && no_password)); then
     die "add: --password-stdin and --no-password are mutually exclusive"
   fi
-  if ((!want_password && !no_password)); then
+  if ((! want_password && ! no_password)); then
     die "add: needs --password-stdin or --no-password"
   fi
   if ((no_password)); then
@@ -131,7 +131,7 @@ cmd_add() {
   if ((no_password)); then
     run usermod -L "$account"
   else
-    printf '%s:%s\n' "$account" "$kid_password" | run chpasswd
+    run chpasswd <<<"$account:$kid_password"
   fi
 
   # R-LOGIN, issue #39: keep a GECOS fallback where passwd(5) can carry it.

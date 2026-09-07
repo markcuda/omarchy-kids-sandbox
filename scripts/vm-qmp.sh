@@ -43,6 +43,13 @@ case ${1:-} in
     }
     text="$(cat)"
     for ((i = 0; i < ${#text}; i++)); do
+      case ${text:i:1} in
+        [a-z0-9A-Z]) ;;
+        ' ' | '-' | '.' | '/' | '_' | ':') ;;
+        *) echo "unsupported type character: ${text:i:1}" >&2; exit 2 ;;
+      esac
+    done
+    for ((i = 0; i < ${#text}; i++)); do
       c=${text:i:1}
       case $c in
         [a-z0-9]) k=$c ;; [A-Z]) k="shift-${c,,}" ;; ' ') k='spc' ;; '-') k='minus' ;; '.') k='dot' ;; '/') k='slash' ;; '_') k="shift-minus" ;; ':') k="shift-semicolon" ;; *) echo "unsupported type character: $c" >&2; exit 2 ;; esac

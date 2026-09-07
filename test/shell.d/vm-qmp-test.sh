@@ -39,7 +39,7 @@ fi
 [[ $(bash "$HELPER" status) == '{"return":{},"id":"omarchy-kids-1-command"}' ]]
 
 : >"$QMP_REQUESTS"
-if printf '@' | bash "$HELPER" type >/dev/null 2>&1; then
+if printf '2@' | bash "$HELPER" type >/dev/null 2>&1; then
   echo "FAIL unsupported input succeeded" >&2
   exit 1
 fi

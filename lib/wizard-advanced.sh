@@ -138,7 +138,10 @@ friendly_allowlist() {
 
 adv_allowlist_count() {
   local csv="$1" id oldifs="$IFS" count=0
-  [[ -z "$csv" ]] && { printf 'no apps selected'; return; }
+  [[ -z "$csv" ]] && {
+    printf 'no apps selected'
+    return
+  }
   IFS=,
   for id in $csv; do [[ -n "$id" ]] && count=$((count + 1)); done
   IFS="$oldifs"

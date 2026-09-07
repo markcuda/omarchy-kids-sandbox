@@ -52,8 +52,14 @@ setup_advanced_globals() {
 }
 
 row="$(adv_row_line allowlist)"
-[[ "$row" == *'8 apps selected'* ]] || { echo 'FAIL app row lost selected count'; exit 1; }
-[[ "$row" != *$'\n'* ]] || { echo 'FAIL selectable app row contains display newlines'; exit 1; }
+[[ "$row" == *'8 apps selected'* ]] || {
+  echo 'FAIL app row lost selected count'
+  exit 1
+}
+[[ "$row" != *$'\n'* ]] || {
+  echo 'FAIL selectable app row contains display newlines'
+  exit 1
+}
 [[ "${#row}" -lt 80 ]] || {
   echo 'FAIL selectable app row remains too wide'
   exit 1
@@ -67,7 +73,10 @@ adv_allowlist_body body "$ALLOWLIST_IDS"
 }
 body_text="$(printf '%s\n' "${body[@]}")"
 for label in GCompris 'Tux Paint' KTuberling Blinken SuperTux SuperTuxKart KLettres Kanagram; do
-  [[ "$body_text" == *"$label"* ]] || { echo "FAIL app detail body lost $label"; exit 1; }
+  [[ "$body_text" == *"$label"* ]] || {
+    echo "FAIL app detail body lost $label"
+    exit 1
+  }
 done
 [[ "$(adv_get allowlist)" == "$ALLOWLIST_IDS" ]] || {
   echo 'FAIL display formatting changed the underlying allowlist'
@@ -80,7 +89,10 @@ expected="  $(app_label_for "$BAND" quote)"
   echo 'FAIL quoted app label was not preserved as data'
   exit 1
 }
-[[ ! -e "$MARKER" ]] || { echo 'FAIL app label triggered command substitution'; exit 1; }
+[[ ! -e "$MARKER" ]] || {
+  echo 'FAIL app label triggered command substitution'
+  exit 1
+}
 
 setup_advanced_globals 'quote'
 captured_body=()

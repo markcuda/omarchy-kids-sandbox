@@ -311,7 +311,7 @@ adv_edit_allowlist() {
   local step="$1" total="$2"
   apps_pick_walk "$step" "$total"
   local rc=$?
-  ((rc == 130)) && return 130
+  ((rc != 0)) && return "$rc"
   adv_set allowlist "$TUI_REPLY"
   return 0
 }

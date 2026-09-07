@@ -226,7 +226,7 @@ screen_apps() {
   if [[ "$APPS_MODE" == pick ]]; then
     apps_pick_walk 9 "$TOTAL_STEPS"
     rc=$?
-    ((rc == 130)) && return 130
+    ((rc != 0)) && return "$rc"
     ALLOWLIST_IDS="$TUI_REPLY"
   else
     ALLOWLIST_IDS="$(pack_field "$BAND" id | paste -sd, -)" # whole pack, band default

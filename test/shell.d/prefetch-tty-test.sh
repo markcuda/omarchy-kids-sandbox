@@ -14,13 +14,20 @@ cat >"$STUBS/sudo" <<'EOF'
 #!/bin/bash
 if [[ "$2" == "true" ]]; then exit 0; fi
 if [[ "$2" == "pacman" ]]; then
-  if [[ -t 0 ]]; then printf 'tty\n' >"__LOG__/stdin"; else printf 'not-tty\n' >"__LOG__/stdin"; fi
-  if IFS= read -r -t 0.2 value; then
+  if [[ -t 0 ]]; then
+    printf 'tty\n' >"__LOG__/stdin"
+    exit 1
+  fi
+  printf 'not-tty\n' >"__LOG__/stdin"
+  if IFS= read -r -t 1 value; then
     printf 'data:%s\n' "$value" >>"__LOG__/stdin"
-  elif [[ "$?" == 142 ]]; then
-    printf 'timeout\n' >>"__LOG__/stdin"
   else
-    printf 'eof\n' >>"__LOG__/stdin"
+    status=$?
+    if [[ "$status" == 1 ]]; then
+      printf 'eof\n' >>"__LOG__/stdin"
+    else
+      printf 'read-status:%s\n' "$status" >>"__LOG__/stdin"
+    fi
   fi
   exit 0
 fi

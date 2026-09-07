@@ -389,8 +389,7 @@ check_contains "$out" "▸" "tui_progress: the current step gets its marker"
 check_contains "$out" "Create account" "tui_progress: step labels render"
 check_contains "$out" "Grab a coffee." "tui_progress: the tip renders"
 
-# --- issue #50: the interactive/"card" path clears the screen, draws one ---
-# --- bordered card, and never prints gum's own choice list a second time --
+# --- issue #120 prototype: interactive Gum owns the responsive screen copy --
 # TUI_MODE is forced to "interactive" the same way earlier tests force
 # "file" — there's no real tty in a test run — with the fake gum from above
 # standing in for a real terminal.
@@ -406,6 +405,8 @@ out="$(
   TUI_MODE="interactive"
   # shellcheck disable=SC2034 # read by tui_screen_choose in lib/tui.sh (gates gum vs the read fallback)
   TUI_HAVE_GUM=1
+  # shellcheck disable=SC2030 # this command-substitution fixture owns its fake Gum output
+  export GUM_OUTPUT=garden
   # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
   web_choices=(
     "garden|Only sites you choose|A short list you can grow."
@@ -415,25 +416,13 @@ out="$(
   echo "rc=$?"
 )" </dev/null
 check_contains "$(cat "$CLEAR_LOG")" "cleared" "tui_header: card mode clears the screen"
-check_contains "$(cat "$TPUT_LOG")" "cols" "tui_header: card mode measures the terminal with tput"
-check_contains "$(cat "$GUM_LOG")" "--border rounded" "tui_header: card mode draws one closed rounded-border card"
-check_contains "$(cat "$GUM_LOG")" "--padding 1 2" "tui_header: card mode's card uses the padding round three settled on"
-check_contains "$out" "Kids Mode · Step 2 of 3" "tui_header: card mode puts the step line inside the card"
-check_contains "$out" "What can K see?" "tui_header: card mode puts the title inside the card"
+check_not_contains "$(cat "$TPUT_LOG")" "cols" "native card path does not freeze terminal width in padding"
+check_contains "$(cat "$GUM_LOG")" "--header Kids Mode · Step 2 of 3" "native Gum header owns the step line"
+check_contains "$(cat "$GUM_LOG")" "What can K see?" "native Gum header owns the title"
+check_contains "$(cat "$GUM_LOG")" "--header.foreground #ffffff" "native Gum header uses the readable theme role"
+check_contains "$out" "rc=0" "native Gum choose still returns the selected answer"
 check_contains "$(cat "$GUM_LOG")" "choose" "tui_screen_choose: card mode still asks gum choose for the list"
-check_not_contains "$(cat "$GUM_LOG")" "--header What can K see?" "tui_screen_choose: card mode never hands gum choose the title as its own header (already in the card)"
-check_not_contains "$out" "Only sites you choose" "tui_screen_choose: card mode never prints gum's own list a second time"
-
-# $GUM_LOG records every gum invocation in the order lib/tui.sh made them,
-# so the card (one `style --border rounded` call) has to come before gum
-# choose is ever asked for the list.
-style_line="$(grep -n -- '--border rounded' "$GUM_LOG" | head -1 | cut -d: -f1)"
-choose_line="$(grep -n '^choose ' "$GUM_LOG" | head -1 | cut -d: -f1)"
-if [[ -n "$style_line" && -n "$choose_line" && "$style_line" -lt "$choose_line" ]]; then
-  pass "tui_screen_choose: the card renders before gum choose runs, not after"
-else
-  fail "tui_screen_choose: card/choose are out of order (card=$style_line choose=$choose_line)"
-fi
+check_not_contains "$(cat "$GUM_LOG")" "style" "native Gum path does not print a stale outer style card"
 
 # Essential keyboard guidance must use the readable theme role, even when the
 # muted role is available for secondary copy (issue #119).
@@ -481,7 +470,7 @@ for ((i = 0; i < 100; i++)); do
   grep -q '^blocked choose$' "$GUM_LOG" && break
   sleep 0.01
 done
-check_contains "$(cat "$blocked_out")" "$first_footer" "tui_screen_choose: first-screen guidance is visible before gum consumes the answer"
+check_contains "$(cat "$GUM_LOG")" "$first_footer" "tui_screen_choose: first-screen guidance is owned by Gum before it blocks"
 touch "$release"
 wait "$blocked_pid"
 check_contains "$(cat "$blocked_out")" "rc=0 reply=garden" "tui_screen_choose: blocked widget still returns its answer"
@@ -504,7 +493,7 @@ for ((i = 0; i < 100; i++)); do
   grep -q '^blocked input$' "$GUM_LOG" && break
   sleep 0.01
 done
-check_contains "$(cat "$blocked_out")" "$default_footer" "tui_screen_input: guidance is visible before gum consumes the answer"
+check_contains "$(cat "$GUM_LOG")" "$default_footer" "tui_screen_input: guidance is owned by Gum before it blocks"
 touch "$release"
 wait "$blocked_pid"
 check_contains "$(cat "$blocked_out")" "rc=0 reply=Ada" "tui_screen_input: blocked widget still returns its answer"
@@ -529,13 +518,13 @@ for ((i = 0; i < 100; i++)); do
   grep -q '^blocked confirm$' "$GUM_LOG" && break
   sleep 0.01
 done
-check_contains "$(cat "$blocked_out")" "$default_footer" "tui_screen_confirm: guidance is visible before gum consumes the answer"
+check_contains "$(cat "$GUM_LOG")" "$default_footer" "tui_screen_confirm: guidance is owned by Gum before it blocks"
 touch "$release"
 wait "$blocked_pid"
 check_contains "$(cat "$blocked_out")" "rc=0 reply=yes" "tui_screen_confirm: blocked widget still returns its answer"
 
-# ...and a choose screen's body is drawn *inside* that one card (review
-# §3.1), not printed beside it where the next clear would take it.
+# ...and a choose screen's body is passed into the same native header as its
+# title, so Gum redraws it after a resize.
 : >"$GUM_LOG"
 : >"$CLEAR_LOG"
 out="$(
@@ -546,15 +535,17 @@ out="$(
   TUI_MODE="interactive"
   # shellcheck disable=SC2034 # read by tui_screen_choose in lib/tui.sh (gates gum vs the read fallback)
   TUI_HAVE_GUM=1
+  # shellcheck disable=SC2030,SC2031 # this command-substitution fixture owns its fake Gum output
+  export GUM_OUTPUT=time
   # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
   kid_choices=("time|Screen time|")
   # shellcheck disable=SC2034 # read by lib/tui.sh via _tui_array_copy (by name)
   kid_facts=("Ada — band 6-8" "17m used / 0m left today")
   tui_screen_choose "Ada" 1 1 0 "" kid_choices "time" "" kid_facts 2>/dev/null
 )" </dev/null
-card_call="$(grep -- '--border rounded' "$GUM_LOG" | head -1)"
-check_contains "$card_call" "Ada — band 6-8" "tui_screen_choose: card mode puts the body inside the card"
-check_contains "$card_call" "17m used / 0m left today" "tui_screen_choose: every body line is in that same card"
+native_call="$(cat "$GUM_LOG")"
+check_contains "$native_call" "Ada — band 6-8" "tui_screen_choose: native header carries the body"
+check_contains "$native_call" "17m used / 0m left today" "tui_screen_choose: native header carries every body line"
 
 # _tui_measure pads the chooser to line up under the card's own text
 # (one column of border, one of padding), not flush with the terminal

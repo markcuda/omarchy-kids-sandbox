@@ -46,6 +46,7 @@ if [[ "${1:-}" == "" ]]; then
 import os
 import pty
 import select
+import signal
 import sys
 import time
 
@@ -54,27 +55,36 @@ pid, fd = pty.fork()
 if pid == 0:
     os.execv('/bin/bash', ['/bin/bash', script, '--pty'])
 chunks = []
-deadline = time.monotonic() + 10
-while True:
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        os.kill(pid, 15)
-        break
-    ready, _, _ = select.select([fd], [], [], min(1, remaining))
-    if not ready:
-        continue
-    try:
-        data = os.read(fd, 4096)
-    except OSError:
-        break
-    if not data:
-        break
-    chunks.append(data)
-_, status = os.waitpid(pid, 0)
+deadline = time.monotonic() + 30
+status = None
+try:
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], 0.1)
+        if ready:
+            try:
+                data = os.read(fd, 4096)
+            except OSError:
+                data = b''
+            if data:
+                chunks.append(data)
+        if status is None:
+            done, child_status = os.waitpid(pid, os.WNOHANG)
+            if done:
+                status = child_status
+        if status is not None and not ready:
+            break
+        if status is not None and ready and not data:
+            break
+finally:
+    if status is None:
+        # The PTY child owns this session and process group.
+        os.killpg(pid, signal.SIGKILL)
+        _, status = os.waitpid(pid, 0)
+    os.close(fd)
 sys.stdout.buffer.write(b''.join(chunks))
 sys.exit(os.waitstatus_to_exitcode(status))
 PY
-  )"
+  )" || { printf '%s\n' "$pty_out"; exit 1; }
   grep -q 'PASS interactive app picker retains Gum stdin' <<<"$pty_out"
   grep -q 'PASS confirm error propagates through both callers' <<<"$pty_out"
   bash "$0" --file
@@ -97,6 +107,7 @@ extract_apps_pick_walk() {
 eval "$(extract_apps_pick_walk)"
 BAND=6-8 DISPLAY_NAME=kid-ben
 TOTAL_STEPS=10
+# shellcheck disable=SC2329 # invoked by the extracted production function
 pack_field() { printf '%s\n' gcompris tuxpaint; }
 app_label_for() { printf '%s' "$2"; }
 

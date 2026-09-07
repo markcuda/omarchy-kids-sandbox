@@ -409,8 +409,8 @@ asserts on.
 minutes, neither of which the VM could have shown:
 
 - The app entry did not open a terminal. `omarchy-kids` is a gum TUI, so clicking Kids Mode gave a
-  launch toast and then nothing at all. Omarchy's own TUI entries set `Terminal=true`; so does ours
-  now, with a test that says why.
+  launch toast and then nothing at all. The entry now uses Omarchy's presentation helper, which
+  refreshes gum's inherited colors and opens the terminal itself; `Terminal=false` avoids nesting.
 - **#109**: installing the package rebuilds the UKI and rewrites `limine.conf`, even in portal mode
   whose entire promise is that it leaves the boot path alone. Our own hook behaves correctly and
   changes nothing; the rebuild is Arch's `90-mkinitcpio-install.hook`, firing because the package

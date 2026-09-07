@@ -397,7 +397,7 @@ tui_screen_choose() {
 }
 
 # tui_screen_input TITLE STEP TOTAL SHOW_OMY OMY_LINE KIND PLACEHOLDER \
-#                   [VALIDATOR] [FOOTER]
+#                   [VALIDATOR] [FOOTER] [INITIAL]
 # KIND is "text" or "password". VALIDATOR, if given, is a function name
 # called as `VALIDATOR "$candidate"`: it should print nothing and return 0
 # for a valid answer, or print a one-line reason and return non-zero to
@@ -407,6 +407,7 @@ tui_screen_input() {
   local title="$1" step="$2" total="$3" show_omy="$4" omy_line="$5"
   local kind="$6" placeholder="${7:-}" validator="${8:-}"
   local footer="${9:-$TUI_FOOTER_DEFAULT}"
+  local initial="${10:-}"
   local last_err="$TUI_PRESET_ERROR"
   TUI_PRESET_ERROR=""
 
@@ -416,6 +417,9 @@ tui_screen_input() {
     # clears the screen, so a line echoed off to the side is never read.
     local -a _tui_input_body=()
     [[ -n "$placeholder" ]] && _tui_input_body+=("$placeholder")
+    if [[ "$kind" != password && -n "$initial" ]]; then
+      _tui_input_body+=("Current value: $initial")
+    fi
     [[ -n "$last_err" ]] && _tui_input_body+=("" "$last_err")
 
     if _tui_card_mode; then
@@ -425,6 +429,9 @@ tui_screen_input() {
     else
       tui_header "$title" "$step" "$total" "$show_omy" "$omy_line"
       [[ -n "$placeholder" ]] && _tui_style --foreground "$TUI_C_MUTED" -- "$placeholder"
+      if [[ "$kind" != password && -n "$initial" ]]; then
+        _tui_style --foreground "$TUI_C_MUTED" -- "Current value: $initial"
+      fi
       [[ -n "$last_err" ]] && _tui_style --foreground "$TUI_C_ERROR" -- "$last_err"
     fi
     _tui_footer "$footer"
@@ -437,6 +444,9 @@ tui_screen_input() {
       # The hint is on the card (or printed above) already; repeating it inside the box read twice.
       local -a gflags=(--placeholder "" --prompt.foreground "$TUI_C_ACCENT")
       [[ "$kind" == password ]] && gflags+=(--password)
+      if [[ "$kind" != password && -n "$initial" ]]; then
+        gflags+=(--value "$initial")
+      fi
       ans="$(gum input "${gflags[@]}")"
       case $? in
         1) return 1 ;;

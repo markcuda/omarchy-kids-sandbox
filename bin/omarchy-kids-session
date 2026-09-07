@@ -360,7 +360,7 @@ do_check_mode() {
   local id name failed=0
   printf '%-24s %-6s %s\n' "CHECK" "RESULT" "DETAIL"
   for id in "${CHECK_IDS[@]}"; do
-    if [[ "$MODE" == check-setup && ( "$id" == tmp_noexec || "$id" == shm_noexec ) ]]; then
+    if [[ "$MODE" == check-setup && ("$id" == tmp_noexec || "$id" == shm_noexec) ]]; then
       RESULT=SKIP
       DETAIL="checked at child login; setup is outside the child PAM namespace"
     else

@@ -31,6 +31,17 @@ wizard_for() {
   for f in "$stubs"/omarchy-kids-*; do
     [[ -e "$f" ]] && cp "$f" "$tree/bin/"
   done
+  mv "$tree/bin/omarchy-kids-conf" "$tree/bin/omarchy-kids-conf.real"
+  cat >"$tree/bin/omarchy-kids-conf" <<EOF
+#!/bin/bash
+set -euo pipefail
+if [[ "\${1:-}" == machine && "\${2:-}" == get && "\${3:-}" == boot ]]; then
+  printf '%s\n' "\${WIZARD_TEST_BOOT_MODE:?wizard fixture boot mode is unset}"
+else
+  exec "$tree/bin/omarchy-kids-conf.real" "\$@"
+fi
+EOF
+  chmod +x "$tree/bin/omarchy-kids-conf"
   kids_set_const "$tree/bin/omarchy-kids-wizard" AUTH_SOCK "$sock"
   kids_set_const "$tree/bin/omarchy-kids-parent-auth" DEFAULT_SOCK "$sock"
   printf '%s\n' "$tree/bin/omarchy-kids-wizard"
@@ -128,6 +139,7 @@ done
 chmod +x "$STUBS"/*
 
 export PATH="$STUBS:$PATH"
+export WIZARD_TEST_BOOT_MODE=portal
 export OMARCHY_KIDS_ETC="$ETC"
 export OMARCHY_KIDS_SHARE="$SHARE"
 BIN="$(wizard_for "$STUBS")"

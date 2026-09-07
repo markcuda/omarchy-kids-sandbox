@@ -37,9 +37,29 @@ apply_step_account() {
   local rc=0
   if ((NO_PASSWORD)); then
     run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --no-password --apply </dev/null
-  else
+  elif [[ "$DRY_RUN" == "1" ]]; then
     printf '%s\n%s\n' "$KID_PASSWORD" "$PARENT_PASSWORD" |
       run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --password-stdin --parent-password-stdin --apply
+  else
+    local boot_mode
+    if ! boot_mode="$(sudo -n "$CONF_BIN" machine get boot 2>/dev/null)"; then
+      echo "Could not read the active boot mode; account setup stopped." >&2
+      return 1
+    fi
+    case "$boot_mode" in
+      portal)
+        printf '%s\n' "$KID_PASSWORD" |
+          run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --password-stdin --apply
+        ;;
+      disk)
+        printf '%s\n%s\n' "$KID_PASSWORD" "$PARENT_PASSWORD" |
+          run_priv_stdin "$PROVISION_BIN" add "$DISPLAY_NAME" --band "$BAND" --avatar "$AVATAR" --password-stdin --parent-password-stdin --apply
+        ;;
+      *)
+        echo "Unsupported active boot mode '$boot_mode'; account setup stopped." >&2
+        return 1
+        ;;
+    esac
   fi
   rc=$?
   ((rc == 0)) || return "$rc"

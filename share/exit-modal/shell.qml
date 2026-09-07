@@ -179,6 +179,14 @@ PanelWindow {
                         font.bold: true
                     }
 
+                    Text {
+                        width: parent.width
+                        text: "Grown-up's login password"
+                        color: theme.foreground
+                        font.pixelSize: 14
+                        horizontalAlignment: Text.AlignHCenter
+                    }
+
                     // --- Password field (I-5: focused, masked, Enter/Esc) --
                     Rectangle {
                         width: parent.width
@@ -199,6 +207,14 @@ PanelWindow {
                             font.pixelSize: 18
                             clip: true
                         }
+                    }
+
+                    Text {
+                        width: parent.width
+                        text: "Enter to finish · Esc to return"
+                        color: theme.foreground
+                        font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
                     }
 
                     Text {

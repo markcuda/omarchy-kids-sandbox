@@ -14,6 +14,13 @@ cat >"$STUBS/gum" <<'GUM'
 case "${1:-}" in
   style) exit 0 ;;
   confirm)
+    count=0
+    [[ -r "${GUM_COUNT_FILE:-}" ]] && count=$(cat "$GUM_COUNT_FILE")
+    count=$((count + 1))
+    [[ -n "${GUM_COUNT_FILE:-}" ]] && printf '%s\n' "$count" >"$GUM_COUNT_FILE"
+    if [[ -n "${GUM_FAIL_AFTER:-}" && "$count" -gt "$GUM_FAIL_AFTER" ]]; then
+      exit "${GUM_FAIL_RC:-2}"
+    fi
     [[ "${GUM_RC:-0}" == 0 ]] || exit "$GUM_RC"
     [[ -t 0 ]] || exit 1
     exit 0
@@ -35,9 +42,36 @@ GUM_RC=0
 export GUM_RC
 
 if [[ "${1:-}" == "" ]]; then
-  script -q /dev/null bash "$0" --pty >"$TMP/pty.out" 2>&1
-  grep -q 'PASS interactive app picker retains Gum stdin' "$TMP/pty.out"
-  grep -q 'PASS confirm error propagates through both callers' "$TMP/pty.out"
+  pty_out="$(python3 - "$0" <<'PY'
+import os
+import pty
+import select
+import sys
+
+script = sys.argv[1]
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv('/bin/bash', ['/bin/bash', script, '--pty'])
+chunks = []
+while True:
+    ready, _, _ = select.select([fd], [], [], 5)
+    if not ready:
+        break
+    try:
+        data = os.read(fd, 4096)
+    except OSError:
+        break
+    if not data:
+        break
+    chunks.append(data)
+_, status = os.waitpid(pid, 0)
+sys.stdout.buffer.write(b''.join(chunks))
+sys.exit(os.waitstatus_to_exitcode(status))
+PY
+  )"
+  grep -q 'PASS interactive app picker retains Gum stdin' <<<"$pty_out"
+  grep -q 'PASS confirm error propagates through both callers' <<<"$pty_out"
+  bash "$0" --file
   printf '%s\n' 'PASS PTY reproduction completed'
   exit 0
 fi
@@ -92,15 +126,36 @@ apps_pick_walk 1 1
 }
 printf '%s\n' 'PASS interactive app picker retains Gum stdin'
 
-GUM_RC=2
-if apps_pick_walk 1 1; then
-  echo 'FAIL Gum confirm error was swallowed'; exit 1
-fi
+GUM_RC=0
+GUM_COUNT_FILE="$TMP/gum-count"
+GUM_FAIL_AFTER=1
+GUM_FAIL_RC=2
+export GUM_COUNT_FILE GUM_FAIL_AFTER GUM_FAIL_RC
+set +e
+apps_pick_walk 1 1
+rc=$?
+set -e
+[[ "$rc" == 2 ]] || { echo "FAIL Gum error rc=$rc, want 2"; exit 1; }
+[[ "$(cat "$GUM_COUNT_FILE")" == 2 ]] || { echo 'FAIL picker did not retain partial prompt progress'; exit 1; }
 
-GUM_RC=130
-if apps_pick_walk 1 1; then
-  echo 'FAIL Gum cancellation was swallowed'; exit 1
-fi
+GUM_FAIL_RC=130
+: >"$GUM_COUNT_FILE"
+GUM_FAIL_AFTER=0
+set +e
+apps_pick_walk 1 1
+rc=$?
+set -e
+[[ "$rc" == 130 ]] || { echo "FAIL Gum cancellation rc=$rc, want 130"; exit 1; }
+
+# A package-list read failure must also leave the previous reply untouched.
+pack_field() { return 1; }
+TUI_REPLY=existing
+set +e
+apps_pick_walk 1 1
+rc=$?
+set -e
+[[ "$rc" == 2 ]] || { echo "FAIL package-list error rc=$rc, want 2"; exit 1; }
+[[ "$TUI_REPLY" == existing ]] || { echo 'FAIL package-list error cleared reply'; exit 1; }
 
 # Both production callers must preserve their existing selection on a real
 # picker error instead of assigning an empty TUI_REPLY.
@@ -119,4 +174,12 @@ if adv_edit_allowlist 1 1; then
   echo 'FAIL Advanced caller swallowed picker error'; exit 1
 fi
 [[ "$ALLOWLIST_IDS" == gcompris ]] || { echo 'FAIL Advanced caller cleared selection'; exit 1; }
+apps_pick_walk() { return 130; }
+ALLOWLIST_IDS=gcompris
+set +e
+screen_apps
+rc=$?
+set -e
+[[ "$rc" == 130 ]] || { echo "FAIL Simple caller cancellation rc=$rc, want 130"; exit 1; }
+[[ "$ALLOWLIST_IDS" == gcompris ]] || { echo 'FAIL Simple caller cleared on cancellation'; exit 1; }
 printf '%s\n' 'PASS confirm error propagates through both callers'

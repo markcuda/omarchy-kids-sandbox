@@ -5,3 +5,7 @@ The real Air setup stopped at Step 2 after the owner entered the valid parent pa
 The active authd service override passed `--parent kid-test`, while the authenticated owner had a different account name. `bin/omarchy-kids-authd:233` rejects bootstrap authentication when a configured parent does not equal the kernel-authenticated caller. The override is operational stale state; no product source change is included here.
 
 Acceptance is a fresh owner setup reaching Step 3 after the stale override is corrected, while an incorrect owner password still fails closed. The screenshot is evidence for the reported failure only; it does not claim the correction or a complete setup run.
+
+## Post-fix verification
+
+`owner-password-accepted-step3.png` records the same owner credential reaching the wizard's Step 3 after the stale unowned authd override was removed. The reviewed backup remained retained; no live wrong-password attempt is claimed here.

@@ -33,4 +33,3 @@ The source formatter, 43-file Mac suite (five skipped checks), 43-file VM suite 
 ## Original Latte greeter restored. The separate readback later passed.
 
 ![Original Latte greeter restored. The separate readback later passed.](w172-final-greeter.png)
-

@@ -629,6 +629,24 @@ check_eq "$(grep -c "noexec kid-ada\$" "$NSCONF")" "0" "namespace.conf: legacy b
 check_eq "$(grep -c "~kid-ada\$" "$NSCONF")" "2" "namespace.conf: reassert restores exactly two exclusions"
 check_eq "$(kids_file_mode "$NSCONF")" "640" "namespace.conf: migration preserves file mode"
 
+# A failed stage copy must fail the rewrite and leave the trusted file intact.
+NSCONF_BEFORE="$TMP/namespace.conf.before-copy-failure"
+cp "$NSCONF" "$NSCONF_BEFORE"
+NSFAIL_STUBS="$TMP/namespace-failure-stubs"
+mkdir -p "$NSFAIL_STUBS"
+cat >"$NSFAIL_STUBS/cp" <<'EOF'
+#!/bin/bash
+exit 73
+EOF
+chmod +x "$NSFAIL_STUBS/cp"
+if PATH="$NSFAIL_STUBS:$PATH" posture_add_namespace_lines kid-ada; then
+  fail "namespace.conf: failed stage copy is reported"
+else
+  pass "namespace.conf: failed stage copy is reported"
+fi
+cmp -s "$NSCONF_BEFORE" "$NSCONF" && pass "namespace.conf: failed stage copy preserves the original" ||
+  fail "namespace.conf: failed stage copy preserves the original"
+
 # accountsservice
 ASFILE="$SCRATCH_ROOT/var/lib/AccountsService/users/kid-ada"
 rm -f "$ASFILE"

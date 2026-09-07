@@ -151,13 +151,16 @@ posture_namespace_rewrite() {
     return 1
   }
   if [[ -f "$file" ]]; then
-    while IFS= read -r line || [[ -n "$line" ]]; do
+    if ! while IFS= read -r line || [[ -n "$line" ]]; do
       [[ "$line" == "$l1" || "$line" == "$l2" || "$line" == "$old_l1" || "$line" == "$old_l2" ]] && continue
       printf '%s\n' "$line" >>"$tmp" || {
         rm -f "$tmp"
         return 1
       }
-    done <"$file"
+    done <"$file"; then
+      rm -f "$tmp"
+      return 1
+    fi
   fi
   if [[ "$action" == add ]]; then
     printf '%s\n%s\n' "$l1" "$l2" >>"$tmp" || {

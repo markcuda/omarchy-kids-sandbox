@@ -154,25 +154,17 @@ real and only previews with its own `--dry-run`, the one command in `bin/` that 
 convention — see `docs/assert.md`), and `omarchy-kids-conf set` has no dry-run concept at all,
 so neither of those two needed a fix here.
 
-## Prefetch (R-WIZ-4): a known gap
+## Prefetch (R-WIZ-4)
 
-Prefetch is supposed to start on the age screen through "a root helper" so it never needs its own
-password prompt. No such helper exists in this repo yet (there's no polkit action or sudoers
-NOPASSWD line for `pacman -Sw`), so a real (non-dry-run) run only starts the background
-`pacman -Sw --noconfirm <band's repo packages>` when `sudo -n true` already succeeds — which, since
-A2 (the parent password) comes before A5 (the age screen), is often true in practice, because A2's
-own verification step doesn't itself warm sudo's cache, but a parent who has used `sudo` anywhere
-else in the same terminal session recently may already have one. When there isn't a cached
-credential, prefetch prints a one-line note and skips, falling back to Apply's own "install from
-cache" step downloading fresh instead — no different in effect from R-APPS-8's "offline: complete
-and defer" fallback, just a different reason. Fixing this for real (a root helper, or a sudoers
-drop-in scoped to exactly `pacman -Sw` for the `omarchy-kids` group) is follow-on work, not part of
-this issue. Ctrl+C before Apply kills the background prefetch job if one is running
-(`stop_prefetch`, on an `EXIT` trap) — SPEC's own "abort it on Ctrl+C". Prefetch always downloads
-the *whole* band pack via a raw `pacman -Sw` (not `omarchy-kids-apps`, which has no download-only
-mode) regardless of what the A9 apps screen later picks — R-WIZ-4's own words, "changed selections
-need no undo" — Apply's own install step (below) installs the whole pack too; only the allowlist
-override A9 writes actually restricts what the kid sees in their launcher.
+Prefetch starts on the age screen after A2 has established the parent sudo ticket. In a real
+(non-dry-run) run it first checks `sudo -n true`; when that succeeds it starts the background
+`sudo -n pacman -Sw --noconfirm <band's repo packages>` and records its PID. The prefetch command
+uses `/dev/null` for stdin and discards stdout and stderr, preventing the observed input overlap
+while Gum owns raw mode. When the ticket is unavailable, it prints
+a one-line note and skips prefetch; Apply then performs its normal install/download path.
+Ctrl+C before Apply stops the recorded prefetch job through `stop_prefetch` on the `EXIT` trap.
+Prefetch always downloads the whole band pack, regardless of the later A9 selection; the allowlist
+override A9 writes still controls what the kid sees in the launcher.
 
 ## Apply's five steps: exit codes, stopping on failure, and the technical log
 

@@ -186,7 +186,7 @@ check_contains "$out" "13+" "bands lists 13+"
 check_contains "$out" "Pre-reader" "bands shows the 3-5 blurb"
 
 out="$("$CONF" band 6-8)"
-check_contains "$out" "level=1" "band 6-8 has level=1"
+check_contains "$out" "level=2" "band 6-8 defaults to simplified desktop"
 check_contains "$out" "web=garden" "band 6-8 has web=garden"
 check_contains "$out" "budget_min=60" "band 6-8 has budget_min=60"
 check_contains "$out" "lights_out=19:30" "band 6-8 has lights_out=19:30"
@@ -200,6 +200,16 @@ check_contains "$out" "terminal=playground" "band 9-12 has a playground terminal
 
 "$CONF" band nope-such-band >/dev/null 2>&1
 check_status "$?" 2 "band with a bad name exits 2"
+
+# #200 changes only the desktop default; each band's other permissions stay distinct.
+for band in 3-5 6-8 9-12 13+; do
+  expected=2
+  [[ "$band" == 3-5 ]] && expected=1
+  check_contains "$("$CONF" band "$band")" "level=$expected" "$band has its intended desktop default"
+done
+check_contains "$("$CONF" band 13+)" "web=filtered" "older desktop keeps filtered-web permission"
+check_contains "$("$CONF" band 13+)" "terminal=sandboxed" "older desktop keeps terminal policy data"
+check_contains "$("$CONF" band 13+)" "menu=full" "older desktop keeps menu policy data"
 
 # --- slug (Appendix B.1) --------------------------------------------------
 
@@ -258,7 +268,7 @@ check "$(echo "$out" | awk '/^history_visible[ \t]/{print $NF}')" "band" "show: 
 
 # --- get: override -> band -> default fallback ----------------------------
 
-check "$("$CONF" get kid-ada level)" "1" "get: level falls back to band 6-8's default (1)"
+check "$("$CONF" get kid-ada level)" "2" "get: level falls back to band 6-8's desktop default"
 check "$("$CONF" get kid-ada web)" "garden" "get: web falls back to band default (garden)"
 check "$("$CONF" get kid-ada onboarded)" "no" "get: onboarded falls back to the global default (no)"
 check "$("$CONF" get kid-ada password)" "set" "get: password falls back to the global default (set)"
@@ -272,9 +282,13 @@ check "$("$CONF" source kid-ada level)" "override" "source: reports an explicit 
 check "$("$CONF" source kid-ada wifi)" "band" "source: reports an inherited band value"
 check "$("$CONF" source kid-ada onboarded)" "default" "source: reports an inherited global default"
 
+"$CONF" set kid-ada level 1 >/dev/null
+"$CONF" set kid-ada band 13+ >/dev/null
+check "$("$CONF" get kid-ada level)" "1" "manual app grid survives switching to an older band"
+"$CONF" set kid-ada band 6-8 >/dev/null
 "$CONF" unset kid-ada level >/dev/null
 check "$("$CONF" source kid-ada level)" "band" "unset: removes one override"
-check "$("$CONF" get kid-ada level)" "1" "unset: exposes the band value again"
+check "$("$CONF" get kid-ada level)" "2" "unset: exposes the band value again"
 "$CONF" unset kid-ada name >/dev/null 2>&1
 check_status "$?" 2 "unset: refuses a required key with no inherited value"
 "$CONF" set kid-ada level 2 >/dev/null
@@ -413,7 +427,7 @@ check "$(grep -c '^password=' "$profile")" "1" "reset: password survives"
 check "$(grep -c '^onboarded=' "$profile")" "1" "reset: onboarded survives"
 check "$(grep -c '^level=' "$profile")" "0" "reset: level override is cleared"
 check "$(grep -c '^menu=' "$profile")" "0" "reset: menu override is cleared"
-check "$("$CONF" get kid-ada level)" "1" "reset: level reads back as the band default again"
+check "$("$CONF" get kid-ada level)" "2" "reset: level reads back as the band default again"
 check "$("$CONF" get kid-ada onboarded)" "yes" "reset: onboarded keeps its value across reset"
 
 # --- profile file permissions (spec 5.1: root 0644) -------------------------

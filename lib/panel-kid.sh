@@ -275,11 +275,11 @@ screen_kid_level() { # ACCOUNT NAME
   current="$(kid_conf_get "$account" level)"
   # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
   local choices=(
-    "1|One thing at a time|Simplest — one app fills the screen."
-    "2|Two things side by side|Split-screen multitasking."
-    "3|The full desktop|Everything Omarchy normally offers."
+    "1|App grid|Big app tiles. One app fills the screen."
+    "2|Simplified desktop|Super+Space finds apps. Windows can sit side by side."
+    "3|Full desktop (advanced)|The existing Omarchy desktop and its broader controls."
   )
-  tui_screen_choose "$name's desktop level" 1 1 0 "" choices "$current"
+  tui_screen_choose "$name's desktop" 1 1 0 "Changes apply next time they sign in." choices "$current"
   local rc=$?
   ((rc == 130)) && return 130
   ((rc == 0)) || return 0
@@ -331,7 +331,7 @@ screen_kid_desktop() { # ACCOUNT NAME
     theme_cur="$(kid_conf_get "$account" theme)"
     # shellcheck disable=SC2034 # read by tui_screen_choose via nameref-by-name
     local choices=(
-      "level|Desktop level|Level $level_cur"
+      "level|Desktop level|$(tui_desktop_label "$level_cur")"
       "theme|Theme|${theme_cur:-(none set)}"
       "back|Back|"
     )

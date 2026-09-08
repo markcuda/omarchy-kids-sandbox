@@ -1,6 +1,6 @@
 # Omarchy Kids Mode, sandbox path: specification v1.1
 
-Status: **draft for review**, 2026-09-02. Decisions come from the hub's
+Status: **draft for review**, 2026-09-02. Desktop defaults updated by Mark on 2026-09-07 (#200). Decisions come from the hub's
 [PATH-SANDBOX.md](https://github.com/markcuda/omarchy-kids-mode/blob/main/PATH-SANDBOX.md) plus
 the thirty-question design session that followed. Requirement ids (`R-WEB-3`) are referenced by
 the issues. Appendices A–G are the build-ready detail v1 lacked.
@@ -95,7 +95,7 @@ malcontent; timekpr; machine-wide DNS or browser policy; localization (English f
 
 - R-DESK-1 `omarchy-kids.desktop` (Wayland session, root-owned) runs `omarchy-kids-session`, which reads the profile and execs `Hyprland --config /etc/omarchy-kids/hyprland/L<level>.lua` with the band overlay.
 - R-DESK-2 Before the compositor starts, the launcher checks: profile present, policy file readable by this account, polkit drop-ins present, home noexec, private `/tmp` mounted noexec (R-FND-2a), consoles masked, initramfs hook present. Any miss → a full-screen "Ask a grown-up" naming the check, then exit.
-- R-DESK-3 Levels per Appendix E. Level 1: fullscreen-only, big-tile launcher, `Super+Home`, no terminal or file manager. Level 2: 50/50 split, `Super+arrows`, launcher plus cheat sheet. Level 3: Omarchy tiling with the Appendix E binding set and a kid theme.
+- R-DESK-3 Levels per Appendix E. Level 1 (App grid): fullscreen-only, big-tile launcher, `Super+Home`, no terminal or file manager. Level 2 (Simplified desktop): a themed background teaching `Super+Space`, a searchable allowed-app picker, normal tiling and `Super+arrows` focus. Escape or opening an installed app hides the picker; it can be reopened repeatedly. Level 3 (Full desktop): an explicit advanced/manual choice with the existing Omarchy bindings and theme. Ages 3-5 default to Level 1; every older band defaults to Level 2. The parent can override this in the permissions/settings Desktop row; changes apply at next login and preserve the other age policies.
 - R-DESK-4 Omarchy's menu is trimmed of Install/Update/Setup entries under Levels 1 and 2 through a root-owned menu extension; untouched under Level 3 (Q23).
 - R-DESK-5 The Level 1 launcher is a standalone root-installed QML program started by the root-owned config, not a shell plugin (I-3).
 - R-DESK-6 The kid's `~/.config/hypr` is never read.
@@ -123,9 +123,9 @@ malcontent; timekpr; machine-wide DNS or browser policy; localization (English f
 | Band | Level | Web | Budget / lights-out | Starter pack | Wi-Fi | Terminal |
 | --- | --- | --- | --- | --- | --- | --- |
 | 3-5 | 1 | No browser | 45 min / 19:00 | GCompris, Tux Paint, KTuberling, Blinken | Parent only | No |
-| 6-8 | 1 | Walled garden | 60 min / 19:30 | plus SuperTux, SuperTuxKart, KLettres, Kanagram | Parent only | No |
+| 6-8 | 2 | Walled garden | 60 min / 19:30 | plus SuperTux, SuperTuxKart, KLettres, Kanagram | Parent only | No |
 | 9-12 | 2 | Walled garden | 90 min / 20:30 | plus TurboWarp, Luanti, KTouch, Pixelorama, Kiwix | Safe helper | Playground shell |
-| 13+ | 3 | Filtered open web | 120 min / 21:30 | plus Sonic Pi, Thonny, KStars | Safe helper | Sandboxed shell |
+| 13+ | 2 | Filtered open web | 120 min / 21:30 | plus Sonic Pi, Thonny, KStars | Safe helper | Sandboxed shell |
 
 - R-BAND-1 The table is data (Appendix C).
 - R-BAND-2 The profile stores only overrides. Changing a band keeps overrides; "Reset to band defaults" clears them (Q19).
@@ -347,7 +347,7 @@ B.2 `/etc/omarchy-kids/kids/<account>.conf`, key=value, only overrides present:
 
 Level 1: `Super+Home` launcher · `Super+Enter` open selected · `Super+Q` close · `Super+Shift+K` exit modal · `Super+Shift+W` Wi-Fi picker (R-WIFI-1..2; the command itself refuses unless `wifi=helper`) · volume/brightness keys. Nothing else bound; every window rule forces fullscreen.
 
-Level 2: Level 1 plus `Super+arrows` focus · `Super+Shift+arrows` swap · `Super+K` cheat sheet · `Super+Space` launcher.
+Level 2: Normal tiled app windows and a compact, centered, searchable allowed-app picker; no fullscreen rule for apps. Keeps the Level 1 controls plus `Super+arrows` focus · `Super+Shift+arrows` swap · `Super+K` cheat sheet · `Super+Space` launcher.
 
 Level 3: Omarchy defaults minus: terminal-launching binds under `menu=trimmed` (kept under `full`), `omarchy-sudo-passwordless`, screenshot-to-clipboard of other users' windows (n/a), plus `Super+Shift+K` and `Super+Shift+W`.
 

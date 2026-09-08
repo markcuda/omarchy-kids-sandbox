@@ -175,7 +175,7 @@ adv_friendly() {
     dns) friendly_dns "$value" ;;
     menu) friendly_menu "$value" ;;
     history_visible) friendly_yesno "$value" ;;
-    level) echo "Level $value" ;;
+    level) tui_desktop_label "$value" ;;
     budget_min | budget_min_weekend) echo "$value minutes a day" ;;
     lights_out | lights_out_weekend) echo "$value" ;;
     allowlist) friendly_allowlist "$value" ;;
@@ -382,9 +382,9 @@ adv_edit() {
       ;;
     level)
       adv_edit_enum level "How should $DISPLAY_NAME's desktop work?" "$step" "$total" \
-        "1|One thing at a time|Simplest — one app fills the screen." \
-        "2|Two things side by side|Split-screen multitasking." \
-        "3|The full desktop|Everything Omarchy normally offers."
+        "1|App grid|Big app tiles. One app fills the screen." \
+        "2|Simplified desktop|Super+Space finds apps. Windows can sit side by side." \
+        "3|Full desktop (advanced)|The existing Omarchy desktop and its broader controls."
       ;;
     menu)
       adv_edit_enum menu "How many icons should $DISPLAY_NAME's app menu show?" "$step" "$total" \

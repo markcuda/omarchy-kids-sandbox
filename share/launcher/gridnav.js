@@ -1,3 +1,11 @@
+// Search only the manifest-provided choices; never discover applications here.
+function filterTiles(tiles, query) {
+    var needle = String(query || "").trim().toLowerCase()
+    return tiles.filter(function(tile) {
+        return String(tile.label || tile.id || "").toLowerCase().indexOf(needle) !== -1
+    })
+}
+
 // gridnav.js — pure tile-index math for the Level 1/2 launcher
 // (share/launcher/shell.qml), shared between key navigation and the
 // GridView layout so they can never disagree on how many columns the
@@ -58,6 +66,7 @@ function moveDown(index, columns, length) {
 // block is inert there.
 if (typeof module !== "undefined") {
     module.exports = {
+        filterTiles: filterTiles,
         columnsFor: columnsFor,
         moveLeft: moveLeft,
         moveRight: moveRight,

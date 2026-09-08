@@ -105,6 +105,14 @@ theme_font() {
   printf '%s\n' "$family"
 }
 
+# Geometry follows the parent's live compositor or its last matching snapshot.
+# The helper reads theme files as data only; see docs/theming.md.
+theme_geometry() {
+  local parent="$1" cache="$2" helper
+  helper="$(dirname "${BASH_SOURCE[0]}")/theme-geometry.py"
+  "$KIDS_PY" "$helper" "$parent" "${THEME_KIDS_HOME:-$HOME}" "$cache"
+}
+
 # theme_current_name -- theme_dir's own theme.name, plain one-line file.
 # Empty, not an error, if that account has never received a theme.
 theme_current_name() {

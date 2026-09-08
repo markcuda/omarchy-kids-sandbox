@@ -460,7 +460,7 @@ posture_portal_field_encode() {
 # account_home (AGENTS.md: no duplicated helpers).
 posture_parent_home() { account_home "$1"; }
 
-# posture_theme_conf_lines PARENT — the nine [General] color/font keys,
+# posture_theme_conf_lines PARENT — the [General] color/font/geometry keys,
 # resolved from PARENT's own theme. Subshell so THEME_KIDS_HOME doesn't
 # leak. Full key list: share/sddm-theme/theme.conf's own header.
 posture_theme_conf_lines() {
@@ -477,6 +477,7 @@ posture_theme_conf_lines() {
     posture_qsettings_line mutedTextColor "$(theme_color muted)"
     posture_qsettings_line errorColor "$(theme_color error)"
     posture_qsettings_line fontFamily "$(theme_font)"
+    theme_geometry "$parent" "$(posture_sddm_theme_dir)/theme.conf.user"
   )
 }
 
@@ -505,8 +506,8 @@ posture_portal_parent_accounts() {
 
 # posture_portal_conf_text PARENT [ENTRY...] — ENTRY is
 # "account<TAB>name<TAB>avatar" (tab, since ':'/',' are separators in the
-# "kids=" value below). Followed by the parent allowlist and the nine
-# color/font keys, same [General] section (docs/portal.md, docs/theming.md).
+# "kids=" value below). Followed by the parent allowlist and the
+# theme keys, same [General] section (docs/portal.md, docs/theming.md).
 posture_portal_conf_text() {
   local parent="$1" kids_field="" sep="" entry account name avatar parents_field
   local encoded_account encoded_name encoded_avatar

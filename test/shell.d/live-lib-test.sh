@@ -20,6 +20,7 @@ cp "$DIR/test/live/lib.sh" "$LIB_FIXTURE_ROOT/test/live/lib.sh"
 cp "$DIR/lib/conf.sh" "$LIB_FIXTURE_ROOT/lib/conf.sh"
 cp "$DIR/lib/posture.sh" "$LIB_FIXTURE_ROOT/lib/posture.sh"
 cp "$DIR/lib/theme.sh" "$LIB_FIXTURE_ROOT/lib/theme.sh"
+cp "$DIR/lib/theme-geometry.py" "$LIB_FIXTURE_ROOT/lib/theme-geometry.py"
 cp "$DIR/lib/kids.sh" "$LIB_FIXTURE_ROOT/lib/kids.sh"
 cat >"$LIB_FIXTURE_ROOT/test/live/config.env" <<EOF
 LIVE_OWNER_ACCOUNT=kid-test

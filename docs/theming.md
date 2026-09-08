@@ -172,13 +172,13 @@ picks all of it up in the one pass it already makes:
 `fontFamily`: fontconfig may return a family containing a comma, which must stay one quoted scalar
 instead of becoming a QSettings list.
 
-`lib/posture.sh`'s `posture_theme_conf_lines PARENT` resolves all nine, with `THEME_KIDS_HOME` set
+`lib/posture.sh`'s `posture_theme_conf_lines PARENT` resolves the theme keys, with `THEME_KIDS_HOME` set
 to the *parent's* `$HOME` (`posture_parent_home`, a real `getent passwd` lookup — the account
 already exists by the time posture writes anything) — not root's, since posture code runs as root
 and there is no root-level theme to read (see "Ground truth" above). `posture_portal_conf_text`
-appends those nine lines to the existing `parent=`/`kids=` `[General]` block, so
+appends them to the existing `parent=`/`kids=` `[General]` block, so
 `posture_write_portal_conf` writes (and `omarchy-kids-assert`'s `portal-conf` lock re-asserts) the
-whole eleven-key file in one write, same as before this issue.
+whole file in one write, including the geometry below.
 
 This runs at **provision and assert time**, not at kid-login time: whatever theme the parent was
 running the moment `omarchy-kids-provision add`/`omarchy-kids-assert` last ran is what the portal
@@ -186,6 +186,36 @@ shows, until the next provision/assert. `omarchy-kids-assert` runs on every pacm
 (the `omarchy-kids.hook`) and at boot, so a parent who changes their Omarchy theme picks it up on
 the portal after the next of those — not instantly, the same way `theme.conf.user`'s `parent=`/
 `kids=` data already only refreshes on assert, not live.
+
+### Portal geometry (#201)
+
+The same writer exports `cornerRadius` and the normal/selected/focus control colors, border
+widths, border alphas and fill alphas. The tile, inset avatar mask and password input use these
+values; zero means square corners or no border. The selected name remains bold when a theme
+disables all control borders, and the tile uses its selected fill independently of keyboard
+focus. Avatars and parent files are unchanged.
+
+`lib/theme-geometry.py` follows the installed Omarchy `shell/Commons/Style.qml`: rounding comes
+from `hyprctl -j getoption decoration:rounding`, run as the recorded parent with a validated
+owned compositor instance. This invokes fixed binaries without a login shell. If the parent is
+offline, it reuses the last root-owned `theme.conf.user` radius only when the parent, home,
+theme name and exact `hyprland.lua`/`shell.toml` content fingerprint still match. Without that
+snapshot, one numeric `rounding = N` literal in the theme's Lua is usable; comments, expressions
+and ambiguous multiple assignments are ignored. Lua is never executed. Unresolved dynamic Lua
+falls back to Omarchy's installed default of zero; that fallback does not claim to reproduce a
+custom live compositor setting. A subsequent assert while the parent is logged in captures it.
+
+The helper reads `[controls]` and its legacy alias `[style]` from the parent's current
+`shell.toml`, in document order, with the later section winning shared keys. Scalar widths
+follow Style's rounding, and focus inherits omitted values from hover-cursor. Missing or
+malformed data uses Style's defaults: normal width 1/fill 0.04, selected width 0/fill 0.18,
+focus width 1/fill 0.08. Only finite values from 0 to 256 (geometry) or 0 to 1 (alpha) are
+accepted; colors use Style's case-insensitive palette roles (including `text` and `transparent`)
+or RGB/RGBA hex. Focus's `hover`, `hover-cursor` and `inherit` aliases resolve through hover's
+color, as does an invalid focus color. Fill/border alpha replaces the color's own alpha, matching
+Omarchy's `Util.alpha`. Invalid data never becomes QML or a shell command.
+Per-side width lists and custom gradient controls are outside this scalar bridge and use its
+documented defaults. The portal remains plain SDDM QtQuick; it does not import Quickshell.
 
 ## How a theme author gets Kids Mode for free
 

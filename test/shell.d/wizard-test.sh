@@ -228,8 +228,28 @@ check_contains "$out" "omarchy-kids-conf set kid-ada level 2" "a level choice th
 check_contains "$out" "omarchy-kids-web install 6-8 --apply" "apply runs web install for the chosen band"
 check_contains "$out" "omarchy-kids-apps install 6-8 --now --apply" "apply installs the starter pack from cache via omarchy-kids-apps, with --apply so it isn't silently a no-op under sudo"
 check_contains "$out" "omarchy-kids-assert" "apply runs the safety check (assert)"
-check_contains "$out" "omarchy-kids-session --check" "apply runs the session --check-equivalent safety check"
+check_contains "$out" "omarchy-kids-session --check-setup" "apply runs the session setup safety report"
+check_contains "$out" "Final safety checks run when they sign in." "Done defers session safety to sign-in"
 check_contains "$out" "sudo -u kid-ada" "the session check runs as the new kid's own account"
+
+# Own both privileged calls: a successful setup report must not mask a
+# failed root assertion, and a failed setup report must still stop Apply.
+for safety_failure in assert session; do
+  safety_out="$(
+    source "$DIR/lib/wizard-apply.sh"
+    DRY_RUN=0 ACCOUNT=kid-ada ASSERT_BIN=assert-fixture SESSION_BIN=session-fixture
+    id() { [[ "$1" == kid-ada ]]; }
+    run_priv() { [[ "$safety_failure" != assert ]]; }
+    run_priv_as() {
+      printf '%s\n' "$*"
+      [[ "$safety_failure" != session ]]
+    }
+    apply_step_safety
+  )"
+  check_status "$?" 1 "safety still fails when $safety_failure fails"
+  check_contains "$safety_out" "kid-ada session-fixture --check-setup" \
+    "safety report uses the child account and setup-only mode"
+done
 
 # --- every Simple choice left at the band default writes no override at
 # all (R-BAND-2: "the profile stores only overrides") --------------------
@@ -643,7 +663,7 @@ sudo_calls="$(wc -l <"$SUDO_LOG" | tr -d ' ')"
 check_eq "$(grep -Ec '(^| )-n( |$)' "$SUDO_LOG")" "$((sudo_calls - 1))" \
   "R-BOOTMODE-8: every later sudo call is noninteractive"
 
-check_contains "$pty_out" "Ada's desktop is ready." \
+check_contains "$pty_out" "Ada's setup is complete." \
   "R-BOOTMODE-8: the PTY transcript reaches the success headline"
 check_contains "$pty_out" "FAKE-omarchy-kids-session: ok" \
   "R-BOOTMODE-8: the PTY transcript includes the kid session check"
@@ -708,7 +728,7 @@ if [[ -f "$KEEPER_REFRESH_FILE" ]]; then
 else
   fail "the 60-second keeper performs a noninteractive authorization refresh"
 fi
-check_contains "$keeper_out" "Ada's desktop is ready." \
+check_contains "$keeper_out" "Ada's setup is complete." \
   "keeper-backed Apply reaches the success headline"
 check_contains "$(cat "$RM3_TMP/keeper-setup.log" 2>/dev/null)" "FAKE-omarchy-kids-session: ok" \
   "keeper-backed Apply runs the kid session check"
@@ -736,7 +756,7 @@ if ((expiry_prompts >= 2)); then
 else
   fail "expired Apply authorization redraws the only password screen (got $expiry_prompts prompt renders)"
 fi
-check_not_contains "$expiry_out" "Ada's desktop is ready." \
+check_not_contains "$expiry_out" "Ada's setup is complete." \
   "expired Apply authorization never advances to Done"
 
 rm -rf "$RM3_TMP"
@@ -871,7 +891,7 @@ check_status "$rm2_status" 0 "real mode with every fake succeeding still exits 0
 check_contains "$rm2_out" "skipping the session check — account kid-zzznobody does not exist" \
   "the safety check explains why it skipped, rather than handing sudo -u a nonexistent user"
 check_not_contains "$rm2_out" "sudo -u kid-zzznobody" \
-  "omarchy-kids-session --check is never actually invoked for an account that doesn't exist"
+  "omarchy-kids-session --check-setup is never actually invoked for an account that doesn't exist"
 
 rm -rf "$RM2_TMP"
 

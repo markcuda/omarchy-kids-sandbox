@@ -95,6 +95,7 @@ cat >"$STUBS/findmnt" <<'EOF'
 #!/bin/bash
 # Real usage this stub needs to answer: `findmnt -no OPTIONS <target>`.
 target="${*: -1}"
+printf '%s\n' "$target" >>"$OMARCHY_KIDS_TEST_FINDMNT_LOG"
 if [[ "$target" == "$OMARCHY_KIDS_TEST_HOME" ]]; then
   cat "$OMARCHY_KIDS_TEST_HOME_OPTS"
 elif [[ "$target" == "/tmp" ]]; then
@@ -171,6 +172,7 @@ export OMARCHY_KIDS_TEST_TMP_OPTS="$TMP_OPTS_FILE"
 export OMARCHY_KIDS_TEST_SHM_OPTS="$SHM_OPTS_FILE"
 export OMARCHY_KIDS_TEST_GETTY_STATE_DIR="$GETTY_STATE_DIR"
 export OMARCHY_KIDS_TEST_HYPRLAND_LOG="$HYPRLAND_LOG"
+export OMARCHY_KIDS_TEST_FINDMNT_LOG="$TMP/findmnt.log"
 
 reset_pass() {                                     # everything set up so every check passes
   rm -f "$PKCHECK_ANSWER_FILE" "$VERIFY_FAIL_FILE" # stubs answer "all good" again
@@ -186,7 +188,7 @@ reset_pass() {                                     # everything set up so every 
   echo "tmpfs rw,nosuid,nodev,noexec,relatime private" >"$SHM_OPTS_FILE"
   mkdir -p "$GETTY_STATE_DIR"
   for n in 2 3 4 5 6; do echo "masked" >"$GETTY_STATE_DIR/getty@tty$n.service"; done
-  rm -f "$LOG_FILE" "$HYPRLAND_LOG"
+  rm -f "$LOG_FILE" "$HYPRLAND_LOG" "$OMARCHY_KIDS_TEST_FINDMNT_LOG"
 }
 
 # =====================================================================
@@ -313,6 +315,48 @@ check_contains "$out" "polkit rules present" "--check (polkit missing): table na
 check_contains "$out" "FAIL" "--check (polkit missing): table shows FAIL"
 check_contains "$out" "level config present" "--check (polkit missing): still runs later checks (full table)"
 [[ -e "$HYPRLAND_LOG" ]] && fail "--check (polkit missing): must never start Hyprland" || pass "--check (polkit missing): did not start Hyprland"
+
+# Setup has no child PAM namespace. Only those two checks are deferred;
+# the ordinary report and real login still reject the same broken mounts.
+reset_pass
+break_tmp
+break_shm
+rmdir "$RUN"
+out="$("$BIN" --check-setup 2>&1)"
+st=$?
+check_eq "$st" 0 "--check-setup: executable/shared caller mounts do not fail setup"
+check_contains "$(printf '%s' "$out" | tr -s ' ')" "private /tmp noexec SKIP" "--check-setup: /tmp is explicitly skipped"
+check_contains "$(printf '%s' "$out" | tr -s ' ')" "private /dev/shm noexec SKIP" "--check-setup: /dev/shm is explicitly skipped"
+check_contains "$out" "checked at child login" "--check-setup: states when skipped checks run"
+check_eq "$(cat "$OMARCHY_KIDS_TEST_FINDMNT_LOG" 2>/dev/null)" "$KIDHOME" \
+  "--check-setup: owned findmnt stub observes only the global home mount"
+[[ -d "$RUN" ]] && fail "--check-setup must not create a session runtime directory" || pass "--check-setup did not create a session runtime directory"
+[[ -e "$LOG_FILE" ]] && fail "--check-setup must not write a session log" || pass "--check-setup did not write a session log"
+[[ -e "$HYPRLAND_LOG" ]] && fail "--check-setup must never start Hyprland" || pass "--check-setup did not start Hyprland"
+out="$("$BIN" --check 2>&1)"
+check_eq "$?" 1 "--check still rejects the caller's unsafe namespace"
+out="$("$BIN" 2>&1)"
+check_eq "$?" 1 "normal start still rejects the caller's unsafe namespace"
+[[ -e "$HYPRLAND_LOG" ]] && fail "unsafe namespace must not start Hyprland" || pass "unsafe namespace did not start Hyprland"
+
+for break_fn in break_policy break_polkit break_home break_getty break_level_conf; do
+  reset_pass
+  "$break_fn"
+  out="$("$BIN" --check-setup 2>&1)"
+  check_eq "$?" 1 "--check-setup still fails $break_fn"
+done
+reset_pass
+rm -f "$PROFILE"
+out="$("$BIN" --check-setup 2>&1)"
+check_eq "$?" 1 "--check-setup still fails a missing profile"
+
+# Combining the report flag with other modes must never select startup.
+reset_pass
+for other in --check --manifest --install-configs --help --start; do
+  "$BIN" --check-setup "$other" >/dev/null 2>&1 || true
+  "$BIN" "$other" --check-setup >/dev/null 2>&1 || true
+done
+[[ -e "$HYPRLAND_LOG" ]] && fail "mixed setup-report flags must never start Hyprland" || pass "mixed setup-report flags did not start Hyprland"
 
 # =====================================================================
 # 7. --install-configs copies *.lua from share/hyprland to

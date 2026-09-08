@@ -269,16 +269,10 @@ Deliberately not the usual 0-good/nonzero-bad shape — same kind of inversion `
   PASS-with-a-caveat than as a permanent asterisk, so that's what this does — the caveat lives in
   the detail text itself, which is what R-TRUST-2 actually asks for ("names what it proves and
   what it cannot"), not a separate severity tier.
-- **The wizard's safety step (`apply_step_safety`) still calls `omarchy-kids-assert` and
-  `omarchy-kids-session --check` separately — not swapped to a single `omarchy-kids-check --json`
-  call.** Two reasons, both load-bearing: (1) the `omarchy-kids-assert` call there is the one
-  place in Apply that actually *fixes* a lock — `omarchy-kids-check` is read-only by design, so
-  losing that call would remove self-healing from the wizard's own Apply flow, not just change how
-  it's reported; (2) `--json` is a flat machine-readable blob, and A13c shows its output live to a
-  parent in a terminal — rendering JSON sections into readable gum output is real work, not a
-  one-line substitution. A `TODO` comment sits directly above `apply_step_safety` in
-  `bin/omarchy-kids-wizard`, pointing back here. The panel (P4, not yet built) is a better fit for
-  `--json` from the start, since it has no existing human-readable call to replace.
+- **The wizard's safety step keeps the root `omarchy-kids-assert` call**, then runs the
+  caller-bound `omarchy-kids-session --check-setup` report. That report checks facts available
+  before login and explicitly defers the two PAM-private mounts to child login; it does not
+  reuse this report's historical-log fallback. See `docs/wizard.md` and `docs/session.md`.
 - **`tmp-noexec`/`shm-noexec` ask a live session's own `/proc/<pid>/mountinfo`, never `runuser`
   (issue #41).** `runuser`'s PAM stack has no `pam_namespace`, so a probe run through it can only
   ever see the machine's global `/tmp`/`/dev/shm` — it was structurally incapable of proving the

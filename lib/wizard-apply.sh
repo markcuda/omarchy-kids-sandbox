@@ -100,7 +100,7 @@ apply_step_safety() {
   run_priv "$ASSERT_BIN"
   rc=$?
   if [[ "$DRY_RUN" == "1" ]] || id "$ACCOUNT" >/dev/null 2>&1; then
-    run_priv_as "$ACCOUNT" "$SESSION_BIN" --check
+    run_priv_as "$ACCOUNT" "$SESSION_BIN" --check-setup
     local session_rc=$?
     ((session_rc == 0)) || rc=$session_rc
   else
@@ -151,7 +151,7 @@ screen_apply() {
     "Setting up $DISPLAY_NAME's account"
     "Turning on the safe browser rules"
     "Installing $BAND starter apps"
-    "Double-checking everything is safe"
+    "Checking setup safeguards"
   )
   local -a funcs=(apply_step_getok apply_step_account apply_step_web apply_step_pkgs apply_step_safety)
   local total=${#steps[@]} i rc k
@@ -204,7 +204,7 @@ screen_apply() {
 screen_done() {
   local headline
   if ((APPLY_OK)); then
-    headline="$DISPLAY_NAME's desktop is ready."
+    headline="$DISPLAY_NAME's setup is complete. Final safety checks run when they sign in."
   else
     headline="Setup stopped at \"$FAILED_STEP\" — see the lines above for what went wrong."
   fi

@@ -202,19 +202,18 @@ that runs one, decides ✓ or ✗, and does something about it:
 
 ## The safety check
 
-Apply's last step (`apply_step_safety`) runs two things and shows both outputs directly:
-`omarchy-kids-assert` (SPEC I-4, `docs/assert.md`) reasserts every lock and prints one
-`ok`/`fixed`/`FAIL` line per check; `sudo -u <account> omarchy-kids-session --check`
-(`docs/session.md`) runs the same R-DESK-2 preflight the kid's own real login would run, as the
-kid's own account, and prints its own PASS/FAIL/WARN table. Running the second one *as* the new
-account (rather than the parent) is what makes it check the right kid's facts —
-`omarchy-kids-session --check` figures out which account it's checking via `id -un`. On a real run
-(never in `--dry-run`, where there's nothing real to check), this step first checks that the
-account genuinely exists (`id "$ACCOUNT"`); if it doesn't, it prints one line explaining that and
-skips the `sudo -u` call entirely, rather than handing `sudo` a user that was never created and
-getting back a confusing "no such user" error. In practice `apply_step_account` failing would
-already have stopped the whole dashboard before this step ever runs — this is belt-and-suspenders
-for exactly that kind of gap, not the primary defense.
+Apply's last step (`apply_step_safety`) is labeled **Checking setup safeguards**. It runs
+`omarchy-kids-assert` to reassert every root-owned lock, then
+`sudo -u <account> omarchy-kids-session --check-setup` to check the child's profile, policy
+readability, polkit denial, home mount, masked consoles and compositor configuration.
+A missing account or any failed check stops setup. The account comes from `id -un` inside
+the session command; the wizard checks that it exists before invoking `sudo -u`.
+
+The private `/tmp` and `/dev/shm` mounts are established by PAM at child login, not by
+`sudo -u`. The setup report therefore marks those two rows **SKIP — checked at child login**.
+It does not read historical child-writable logs or write a session log. Done says setup is
+complete and that final safety checks run at sign-in. Every real child login still checks
+all session safeguards and refuses to start on any failure (`docs/session.md`).
 
 ## Open `<Name>`'s desktop, on Done
 

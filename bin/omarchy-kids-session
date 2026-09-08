@@ -1,6 +1,6 @@
 #!/bin/bash
 # omarchy:summary=Launch a kid's Wayland session after every fail-closed check passes
-# omarchy:args=[--check | --install-configs | --manifest]
+# omarchy:args=[--check | --check-setup | --install-configs | --manifest]
 # The kid session launcher: every fail-closed check (SPEC.md R-DESK-1, R-DESK-2, I-3, I-4, I-9), then exec Hyprland.
 # See docs/session.md for the check list and build-time path constants.
 set -euo pipefail
@@ -33,7 +33,7 @@ KIDS_DIR="$ETC/kids"
 
 usage() {
   cat <<EOF
-Usage: omarchy-kids-session [--check | --install-configs | --manifest | --help]
+Usage: omarchy-kids-session [--check | --check-setup | --install-configs | --manifest | --help]
 
 Started by /usr/share/wayland-sessions/omarchy-kids.desktop (R-DESK-1) as
 the kid session command. With no arguments: runs the R-DESK-2 preflight
@@ -47,6 +47,10 @@ exits 1 -- fail closed (I-4, I-9). \$HOME/.config/hypr is never read
   --check             Run every R-DESK-2 check and print a PASS/FAIL/WARN
                       table without starting Hyprland. Exits 1 if any
                       check FAILs (a WARN does not fail this).
+  --check-setup       Report checks available before child login. The two
+                      private temporary mounts are SKIP, checked at child
+                      login. Never starts Hyprland or writes a session log.
+                      Exits 1 if any other check FAILs.
   --install-configs   Copy the level configs from $SHARE/hyprland to
                       $ETC/hyprland (mode 0644), the
                       root-owned copy the level files' band overlays
@@ -65,6 +69,7 @@ MODE=start
 for arg in "$@"; do
   case "$arg" in
     --check) MODE=check ;;
+    --check-setup) MODE=check-setup ;;
     --install-configs) MODE=install-configs ;;
     --manifest) MODE=manifest ;;
     -h | --help)
@@ -355,7 +360,12 @@ do_check_mode() {
   local id name failed=0
   printf '%-24s %-6s %s\n' "CHECK" "RESULT" "DETAIL"
   for id in "${CHECK_IDS[@]}"; do
-    run_check "$id" || true
+    if [[ "$MODE" == check-setup && ("$id" == tmp_noexec || "$id" == shm_noexec) ]]; then
+      RESULT=SKIP
+      DETAIL="checked at child login; setup is outside the child PAM namespace"
+    else
+      run_check "$id" || true
+    fi
     name="$(check_name "$id")"
     printf '%-24s %-6s %s\n' "$name" "$RESULT" "$DETAIL"
     [[ "$RESULT" == "FAIL" ]] && failed=1
@@ -430,10 +440,10 @@ do_install_configs() {
 
 # --- dispatch --------------------------------------------------------------
 
-log_init
+[[ "$MODE" == check-setup ]] || log_init
 
 case "$MODE" in
-  check) do_check_mode ;;
+  check | check-setup) do_check_mode ;;
   install-configs) do_install_configs ;;
   start) do_start ;;
 esac

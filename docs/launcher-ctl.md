@@ -49,3 +49,8 @@ UNVERIFIED, and the main thing to confirm in the VM before this ships:
 to focus the launcher if it is already mapped. The launcher consumes the command, becomes
 visible and requests focus itself, including when it was hidden. Reopening clears the search;
 `activate` is ignored while hidden. This control carries no app ID or command to execute.
+
+Both the initial focus request and the bounded QML focus retry use
+`hyprctl dispatch 'hl.dsp.focus({window="title:^Omarchy Kids Launcher$"})'`.
+The expression returns a dispatcher object; appending `()` tries to call that object and
+Hyprland rejects it. See [Hyprland's dispatcher contract](https://wiki.hypr.land/Configuring/Basics/Dispatchers/).

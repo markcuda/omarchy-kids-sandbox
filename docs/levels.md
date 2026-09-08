@@ -241,7 +241,7 @@ below needs a real Omarchy 4.0.2 box or the VM to close out:
    apply here, but the call signature itself is still unverified.
 5. **Historical launcher API questions (predating #200).** #200 uses the documented
    `Process.startDetached()` lifecycle, a sibling background `PanelWindow`, and Hyprland
-   0.56 `hl.dsp.focus({window=...})()` for the picker. The old fullscreen/focuswindow
+   0.56 `hyprctl dispatch 'hl.dsp.focus({window=...})'` for the picker. The old fullscreen/focuswindow
    assumptions below apply only to the original implementation. No Quickshell documentation or source was
    available while writing it, so every Quickshell-specific type/property (as opposed to plain
    QtQuick ones) was a best-effort guess:

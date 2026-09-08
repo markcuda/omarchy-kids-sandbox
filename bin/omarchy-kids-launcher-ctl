@@ -13,7 +13,7 @@ usage() {
   cat <<EOF
 Usage: omarchy-kids-launcher-ctl <show|activate|log ID>
 
-  show      Focus the Level 1/2 launcher window (Super+Home, Super+Space).
+  show      Show the allowed-app launcher (Super+Home, Super+Space).
   activate  Tell the launcher to open its currently highlighted tile
             (Super+Enter).
   log ID    Record one Level 1 tile launch (R-DATA-1's "app launches").
@@ -28,8 +28,10 @@ EOF
 }
 
 cmd_show() {
+  mkdir -p "$(dirname "$CONTROL")"
+  printf 'show %s-%s\n' "$$" "$RANDOM" >"$CONTROL"
   if command -v hyprctl >/dev/null 2>&1; then
-    hyprctl dispatch focuswindow "title:^(${TITLE})\$" >/dev/null 2>&1 || true
+    hyprctl dispatch "hl.dsp.focus({window=\"title:^${TITLE}\$\"})" >/dev/null 2>&1 || true
   fi
 }
 

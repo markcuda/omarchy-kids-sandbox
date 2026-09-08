@@ -628,3 +628,12 @@ _tui_progress_bar() {
   rest="${rest// /░}"
   _tui_style --foreground "$TUI_C_ACCENT" -- "${bar}${rest}"
 }
+
+# Parent-facing names for the existing persisted desktop level.
+tui_desktop_label() {
+  case "$1" in
+    1) echo "App grid" ;;
+    2) echo "Simplified desktop" ;;
+    3) echo "Full desktop (advanced)" ;;
+  esac
+}

@@ -50,7 +50,7 @@ at the bottom of `bin/omarchy-kids-wizard` jumps straight from step 7 to step 12
 | A8 Screen time | The default shows the band's weekday limits and current weekend limits. "I'll set my own" edits weekday minutes and bedtime (each validated); weekend values are edited in Advanced. |
 | A9 Apps | "The `<band>` starter pack" (every app), or "Let me pick" — a yes/no per app, one at a time (`apps_pick_walk`; there's no multi-select checklist widget in `lib/tui.sh` yet — Advanced's apps row, below, reuses this same walk). |
 | A10 Wi-Fi | "Ask me first" (`parent`) vs. "On their own, safely" (`helper`), band default preselected. |
-| A11 Desktop level | 1 / 2 / 3, each with a one-liner, band default preselected. |
+| A11 Desktop | App grid / Simplified desktop / Full desktop (advanced), band default preselected; the same choices appear in the Advanced permissions checklist. |
 
 ### Step 7, Advanced: A13a
 

@@ -118,14 +118,14 @@ check_contains "$qml_content" 'id: clockText' \
   "the clock has an id the grid's own layout can bind to"
 check_contains "$qml_content" 'anchors.topMargin: root.margin + clockText.height + root.margin' \
   "grid top = clock bottom (clockText's own root.margin inset + its height) + one more root.margin gap"
-check "$(grep -c '^[[:space:]]*anchors.topMargin: root.margin$' "$QML" || true)" "1" \
-  "only the clock uses a flat root.margin top inset now -- the grid's own topMargin must be derived from the clock, not equal to it"
+check "$(grep -c '^[[:space:]]*anchors.topMargin: root.margin$' "$QML" || true)" "2" \
+  "clock and desktop-only search box use flat insets; the grid remains below the clock"
 
 # Labels in the theme font (docs/theming.md) -- every Text element in the
 # tile delegate and the clock must set font.family, not rely on Qt's
 # platform default.
-check "$(grep -c 'font.family: theme.fontFamily' "$QML" || true)" "4" \
-  "every label (icon-fallback initial, tile label, caption, clock) sets font.family: theme.fontFamily"
+check "$(grep -c 'font.family: theme.fontFamily' "$QML" || true)" "10" \
+  "grid and searchable picker labels set the theme font"
 
 # No literal colour hex crept into this file (qml-theme-static-test.sh
 # checks every share/**/*.qml file; this re-checks just this one inline
@@ -176,6 +176,14 @@ if command -v node >/dev/null 2>&1; then
     results.push('cols0=' + G.columnsFor(0, 160));
     results.push('colsNeg=' + G.columnsFor(800, 0));
 
+    var choices = [{id: 'paint', label: 'Tux Paint', argv: ['/safe/paint']},
+                   {id: 'math', label: 'GCompris', argv: ['/safe/math']},
+                   {id: 'missing', label: 'Missing App', installed: false}];
+    var found = G.filterTiles(choices, ' gCoM ');
+    if (found.length !== 1 || found[0] !== choices[1]) throw Error('filter lost stable entry identity');
+    if (G.filterTiles(choices, 'unknown').length !== 0) throw Error('filter invented a match');
+    if (G.filterTiles(choices, '').length !== 3) throw Error('reopening should restore choices');
+    if (G.filterTiles(choices, 'missing')[0].installed !== false) throw Error('missing state lost');
     console.log(results.join(' '));
   " "$JS" 2>&1)"
   check "$out" "columns=5 down3=8 right7=8 right9=9 left0=0 left5=4 up2=2 down9=9 cols0=1 colsNeg=1" \

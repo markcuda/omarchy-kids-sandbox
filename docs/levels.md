@@ -1,5 +1,30 @@
 # Levels: the root-owned Hyprland configs and the Level 1 launcher (R-DESK, Appendix E)
 
+## Desktop defaults (Mark's direction, #200)
+
+Only ages 3–5 default to **App grid** (Level 1). Every older band defaults to
+**Simplified desktop** (Level 2). This changes presentation and window controls, not the
+band's web, Wi-Fi, app, screen-time or terminal policy values. **Full desktop** (Level 3)
+remains an explicit advanced/manual option; it is not selected by any age band.
+The existing Desktop row in the parent's Advanced permissions checklist and Desktop
+settings writes the same `level` override. It survives a band change and applies at next login.
+
+Level 2 uses the owned Kids launcher, not the unrestricted stock shell. A background layer
+sits beneath normally tiled apps and teaches **Super + Space — Find your apps**. That key
+opens a searchable view of the same validated manifest tiles, including unavailable apps
+and the existing request routes. Search filters labels, retains stable IDs and cannot introduce
+an executable. Enter or clicking an installed result launches its manifest argv and hides
+the picker. Escape returns to the desktop; reopening clears the search. Detached launches
+allow two apps to remain open; Super+arrows focuses them and Super+Q closes the focused app.
+Level 1 keeps its existing visible grid and fullscreen apps.
+
+The desktop layer and picker are sibling windows under the existing launcher's ShellRoot;
+the background takes no keyboard focus. `launcher-ctl show` writes the existing control
+file as well as focusing the grid, so a hidden picker can become visible again. Runtime
+rendering, focus and window tiling require the named installed scenario; unit tests alone
+do not verify those compositor behaviors.
+
+
 What each level binds, how the Level 1/2 big-tile launcher gets its tiles, and how to check any
 of this on the test laptop's VM — this issue's code has never run against a real Hyprland or
 Quickshell, so treat everything under "Verify in the VM" as open until it has.
@@ -214,7 +239,10 @@ below needs a real Omarchy 4.0.2 box or the VM to close out:
    unbinding by key as risky only because it can strip a *user's own* rebinding from their
    personal `~/.config/hypr` files — L3.lua has no such layer (R-DESK-6), so that risk doesn't
    apply here, but the call signature itself is still unverified.
-5. **Everything in `share/launcher/shell.qml`.** No Quickshell documentation or source was
+5. **Historical launcher API questions (predating #200).** #200 uses the documented
+   `Process.startDetached()` lifecycle, a sibling background `PanelWindow`, and Hyprland
+   0.56 `hyprctl dispatch 'hl.dsp.focus({window=...})'` for the picker. The old fullscreen/focuswindow
+   assumptions below apply only to the original implementation. No Quickshell documentation or source was
    available while writing it, so every Quickshell-specific type/property (as opposed to plain
    QtQuick ones) was a best-effort guess:
    - **`Window` over `PanelWindow`/`WlrLayershell`.** The issue that asked for this file suggested

@@ -1,7 +1,8 @@
 
 ## Source header (moved from `bin/omarchy-kids-launcher-ctl`, issue #49)
 
-Kept for reference; the file itself now carries a 3-line pointer instead.
+Historical design notes retained for reference; #200 replaces the legacy `show` dispatcher
+and Level 2 fullscreen assumptions described below. See the current control contract at the end.
 
 ```text
 omarchy-kids-launcher-ctl: the one place the Level 1/2 Hyprland binds
@@ -41,3 +42,15 @@ UNVERIFIED, and the main thing to confirm in the VM before this ships:
   states for the rest of this package (SPEC.md 5.3) -- nothing about
   `log` enforces anything, it only records.
 ```
+
+## Hidden Level 2 picker (#200)
+
+`show` writes `show <nonce>` to the existing caller runtime control file, then asks Hyprland
+to focus the launcher if it is already mapped. The launcher consumes the command, becomes
+visible and requests focus itself, including when it was hidden. Reopening clears the search;
+`activate` is ignored while hidden. This control carries no app ID or command to execute.
+
+Both the initial focus request and the bounded QML focus retry use
+`hyprctl dispatch 'hl.dsp.focus({window="title:^Omarchy Kids Launcher$"})'`.
+The expression returns a dispatcher object; appending `()` tries to call that object and
+Hyprland rejects it. See [Hyprland's dispatcher contract](https://wiki.hypr.land/Configuring/Basics/Dispatchers/).

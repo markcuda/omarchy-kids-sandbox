@@ -18,8 +18,8 @@ ShellRoot {
         KidsTheme { id: theme }
 
         // A stable, plain-QtQuick-`Window.title` is what
-        // bin/omarchy-kids-launcher-ctl matches using `hyprctl eval` and
-        // `hl.dsp.focus({window=...})()` — keep this string in sync with that
+        // bin/omarchy-kids-launcher-ctl matches using `hyprctl dispatch` and
+        // `hl.dsp.focus({window=...})` — keep this string in sync with that
         // script if it ever changes.
         title: "Omarchy Kids Launcher"
         property bool pickerOpen: false
@@ -51,7 +51,7 @@ ShellRoot {
         property int focusTries: 0
         Process {
             id: focusProcess
-            command: ["/usr/bin/hyprctl", "eval", 'hl.dsp.focus({window="title:^Omarchy Kids Launcher$"})()']
+            command: ["/usr/bin/hyprctl", "dispatch", 'hl.dsp.focus({window="title:^Omarchy Kids Launcher$"})']
         }
         Timer {
             id: focusTimer

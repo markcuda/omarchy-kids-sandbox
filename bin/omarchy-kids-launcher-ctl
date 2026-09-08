@@ -31,7 +31,7 @@ cmd_show() {
   mkdir -p "$(dirname "$CONTROL")"
   printf 'show %s-%s\n' "$$" "$RANDOM" >"$CONTROL"
   if command -v hyprctl >/dev/null 2>&1; then
-    hyprctl eval "hl.dsp.focus({window=\"title:^${TITLE}\$\"})()" >/dev/null 2>&1 || true
+    hyprctl dispatch "hl.dsp.focus({window=\"title:^${TITLE}\$\"})" >/dev/null 2>&1 || true
   fi
 }
 

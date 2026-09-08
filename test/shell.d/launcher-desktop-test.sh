@@ -67,7 +67,7 @@ try {
   let script = fs.readFileSync(path.join(dir, 'bin/omarchy-kids-launcher-ctl'), 'utf8');
   script = script.replace(/^CONTROL=.*$/m, 'CONTROL=' + JSON.stringify(control));
   fs.writeFileSync(ctl, script);
-  fs.writeFileSync(path.join(temp, 'hyprctl'), '#!/bin/bash\nprintf "%s\\n" "$*" >>' + JSON.stringify(log) + '\nexit 0\n', {mode: 0o755});
+  fs.writeFileSync(path.join(temp, 'hyprctl'), '#!/bin/bash\nprintf "%s\\n" "$@" >>' + JSON.stringify(log) + '\nexit 0\n', {mode: 0o755});
   const env = {...process.env, PATH: temp + ':' + process.env.PATH};
   function show() {
     const result = child.spawnSync(bash, [ctl, 'show'], {env, encoding: 'utf8'});
@@ -77,7 +77,14 @@ try {
   const first = show(), second = show();
   assert.match(first, /^show /);
   assert.notEqual(first, second, 'two show commands need distinct control text');
-  assert.match(fs.readFileSync(log, 'utf8'), /eval hl\.dsp\.focus/, 'owned compositor stub receives supported Lua focus');
+  const focusArgs = ['dispatch', 'hl.dsp.focus({window="title:^Omarchy Kids Launcher$"})'];
+  assert.equal(fs.readFileSync(log, 'utf8'), focusArgs.join('\n') + '\n' + focusArgs.join('\n') + '\n',
+    'show passes a dispatcher object to dispatch without calling it');
+  const focusProcess = source.match(/id: focusProcess\s+command: (\[[^\n]+\])/);
+  assert(focusProcess, 'QML focus fallback command exists');
+  const focusCommand = Array.from(vm.runInNewContext(focusProcess[1]));
+  assert.deepEqual(focusCommand, ['/usr/bin/hyprctl', ...focusArgs],
+    'QML retry uses the same supported dispatcher argv as show');
 } finally { fs.rmSync(temp, {recursive: true, force: true}); }
 console.log('PASS launcher desktop: filtered identity, missing/empty choices, two launches, Escape/reopen, owned show control');
 JS

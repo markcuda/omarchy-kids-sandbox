@@ -28,19 +28,20 @@ Rectangle {
         return PortalConfig.geometryNumber(config[state + suffix], fallback, maximum)
     }
     function controlColor(state) {
-        var value = String(config[state + "Color"] || "foreground")
-        if (/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(value)) return value
+        var value = String(config[state + "Color"] || "foreground").trim().toLowerCase()
+        var channels = PortalConfig.colorChannels(value)
+        if (channels) return Qt.rgba(channels[0], channels[1], channels[2], channels[3])
         if (value === "accent") return root.colAccent
         if (value === "urgent") return root.colError
         if (value === "background") return root.color
         return root.colText
     }
     function controlFill(state, fallback) {
-        var c = Qt.tint("transparent", controlColor(state))
+        var c = controlColor(state)
         return Qt.rgba(c.r, c.g, c.b, controlNumber(state, "FillAlpha", fallback, 1))
     }
     function controlBorder(state, fallback) {
-        var c = Qt.tint("transparent", controlColor(state))
+        var c = controlColor(state)
         return Qt.rgba(c.r, c.g, c.b, controlNumber(state, "BorderAlpha", fallback, 1))
     }
 

@@ -57,6 +57,13 @@ with tempfile.TemporaryDirectory() as temp:
         legacy = g.geometry("parent", home, cache)
         assert legacy["normalBorderWidth"] == 3 and legacy["focusBorderWidth"] == 4
         assert legacy["focusFillAlpha"] == 0
+        for focus in ("inherit", "hover", "hover-cursor", "invalid"):
+            shell.write_text('[controls]\nnormal-color=" TRANSPARENT "\nselected-color="TEXT"\nhover-cursor-color="#12345678"\nfocus-color="' + focus + '"\n')
+            colors = g.geometry("parent", home, cache)
+            assert colors["normalColor"] == "transparent" and colors["selectedColor"] == "foreground"
+            assert colors["focusColor"] == "#12345678"
+        for token in ("#abc", "#aabbcc", "#aabbccdd", "text", "foreground", "background", "accent", "urgent", "transparent"):
+            assert g.color_token(token.upper()) == ("foreground" if token == "text" else token)
         shell.write_text('[controls]\nnormal-border-width=broken\n')
         assert g.geometry("parent", home, cache)["normalBorderWidth"] == 1
     assert g.literal_radius('--[[\nrounding = 90,\n]]\nrounding = 6, -- theme\n') == 6
@@ -110,6 +117,18 @@ for (const value of [undefined, null, '', ' ', true, 'garbage', -1, Infinity, 25
   if (context.geometryNumber(value, 8, 256) !== 8) throw Error('invalid geometry accepted');
 }
 if (context.geometryNumber('0', 8, 256) !== 0 || context.geometryNumber('6', 0, 256) !== 6) throw Error('valid geometry lost');
+for (const [color, channels] of [['transparent', [0, 0, 0, 0]], ['#fff', [1, 1, 1, 1]], ['#ff000080', [1, 0, 0, 128/255]]]) {
+  if (JSON.stringify(context.colorChannels(color)) !== JSON.stringify(channels)) throw Error('state color channels changed');
+}
+if (context.colorChannels('invalid') !== null) throw Error('invalid state color accepted');
+const main = fs.readFileSync(process.argv[2].replace('PortalConfig.js', 'Main.qml'), 'utf8');
+context.Qt = {rgba: (r, g, b, a) => [r, g, b, a]};
+context.controlColor = () => ({r: 1, g: 0, b: 0, a: 0});
+context.controlNumber = () => 0.4;
+for (const name of ['controlFill', 'controlBorder']) {
+  vm.runInContext(main.match(new RegExp('function ' + name + '\\([^]*?\\n    }'))[0], context);
+  if (JSON.stringify(context[name]('normal', 1)) !== '[1,0,0,0.4]') throw Error('state alpha must replace source alpha without losing RGB');
+}
 console.log('PASS QML geometry parser preserves zero and rejects malformed tokens');
 JS
 exit "$rc"

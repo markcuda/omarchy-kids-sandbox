@@ -210,7 +210,10 @@ The helper reads `[controls]` and its legacy alias `[style]` from the parent's c
 follow Style's rounding, and focus inherits omitted values from hover-cursor. Missing or
 malformed data uses Style's defaults: normal width 1/fill 0.04, selected width 0/fill 0.18,
 focus width 1/fill 0.08. Only finite values from 0 to 256 (geometry) or 0 to 1 (alpha) are
-accepted; colors are palette roles or RGB hex. Invalid data never becomes QML or a shell command.
+accepted; colors use Style's case-insensitive palette roles (including `text` and `transparent`)
+or RGB/RGBA hex. Focus's `hover`, `hover-cursor` and `inherit` aliases resolve through hover's
+color, as does an invalid focus color. Fill/border alpha replaces the color's own alpha, matching
+Omarchy's `Util.alpha`. Invalid data never becomes QML or a shell command.
 Per-side width lists and custom gradient controls are outside this scalar bridge and use its
 documented defaults. The portal remains plain SDDM QtQuick; it does not import Quickshell.
 

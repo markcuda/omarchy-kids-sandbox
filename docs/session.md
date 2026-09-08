@@ -34,8 +34,8 @@ path. It does not read the profile, scan desktop files, or write launcher or all
 kid's runtime directory.
 
 It starts the detached `omarchy-kids-time daemon`, then executes the level surface directly from
-an argv array: Level 1 runs `/usr/bin/quickshell -p
-/usr/share/omarchy-kids/launcher/shell.qml`; Levels 2 and 3 run
+an argv array: Levels 1 and 2 run `/usr/bin/quickshell -p
+/usr/share/omarchy-kids/launcher/shell.qml`; Level 3 runs
 `/usr/bin/omarchy-launch-shell`. Missing or invalid manifest output fails closed with one plain
 stderr line and no launcher surface.
 
@@ -288,3 +288,11 @@ the `*_BIN` / `*_PY` overrides, the socket paths and the `*_REQUIRE_ROOT` escape
 allowlist of the data settings that stay. A test that needs a stub places it beside a copy of the
 command in a scratch tree (`test/shell.d/tree.sh`), or substitutes a build-time constant, the way
 `PKGBUILD` substitutes `KIDS_PY` at package time.
+
+## Desktop selection (#200)
+
+`omarchy-kids-session-start` starts the owned launcher for Levels 1 and 2. Its validated
+manifest chooses the visible Level 1 grid or Level 2 desktop with an on-demand searchable
+picker. Only manually selected Level 3 starts `omarchy-launch-shell`. Age defaults and
+parent overrides are described in `docs/levels.md`; startup does not infer a level from age
+or from a child-controlled environment variable.

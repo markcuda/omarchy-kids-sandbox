@@ -134,7 +134,7 @@ launcher_map_render() {
       argv: ["/usr/bin/omarchy-kids-web", "launch"]}' >>"$entries"
   fi
 
-  if [[ "$level" == "1" && "$band" != "3-5" ]]; then
+  if [[ "$level" != "3" && "$band" != "3-5" ]]; then
     jq -n --arg band "$band" \
       '{id: "more-apps", label: "More apps", icon: "", pkg: "", installed: true,
         argv: ["/usr/bin/env", ("OMARCHY_KIDS_BAND=" + $band), "/usr/bin/quickshell", "-p",

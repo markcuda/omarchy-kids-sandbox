@@ -29,7 +29,8 @@ Usage: omarchy-kids-session-start
 
 Run from a Kids Mode Hyprland level config's exec-once (share/hyprland/
 L1.lua, L2.lua, L3.lua). Reads the caller-bound validated session manifest,
-then starts the Level 1 launcher or Omarchy's own shell.
+then starts the Kids grid (Level 1), simplified desktop (Level 2),
+or Omarchy's full shell (manual Level 3).
 
   -h, --help  Show this help and exit.
 EOF
@@ -82,10 +83,10 @@ export OMARCHY_KIDS_ACCOUNT="$ACCOUNT" OMARCHY_KIDS_LEVEL="$LEVEL" OMARCHY_KIDS_
   OMARCHY_KIDS_LAUNCHER_CONTROL="$RUN/launcher-control"
 
 case "$LEVEL" in
-  1)
+  1 | 2)
     EXEC_LINE=("$QUICKSHELL_BIN" -p "$SHARE/launcher/shell.qml")
     ;;
-  2 | 3)
+  3)
     # The exact command Omarchy's own default.hypr.autostart uses.
     EXEC_LINE=(/usr/bin/omarchy-launch-shell)
     ;;

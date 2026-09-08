@@ -34,8 +34,8 @@ password_optional = true
 
 [band."6-8"]
 label = "Ages 6-8"
-blurb = "Early reader. A few favorite apps, walled-garden web."
-level = 1
+blurb = "A simple desktop, favorite apps, and walled-garden web."
+level = 2
 web = "garden"
 dns = "cloudflare-family"
 budget_min = 60
@@ -68,8 +68,8 @@ password_optional = false
 
 [band."13+"]
 label = "Ages 13+"
-blurb = "Trusted with more: filtered open web and a real, sandboxed terminal."
-level = 3
+blurb = "A simple desktop with filtered open web and more independence."
+level = 2
 web = "filtered"
 dns = "cloudflare-family"
 budget_min = 120

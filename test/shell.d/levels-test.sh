@@ -280,7 +280,7 @@ EOF
   manifest_path="$ETC/sessions/kid-ada.json"
   check "$(jq -r '.account' "$manifest_path")" "kid-ada" "manifest account"
   check "$(jq -r '.band' "$manifest_path")" "6-8" "manifest band"
-  check "$(jq -r '.level' "$manifest_path")" "1" "manifest level (band 6-8's default)"
+  check "$(jq -r '.level' "$manifest_path")" "2" "manifest level (band 6-8's desktop default)"
   check "$(jq -r '.tiles[0].id' "$manifest_path")" "gcompris" "manifest keeps pack order"
   check "$(jq -r '.tiles | map(select(.id == "more-apps")) | length' "$manifest_path")" "1" \
     "issue #28: band 6-8 manifest gets a 'More apps' tile"
@@ -291,14 +291,14 @@ EOF
   [[ ! -e "$RUN/allowlist.json" ]] && pass "session-start creates no runtime allowlist JSON" ||
     fail_ "session-start creates no runtime allowlist JSON"
 
-  # Level 2/3 exec the real Omarchy shell command.
+  # Level 2 starts the same owned manifest-backed shell as Level 1.
   out2="$(
     PATH="$STUBS:$BASE_PATH" \
       KIDS_TEST_ACCOUNT=kid-two \
       OMARCHY_KIDS_SESSION_START_NO_EXEC=1 \
       bash "$SESSION_COPY"
   )"
-  check "$out2" "/usr/bin/omarchy-launch-shell" "session-start prints the Level 2/3 exec line"
+  check "$out2" "/usr/bin/quickshell -p $SHARE/launcher/shell.qml" "session-start uses the owned Level 2 desktop/picker"
 
   # issue #28: band 3-5 gets no "More apps" tile at all -- not a shelf
   # that would always show empty (I-6).

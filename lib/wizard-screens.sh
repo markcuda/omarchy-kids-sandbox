@@ -254,9 +254,9 @@ screen_level() {
   local default
   default="$(band_field "$BAND" level)"
   local choices=(
-    "1|One thing at a time|Simplest — one app fills the screen."
-    "2|Two things side by side|Split-screen multitasking."
-    "3|The full desktop|Everything Omarchy normally offers."
+    "1|App grid|Big app tiles. One app fills the screen."
+    "2|Simplified desktop|Super+Space finds apps. Windows can sit side by side."
+    "3|Full desktop (advanced)|The existing Omarchy desktop and its broader controls."
   )
   tui_screen_choose "How should $DISPLAY_NAME's desktop work?" 11 "$TOTAL_STEPS" 0 "" choices "$default"
   local rc=$?
@@ -326,7 +326,7 @@ screen_summary() {
       "Account|$ACCOUNT"
       "Face|$AVATAR"
       "Age band|$label ($blurb)"
-      "Desktop|$(mark_if_changed level "Level $LEVEL")"
+      "Desktop|$(mark_if_changed level "$(tui_desktop_label "$LEVEL")")"
       "Web|$(mark_if_changed web "$(friendly_web_mode "$WEB_MODE")")"
       "Screen time|$(summary_weekday_weekend "$BUDGET_MIN" "$BUDGET_MIN_WEEKEND" "$(band_field "$BAND" budget_min)" "$(band_field "$BAND" budget_min_weekend)")"
       "Bedtime|$(summary_lights_weekday_weekend "$LIGHTS_OUT" "$LIGHTS_OUT_WEEKEND" "$(band_field "$BAND" lights_out)" "$(band_field "$BAND" lights_out_weekend)")"

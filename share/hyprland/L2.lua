@@ -48,11 +48,8 @@ hl.env("XDG_SESSION_DESKTOP", "Hyprland")
 -- there's no dwindle "ratio" key in the reference material to justify
 -- inventing one.
 
--- --- Every window fullscreen, same as Level 1 ---------------------------
--- Level 2 also starts every app fullscreen; the difference from Level 1
--- is the focus/swap/cheat-sheet/launcher binds below, not the window
--- rule. See L1.lua for the fullscreen-flag caveat.
-o.window(".*", { fullscreen = true })
+-- Apps tile normally; only the owned app picker floats over the desktop.
+o.window({ title = "^Omarchy Kids Launcher$" }, { float = true, center = true })
 
 -- --- Bindings: the Level 1 set plus Appendix E's Level 2 additions -----
 o.bind("SUPER + Home", "Kids Mode: launcher", "omarchy-kids-launcher-ctl show")

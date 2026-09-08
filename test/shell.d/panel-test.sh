@@ -140,9 +140,9 @@ check_contains "$out" "sudo $TREE_BIN/omarchy-kids-apps hide kid-ada gcompris" \
   "dry-run: hiding an app prints the exact hide command"
 
 # issue #53: the Desktop screen's two rows, level and theme.
-answers="$(answers_file "kid:kid-ada" desktop level 2 back back quit)"
+answers="$(answers_file "kid:kid-ada" desktop level 1 back back quit)"
 run_panel "$answers"
-check_contains "$out" "sudo $TREE_BIN/omarchy-kids-conf set kid-ada level 2" \
+check_contains "$out" "sudo $TREE_BIN/omarchy-kids-conf set kid-ada level 1" \
   "dry-run: Desktop -> Desktop level prints the exact conf-set command"
 
 answers="$(answers_file "kid:kid-ada" desktop theme catppuccin-latte back back quit)"

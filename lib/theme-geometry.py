@@ -96,6 +96,17 @@ def cached_radius(path, identity):
         return None
 
 
+def color_token(value, fallback="foreground"):
+    if not isinstance(value, str):
+        return fallback
+    value = value.strip().lower()
+    if value == "text":
+        return "foreground"
+    if re.fullmatch(r"foreground|background|accent|urgent|transparent|#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})", value):
+        return value
+    return fallback
+
+
 def geometry(parent, home, cache):
     theme = Path(home) / ".local/state/omarchy/current/theme"
     lua, shell = read_text(theme / "hyprland.lua"), read_text(theme / "shell.toml")
@@ -116,6 +127,7 @@ def geometry(parent, home, cache):
         pass
     hover_width = number(controls.get("hover-cursor-border-width"),
                          number(controls.get("normal-border-width"), 1))
+    hover_color = color_token(controls.get("hover-cursor-color"))
     for state, width, fill, border in (("normal", 1, 0.04, 0.4),
                                        ("selected", 0, 0.18, 1),
                                        ("focus", hover_width, 0.08, 0.25)):
@@ -125,9 +137,7 @@ def geometry(parent, home, cache):
         values[state + "BorderWidth"] = math.floor(number(controls.get(state + "-border-width"), width) + 0.5)
         values[state + "FillAlpha"] = number(controls.get(state + "-fill-alpha"), fill, 1)
         values[state + "BorderAlpha"] = number(controls.get(state + "-border-alpha"), border, 1)
-        color = controls.get(state + "-color", controls.get("hover-cursor-color") if state == "focus" else "foreground")
-        values[state + "Color"] = color if isinstance(color, str) and re.fullmatch(
-            r"foreground|background|accent|urgent|#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?", color) else "foreground"
+        values[state + "Color"] = color_token(controls.get(state + "-color"), hover_color if state == "focus" else "foreground")
     return values
 
 

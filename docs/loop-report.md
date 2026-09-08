@@ -1,3 +1,45 @@
+# Air delivery, 2026-09-08
+
+PRs #198, #202 and #203 are merged. Main `bd9f89c56d76bc0cf5953147609d30efdfe13fd2`
+has the same complete tree as the tested integration `4d0703ff6041b9f9f3141cfdc24910f378178cc1`.
+The Air has the reviewed full package, SHA-256
+`a20feddcca8bd6c07b95fe6580c73cd49129be6585fc6186b7839834ed9660fb`.
+Its installed-file check reports 183 files, zero altered.
+
+Login tiles now inherit the parent's corner radius and border widths, including square and
+borderless themes. The actual Vantablack portal was inspected on the Air; a separate installed
+renderer preview verified rounded, borderless tiles. That preview does not prove export from a
+second parent theme. Original screenshots and scope are in
+[the square portal gallery](media/dogfood/air200201-5c60118/README.md) and
+[the rounded preview gallery](media/dogfood/air201-rounded/README.md).
+
+Ages 3–5 default to App grid. Every older band defaults to Simplified desktop, with Super+Space
+opening the app picker. Parents can choose either in the existing permissions/settings grid.
+Actual setup through Done, both fresh child login modes, app search, two tiled apps, manual grid
+override, and return to the parent were tested on the Air. The registered shortcut was exercised
+with synthetic input and a temporary input-translation setting, which was restored. A physical
+keyboard press was not tested. See the [final desktop gallery](media/dogfood/air200-final/README.md).
+
+Actual Ask-later approval and parent-present approval each added exactly 15 minutes. Expiry
+showed Time's Up and returned to the portal after the grace period. Expiry acceptance is still
+incomplete; its enforcement finding is recorded privately. Approval during the expiry grace
+period remains unverified. The parent-managed Wi-Fi refusal displayed correctly and the Air
+remained connected; changing Wi-Fi networks was not tested. Toast text overflowing its background
+is deferred as #204.
+
+Each source change received independent review and the ordered formatter, Mac, VM and named
+live gates. Unchanged evidence was reused after tree comparison and independent approval.
+Fresh child sessions had Quickshell watching enabled. Fresh owner sessions inherited watching
+disabled from the stock launcher; a reviewed temporary runtime launcher enabled it for the
+current owner session. This is not a permanent change to future owner logins.
+
+The Air is back at the owner's desktop. The invented test account and temporary grants were
+removed, with recovery copies retained and the owner's existing archive preserved. The original
+VM recovery snapshot remains preserved. No Air reboot or boot-file change was made. The external
+black drive was not used. Videos remain canceled. #98/#109 remain on hold and #97 waits for #98.
+
+---
+
 # Loop report, night of 2026-09-02
 
 Written for Mark at the end of the autonomous loop. Everything below happened on the test

@@ -1,5 +1,11 @@
 .pragma library
 
+function geometryNumber(value, fallback, maximum) {
+  if (value === undefined || value === null || typeof value === "boolean" || String(value).trim() === "") return fallback
+  var n = Number(value)
+  return isFinite(n) && n >= 0 && n <= maximum ? n : fallback
+}
+
 function decodePortalField(value) {
   return decodeURIComponent(String(value))
 }

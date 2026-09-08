@@ -23,6 +23,27 @@ Rectangle {
     readonly property color colError: config.errorColor || "#f7768e"
     readonly property string fontFam: config.fontFamily || "JetBrainsMono Nerd Font"
 
+    readonly property real cornerRadius: PortalConfig.geometryNumber(config.cornerRadius, 0, 256)
+    function controlNumber(state, suffix, fallback, maximum) {
+        return PortalConfig.geometryNumber(config[state + suffix], fallback, maximum)
+    }
+    function controlColor(state) {
+        var value = String(config[state + "Color"] || "foreground")
+        if (/^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(value)) return value
+        if (value === "accent") return root.colAccent
+        if (value === "urgent") return root.colError
+        if (value === "background") return root.color
+        return root.colText
+    }
+    function controlFill(state, fallback) {
+        var c = Qt.tint("transparent", controlColor(state))
+        return Qt.rgba(c.r, c.g, c.b, controlNumber(state, "FillAlpha", fallback, 1))
+    }
+    function controlBorder(state, fallback) {
+        var c = Qt.tint("transparent", controlColor(state))
+        return Qt.rgba(c.r, c.g, c.b, controlNumber(state, "BorderAlpha", fallback, 1))
+    }
+
     // --- theme.conf.user (issues #39/#100): parent + per-kid name/avatar data,
     // parsed once at startup out of the SAME "config" QQmlPropertyMap
     // theme.conf's own colors already come through (ThemeConfig::setTo(),
@@ -215,6 +236,8 @@ Rectangle {
             delegate: Item {
                 id: tileItem
                 property bool isCurrent: index === root.currentIndex
+                property bool hasCursor: isCurrent && !root.passwordMode
+                property string borderState: hasCursor ? "focus" : (isCurrent ? "selected" : "normal")
                 property real tileSize: modelData.isParent ? 140 : 200
                 property real shakeOffset: 0
                 width: tileSize
@@ -231,17 +254,17 @@ Rectangle {
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: tileItem.tileSize
                         height: tileItem.tileSize
-                        radius: tileItem.tileSize / 2
+                        radius: root.cornerRadius
                         clip: true
-                        color: tileItem.isCurrent ? root.colTileHighlight : (modelData.isParent ? root.colParentTile : root.colTile)
-                        border.width: tileItem.isCurrent ? 4 : 0
-                        border.color: root.colAccent
+                        color: Qt.tint(root.color, root.controlFill(tileItem.isCurrent ? "selected" : "normal", tileItem.isCurrent ? 0.18 : 0.04))
+                        border.width: root.controlNumber(tileItem.borderState, "BorderWidth", tileItem.borderState === "selected" ? 0 : 1, 256)
+                        border.color: root.controlBorder(tileItem.borderState, tileItem.hasCursor ? 0.25 : (tileItem.isCurrent ? 1 : 0.4))
 
                         // Avatar from the AccountsService Icon= path, or
                         // config.kids' own avatar id if that role comes
                         // back empty (avatarSourceFor(), issue #39;
                         // docs/provision.md, R-LOGIN-1).
-                        // Mask the fallback silhouette to the avatar circle.
+                        // The image and its frame share the parent's corner geometry.
                         Image {
                             id: avatarImage
                             anchors.fill: parent
@@ -255,7 +278,7 @@ Rectangle {
                         Rectangle {
                             id: avatarMask
                             anchors.fill: avatarImage
-                            radius: width / 2
+                            radius: Math.max(0, root.cornerRadius - avatarImage.anchors.margins)
                             color: root.colText
                             visible: false
                         }
@@ -285,6 +308,7 @@ Rectangle {
                         color: modelData.isParent ? root.colMuted : root.colText
                         font.family: root.fontFam
                         font.pixelSize: modelData.isParent ? 16 : 20
+                        font.bold: tileItem.isCurrent
                         width: tileItem.tileSize
                         horizontalAlignment: Text.AlignHCenter
                         elide: Text.ElideRight
@@ -299,10 +323,10 @@ Rectangle {
                         anchors.horizontalCenter: parent.horizontalCenter
                         width: Math.max(tileItem.tileSize, 160)
                         height: 40
-                        radius: 8
-                        color: root.colTile
-                        border.width: 2
-                        border.color: root.loginFailed ? root.colError : root.colAccent
+                        radius: root.cornerRadius
+                        color: Qt.tint(root.color, root.controlFill("focus", 0.08))
+                        border.width: root.controlNumber("focus", "BorderWidth", 1, 256)
+                        border.color: root.loginFailed ? root.colError : root.controlBorder("focus", 0.25)
 
                         TextInput {
                             id: passwordField

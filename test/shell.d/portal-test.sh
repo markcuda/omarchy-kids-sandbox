@@ -228,10 +228,10 @@ NODE
   else
     fail "Main.qml can fall back to sessionModel.lastIndex for a missing pinned session"
   fi
-  if grep -qF 'OpacityMask' "$MAIN_QML" && grep -qF 'radius: width / 2' "$MAIN_QML"; then
-    pass "Main.qml masks fallback avatar images to a circle"
+  if grep -qF 'OpacityMask' "$MAIN_QML" && grep -qF 'radius: Math.max(0, root.cornerRadius - avatarImage.anchors.margins)' "$MAIN_QML"; then
+    pass "Main.qml masks avatars to the inset parent-theme radius"
   else
-    fail "Main.qml does not apply a circular avatar mask"
+    fail "Main.qml does not apply the parent-theme avatar mask"
   fi
 else
   fail "$MAIN_QML not found"
